@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Workflow, WorkflowNode } from '../nodes/types';
+import { Workflow, WorkflowNode, NodeStatus } from '../nodes/types';
 
 // Message interface
 interface Message {
@@ -60,6 +60,11 @@ interface AppState {
     executionResults: Record<string, any>;
     addExecutionResult: (workflowId: string, result: any) => void;
     clearExecutionResults: () => void;
+
+    // Execution Status (Real-time updates)
+    nodeStatuses: Record<string, NodeStatus>;
+    setNodeStatus: (nodeId: string, status: NodeStatus) => void;
+    resetNodeStatuses: () => void;
 }
 
 const MAX_HISTORY = 50; // Keep last 50 snapshots
@@ -81,6 +86,7 @@ export const useAppStore = create<AppState>()(
                 viewport: { x: 0, y: 0 },
             },
             executionResults: {},
+            nodeStatuses: {}, // Initialize empty status map
 
             // Workflow Actions
             setCurrentWorkflow: (workflow, saveToHistory = true) => {
@@ -209,6 +215,17 @@ export const useAppStore = create<AppState>()(
                 })),
 
             clearExecutionResults: () => set({ executionResults: {} }),
+
+            // Node Status Actions (Real-time execution updates)
+            setNodeStatus: (nodeId, status) =>
+                set((state) => ({
+                    nodeStatuses: {
+                        ...state.nodeStatuses,
+                        [nodeId]: status,
+                    },
+                })),
+
+            resetNodeStatuses: () => set({ nodeStatuses: {} }),
         }),
         {
             name: 'prism-ai-storage',

@@ -109,9 +109,24 @@ export default function SharedWorkflowEditor({
         setExecutionError(null);
         setShowResults(true);
 
+        // Reset all node statuses
+        const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
+        const setNodeStatus = useAppStore.getState().setNodeStatus;
+
+        resetNodeStatuses();
+
+        // Mark all nodes as pending
+        nodes.forEach(node => setNodeStatus(node.id, 'pending'));
+
         const workflow = getCurrentWorkflow();
         const executionId = generateNodeId();
-        const result = await executeWorkflow(workflow, executionId);
+
+        // Execute with real-time status callback
+        const result = await executeWorkflow(
+            workflow,
+            executionId,
+            (nodeId, status) => setNodeStatus(nodeId, status)
+        );
 
         setIsExecuting(false);
 

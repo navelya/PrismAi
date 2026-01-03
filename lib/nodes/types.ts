@@ -4,6 +4,11 @@
 export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image';
 
 /**
+ * Node execution status for real-time updates
+ */
+export type NodeStatus = 'idle' | 'pending' | 'running' | 'success' | 'error';
+
+/**
  * Image object structure
  */
 export interface ImageObject {

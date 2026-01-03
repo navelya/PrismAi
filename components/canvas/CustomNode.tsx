@@ -19,6 +19,7 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
         : Icons.Box;
 
     const deleteNode = useAppStore((state) => state.deleteNode);
+    const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
 
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -50,6 +51,25 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
             >
                 <Icons.X className="w-3.5 h-3.5 text-white" />
             </button>
+
+            {/* Status Badge - shows execution state */}
+            {status !== 'idle' && (
+                <div
+                    className={cn(
+                        "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
+                        "shadow-lg border-2 border-white transition-all duration-300",
+                        status === 'pending' && "bg-gray-400",
+                        status === 'running' && "bg-blue-500 animate-pulse",
+                        status === 'success' && "bg-green-500",
+                        status === 'error' && "bg-red-500"
+                    )}
+                >
+                    {status === 'running' && <Icons.Loader2 className="w-4 h-4 animate-spin text-white" />}
+                    {status === 'success' && <Icons.Check className="w-4 h-4 text-white" />}
+                    {status === 'error' && <Icons.X className="w-4 h-4 text-white" />}
+                    {status === 'pending' && <Icons.Circle className="w-2 h-2 text-white" />}
+                </div>
+            )}
 
             {/* Input Handle - Small visual but HUGE hitbox */}
             <Handle

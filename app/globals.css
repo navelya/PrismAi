@@ -101,10 +101,6 @@
   border: 2px solid white;
 }
 
-/* Performance: Selected node padding */
-.react-flow__node.selected {
-  outline-offset: 4px !important;
-}
 
 /* Performance: GPU acceleration for smooth animations */
 .react-flow__node,

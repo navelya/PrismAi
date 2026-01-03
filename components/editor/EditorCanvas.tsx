@@ -172,7 +172,10 @@ function EditorCanvasInner({
                                group"
                     title="Undo (Ctrl+Z)"
                 >
-                    <Undo2 className={`w-4 h-4 transition-colors ${canUndo ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`} />
+                    <Undo2
+                        className={`w-4 h-4 transition-colors ${canUndo ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`}
+                        suppressHydrationWarning
+                    />
                 </button>
                 <button
                     onClick={handleRedo}
@@ -185,7 +188,10 @@ function EditorCanvasInner({
                                group"
                     title="Redo (Ctrl+Y)"
                 >
-                    <Redo2 className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`} />
+                    <Redo2
+                        className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`}
+                        suppressHydrationWarning
+                    />
                 </button>
             </div>
 

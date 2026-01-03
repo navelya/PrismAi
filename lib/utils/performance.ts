@@ -1,14 +1,14 @@
 /**
  * Throttle function - limits execution to once per delay period
  */
-export function throttle\u003cT extends (...args: any[]) => any\u003e(
+export function throttle<T extends (...args: any[]) => any>(
     func: T,
     delay: number
-): (...args: Parameters\u003cT\u003e) => void {
+): (...args: Parameters<T>) => void {
     let timeoutId: NodeJS.Timeout | null = null;
     let lastRan: number = 0;
 
-    return function (this: any, ...args: Parameters\u003cT\u003e) {
+    return function (this: any, ...args: Parameters<T>) {
         const now = Date.now();
 
         if (!lastRan) {
@@ -32,13 +32,13 @@ export function throttle\u003cT extends (...args: any[]) => any\u003e(
 /**
  * Debounce function - delays execution until after delay period of inactivity
  */
-export function debounce\u003cT extends (...args: any[]) => any\u003e(
+export function debounce<T extends (...args: any[]) => any>(
     func: T,
     delay: number
-): (...args: Parameters\u003cT\u003e) => void {
+): (...args: Parameters<T>) => void {
     let timeoutId: NodeJS.Timeout | null = null;
 
-    return function (this: any, ...args: Parameters\u003cT\u003e) {
+    return function (this: any, ...args: Parameters<T>) {
         if (timeoutId) {
             clearTimeout(timeoutId);
         }

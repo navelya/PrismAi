@@ -1,4 +1,4 @@
-import { Workflow, WorkflowNode, ExecutionContext, NodeExecutionResult } from './nodes/types';
+import { Workflow, WorkflowNode, ExecutionContext, NodeExecutionResult, NodeStatus } from './nodes/types';
 import { getNodeExecutor } from './nodes/registry';
 
 /**
@@ -59,10 +59,12 @@ function topologicalSort(nodes: WorkflowNode[], edges: { source: string; target:
 
 /**
  * Execute a complete workflow
+ * @param onStatusUpdate Optional callback for real-time status updates  
  */
 export async function executeWorkflow(
     workflow: Workflow,
-    executionId: string
+    executionId: string,
+    onStatusUpdate?: (nodeId: string, status: NodeStatus) => void
 ): Promise<{
     success: boolean;
     result: any;
@@ -119,16 +121,30 @@ export async function executeWorkflow(
             }
             // else: no inputs, node is a source node (input stays null)
 
-            // Execute node
-            const result: NodeExecutionResult = await executor(node.data.config, input, context);
+            // Mark node as running
+            onStatusUpdate?.(node.id, 'running');
 
-            if (!result.success) {
-                throw new Error(`Node ${node.id} (${node.type}) failed: ${result.error}`);
+            try {
+                // Execute node
+                const result: NodeExecutionResult = await executor(node.data.config, input, context);
+
+                if (!result.success) {
+                    // Mark as error
+                    onStatusUpdate?.(node.id, 'error');
+                    throw new Error(`Node ${node.id} (${node.type}) failed: ${result.error}`);
+                }
+
+                //Mark as success
+                onStatusUpdate?.(node.id, 'success');
+
+                // Store output
+                nodeOutputs.set(node.id, result.data);
+                context.data = result.data;
+            } catch (error) {
+                // Mark as error
+                onStatusUpdate?.(node.id, 'error');
+                throw error;
             }
-
-            // Store output
-            nodeOutputs.set(node.id, result.data);
-            context.data = result.data;
         }
 
         // Return the output of the last node

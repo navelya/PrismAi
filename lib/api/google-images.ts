@@ -54,10 +54,14 @@ export async function searchPixabayImages(params: PixabayImageSearchParams): Pro
     try {
         // Build Pixabay API URL
         const baseUrl = 'https://pixabay.com/api/';
+
+        // Pixabay has a minimum of 3 images per request, so request at least 3
+        const apiLimit = Math.max(3, Math.min(limit, 200)); // Min 3, max 200
+
         const queryParams = new URLSearchParams({
             key: apiKey,
             q: searchTerm,
-            per_page: Math.min(limit, 200).toString(), // Pixabay max is 200
+            per_page: apiLimit.toString(),
             safesearch: safeSearch === 'high' ? 'true' : 'false',
         });
 

@@ -125,7 +125,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
             {/* Desktop: Resizable Divider */}
             {isCanvasOpen && workflow && (
                 <div
-                    className="hidden md:flex items-center justify-center w-1 bg-gray-200 hover:bg-purple-400 cursor-col-resize group transition-colors relative"
+                    className="hidden md:flex items-center justify-center w-1 bg-gray-200 hover:bg-purple-400 cursor-e-resize group transition-colors relative"
                     onMouseDown={handleMouseDown}
                 >
                     <div className="absolute inset-y-0 -left-1 -right-1" />
@@ -172,7 +172,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
             )}
 
             {/* Dragging Overlay */}
-            {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
+            {isDragging && <div className="fixed inset-0 z-50 cursor-e-resize" />}
         </div>
     );
 }
