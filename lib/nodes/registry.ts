@@ -31,9 +31,6 @@ const scrapeImagesExecutor: NodeExecutor = async (
             safeSearch,
         } = scrapeConfig;
 
-        console.log('🔍 SCRAPE CONFIG:', JSON.stringify(config, null, 2));
-        console.log(`🔍 Search Term: "${searchTerm}"`);
-
         // Dynamically import to avoid bundling issues
         const { searchGoogleImages } = await import('../api/google-images');
 
@@ -92,14 +89,10 @@ const removeBackgroundExecutor: NodeExecutor = async (
             throw new Error('Input must be an array of images');
         }
 
-        console.log(`🎨 Removing background from ${images.length} images...`);
-
         // Process images in parallel
         const processedImages = await Promise.all(
             images.map(async (img, index) => {
                 try {
-                    console.log(`  Processing image ${index + 1}/${images.length}: ${img.url}`);
-
                     // Fetch the original image
                     const response = await fetch(img.url);
                     if (!response.ok) {
@@ -128,8 +121,6 @@ const removeBackgroundExecutor: NodeExecutor = async (
                     const buffer = Buffer.from(arrayBuffer);
                     const base64 = `data:image/png;base64,${buffer.toString('base64')}`;
 
-                    console.log(`  ✅ Image ${index + 1} processed successfully`);
-
                     return {
                         ...img,
                         url: base64, // Base64 data URL for display
@@ -141,14 +132,11 @@ const removeBackgroundExecutor: NodeExecutor = async (
                         },
                     };
                 } catch (error) {
-                    console.error(`  ❌ Failed to process image ${index + 1}:`, error);
-                    // Return original image if processing fails
+                    // Return original image if processing fails (don't break the whole workflow)
                     return img;
                 }
             })
         );
-
-        console.log(`✅ Background removal complete: ${processedImages.length} images processed`);
 
         return {
             success: true,
@@ -231,9 +219,6 @@ const aiGenerateImageExecutor: NodeExecutor = async (
     try {
         const { prompt, aspectRatio = '1:1' } = config as AIGenerateImageConfig;
 
-        console.log('✨ AI GENERATE CONFIG:', JSON.stringify(config, null, 2));
-        console.log(`✨ Prompt: "${prompt}"`);
-
         // Determine dimensions based on aspect ratio
         const [width, height] = aspectRatio === '16:9' ? [1920, 1080] :
             aspectRatio === '4:3' ? [1600, 1200] : [1024, 1024];
@@ -246,15 +231,11 @@ const aiGenerateImageExecutor: NodeExecutor = async (
 
         const proxyUrl = `${baseUrl}/api/image/generate?prompt=${encodeURIComponent(prompt)}&width=${width}&height=${height}`;
 
-        console.log(`  🌐 Generating AI image via proxy: "${prompt}"`);
-
         // Fetch the generated image through our proxy
         const response = await fetch(proxyUrl);
         if (!response.ok) {
             throw new Error(`Image generation failed: ${response.status}`);
         }
-
-        console.log(`  ✅ Image generated successfully, converting to base64...`);
 
         const blob = await response.blob();
 
@@ -262,14 +243,10 @@ const aiGenerateImageExecutor: NodeExecutor = async (
             throw new Error('Received empty image from Pollinations.ai');
         }
 
-        console.log(`  📦 Blob size: ${(blob.size / 1024).toFixed(2)} KB`);
-
         // Convert to base64 for display (server-side)
         const arrayBuffer = await blob.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         const base64 = `data:image/png;base64,${buffer.toString('base64')}`;
-
-        console.log(`  ✅ AI image generated successfully`);
 
         const generatedImage: ImageObject = {
             url: base64, // Base64 data URL for display

@@ -2,63 +2,35 @@ import { Workflow, WorkflowNode, ExecutionContext, NodeExecutionResult, NodeStat
 import { getNodeExecutor } from './nodes/registry';
 
 /**
- * Topological sort for directed acyclic graph (DAG)
- * Returns nodes in execution order
+ * Build dependency graph for parallel execution
  */
-function topologicalSort(nodes: WorkflowNode[], edges: { source: string; target: string }[]): WorkflowNode[] {
-    const adjacencyList = new Map<string, string[]>();
+function buildDependencyGraph(nodes: WorkflowNode[], edges: { source: string; target: string }[]) {
+    const parents = new Map<string, string[]>();
+    const children = new Map<string, string[]>();
     const inDegree = new Map<string, number>();
 
     // Initialize
     nodes.forEach(node => {
-        adjacencyList.set(node.id, []);
+        parents.set(node.id, []);
+        children.set(node.id, []);
         inDegree.set(node.id, 0);
     });
 
     // Build graph
     edges.forEach(edge => {
-        adjacencyList.get(edge.source)?.push(edge.target);
+        children.get(edge.source)?.push(edge.target);
+        parents.get(edge.target)?.push(edge.source);
         inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
     });
 
-    // Find nodes with no incoming edges
-    const queue: WorkflowNode[] = [];
-    nodes.forEach(node => {
-        if (inDegree.get(node.id) === 0) {
-            queue.push(node);
-        }
-    });
-
-    const sorted: WorkflowNode[] = [];
-
-    while (queue.length > 0) {
-        const current = queue.shift()!;
-        sorted.push(current);
-
-        const neighbors = adjacencyList.get(current.id) || [];
-        neighbors.forEach(neighborId => {
-            const newDegree = (inDegree.get(neighborId) || 0) - 1;
-            inDegree.set(neighborId, newDegree);
-
-            if (newDegree === 0) {
-                const neighborNode = nodes.find(n => n.id === neighborId);
-                if (neighborNode) {
-                    queue.push(neighborNode);
-                }
-            }
-        });
-    }
-
-    // Check for cycles
-    if (sorted.length !== nodes.length) {
-        throw new Error('Workflow contains a cycle - cannot execute');
-    }
-
-    return sorted;
+    return { parents, children, inDegree };
 }
 
 /**
- * Execute a complete workflow
+ * Execute a complete workflow with TRUE PARALLEL EXECUTION
+ * - Independent nodes run simultaneously
+ * - Nodes wait for ALL parents to complete
+ * - Failures are isolated to individual branches
  * @param onStatusUpdate Optional callback for real-time status updates  
  */
 export async function executeWorkflow(
@@ -75,8 +47,12 @@ export async function executeWorkflow(
             throw new Error('Workflow has no nodes');
         }
 
-        // Sort nodes in execution order
-        const sortedNodes = topologicalSort(workflow.nodes, workflow.edges);
+        console.log('🚀 Starting PARALLEL workflow execution');
+        console.log(`  - Nodes: ${workflow.nodes.length}`);
+        console.log(`  - Edges: ${workflow.edges.length}`);
+
+        // Build dependency graph
+        const { parents, children, inDegree } = buildDependencyGraph(workflow.nodes, workflow.edges);
 
         // Create execution context
         const context: ExecutionContext = {
@@ -85,77 +61,177 @@ export async function executeWorkflow(
             data: null,
         };
 
-        // Storage for node outputs
+        // Track node states
         const nodeOutputs = new Map<string, any>();
+        const completedNodes = new Set<string>();
+        const failedNodes = new Set<string>();
+        const blockedNodes = new Set<string>();
+        const currentInDegree = new Map(inDegree); // Mutable copy
 
-        // Execute nodes in order
-        for (const node of sortedNodes) {
-            const executor = getNodeExecutor(node.type);
+        // Find initial ready nodes (no dependencies)
+        let readyNodes = workflow.nodes.filter(node => currentInDegree.get(node.id) === 0);
 
-            if (!executor) {
-                throw new Error(`No executor found for node type: ${node.type}`);
-            }
+        console.log(`📍 Initial ready nodes: ${readyNodes.map(n => n.type).join(', ')}`);
 
-            // Get input from predecessors (merge if multiple)
-            const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-            let input = null;
+        let waveNumber = 1;
 
-            if (incomingEdges.length === 1) {
-                // Single input - use it directly
-                const sourceNodeId = incomingEdges[0].source;
-                input = nodeOutputs.get(sourceNodeId);
-            } else if (incomingEdges.length > 1) {
-                // Multiple inputs - merge them intelligently
-                const allInputs = incomingEdges
-                    .map(edge => nodeOutputs.get(edge.source))
-                    .filter(Boolean);
+        // Execute in waves until no more progress
+        while (readyNodes.length > 0) {
 
-                if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
-                    // Arrays (e.g., images) - flatten into single array
-                    input = allInputs.flat();
-                    console.log(`🔀 Merged ${allInputs.length} parallel inputs: ${input.length} total items`);
+            // Execute all ready nodes in parallel
+            const waveExecutions = readyNodes.map(async (node) => {
+                // Mark as running
+                onStatusUpdate?.(node.id, 'running');
+
+                try {
+                    const executor = getNodeExecutor(node.type);
+                    if (!executor) {
+                        throw new Error(`No executor found for node type: ${node.type}`);
+                    }
+
+                    // Gather inputs from all parents
+                    const parentIds = parents.get(node.id) || [];
+                    let input = null;
+
+                    if (parentIds.length === 1) {
+                        // Single parent - use output directly
+                        input = nodeOutputs.get(parentIds[0]);
+                    } else if (parentIds.length > 1) {
+                        // Multiple parents - merge outputs
+                        const allInputs = parentIds
+                            .map(parentId => nodeOutputs.get(parentId))
+                            .filter(Boolean);
+
+                        if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
+                            // Flatten arrays (e.g., multiple image lists)
+                            input = allInputs.flat();
+                        } else {
+                            // Use first input as fallback
+                            input = allInputs[0];
+                        }
+                    }
+
+                    // Execute node
+                    const result: NodeExecutionResult = await executor(node.data.config, input, context);
+
+                    if (!result.success) {
+                        throw new Error(result.error || 'Node execution failed');
+                    }
+
+                    return {
+                        nodeId: node.id,
+                        success: true,
+                        output: result.data,
+                    };
+
+                } catch (error) {
+                    return {
+                        nodeId: node.id,
+                        success: false,
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                    };
+                }
+            });
+
+            // Wait for all nodes in this wave using allSettled (failures don't stop others)
+            const waveResults = await Promise.allSettled(waveExecutions);
+
+            // Process results
+            const nextReadyNodes: WorkflowNode[] = [];
+
+            waveResults.forEach((result, index) => {
+                const node = readyNodes[index];
+
+                if (result.status === 'fulfilled' && result.value.success) {
+                    // Node succeeded
+                    completedNodes.add(node.id);
+                    nodeOutputs.set(node.id, result.value.output);
+                    onStatusUpdate?.(node.id, 'success');
+
+                    // Unlock children
+                    const childIds = children.get(node.id) || [];
+                    childIds.forEach(childId => {
+                        if (!blockedNodes.has(childId)) {
+                            const newDegree = (currentInDegree.get(childId) || 0) - 1;
+                            currentInDegree.set(childId, newDegree);
+
+                            // If child is now ready, add to next wave
+                            if (newDegree === 0) {
+                                const childNode = workflow.nodes.find(n => n.id === childId);
+                                if (childNode) {
+                                    nextReadyNodes.push(childNode);
+                                }
+                            }
+                        }
+                    });
+
                 } else {
-                    // Non-arrays - use first input as fallback
-                    input = allInputs[0];
-                }
-            }
-            // else: no inputs, node is a source node (input stays null)
-
-            // Mark node as running
-            onStatusUpdate?.(node.id, 'running');
-
-            try {
-                // Execute node
-                const result: NodeExecutionResult = await executor(node.data.config, input, context);
-
-                if (!result.success) {
-                    // Mark as error
+                    // Node failed
+                    const errorMsg = result.status === 'fulfilled' ? result.value.error : 'Promise rejected';
+                    failedNodes.add(node.id);
                     onStatusUpdate?.(node.id, 'error');
-                    throw new Error(`Node ${node.id} (${node.type}) failed: ${result.error}`);
+
+                    // Block all downstream nodes in this branch
+                    const blockDownstream = (nodeId: string) => {
+                        const childIds = children.get(nodeId) || [];
+                        childIds.forEach(childId => {
+                            if (!blockedNodes.has(childId)) {
+                                blockedNodes.add(childId);
+                                // Recursively block descendants
+                                blockDownstream(childId);
+                            }
+                        });
+                    };
+
+                    blockDownstream(node.id);
                 }
+            });
 
-                //Mark as success
-                onStatusUpdate?.(node.id, 'success');
+            // Move to next wave
+            readyNodes = nextReadyNodes;
+            waveNumber++;
 
-                // Store output
-                nodeOutputs.set(node.id, result.data);
-                context.data = result.data;
-            } catch (error) {
-                // Mark as error
-                onStatusUpdate?.(node.id, 'error');
-                throw error;
+            // Safety check to prevent infinite loops
+            if (waveNumber > 100) {
+                throw new Error('Execution exceeded maximum wave limit (possible cycle)');
             }
         }
 
-        // Return the output of the last node
-        const finalNode = sortedNodes[sortedNodes.length - 1];
-        const finalOutput = nodeOutputs.get(finalNode.id);
+        // Find the final output node(s) - nodes with no children
+        const finalNodes = Array.from(completedNodes).filter(nodeId => {
+            const childIds = children.get(nodeId) || [];
+            return childIds.length === 0;
+        });
 
+        // Get the output from the final node(s)
+        let finalResult;
+        if (finalNodes.length === 1) {
+            // Single final node - return its output directly
+            finalResult = nodeOutputs.get(finalNodes[0]);
+        } else if (finalNodes.length > 1) {
+            // Multiple final nodes - merge their outputs
+            const outputs = finalNodes.map(nodeId => nodeOutputs.get(nodeId)).filter(Boolean);
+
+            // If all outputs are arrays (e.g., images), flatten them
+            if (outputs.every(output => Array.isArray(output))) {
+                finalResult = outputs.flat();
+            } else {
+                finalResult = outputs;
+            }
+        } else {
+            // No final nodes (all blocked/failed) - return null
+            finalResult = null;
+        }
+
+        // Return result
         return {
-            success: true,
-            result: finalOutput,
+            success: completedNodes.size > 0,
+            result: finalResult,
+            error: failedNodes.size > 0 ? `${failedNodes.size} node(s) failed` : undefined,
         };
+
     } catch (error) {
+        console.error('💥 Workflow execution error:', error);
         return {
             success: false,
             result: null,

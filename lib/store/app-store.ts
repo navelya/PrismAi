@@ -46,6 +46,7 @@ interface AppState {
     // Node Management
     deleteNode: (nodeId: string) => void;
     updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
+    updateNodePositions: (positions: Map<string, { x: number; y: number }>) => void;
 
     // Chat State
     chatMessages: Message[];
@@ -191,6 +192,32 @@ export const useAppStore = create<AppState>()(
                 // Snapshot will be saved after drag ends
             },
 
+            updateNodePositions: (positions) => {
+                console.log('[Store] updateNodePositions called with:', positions);
+                const state = get();
+                console.log('[Store] Current workflow exists?', !!state.currentWorkflow);
+                if (!state.currentWorkflow) return;
+
+                console.log('[Store] Current nodes count:', state.currentWorkflow.nodes.length);
+                const updatedWorkflow: Workflow = {
+                    ...state.currentWorkflow,
+                    nodes: state.currentWorkflow.nodes.map((node) => {
+                        const newPosition = positions.get(node.id);
+                        if (newPosition) {
+                            console.log(`[Store] Updating node ${node.id} from`, node.position, 'to', newPosition);
+                        }
+                        return newPosition ? { ...node, position: newPosition } : node;
+                    }),
+                };
+
+                console.log('[Store] Setting updated workflow');
+                set({ currentWorkflow: updatedWorkflow });
+                console.log('[Store] Workflow set, saving snapshot');
+                // Save snapshot after batch update
+                get().saveSnapshot();
+                console.log('[Store] Snapshot saved');
+            },
+
             // Chat Actions
             addMessage: (message) =>
                 set((state) => ({
@@ -231,13 +258,14 @@ export const useAppStore = create<AppState>()(
             name: 'prism-ai-storage',
             storage: createJSONStorage(() => localStorage), // Changed to localStorage for persistence
             // Don't persist functions, only data
+            // IMPORTANT: Don't persist chatMessages or executionResults - they can be huge and cause quota errors
             partialize: (state) => ({
                 currentWorkflow: state.currentWorkflow,
                 history: state.history,
                 historyIndex: state.historyIndex,
-                chatMessages: state.chatMessages,
+                // chatMessages: EXCLUDED - can be large with execution results
+                // executionResults: EXCLUDED - very large (images, etc.)
                 editorState: state.editorState,
-                executionResults: state.executionResults,
             }),
             // Clear messages on page refresh but keep other state
             onRehydrateStorage: () => (state) => {

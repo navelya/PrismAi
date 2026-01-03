@@ -15,7 +15,8 @@ import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Undo2, Redo2 } from 'lucide-react';
+import { Undo2, Redo2, Network } from 'lucide-react';
+import { autoLayoutNodes } from '@/lib/utils/graph-layout';
 
 interface EditorCanvasProps {
     nodes: any[];
@@ -25,6 +26,7 @@ interface EditorCanvasProps {
     onConnect: any;
     onNodeClick?: NodeMouseHandler;
     onDrop: (type: NodeType, position: { x: number; y: number }) => void;
+    updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
     selectionMode?: boolean;
     onSelectionToggle?: () => void;
 }
@@ -44,6 +46,7 @@ function EditorCanvasInner({
     onConnect,
     onNodeClick,
     onDrop,
+    updatePositions,
     selectionMode = false,
     onSelectionToggle,
 }: EditorCanvasProps) {
@@ -124,6 +127,28 @@ function EditorCanvasInner({
         }
     };
 
+    // Handle auto-layout button click
+    const handleAutoLayout = () => {
+        console.log('Auto-layout clicked, nodes:', nodes.length, 'edges:', edges.length);
+        if (nodes.length === 0 || !updatePositions) return;
+
+        // Calculate new positions using the graph layout algorithm
+        const newPositions = autoLayoutNodes(nodes, edges);
+        console.log('Calculated positions:', newPositions);
+        console.log('Positions Map size:', newPositions.size);
+
+        // Log a sample position
+        const firstEntry = Array.from(newPositions.entries())[0];
+        if (firstEntry) {
+            console.log('Sample position:', firstEntry);
+        }
+
+        // Update positions directly in the canvas (bypasses store to avoid re-render loop)
+        console.log('Calling updatePositions directly...');
+        updatePositions(newPositions);
+        console.log('Positions updated!');
+    };
+
     const onDragOver = useCallback((event: React.DragEvent) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
@@ -190,6 +215,22 @@ function EditorCanvasInner({
                 >
                     <Redo2
                         className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`}
+                        suppressHydrationWarning
+                    />
+                </button>
+                <button
+                    onClick={handleAutoLayout}
+                    disabled={nodes.length === 0}
+                    className="w-9 h-9 rounded-lg bg-white/90 backdrop-blur-sm border border-gray-200 
+                               shadow-lg hover:shadow-xl transition-all duration-200
+                               flex items-center justify-center
+                               disabled:opacity-40 disabled:cursor-not-allowed
+                               hover:bg-white disabled:hover:bg-white/90
+                               group"
+                    title="Auto Layout"
+                >
+                    <Network
+                        className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`}
                         suppressHydrationWarning
                     />
                 </button>

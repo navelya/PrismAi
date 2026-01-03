@@ -48,6 +48,7 @@ export default function SharedWorkflowEditor({
         addNode,
         deleteNode,
         updateNodeConfig,
+        updatePositions,
         getWorkflow: getCurrentWorkflow,
         clearWorkflow,
     } = useWorkflowEditor(currentWorkflow || initialWorkflow);
@@ -193,6 +194,7 @@ export default function SharedWorkflowEditor({
                             onConnect={onConnect}
                             onNodeClick={handleNodeClick}
                             onDrop={handleDrop}
+                            updatePositions={updatePositions}
                             selectionMode={selectionMode}
                             onSelectionToggle={() => setSelectionMode(!selectionMode)}
                         />

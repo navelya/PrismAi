@@ -10,14 +10,24 @@ interface MessageRendererProps {
 }
 
 export default function MessageRenderer({ data }: MessageRendererProps) {
-    // Detect array of images
-    if (Array.isArray(data) && data.length > 0 && data[0].url) {
-        return <ImageGallery images={data} />;
-    }
+    // If data is null/undefined, don't render anything
+    if (!data) return null;
 
-    // Detect array of objects (table data)
-    if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
-        return <DataTable data={data} />;
+    // Unwrap if data has an images property (common for workflow results)
+    const actualData = data?.images || data;
+
+    // Detect array of images - check for url property
+    if (Array.isArray(actualData) && actualData.length > 0) {
+        // Check if it looks like image data
+        const firstItem = actualData[0];
+        if (firstItem && typeof firstItem === 'object' && ('url' in firstItem)) {
+            return <ImageGallery images={actualData} />;
+        }
+
+        // Check if it's an array of objects (table data) - but not images
+        if (typeof firstItem === 'object') {
+            return <DataTable data={actualData} />;
+        }
     }
 
     // Text or JSON

@@ -38,6 +38,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow) {
     useEffect(() => {
         if (initialWorkflow) {
             // Create a stable ID based on workflow name + node count + edge count
+            // Don't include positions to avoid re-renders during manual drag
             const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}`;
 
             // Only update if this is a different workflow (not just position changes)
@@ -72,6 +73,21 @@ export function useWorkflowEditor(initialWorkflow?: Workflow) {
             }
         }
     }, [initialWorkflow]); // Still depend on workflow, but check if it's actually new
+
+    // Method to directly update node positions (used by auto-layout)
+    const updatePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
+        console.log('📍 Directly updating node positions');
+        setNodes((currentNodes) =>
+            currentNodes.map((node) => {
+                const newPosition = positions.get(node.id);
+                if (newPosition) {
+                    console.log(`  - Moving ${node.id} to (${newPosition.x}, ${newPosition.y})`);
+                    return { ...node, position: newPosition };
+                }
+                return node;
+            })
+        );
+    }, [setNodes]);
 
     // Add a new node to the canvas
     const addNode = useCallback((type: NodeType, position: { x: number; y: number }) => {
@@ -151,6 +167,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow) {
         addNode,
         deleteNode,
         updateNodeConfig,
+        updatePositions,
         getWorkflow,
         clearWorkflow,
     };
