@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image';
+export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image';
 
 /**
  * Node execution status for real-time updates
@@ -57,11 +57,16 @@ export interface AIGenerateImageConfig {
     aspectRatio?: '1:1' | '16:9' | '4:3';
 }
 
+export interface UpscaleImageConfig {
+    scale: 2 | 3 | 4 | 8;  // Upscale factor
+}
+
 export type NodeConfig =
     | ScrapeImagesConfig
     | RemoveBackgroundConfig
     | FilterSortConfig
-    | AIGenerateImageConfig;
+    | AIGenerateImageConfig
+    | UpscaleImageConfig;
 
 /**
  * Node definition for workflow

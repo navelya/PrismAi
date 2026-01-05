@@ -14,7 +14,7 @@ import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 
 interface SharedWorkflowEditorProps {
-    workflow?: Workflow;
+    workflow?: Workflow | null;
     onExecutionComplete?: (result: any) => void;
     onWorkflowChange?: (workflow: Workflow) => void;
     showToolbar?: boolean;

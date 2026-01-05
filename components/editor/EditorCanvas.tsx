@@ -36,6 +36,7 @@ const nodeTypes = {
     remove_background: CustomNode,
     filter_sort: CustomNode,
     ai_generate_image: CustomNode,
+    upscale_image: CustomNode,
 };
 
 function EditorCanvasInner({
@@ -189,48 +190,51 @@ function EditorCanvasInner({
                 <button
                     onClick={handleUndo}
                     disabled={!canUndo}
-                    className="w-9 h-9 rounded-lg bg-white/90 backdrop-blur-sm border border-gray-200 
+                    suppressHydrationWarning
+                    className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
                                shadow-lg hover:shadow-xl transition-all duration-200
                                flex items-center justify-center
                                disabled:opacity-40 disabled:cursor-not-allowed
-                               hover:bg-white disabled:hover:bg-white/90
+                               hover:bg-white dark:hover:bg-gray-700 disabled:hover:bg-white/90 dark:disabled:hover:bg-gray-800/90
                                group"
                     title="Undo (Ctrl+Z)"
                 >
                     <Undo2
-                        className={`w-4 h-4 transition-colors ${canUndo ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`}
+                        className={`w-4 h-4 transition-colors ${canUndo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`}
                         suppressHydrationWarning
                     />
                 </button>
                 <button
                     onClick={handleRedo}
                     disabled={!canRedo}
-                    className="w-9 h-9 rounded-lg bg-white/90 backdrop-blur-sm border border-gray-200 
+                    suppressHydrationWarning
+                    className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
                                shadow-lg hover:shadow-xl transition-all duration-200
                                flex items-center justify-center
                                disabled:opacity-40 disabled:cursor-not-allowed
-                               hover:bg-white disabled:hover:bg-white/90
+                               hover:bg-white dark:hover:bg-gray-700 disabled:hover:bg-white/90 dark:disabled:hover:bg-gray-800/90
                                group"
                     title="Redo (Ctrl+Y)"
                 >
                     <Redo2
-                        className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`}
+                        className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`}
                         suppressHydrationWarning
                     />
                 </button>
                 <button
                     onClick={handleAutoLayout}
                     disabled={nodes.length === 0}
-                    className="w-9 h-9 rounded-lg bg-white/90 backdrop-blur-sm border border-gray-200 
+                    suppressHydrationWarning
+                    className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
                                shadow-lg hover:shadow-xl transition-all duration-200
                                flex items-center justify-center
                                disabled:opacity-40 disabled:cursor-not-allowed
-                               hover:bg-white disabled:hover:bg-white/90
+                               hover:bg-white dark:hover:bg-gray-700 disabled:hover:bg-white/90 dark:disabled:hover:bg-gray-800/90
                                group"
                     title="Auto Layout"
                 >
                     <Network
-                        className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-400'}`}
+                        className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`}
                         suppressHydrationWarning
                     />
                 </button>
@@ -274,8 +278,8 @@ function EditorCanvasInner({
                 connectionMode={"loose" as any}
                 selectionMode={selectionMode ? 'partial' as any : undefined}
             >
-                <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#cbd5e1" />
-                <Controls className="bg-white/80 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg">
+                <Background variant={BackgroundVariant.Dots} gap={16} size={1} style={{ backgroundColor: 'rgb(var(--canvas-bg))' }} color="rgb(var(--canvas-dots))" />
+                <Controls className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg">
                     {/* Custom Selection Mode Button */}
                     {onSelectionToggle && (
                         <button

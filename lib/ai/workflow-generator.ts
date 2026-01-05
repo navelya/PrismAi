@@ -1,5 +1,5 @@
 import { generateWithGemini } from './gemini-client';
-import { Workflow } from '@/lib/nodes/types';
+import { Workflow, ScrapeImagesConfig } from '@/lib/nodes/types';
 import { autoLayoutNodes } from '@/lib/utils/graph-layout';
 
 /**
@@ -55,9 +55,12 @@ update the existing workflow accordingly. Otherwise, create a new workflow.`;
         // Log each node
         workflow.nodes.forEach((node, idx) => {
             console.log(`  - Node ${idx}:`, node.type);
-            if (node.type === 'scrape_images' && node.data.config.searchTerm) {
-                console.log(`    → Search: "${node.data.config.searchTerm}"`);
-                console.log(`    → Limit: ${node.data.config.limit}`);
+            if (node.type === 'scrape_images') {
+                const config = node.data.config as ScrapeImagesConfig;
+                if (config.searchTerm) {
+                    console.log(`    → Search: "${config.searchTerm}"`);
+                    console.log(`    → Limit: ${config.limit}`);
+                }
             }
         });
 

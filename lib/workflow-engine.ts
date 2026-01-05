@@ -254,7 +254,7 @@ export function validateWorkflow(workflow: Workflow): {
     }
 
     // Check for invalid node types
-    const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image'];
+    const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image'];
     workflow.nodes.forEach(node => {
         if (!validTypes.includes(node.type)) {
             errors.push(`Invalid node type: ${node.type}`);

@@ -7,7 +7,7 @@ import { WorkflowNode, WorkflowEdge, Workflow, NodeType } from '@/lib/nodes/type
 import { createNodeFromType } from '@/lib/editor/node-factory';
 import { generateEdgeId } from '@/lib/utils';
 
-export function useWorkflowEditor(initialWorkflow?: Workflow) {
+export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
     const [nodes, setNodes, onNodesChange] = useNodesState<any>(
         initialWorkflow?.nodes.map(n => ({
             id: n.id,
@@ -37,9 +37,10 @@ export function useWorkflowEditor(initialWorkflow?: Workflow) {
     // Only update when workflow ID/structure changes, not during drag operations
     useEffect(() => {
         if (initialWorkflow) {
-            // Create a stable ID based on workflow name + node count + edge count
-            // Don't include positions to avoid re-renders during manual drag
-            const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}`;
+            // Create a stable ID based on workflow structure and CONFIGURATION
+            // Must include node data to detect property changes (e.g. sort order)
+            const configHash = JSON.stringify(initialWorkflow.nodes.map(n => ({ id: n.id, data: n.data })));
+            const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}-${configHash}`;
 
             // Only update if this is a different workflow (not just position changes)
             if (lastLoadedWorkflowRef.current !== workflowId) {

@@ -54,8 +54,12 @@ MODIFICATION PATTERNS - BE SMART ABOUT CONTEXT
 5. SORTING MODIFICATIONS:
    "sort by size" → Add filter_sort, criteria: "resolution", order: "desc"
    "reverse the sort" → Change order: "asc" ↔ "desc"
+   "sort in ascending order" → Change existing filter_sort order to "asc"
+   "sort in descending order" → Change existing filter_sort order to "desc"
    "from bottom to top" → order: "desc"
    "from top to bottom" → order: "asc"
+   
+   CRITICAL: If filter_sort node EXISTS, MODIFY it. Don't add a new one!
 
 ═══════════════════════════════════════════════════════════════════
 PARSING RULES (UNCHANGED)
@@ -99,6 +103,7 @@ AVAILABLE NODE TYPES
 - remove_background: Remove image backgrounds
 - filter_sort: Filter/sort images by criteria
 - ai_generate_image: Generate images with AI (Pollinations.ai)
+- upscale_image: AI-powered image super-resolution (Real-ESRGAN)
 
 NODE CONFIGURATIONS:
 
@@ -106,10 +111,11 @@ NODE CONFIGURATIONS:
 {
   "searchTerm": "cleaned search term",
   "limit": number,
-  "imageSize": "any",
-  "imageType": "any",
-  "colorType": "any",
-  "safeSearch": "medium"
+  "sources": string[] (optional, e.g. ["pinterest.com"]),
+  "imageSize": "small" | "medium" | "large" | "xlarge" | "any",
+  "imageType": "photo" | "clipart" | "lineart" | "face" | "any",
+  "colorType": "color" | "gray" | "mono" | "any",
+  "safeSearch": "off" | "medium" | "high"
 }
 
 **ai_generate_image:**
@@ -120,15 +126,54 @@ NODE CONFIGURATIONS:
 
 **remove_background:**
 {
-  "format": "png"
+  "format": "png" | "webp"
 }
 
 **filter_sort:**
 {
   "criteria": "resolution" | "size" | "format",
   "order": "asc" | "desc",
-  "limit": number
+  "limit": number (optional)
 }
+
+**upscale_image:**
+{
+  "scale": 2 | 3 | 4 | 8  // Upscale factor (2x, 3x, 4x, or 8x)
+}
+
+IMPORTANT - Property Mappings:
+
+1. SCRAPE_IMAGES:
+   - "high res", "large images" → imageSize: "large" or "xlarge"
+   - "icons", "clipart" → imageType: "clipart"
+   - "drawings", "sketches" → imageType: "lineart"
+   - "faces", "people" → imageType: "face"
+   - "black and white" → colorType: "gray"
+   - "transparent background" → searchTerm: "transparent ...", colorType: "any" (or add remove_background node)
+   - "from pinterest" → sources: ["pinterest.com"]
+
+2. AI_GENERATE:
+   - "widescreen", "landscape", "wallpaper" → aspectRatio: "16:9"
+   - "portrait", "tall" → aspectRatio: "4:3" (approx) or default "1:1"
+   - "square" → aspectRatio: "1:1"
+
+3. FILTER_SORT:
+   - "sort by size" → criteria: "resolution" (image dimensions)
+   - "sort by resolution" → criteria: "resolution"
+   - "sort by file size" → criteria: "size"
+   - "sort by format" → criteria: "format"
+   - "largest first" → order: "desc"
+   - "smallest first" → order: "asc"
+   - "from bottom to top" → order: "desc"
+   - "from top to bottom" → order: "asc"
+
+4. UPSCALE_IMAGE:
+   - "upscale", "enhance", "super resolution", "make bigger", "increase resolution" → add upscale_image node
+   - "4x upscale", "quadruple size" → scale: 4
+   - "2x upscale", "double size" → scale: 2
+   - "3x upscale", "triple size" → scale: 3
+   - "8x upscale", "ultra res", "maximize quality" → scale: 8
+   - Default scale: 4
 
 ═══════════════════════════════════════════════════════════════════
 WORKFLOW JSON STRUCTURE
@@ -195,12 +240,39 @@ Output: {
   edges: [{source: "node_0", target: "node_1"}]
 }
 
-Example 4 - Quantity and sort reversal:
+Example 4 - Sorting requests (CRITICAL - Always set config correctly):
+Request: "sort by size"
+Output: {
+  nodes: [{id: "node_1", type: "filter_sort", config: {criteria: "resolution", order: "desc"}}]
+}
+
+Request: "sort by resolution from smallest to largest"
+Output: {
+  nodes: [{id: "node_1", type: "filter_sort", config: {criteria: "resolution", order: "asc"}}]
+}
+
+Request: "sort by format"
+Output: {
+  nodes: [{id: "node_1", type: "filter_sort", config: {criteria: "format", order: "asc"}}]
+}
+
+Example 5 - Modifying existing sort order (CRITICAL):
+Current workflow: {nodes: [{id: "node_1", type: "filter_sort", config: {criteria: "resolution", order: "desc"}}]}
+Request: "sort in ascending order"
+Output: {
+  nodes: [{id: "node_1", type: "filter_sort", config: {criteria: "resolution", order: "asc"}}]
+}
+⚠️ KEEP THE SAME NODE ID! Just change the order property.
+
+Request: "reverse the sort"
+Output: Change order "desc" → "asc" (or vice versa)
+
+Example 6 - Quantity and sort reversal:
 Current workflow: {nodes: [{...}, {type: "filter_sort", config: {order: "asc"}}]}
 Request: "give me only 3 and reverse the sort"
 Output: Update limit to 3, change order from "asc" to "desc"
 
-Example 5 - AI Image Generation (NEW):
+Example 6 - AI Image Generation (NEW):
 Request: "generate an image of a sunset over the ocean"
 Output: {
   name: "AI Generated Sunset",

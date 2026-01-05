@@ -8,6 +8,7 @@ import {
     RemoveBackgroundConfig,
     FilterSortConfig,
     AIGenerateImageConfig,
+    UpscaleImageConfig,
 } from './types';
 
 /**
@@ -275,6 +276,114 @@ const aiGenerateImageExecutor: NodeExecutor = async (
 };
 
 /**
+ * Upscale Image Node
+ * Upscales images using Real-ESRGAN AI model
+ */
+const upscaleImageExecutor: NodeExecutor = async (
+    config: NodeConfig,
+    input: any,
+    context: ExecutionContext
+): Promise<NodeExecutionResult> => {
+    console.log('🔍 Upscale executor called');
+    console.log('Config:', config);
+    console.log('Input:', input);
+    console.log('Input type:', typeof input);
+    console.log('Is array:', Array.isArray(input));
+
+    try {
+        const { scale = 4 } = config as UpscaleImageConfig;
+        const images = input as ImageObject[];
+
+        console.log('Scale:', scale);
+        console.log('Images count:', images?.length);
+
+        if (!Array.isArray(images)) {
+            const errorMsg = 'Input must be an array of images';
+            console.error('❌', errorMsg);
+            throw new Error(errorMsg);
+        }
+
+        if (images.length === 0) {
+            console.warn('⚠️ No images to upscale');
+            return {
+                success: true,
+                data: [],
+            };
+        }
+
+        console.log(`📤 Starting upscale for ${images.length} images at ${scale}x`);
+
+        // Process images in parallel
+        const upscaledImages = await Promise.all(
+            images.map(async (img, index) => {
+                try {
+                    // Fetch the original image
+                    const response = await fetch(img.url);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch image: ${response.statusText}`);
+                    }
+                    const blob = await response.blob();
+
+                    // Send to Python backend for upscaling
+                    const formData = new FormData();
+                    formData.append('file', blob, `image-${index}.jpg`);
+                    formData.append('scale', scale.toString());
+
+                    const upscaleResponse = await fetch('http://localhost:8000/upscale', {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    if (!upscaleResponse.ok) {
+                        throw new Error(`Upscaling failed: ${upscaleResponse.statusText}`);
+                    }
+
+                    // Get upscaled image
+                    const processedBlob = await upscaleResponse.blob();
+
+                    // Convert to base64 for display (server-side)
+                    const arrayBuffer = await processedBlob.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    const base64 = `data:image/png;base64,${buffer.toString('base64')}`;
+
+                    return {
+                        ...img,
+                        url: base64, // Base64 data URL for display
+                        resolution: {
+                            width: img.resolution.width * scale,
+                            height: img.resolution.height * scale,
+                        },
+                        metadata: {
+                            ...img.metadata,
+                            processedBy: `Real-ESRGAN (${scale}x upscale)`,
+                        },
+                    };
+                } catch (error) {
+                    // Log detailed error
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    console.error(`❌ Failed to upscale image ${index}:`, errorMessage);
+                    console.error('Full error:', error);
+
+                    // Throw error to fail the node properly
+                    throw new Error(`Image ${index} upscaling failed: ${errorMessage}`);
+                }
+            })
+        );
+
+        return {
+            success: true,
+            data: upscaledImages,
+        };
+    } catch (error) {
+        return {
+            success: false,
+            data: null,
+            error: error instanceof Error ? error.message : 'Failed to upscale images',
+        };
+    }
+};
+
+/**
  * Node Registry
  * Maps node types to their executor functions
  */
@@ -283,6 +392,7 @@ export const nodeRegistry: Record<string, NodeExecutor> = {
     remove_background: removeBackgroundExecutor,
     filter_sort: filterSortExecutor,
     ai_generate_image: aiGenerateImageExecutor,
+    upscale_image: upscaleImageExecutor,
 };
 
 /**
@@ -319,5 +429,11 @@ export const nodeMetadata = {
         description: 'Generate images with AI',
         color: '#fbbf24',
         icon: 'Sparkles',
+    },
+    upscale_image: {
+        label: 'Upscale Image',
+        description: 'AI-powered image super-resolution (2x/4x)',
+        color: '#ec4899',
+        icon: 'Maximize2',
     },
 };

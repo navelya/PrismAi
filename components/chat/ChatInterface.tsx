@@ -109,7 +109,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             const assistantMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 type: 'assistant',
-                content: `✅ Workflow executed successfully! Found ${executeData.result?.images?.length || 0} images.`,
+                content: `✅ Workflow executed successfully!`,
                 timestamp: new Date(),
                 result: executeData.result,
                 workflow,

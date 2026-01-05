@@ -31,6 +31,9 @@ export function createNodeFromType(
             prompt: 'A beautiful image',
             aspectRatio: '1:1' as const,
         },
+        upscale_image: {
+            scale: 4 as const,
+        },
     };
 
     const config = defaultConfigs[type];

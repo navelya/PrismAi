@@ -87,7 +87,7 @@ Return the modified or new workflow as JSON.`;
         }
 
         // Validate node types
-        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image'];
+        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image'];
         for (const node of workflow.nodes) {
             if (!validTypes.includes(node.type)) {
                 throw new Error(`Invalid node type: ${node.type}`);
