@@ -17,10 +17,15 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Image Processing Service")
 
-# Add CORS middleware
+# Add CORS middleware - Allow Vercel deployments and localhost
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://*.vercel.app",  # All Vercel preview deployments
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Regex for Vercel subdomains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

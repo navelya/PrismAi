@@ -11,6 +11,9 @@ import {
     UpscaleImageConfig,
 } from './types';
 
+// Backend URL - uses environment variable in production, localhost in development
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+
 /**
  * Scrape Images Node
  * Searches Google Images using Custom Search API
@@ -105,7 +108,7 @@ const removeBackgroundExecutor: NodeExecutor = async (
                     const formData = new FormData();
                     formData.append('file', blob, `image-${index}.jpg`);
 
-                    const bgRemovalResponse = await fetch('http://localhost:8000/remove-background', {
+                    const bgRemovalResponse = await fetch(`${BACKEND_URL}/remove-background`, {
                         method: 'POST',
                         body: formData,
                     });
@@ -329,7 +332,7 @@ const upscaleImageExecutor: NodeExecutor = async (
                     formData.append('file', blob, `image-${index}.jpg`);
                     formData.append('scale', scale.toString());
 
-                    const upscaleResponse = await fetch('http://localhost:8000/upscale', {
+                    const upscaleResponse = await fetch(`${BACKEND_URL}/upscale`, {
                         method: 'POST',
                         body: formData,
                     });
