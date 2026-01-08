@@ -76,10 +76,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 // GENERIC: Render multiple input handles from configuration
                 <>
                     {metadata.inputs.map((input, index) => {
-                        // Calculate vertical position for each handle
+                        // Calculate vertical position: distribute handles evenly with more spacing
                         const totalHandles = metadata.inputs!.length;
-                        const spacing = 100 / (totalHandles + 1); // Distribute evenly
-                        const topPosition = spacing * (index + 1);
+                        // For 2 handles: positions at 25% and 75% (from center)
+                        // For 3 handles: positions at 20%, 50%, 80% etc.
+                        const offset = totalHandles === 2
+                            ? (index === 0 ? -18 : 18) // Fixed pixel offset for 2 handles
+                            : ((index - (totalHandles - 1) / 2) * 24); // Spread for 3+ handles
 
                         return (
                             <React.Fragment key={input.id}>
@@ -87,22 +90,24 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    className="w-3 h-3 !border-2 !border-white hover:brightness-110 transition-all
-                                              before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[10] before:rounded-full"
+                                    className="!w-4 !h-4 !border-2 !border-white hover:!scale-125 transition-transform cursor-crosshair"
                                     style={{
                                         background: input.color,
-                                        left: -6,
-                                        top: `${topPosition}%`,
+                                        left: -8,
+                                        top: `calc(50% + ${offset}px)`,
+                                        transform: 'translateY(-50%)',
                                     }}
                                     title={`${input.label} Input`}
                                 />
                                 {/* Handle label */}
                                 <div
-                                    className="absolute text-[8px] font-bold tracking-wide"
+                                    className="absolute text-[9px] font-bold tracking-wide pointer-events-none"
                                     style={{
-                                        left: 6,
-                                        top: `calc(${topPosition}% - 4px)`,
+                                        left: 8,
+                                        top: `calc(50% + ${offset}px)`,
+                                        transform: 'translateY(-50%)',
                                         color: input.color,
+                                        textShadow: '0 0 2px white',
                                     }}
                                 >
                                     {input.label}
