@@ -410,15 +410,25 @@ const mergeImageExecutor: NodeExecutor = async (
     try {
         const mergeConfig = config as MergeImageConfig;
 
-        // Parse input - can be { base: [...], overlay: [...] } or just images array
+        // Parse input - workflow engine passes { base: {...}, overlay: {...} }
+        // where each can be { images: [...] } or array directly
         let baseImages: ImageObject[] = [];
         let overlayImages: ImageObject[] = [];
 
+        // Helper to extract images from various input formats
+        const extractImages = (source: any): ImageObject[] => {
+            if (!source) return [];
+            if (Array.isArray(source)) return source;
+            if (source.images && Array.isArray(source.images)) return source.images;
+            if (source.url) return [source]; // Single image object
+            return [];
+        };
+
         if (input && typeof input === 'object') {
-            if (input.base && input.overlay) {
-                // Structured input: { base: [...], overlay: [...] }
-                baseImages = Array.isArray(input.base) ? input.base : [input.base];
-                overlayImages = Array.isArray(input.overlay) ? input.overlay : [input.overlay];
+            if (input.base !== undefined || input.overlay !== undefined) {
+                // Structured input from workflow engine: { base: {...}, overlay: {...} }
+                baseImages = extractImages(input.base);
+                overlayImages = extractImages(input.overlay);
             } else if (Array.isArray(input)) {
                 // Single array input - use as base, no overlay
                 baseImages = input;

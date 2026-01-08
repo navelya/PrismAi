@@ -93,7 +93,17 @@ export async function executeWorkflow(
                     const parentIds = parents.get(node.id) || [];
                     let input = null;
 
-                    if (parentIds.length === 1) {
+                    // For merge_image node, separate inputs by targetHandle
+                    if (node.type === 'merge_image') {
+                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
+                        const baseEdge = incomingEdges.find(e => (e as any).targetHandle === 'base');
+                        const overlayEdge = incomingEdges.find(e => (e as any).targetHandle === 'overlay');
+
+                        input = {
+                            base: baseEdge ? nodeOutputs.get(baseEdge.source) : null,
+                            overlay: overlayEdge ? nodeOutputs.get(overlayEdge.source) : null,
+                        };
+                    } else if (parentIds.length === 1) {
                         // Single parent - use output directly
                         input = nodeOutputs.get(parentIds[0]);
                     } else if (parentIds.length > 1) {
@@ -254,7 +264,7 @@ export function validateWorkflow(workflow: Workflow): {
     }
 
     // Check for invalid node types
-    const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image'];
+    const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image'];
     workflow.nodes.forEach(node => {
         if (!validTypes.includes(node.type)) {
             errors.push(`Invalid node type: ${node.type}`);

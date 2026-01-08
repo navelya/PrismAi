@@ -71,17 +71,60 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 </div>
             )}
 
-            {/* Input Handle - Small visual but HUGE hitbox */}
-            <Handle
-                type="target"
-                position={Position.Left}
-                className="w-3 h-3 !bg-purple-500 !border-2 !border-white hover:!bg-purple-600 transition-colors
-                          before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[20] before:rounded-full"
-                style={{
-                    background: metadata?.color || '#667eea',
-                    left: -6
-                }}
-            />
+            {/* Input Handle(s) - merge_image has TWO inputs, others have one */}
+            {type === 'merge_image' ? (
+                <>
+                    {/* Base Image Input Handle (top-left) */}
+                    <Handle
+                        type="target"
+                        position={Position.Left}
+                        id="base"
+                        className="w-3 h-3 !bg-purple-500 !border-2 !border-white hover:!bg-purple-600 transition-colors
+                                  before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[10] before:rounded-full"
+                        style={{
+                            background: '#22c55e', // Green for base
+                            left: -6,
+                            top: '30%',
+                        }}
+                        title="Base Image (Input A)"
+                    />
+                    {/* Base label */}
+                    <div className="absolute text-[8px] font-semibold text-green-600" style={{ left: 4, top: 'calc(30% - 4px)' }}>
+                        BASE
+                    </div>
+
+                    {/* Overlay Image Input Handle (bottom-left) */}
+                    <Handle
+                        type="target"
+                        position={Position.Left}
+                        id="overlay"
+                        className="w-3 h-3 !bg-purple-500 !border-2 !border-white hover:!bg-purple-600 transition-colors
+                                  before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[10] before:rounded-full"
+                        style={{
+                            background: '#f59e0b', // Orange for overlay
+                            left: -6,
+                            top: '70%',
+                        }}
+                        title="Overlay Image (Input B)"
+                    />
+                    {/* Overlay label */}
+                    <div className="absolute text-[8px] font-semibold text-orange-500" style={{ left: 4, top: 'calc(70% - 4px)' }}>
+                        OVER
+                    </div>
+                </>
+            ) : (
+                /* Single Input Handle (default for other nodes) */
+                <Handle
+                    type="target"
+                    position={Position.Left}
+                    className="w-3 h-3 !bg-purple-500 !border-2 !border-white hover:!bg-purple-600 transition-colors
+                              before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[20] before:rounded-full"
+                    style={{
+                        background: metadata?.color || '#667eea',
+                        left: -6
+                    }}
+                />
+            )}
 
             <div className="flex items-center gap-3">
                 <div

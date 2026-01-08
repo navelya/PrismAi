@@ -123,6 +123,8 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             id,
             source: connection.source!,
             target: connection.target!,
+            sourceHandle: connection.sourceHandle || undefined,
+            targetHandle: connection.targetHandle || undefined,
             type: 'smoothstep',
             animated: true,
         };
