@@ -71,49 +71,48 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 </div>
             )}
 
-            {/* Input Handle(s) - merge_image has TWO inputs, others have one */}
-            {type === 'merge_image' ? (
+            {/* Input Handle(s) - rendered from metadata.inputs or default single handle */}
+            {metadata?.inputs && metadata.inputs.length > 0 ? (
+                // GENERIC: Render multiple input handles from configuration
                 <>
-                    {/* Base Image Input Handle (top-left) */}
-                    <Handle
-                        type="target"
-                        position={Position.Left}
-                        id="base"
-                        className="w-3 h-3 !bg-purple-500 !border-2 !border-white hover:!bg-purple-600 transition-colors
-                                  before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[10] before:rounded-full"
-                        style={{
-                            background: '#22c55e', // Green for base
-                            left: -6,
-                            top: '30%',
-                        }}
-                        title="Base Image (Input A)"
-                    />
-                    {/* Base label */}
-                    <div className="absolute text-[8px] font-semibold text-green-600" style={{ left: 4, top: 'calc(30% - 4px)' }}>
-                        BASE
-                    </div>
+                    {metadata.inputs.map((input, index) => {
+                        // Calculate vertical position for each handle
+                        const totalHandles = metadata.inputs!.length;
+                        const spacing = 100 / (totalHandles + 1); // Distribute evenly
+                        const topPosition = spacing * (index + 1);
 
-                    {/* Overlay Image Input Handle (bottom-left) */}
-                    <Handle
-                        type="target"
-                        position={Position.Left}
-                        id="overlay"
-                        className="w-3 h-3 !bg-purple-500 !border-2 !border-white hover:!bg-purple-600 transition-colors
-                                  before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[10] before:rounded-full"
-                        style={{
-                            background: '#f59e0b', // Orange for overlay
-                            left: -6,
-                            top: '70%',
-                        }}
-                        title="Overlay Image (Input B)"
-                    />
-                    {/* Overlay label */}
-                    <div className="absolute text-[8px] font-semibold text-orange-500" style={{ left: 4, top: 'calc(70% - 4px)' }}>
-                        OVER
-                    </div>
+                        return (
+                            <React.Fragment key={input.id}>
+                                <Handle
+                                    type="target"
+                                    position={Position.Left}
+                                    id={input.id}
+                                    className="w-3 h-3 !border-2 !border-white hover:brightness-110 transition-all
+                                              before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[10] before:rounded-full"
+                                    style={{
+                                        background: input.color,
+                                        left: -6,
+                                        top: `${topPosition}%`,
+                                    }}
+                                    title={`${input.label} Input`}
+                                />
+                                {/* Handle label */}
+                                <div
+                                    className="absolute text-[8px] font-bold tracking-wide"
+                                    style={{
+                                        left: 6,
+                                        top: `calc(${topPosition}% - 4px)`,
+                                        color: input.color,
+                                    }}
+                                >
+                                    {input.label}
+                                </div>
+                            </React.Fragment>
+                        );
+                    })}
                 </>
             ) : (
-                /* Single Input Handle (default for other nodes) */
+                /* DEFAULT: Single Input Handle for standard nodes */
                 <Handle
                     type="target"
                     position={Position.Left}

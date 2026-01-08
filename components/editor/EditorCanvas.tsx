@@ -37,6 +37,7 @@ const nodeTypes = {
     filter_sort: CustomNode,
     ai_generate_image: CustomNode,
     upscale_image: CustomNode,
+    merge_image: CustomNode,
 };
 
 function EditorCanvasInner({

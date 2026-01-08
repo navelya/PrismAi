@@ -27,6 +27,8 @@ const nodeTypes = {
     remove_background: CustomNode,
     filter_sort: CustomNode,
     ai_generate_image: CustomNode,
+    upscale_image: CustomNode,
+    merge_image: CustomNode,
 };
 
 export default function WorkflowCanvas({ workflow }: WorkflowCanvasProps) {

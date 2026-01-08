@@ -572,19 +572,32 @@ export function getNodeExecutor(nodeType: string): NodeExecutor | null {
 
 /**
  * Node metadata for UI display
+ * 
+ * GENERIC INPUT HANDLES:
+ * - `inputs` array defines all input handles for the node
+ * - If not specified, defaults to single input handle
+ * - Each input has: id (handle ID), label (display name), color (handle color)
  */
-export const nodeMetadata = {
+export const nodeMetadata: Record<string, {
+    label: string;
+    description: string;
+    color: string;
+    icon: string;
+    inputs?: Array<{ id: string; label: string; color: string }>;
+}> = {
     scrape_images: {
         label: 'Scrape Images',
         description: 'Search and fetch images from the web',
         color: '#667eea',
         icon: 'Search',
+        // No inputs - this is a source node
     },
     remove_background: {
         label: 'Remove Background',
         description: 'Remove backgrounds from images',
         color: '#f093fb',
         icon: 'Scissors',
+        // Single default input (handled by CustomNode)
     },
     filter_sort: {
         label: 'Filter & Sort',
@@ -597,6 +610,7 @@ export const nodeMetadata = {
         description: 'Generate images with AI',
         color: '#fbbf24',
         icon: 'Sparkles',
+        // No inputs - this is a source node (prompt-based)
     },
     upscale_image: {
         label: 'Upscale Image',
@@ -606,8 +620,13 @@ export const nodeMetadata = {
     },
     merge_image: {
         label: 'Merge Image',
-        description: 'Composite overlay image onto base with positioning (supports batch mode)',
+        description: 'Composite overlay onto base image',
         color: '#14b8a6',
         icon: 'Layers',
+        // TWO input handles for base and overlay
+        inputs: [
+            { id: 'base', label: 'BASE', color: '#22c55e' },
+            { id: 'overlay', label: 'OVER', color: '#f59e0b' },
+        ],
     },
 };
