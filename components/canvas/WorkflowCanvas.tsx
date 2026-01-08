@@ -58,6 +58,8 @@ export default function WorkflowCanvas({ workflow }: WorkflowCanvasProps) {
                 id: edge.id,
                 source: edge.source,
                 target: edge.target,
+                sourceHandle: edge.sourceHandle,
+                targetHandle: edge.targetHandle,
                 type: 'smoothstep',
                 animated: true,
                 markerEnd: {

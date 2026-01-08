@@ -455,17 +455,25 @@ const mergeImageExecutor: NodeExecutor = async (
 
         console.log(`🖼️ Merge Image: ${baseImages.length} base(s) + ${overlayImages.length} overlay(s)`);
 
-        // Determine iteration mode
-        const isBroadcast = overlayImages.length === 1 && baseImages.length > 1;
-        const iterationCount = isBroadcast ? baseImages.length : Math.min(baseImages.length, overlayImages.length);
+        // Determine iteration mode:
+        // - 1 base + N overlays: broadcast base to all overlays → N results
+        // - N bases + 1 overlay: broadcast overlay to all bases → N results
+        // - N bases + N overlays: pair each base with corresponding overlay → N results
+        const isBroadcastOverlay = overlayImages.length === 1 && baseImages.length > 1;
+        const isBroadcastBase = baseImages.length === 1 && overlayImages.length > 1;
+        const iterationCount = isBroadcastOverlay
+            ? baseImages.length
+            : isBroadcastBase
+                ? overlayImages.length
+                : Math.min(baseImages.length, overlayImages.length);
 
-        console.log(`📋 Mode: ${isBroadcast ? 'Broadcast (1-to-Many)' : overlayImages.length === 1 && baseImages.length === 1 ? '1-to-1' : 'Pairwise (Many-to-Many)'}`);
+        console.log(`📋 Mode: ${isBroadcastOverlay ? 'Broadcast overlay (1-to-Many)' : isBroadcastBase ? 'Broadcast base (Many-to-1)' : overlayImages.length === 1 && baseImages.length === 1 ? '1-to-1' : 'Pairwise (Many-to-Many)'}`);
 
         const mergedImages: ImageObject[] = [];
 
         for (let i = 0; i < iterationCount; i++) {
-            const baseImg = baseImages[i];
-            const overlayImg = isBroadcast ? overlayImages[0] : overlayImages[i];
+            const baseImg = isBroadcastBase ? baseImages[0] : baseImages[i];
+            const overlayImg = isBroadcastOverlay ? overlayImages[0] : overlayImages[i];
 
             try {
                 // Fetch both images as blobs

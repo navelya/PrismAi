@@ -64,6 +64,8 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                     id: e.id,
                     source: e.source,
                     target: e.target,
+                    sourceHandle: e.sourceHandle,
+                    targetHandle: e.targetHandle,
                     type: 'smoothstep',
                     animated: true,
                 }));
@@ -118,7 +120,9 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Handle connection creation
     const onConnect = useCallback((connection: Connection) => {
-        const id = generateEdgeId(connection.source!, connection.target!);
+        // Include targetHandle in edge ID to allow multiple connections to different handles on same node
+        const handleSuffix = connection.targetHandle ? `-${connection.targetHandle}` : '';
+        const id = generateEdgeId(connection.source!, connection.target!) + handleSuffix;
         const newEdge: Edge = {
             id,
             source: connection.source!,
@@ -145,6 +149,8 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 id: e.id,
                 source: e.source,
                 target: e.target,
+                sourceHandle: e.sourceHandle || null,
+                targetHandle: e.targetHandle || null,
             })),
         };
     }, [nodes, edges, workflowName]);
