@@ -5,6 +5,8 @@ import { Send, Loader2, Bot, User } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
+import { executeWorkflow } from '@/lib/workflow-engine';
+import { generateNodeId } from '@/lib/utils';
 
 interface Message {
     id: string;
@@ -92,14 +94,18 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             const workflow = generateData.workflow;
             onWorkflowGenerated(workflow);
 
-            // Execute workflow
-            const executeResponse = await fetch('/api/workflow/execute', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ workflow }),
-            });
+            // Execute workflow CLIENT-SIDE with live status updates (same as Start button)
+            const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
+            const setNodeStatus = useAppStore.getState().setNodeStatus;
 
-            const executeData = await executeResponse.json();
+            resetNodeStatuses();
+            workflow.nodes.forEach((node: any) => setNodeStatus(node.id, 'pending'));
+
+            const executeData = await executeWorkflow(
+                workflow,
+                generateNodeId(),
+                (nodeId, status) => setNodeStatus(nodeId, status)
+            );
 
             if (!executeData.success) {
                 throw new Error(executeData.error || 'Failed to execute workflow');
@@ -149,38 +155,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {messages.map((message) => (
-                    <div
-                        key={message.id}
-                        className={`flex gap-4 animate-fade-in ${message.type === 'user' ? 'justify-end' : 'justify-start'
-                            }`}
-                    >
-                        {message.type === 'assistant' && (
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center">
-                                <Bot className="w-5 h-5 text-white" />
-                            </div>
-                        )}
-
-                        <div
-                            className={`max-w-3xl space-y-3 ${message.type === 'user'
-                                ? 'bg-gradient-premium text-white px-6 py-3 rounded-2xl rounded-tr-sm'
-                                : ''
-                                }`}
-                        >
-                            <p className={message.type === 'user' ? 'text-white' : 'text-gray-800'}>
-                                {message.content}
-                            </p>
-
-                            {message.result && (
-                                <MessageRenderer data={message.result} />
-                            )}
-                        </div>
-
-                        {message.type === 'user' && (
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
-                                <User className="w-5 h-5 text-gray-700" />
-                            </div>
-                        )}
-                    </div>
+                    <MemoizedMessage key={message.id} message={message} />
                 ))}
 
                 {isLoading && (
@@ -225,3 +200,40 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         </div>
     );
 }
+
+// Memoized message component to prevent re-renders during view switches
+const MemoizedMessage = React.memo(function MemoizedMessage({ message }: { message: Message }) {
+    return (
+        <div
+            className={`flex gap-4 animate-fade-in ${message.type === 'user' ? 'justify-end' : 'justify-start'
+                }`}
+        >
+            {message.type === 'assistant' && (
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-white" />
+                </div>
+            )}
+
+            <div
+                className={`max-w-3xl space-y-3 ${message.type === 'user'
+                    ? 'bg-gradient-premium text-white px-6 py-3 rounded-2xl rounded-tr-sm'
+                    : ''
+                    }`}
+            >
+                <p className={message.type === 'user' ? 'text-white' : 'text-gray-800'}>
+                    {message.content}
+                </p>
+
+                {message.result && (
+                    <MessageRenderer data={message.result} />
+                )}
+            </div>
+
+            {message.type === 'user' && (
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
+                    <User className="w-5 h-5 text-gray-700" />
+                </div>
+            )}
+        </div>
+    );
+});

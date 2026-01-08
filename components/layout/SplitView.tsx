@@ -113,7 +113,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
 
             {/* Chat Panel */}
             <div
-                className={`h-full relative transition-all duration-300 ease-in-out ${isCanvasOpen && activeTab === 'editor' ? 'hidden md:block' : 'block'
+                className={`h-full relative transition-[width] duration-150 ease-out ${isCanvasOpen && activeTab === 'editor' ? 'hidden md:block' : 'block'
                     }`}
                 style={{
                     width: isCanvasOpen ? `${splitRatio}%` : '100%',
@@ -135,7 +135,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
 
             {/* Editor Panel */}
             <div
-                className={`h-full border-l border-gray-200 bg-white relative overflow-hidden transition-all duration-300 ease-in-out ${isCanvasOpen && activeTab === 'chat' ? 'hidden md:flex' : isCanvasOpen ? 'flex' : 'w-0'
+                className={`h-full border-l border-gray-200 bg-white relative overflow-hidden transition-[width] duration-150 ease-out ${isCanvasOpen && activeTab === 'chat' ? 'hidden md:flex' : isCanvasOpen ? 'flex' : 'w-0'
                     }`}
                 style={{
                     width: isCanvasOpen ? `${100 - splitRatio}%` : '0',
@@ -163,7 +163,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
             {workflow && (
                 <button
                     onClick={toggleEditor}
-                    className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-full shadow-sm hover:shadow-md hover:bg-white transition-all duration-200 text-gray-700 hover:text-gray-900 text-sm font-medium"
+                    className="absolute z-40 bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-full shadow-sm hover:shadow-md hover:bg-white transition-all duration-200 text-gray-700 hover:text-gray-900 text-sm font-medium"
                     title={isCanvasOpen ? 'Hide workflow editor' : 'View workflow editor'}
                 >
                     <Code2 className="w-4 h-4" />

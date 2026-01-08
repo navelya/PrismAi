@@ -47,6 +47,34 @@ export default function MessageRenderer({ data }: MessageRendererProps) {
 
 const ImageGallery = React.memo(function ImageGallery({ images }: { images: ImageObject[] }) {
     const [selectedImage, setSelectedImage] = React.useState<{ url: string; index: number } | null>(null);
+    const [thumbnails, setThumbnails] = React.useState<Map<number, string>>(new Map());
+
+    // Generate thumbnails for large base64 images
+    React.useEffect(() => {
+        const generateThumbnails = async () => {
+            const newThumbnails = new Map<number, string>();
+
+            for (let i = 0; i < images.length; i++) {
+                const img = images[i];
+                // Only generate thumbnails for base64 images (data URLs)
+                if (img.url.startsWith('data:')) {
+                    try {
+                        const thumbnail = await createThumbnail(img.url, 300);
+                        newThumbnails.set(i, thumbnail);
+                    } catch (e) {
+                        // Fallback to original if thumbnail generation fails
+                        console.warn('Thumbnail generation failed for image', i);
+                    }
+                }
+            }
+
+            if (newThumbnails.size > 0) {
+                setThumbnails(newThumbnails);
+            }
+        };
+
+        generateThumbnails();
+    }, [images]);
 
     return (
         <div className="space-y-3">
@@ -59,11 +87,12 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                 {images.map((img, idx) => (
                     <div
                         key={idx}
-                        className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:scale-105 cursor-pointer"
+                        className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 cursor-pointer"
+                        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 192px' }}
                         onClick={() => setSelectedImage({ url: img.url, index: idx })}
                     >
                         <img
-                            src={img.url}
+                            src={thumbnails.get(idx) || img.url}
                             alt={img.metadata?.title || `Image ${idx + 1}`}
                             className="w-full h-48 object-cover"
                             loading="lazy"
@@ -99,6 +128,30 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
         </div>
     );
 });
+
+// Utility function to create a thumbnail from a base64 image
+function createThumbnail(base64Url: string, maxWidth: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const scale = Math.min(1, maxWidth / img.width);
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                reject(new Error('Could not get canvas context'));
+                return;
+            }
+
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = reject;
+        img.src = base64Url;
+    });
+}
 
 function DataTable({ data }: { data: any[] }) {
     if (data.length === 0) return null;

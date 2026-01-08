@@ -1,12 +1,12 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# Use Python 3.11 FULL image (not slim - fixes onnxruntime security issue)
+FROM python:3.11
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies for OpenCV and image processing
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -31,4 +31,4 @@ RUN mkdir -p models
 EXPOSE 7860
 
 # Run the application
-CMD ["uvicorn", "image_service.py:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "image_service:app", "--host", "0.0.0.0", "--port", "7860"]
