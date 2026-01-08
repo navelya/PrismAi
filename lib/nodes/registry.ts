@@ -9,6 +9,7 @@ import {
     FilterSortConfig,
     AIGenerateImageConfig,
     UpscaleImageConfig,
+    MergeImageConfig,
 } from './types';
 
 // Backend URL - uses environment variable in production, localhost in development
@@ -387,6 +388,199 @@ const upscaleImageExecutor: NodeExecutor = async (
 };
 
 /**
+ * Merge Image Node
+ * Composites one image (overlay) onto another (base) with positioning and scaling
+ * 
+ * ITERATION BEHAVIOR:
+ * - 1-to-1: Single base + single overlay = 1 composite
+ * - 1-to-Many (Broadcast): 10 bases + 1 overlay = 10 composites (overlay repeated)
+ * - Many-to-Many (Pairwise): 10 bases + 10 overlays = 10 composites (base[i] + overlay[i])
+ * 
+ * INPUT FORMAT:
+ * This node expects input with TWO image sources connected:
+ * - Input A (first connection / main input): Base images array
+ * - Input B (second connection): Overlay images array
+ * If only one input is connected, it uses config.overlayUrl as fallback for the overlay.
+ */
+const mergeImageExecutor: NodeExecutor = async (
+    config: NodeConfig,
+    input: any,
+    context: ExecutionContext
+): Promise<NodeExecutionResult> => {
+    try {
+        const mergeConfig = config as MergeImageConfig;
+
+        // Parse input - can be { base: [...], overlay: [...] } or just images array
+        let baseImages: ImageObject[] = [];
+        let overlayImages: ImageObject[] = [];
+
+        if (input && typeof input === 'object') {
+            if (input.base && input.overlay) {
+                // Structured input: { base: [...], overlay: [...] }
+                baseImages = Array.isArray(input.base) ? input.base : [input.base];
+                overlayImages = Array.isArray(input.overlay) ? input.overlay : [input.overlay];
+            } else if (Array.isArray(input)) {
+                // Single array input - use as base, no overlay
+                baseImages = input;
+            } else if (input.images) {
+                baseImages = Array.isArray(input.images) ? input.images : [input.images];
+            }
+        }
+
+        if (baseImages.length === 0) {
+            return {
+                success: false,
+                data: null,
+                error: 'No base images provided. Connect image source to Input A (Base).',
+            };
+        }
+
+        if (overlayImages.length === 0) {
+            return {
+                success: false,
+                data: null,
+                error: 'No overlay images provided. Connect image source to Input B (Overlay).',
+            };
+        }
+
+        console.log(`🖼️ Merge Image: ${baseImages.length} base(s) + ${overlayImages.length} overlay(s)`);
+
+        // Determine iteration mode
+        const isBroadcast = overlayImages.length === 1 && baseImages.length > 1;
+        const iterationCount = isBroadcast ? baseImages.length : Math.min(baseImages.length, overlayImages.length);
+
+        console.log(`📋 Mode: ${isBroadcast ? 'Broadcast (1-to-Many)' : overlayImages.length === 1 && baseImages.length === 1 ? '1-to-1' : 'Pairwise (Many-to-Many)'}`);
+
+        const mergedImages: ImageObject[] = [];
+
+        for (let i = 0; i < iterationCount; i++) {
+            const baseImg = baseImages[i];
+            const overlayImg = isBroadcast ? overlayImages[0] : overlayImages[i];
+
+            try {
+                // Create canvas for compositing
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                if (!ctx) {
+                    throw new Error('Failed to create canvas context');
+                }
+
+                // Load base image
+                const baseImage = await loadImage(baseImg.url);
+                canvas.width = baseImage.width;
+                canvas.height = baseImage.height;
+
+                // Draw base image
+                ctx.drawImage(baseImage, 0, 0);
+
+                // Load overlay image
+                const overlayImage = await loadImage(overlayImg.url);
+
+                // Calculate overlay dimensions
+                const overlayScale = mergeConfig.overlayScale || 0.2;
+                const padding = mergeConfig.padding || 10;
+                const opacity = mergeConfig.opacity || 1.0;
+
+                const scaledWidth = canvas.width * overlayScale;
+                const scaledHeight = (overlayImage.height / overlayImage.width) * scaledWidth;
+
+                // Calculate position
+                let x = 0, y = 0;
+                const position = mergeConfig.position || 'bottom-right';
+
+                switch (position) {
+                    case 'center':
+                        x = (canvas.width - scaledWidth) / 2;
+                        y = (canvas.height - scaledHeight) / 2;
+                        break;
+                    case 'top-left':
+                        x = padding;
+                        y = padding;
+                        break;
+                    case 'top-right':
+                        x = canvas.width - scaledWidth - padding;
+                        y = padding;
+                        break;
+                    case 'top-center':
+                        x = (canvas.width - scaledWidth) / 2;
+                        y = padding;
+                        break;
+                    case 'bottom-left':
+                        x = padding;
+                        y = canvas.height - scaledHeight - padding;
+                        break;
+                    case 'bottom-right':
+                        x = canvas.width - scaledWidth - padding;
+                        y = canvas.height - scaledHeight - padding;
+                        break;
+                    case 'bottom-center':
+                        x = (canvas.width - scaledWidth) / 2;
+                        y = canvas.height - scaledHeight - padding;
+                        break;
+                }
+
+                // Apply opacity and draw overlay
+                ctx.globalAlpha = opacity;
+                ctx.drawImage(overlayImage, x, y, scaledWidth, scaledHeight);
+                ctx.globalAlpha = 1.0;
+
+                // Convert to data URL
+                const mergedDataUrl = canvas.toDataURL('image/png');
+
+                mergedImages.push({
+                    url: mergedDataUrl,
+                    resolution: {
+                        width: canvas.width,
+                        height: canvas.height,
+                    },
+                    metadata: {
+                        processedBy: 'merge_image',
+                        source: `Merged: ${baseImg.metadata?.source || 'base'} + ${overlayImg.metadata?.source || 'overlay'}`,
+                    },
+                });
+
+                console.log(`✅ Merged image ${i + 1}/${iterationCount}`);
+
+            } catch (imgError) {
+                console.error(`❌ Failed to merge image ${i + 1}:`, imgError);
+            }
+        }
+
+        if (mergedImages.length === 0) {
+            return {
+                success: false,
+                data: null,
+                error: 'Failed to merge any images',
+            };
+        }
+
+        return {
+            success: true,
+            data: { images: mergedImages },
+        };
+
+    } catch (error) {
+        return {
+            success: false,
+            data: null,
+            error: error instanceof Error ? error.message : 'Failed to merge images',
+        };
+    }
+};
+
+// Helper function to load an image
+function loadImage(url: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+        img.src = url;
+    });
+}
+
+/**
  * Node Registry
  * Maps node types to their executor functions
  */
@@ -396,6 +590,7 @@ export const nodeRegistry: Record<string, NodeExecutor> = {
     filter_sort: filterSortExecutor,
     ai_generate_image: aiGenerateImageExecutor,
     upscale_image: upscaleImageExecutor,
+    merge_image: mergeImageExecutor,
 };
 
 /**
@@ -438,5 +633,11 @@ export const nodeMetadata = {
         description: 'AI-powered image super-resolution (2x/4x)',
         color: '#ec4899',
         icon: 'Maximize2',
+    },
+    merge_image: {
+        label: 'Merge Image',
+        description: 'Composite overlay image onto base with positioning (supports batch mode)',
+        color: '#14b8a6',
+        icon: 'Layers',
     },
 };

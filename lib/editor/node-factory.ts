@@ -34,6 +34,12 @@ export function createNodeFromType(
         upscale_image: {
             scale: 4 as const,
         },
+        merge_image: {
+            position: 'bottom-right' as const,
+            overlayScale: 0.2,
+            opacity: 1.0,
+            padding: 10,
+        },
     };
 
     const config = defaultConfigs[type];
