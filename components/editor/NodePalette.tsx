@@ -10,7 +10,7 @@ interface NodePaletteProps {
     onDragStart: (type: NodeType) => void;
 }
 
-const nodeTypes: NodeType[] = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image'];
+const nodeTypes: NodeType[] = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image'];
 
 export default function NodePalette({ onDragStart }: NodePaletteProps) {
     const [isCollapsed, setIsCollapsed] = useState(false);

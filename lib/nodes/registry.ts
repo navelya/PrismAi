@@ -390,6 +390,7 @@ const upscaleImageExecutor: NodeExecutor = async (
 /**
  * Merge Image Node
  * Composites one image (overlay) onto another (base) with positioning and scaling
+ * Uses Python backend /merge-images endpoint for server-side image processing
  * 
  * ITERATION BEHAVIOR:
  * - 1-to-1: Single base + single overlay = 1 composite
@@ -400,7 +401,6 @@ const upscaleImageExecutor: NodeExecutor = async (
  * This node expects input with TWO image sources connected:
  * - Input A (first connection / main input): Base images array
  * - Input B (second connection): Overlay images array
- * If only one input is connected, it uses config.overlayUrl as fallback for the overlay.
  */
 const mergeImageExecutor: NodeExecutor = async (
     config: NodeConfig,
@@ -458,81 +458,52 @@ const mergeImageExecutor: NodeExecutor = async (
             const overlayImg = isBroadcast ? overlayImages[0] : overlayImages[i];
 
             try {
-                // Create canvas for compositing
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
+                // Fetch both images as blobs
+                const [baseResponse, overlayResponse] = await Promise.all([
+                    fetch(baseImg.url),
+                    fetch(overlayImg.url),
+                ]);
 
-                if (!ctx) {
-                    throw new Error('Failed to create canvas context');
+                const baseBlob = await baseResponse.blob();
+                const overlayBlob = await overlayResponse.blob();
+
+                // Create form data for backend
+                const formData = new FormData();
+                formData.append('base_file', baseBlob, 'base.png');
+                formData.append('overlay_file', overlayBlob, 'overlay.png');
+                formData.append('position', mergeConfig.position || 'bottom-right');
+                formData.append('overlay_scale', String(mergeConfig.overlayScale || 0.2));
+                formData.append('opacity', String(mergeConfig.opacity || 1.0));
+                formData.append('padding', String(mergeConfig.padding || 10));
+
+                // Call backend merge endpoint
+                const mergeResponse = await fetch(`${BACKEND_URL}/merge-images`, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!mergeResponse.ok) {
+                    const errorText = await mergeResponse.text();
+                    throw new Error(`Backend error: ${errorText}`);
                 }
 
-                // Load base image
-                const baseImage = await loadImage(baseImg.url);
-                canvas.width = baseImage.width;
-                canvas.height = baseImage.height;
+                // Get merged image as blob
+                const mergedBlob = await mergeResponse.blob();
+                const mergedUrl = URL.createObjectURL(mergedBlob);
 
-                // Draw base image
-                ctx.drawImage(baseImage, 0, 0);
-
-                // Load overlay image
-                const overlayImage = await loadImage(overlayImg.url);
-
-                // Calculate overlay dimensions
-                const overlayScale = mergeConfig.overlayScale || 0.2;
-                const padding = mergeConfig.padding || 10;
-                const opacity = mergeConfig.opacity || 1.0;
-
-                const scaledWidth = canvas.width * overlayScale;
-                const scaledHeight = (overlayImage.height / overlayImage.width) * scaledWidth;
-
-                // Calculate position
-                let x = 0, y = 0;
-                const position = mergeConfig.position || 'bottom-right';
-
-                switch (position) {
-                    case 'center':
-                        x = (canvas.width - scaledWidth) / 2;
-                        y = (canvas.height - scaledHeight) / 2;
-                        break;
-                    case 'top-left':
-                        x = padding;
-                        y = padding;
-                        break;
-                    case 'top-right':
-                        x = canvas.width - scaledWidth - padding;
-                        y = padding;
-                        break;
-                    case 'top-center':
-                        x = (canvas.width - scaledWidth) / 2;
-                        y = padding;
-                        break;
-                    case 'bottom-left':
-                        x = padding;
-                        y = canvas.height - scaledHeight - padding;
-                        break;
-                    case 'bottom-right':
-                        x = canvas.width - scaledWidth - padding;
-                        y = canvas.height - scaledHeight - padding;
-                        break;
-                    case 'bottom-center':
-                        x = (canvas.width - scaledWidth) / 2;
-                        y = canvas.height - scaledHeight - padding;
-                        break;
-                }
-
-                // Apply opacity and draw overlay
-                ctx.globalAlpha = opacity;
-                ctx.drawImage(overlayImage, x, y, scaledWidth, scaledHeight);
-                ctx.globalAlpha = 1.0;
-
-                // Convert to data URL
-                const mergedDataUrl = canvas.toDataURL('image/png');
+                // Get image dimensions
+                const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                    const image = new window.Image();
+                    image.onload = () => resolve(image);
+                    image.onerror = reject;
+                    image.src = mergedUrl;
+                });
 
                 mergedImages.push({
-                    url: mergedDataUrl,
+                    url: mergedUrl,
                     resolution: {
-                        width: canvas.width,
-                        height: canvas.height,
+                        width: img.width,
+                        height: img.height,
                     },
                     metadata: {
                         processedBy: 'merge_image',
@@ -568,17 +539,6 @@ const mergeImageExecutor: NodeExecutor = async (
         };
     }
 };
-
-// Helper function to load an image
-function loadImage(url: string): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
-        img.src = url;
-    });
-}
 
 /**
  * Node Registry
