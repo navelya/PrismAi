@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Force dynamic rendering - this route uses request.url
+export const dynamic = 'force-dynamic';
+
 /**
  * Proxy for Pollinations.ai image generation
  * This route exists because Pollinations.ai blocks server-side requests (403)
