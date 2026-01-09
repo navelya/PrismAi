@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User } from 'lucide-react';
+import { Send, Loader2, Bot, User, Mic, Sparkles } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { executeWorkflow } from '@/lib/workflow-engine';
 import { generateNodeId } from '@/lib/utils';
+import { useIsMobile } from '@/lib/hooks/use-mobile';
 
 interface Message {
     id: string;
@@ -25,31 +26,19 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady }: ChatInterfaceProps) {
+    const isMobile = useIsMobile();
+
     // Use global store for messages
     const messages = useAppStore((state) => state.chatMessages);
     const addMessage = useAppStore((state) => state.addMessage);
-    const [hasCheckedMessages, setHasCheckedMessages] = React.useState(false);
 
-    // Initialize with welcome message on first load - wait for hydration
-    useEffect(() => {
-        // Small delay to ensure store has rehydrated from sessionStorage
-        const timer = setTimeout(() => {
-            if (!hasCheckedMessages && messages.length === 0) {
-                addMessage({
-                    id: '1',
-                    type: 'assistant',
-                    content: 'Hi! I\'m Prism AI. Tell me what you\'d like to do with images, and I\'ll create an automation workflow for you.',
-                    timestamp: new Date(),
-                });
-                setHasCheckedMessages(true);
-            }
-        }, 100);
-
-        return () => clearTimeout(timer);
-    }, [hasCheckedMessages, messages.length, addMessage]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Check if this is a fresh chat (no user messages yet)
+    const hasUserMessages = messages.some(m => m.type === 'user');
+    const isEmptyState = !hasUserMessages && !isLoading;
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -81,7 +70,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt: trimmedInput,
-                    previousWorkflow: currentWorkflow // Pass current workflow for context
+                    previousWorkflow: currentWorkflow
                 }),
             });
 
@@ -94,7 +83,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             const workflow = generateData.workflow;
             onWorkflowGenerated(workflow);
 
-            // Execute workflow CLIENT-SIDE with live status updates (same as Start button)
+            // Execute workflow CLIENT-SIDE with live status updates
             const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
             const setNodeStatus = useAppStore.getState().setNodeStatus;
 
@@ -150,58 +139,143 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, [onReady]);
 
-    return (
-        <div className="flex flex-col h-full bg-white">
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {messages.map((message) => (
-                    <MemoizedMessage key={message.id} message={message} />
-                ))}
+    // Input component (reused in both states)
+    const InputField = (
+        <form onSubmit={(e) => {
+            e.preventDefault();
+            handleSend();
+        }} className="relative w-full max-w-3xl mx-auto">
+            <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="e.g., Find 10 pink flowers and remove backgrounds..."
+                className="w-full px-5 py-4 pr-14 rounded-2xl border border-gray-200 bg-gray-50/50 
+                           focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white
+                           transition-all duration-200 text-gray-800 placeholder-gray-400"
+                disabled={isLoading}
+            />
+            <button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                className={`absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
+                    ${input.trim()
+                        ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105'
+                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                    }
+                    disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
+            >
+                {input.trim() ? (
+                    <Send className="w-5 h-5" />
+                ) : (
+                    <Mic className="w-5 h-5" />
+                )}
+            </button>
+        </form>
+    );
 
-                {isLoading && (
-                    <div className="flex gap-4 animate-fade-in">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center">
-                            <Bot className="w-5 h-5 text-white" />
+    // Desktop Empty State: Centered welcome with input in middle
+    if (isEmptyState && !isMobile) {
+        return (
+            <div className="flex flex-col h-full bg-white">
+                <div className="flex-1 flex items-center justify-center p-6">
+                    <div className="w-full max-w-2xl text-center">
+                        {/* Welcome Icon */}
+                        <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-lg">
+                            <Sparkles className="w-10 h-10 text-white" />
                         </div>
-                        <div className="flex items-center gap-2 text-gray-600">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span className="text-sm">Creating workflow...</span>
+
+                        {/* Welcome Text */}
+                        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                            Welcome to Prism AI
+                        </h1>
+                        <p className="text-gray-500 mb-8">
+                            Tell me what you'd like to do with images, and I'll create an automation workflow for you.
+                        </p>
+
+                        {/* Centered Input */}
+                        {InputField}
+
+                        {/* Example prompts */}
+                        <div className="mt-8 flex flex-wrap justify-center gap-2">
+                            {['Find 10 cat images', 'Remove backgrounds', 'Upscale my photos'].map((prompt) => (
+                                <button
+                                    key={prompt}
+                                    onClick={() => setInput(prompt)}
+                                    className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+                                >
+                                    {prompt}
+                                </button>
+                            ))}
                         </div>
                     </div>
-                )}
+                </div>
+            </div>
+        );
+    }
 
-                <div ref={messagesEndRef} />
+    // Mobile Empty State: Welcome at top, input at bottom
+    if (isEmptyState && isMobile) {
+        return (
+            <div className="flex flex-col h-full bg-white">
+                {/* Welcome content */}
+                <div className="flex-1 flex items-center justify-center p-6">
+                    <div className="text-center">
+                        <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-lg">
+                            <Sparkles className="w-8 h-8 text-white" />
+                        </div>
+                        <h1 className="text-xl font-bold text-gray-900 mb-2">
+                            Welcome to Prism AI
+                        </h1>
+                        <p className="text-gray-500 text-sm">
+                            Tell me what you'd like to do with images.
+                        </p>
+                    </div>
+                </div>
+
+                {/* Input at bottom */}
+                <div className="sticky bottom-0 border-t border-gray-100 p-4 bg-white/80 backdrop-blur-sm">
+                    {InputField}
+                </div>
+            </div>
+        );
+    }
+
+    // Normal chat state with messages
+    return (
+        <div className="flex flex-col h-full bg-white">
+            {/* Messages with max-width centered content */}
+            <div className="flex-1 overflow-y-auto p-6">
+                <div className="max-w-3xl mx-auto space-y-6">
+                    {messages.map((message) => (
+                        <MemoizedMessage key={message.id} message={message} />
+                    ))}
+
+                    {isLoading && (
+                        <div className="flex gap-4 animate-fade-in">
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center">
+                                <Bot className="w-5 h-5 text-white" />
+                            </div>
+                            <div className="flex items-center gap-2 text-gray-600">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <span className="text-sm">Creating workflow...</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div ref={messagesEndRef} />
+                </div>
             </div>
 
-            {/* Input */}
-            <div className="border-t border-gray-200 p-4 bg-gray-50">
-                <form onSubmit={(e) => {
-                    e.preventDefault();
-                    handleSend();
-                }} className="flex gap-3">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="e.g., Find 10 pink flowers and remove backgrounds..."
-                        className="flex-1 px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        disabled={isLoading}
-                    />
-                    <button
-                        type="submit"
-                        disabled={isLoading || !input.trim()}
-                        className="px-6 py-3 bg-gradient-premium text-white rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                        <Send className="w-4 h-4" />
-                        <span>Send</span>
-                    </button>
-                </form>
+            {/* Input - Fixed at bottom */}
+            <div className="sticky bottom-0 border-t border-gray-100 p-4 bg-white/80 backdrop-blur-sm">
+                {InputField}
             </div>
         </div>
     );
 }
 
-// Memoized message component to prevent re-renders during view switches
+// Memoized message component to prevent re-renders
 const MemoizedMessage = React.memo(function MemoizedMessage({ message }: { message: Message }) {
     return (
         <div
@@ -215,7 +289,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({ message }: { messa
             )}
 
             <div
-                className={`max-w-3xl space-y-3 ${message.type === 'user'
+                className={`max-w-[80%] space-y-3 ${message.type === 'user'
                     ? 'bg-gradient-premium text-white px-6 py-3 rounded-2xl rounded-tr-sm'
                     : ''
                     }`}

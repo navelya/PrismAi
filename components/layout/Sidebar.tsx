@@ -1,22 +1,27 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
+import React from 'react';
 import { usePathname } from 'next/navigation';
+import Link from 'next/link';
 import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, Sparkles, X } from 'lucide-react';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { useAppStore } from '@/lib/store/app-store';
 
 const navItems = [
-    { name: 'Chat', path: '/chat', icon: MessageSquare, mobileOnly: false },
-    { name: 'Editor', path: '/editor', icon: Pen, mobileOnly: false, desktopOnly: true },
-    { name: 'Library', path: '/library', icon: BookOpen, mobileOnly: false },
-    { name: 'Nodes', path: '/nodes', icon: Boxes, mobileOnly: false },
-    { name: 'Settings', path: '/settings', icon: Settings, mobileOnly: false },
+    { name: 'Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
+    { name: 'Editor', path: '/editor', icon: Pen, desktopOnly: true },
+    { name: 'Library', path: '/library', icon: BookOpen, desktopOnly: false },
+    { name: 'Nodes', path: '/nodes', icon: Boxes, desktopOnly: false },
+    { name: 'Settings', path: '/settings', icon: Settings, desktopOnly: false },
 ];
 
-export default function Sidebar() {
-    const [isExpanded, setIsExpanded] = useState(false);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+interface SidebarProps {
+    isOpen?: boolean;
+    onClose?: () => void;
+}
+
+export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
+    const [isExpanded, setIsExpanded] = React.useState(false);
     const pathname = usePathname();
     const isMobile = useIsMobile();
 
@@ -25,60 +30,92 @@ export default function Sidebar() {
         ? navItems.filter(item => !item.desktopOnly)
         : navItems;
 
-    // Mobile: Bottom navigation bar
+    // Mobile: Slide-out drawer
     if (isMobile) {
         return (
             <>
-                {/* Bottom Navigation Bar */}
-                <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 safe-area-pb">
-                    <nav className="flex justify-around items-center h-16 px-2">
-                        {visibleItems.slice(0, 4).map((item) => {
-                            const Icon = item.icon;
-                            const isActive = pathname === item.path;
+                {/* Backdrop */}
+                {isOpen && (
+                    <div
+                        className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
+                        onClick={onClose}
+                    />
+                )}
 
-                            return (
-                                <Link
-                                    key={item.path}
-                                    href={item.path}
-                                    className={`
-                                        flex flex-col items-center justify-center px-3 py-2 rounded-lg
-                                        transition-all duration-200 min-w-[64px]
-                                        ${isActive
-                                            ? 'text-purple-600'
-                                            : 'text-gray-500 hover:text-gray-700'
-                                        }
-                                    `}
-                                >
-                                    <Icon className={`w-5 h-5 ${isActive ? 'scale-110' : ''} transition-transform`} />
-                                    <span className={`text-[10px] mt-1 font-medium ${isActive ? 'text-purple-600' : 'text-gray-500'}`}>
-                                        {item.name}
-                                    </span>
-                                    {isActive && (
-                                        <div className="absolute bottom-0 w-8 h-0.5 bg-gradient-to-r from-purple-600 to-blue-500 rounded-full" />
-                                    )}
-                                </Link>
-                            );
-                        })}
+                {/* Drawer */}
+                <div
+                    className={`fixed top-0 left-0 h-full w-72 bg-white z-50 transform transition-transform duration-300 ease-out shadow-2xl
+                        ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                >
+                    {/* Drawer Header */}
+                    <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-blue-500 flex items-center justify-center">
+                                <Sparkles className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                                <h1 className="font-bold text-gray-900">Prism AI</h1>
+                                <p className="text-xs text-gray-500">Automation Platform</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                        >
+                            <X className="w-5 h-5 text-gray-500" />
+                        </button>
+                    </div>
 
-                        {/* Home/Logo button */}
+                    {/* Navigation Items */}
+                    <nav className="p-3">
+                        <ul className="space-y-1">
+                            {visibleItems.map((item) => {
+                                const Icon = item.icon;
+                                const isActive = pathname === item.path;
+
+                                return (
+                                    <li key={item.path}>
+                                        <Link
+                                            href={item.path}
+                                            onClick={onClose}
+                                            className={`
+                                                flex items-center gap-3 px-4 py-3 rounded-xl
+                                                transition-all duration-200
+                                                ${isActive
+                                                    ? 'bg-gradient-to-r from-purple-50 to-blue-50 text-purple-600'
+                                                    : 'text-gray-700 hover:bg-gray-50'
+                                                }
+                                            `}
+                                        >
+                                            <Icon className="w-5 h-5" />
+                                            <span className="font-medium">{item.name}</span>
+                                            {isActive && (
+                                                <div className="ml-auto w-2 h-2 rounded-full bg-purple-500" />
+                                            )}
+                                        </Link>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </nav>
+
+                    {/* Bottom Section */}
+                    <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-100">
                         <Link
                             href="/"
-                            className="flex flex-col items-center justify-center px-3 py-2 rounded-lg"
+                            onClick={onClose}
+                            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
                         >
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-blue-500 flex items-center justify-center">
-                                <Sparkles className="w-4 h-4 text-white" />
-                            </div>
+                            <Sparkles className="w-5 h-5 text-purple-600" />
+                            <span className="font-medium text-gray-700">Back to Home</span>
                         </Link>
-                    </nav>
+                    </div>
                 </div>
-
-                {/* Spacer to prevent content from being hidden behind bottom nav */}
-                <div className="h-16" />
             </>
         );
     }
 
-    // Desktop: Side navigation
+    // Desktop: Side navigation (unchanged)
     return (
         <div
             className={`
@@ -142,7 +179,7 @@ export default function Sidebar() {
                 </ul>
             </nav>
 
-            {/* Logo/Branding at Bottom */}
+            {/* Logo at Bottom */}
             <Link
                 href="/"
                 className="border-t border-gray-200 p-4 bg-gradient-to-br from-purple-600 to-blue-500 transition-all duration-300 hover:from-purple-500 hover:to-blue-400 cursor-pointer block"
