@@ -70,6 +70,7 @@ function EditorCanvasInner({
     const canRedo = useAppStore((state) => state.canRedo());
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
+    const layoutEngine = useAppStore((state) => state.layoutEngine);
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -158,11 +159,11 @@ function EditorCanvasInner({
 
     // Handle auto-layout button click (async for ELK.js)
     const handleAutoLayout = async () => {
-        console.log('Auto-layout clicked, nodes:', nodes.length, 'edges:', edges.length);
+        console.log('Auto-layout clicked, nodes:', nodes.length, 'edges:', edges.length, 'engine:', layoutEngine);
         if (nodes.length === 0 || !updatePositions) return;
 
-        // Calculate new positions using ELK.js layout algorithm
-        const newPositions = await autoLayoutNodesAsync(nodes, edges);
+        // Calculate new positions using selected layout engine
+        const newPositions = await autoLayoutNodesAsync(nodes, edges, layoutEngine);
         console.log('Calculated positions:', newPositions);
         console.log('Positions Map size:', newPositions.size);
 

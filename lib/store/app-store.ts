@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { Workflow, WorkflowNode, NodeStatus } from '../nodes/types';
+import { LayoutEngine } from '../utils/graph-layout';
 
 // Message interface
 interface Message {
@@ -69,6 +70,10 @@ interface AppState {
     nodeStatuses: Record<string, NodeStatus>;
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
     resetNodeStatuses: () => void;
+
+    // Layout Engine Preference
+    layoutEngine: LayoutEngine;
+    setLayoutEngine: (engine: LayoutEngine) => void;
 }
 
 const MAX_HISTORY = 50; // Keep last 50 snapshots
@@ -92,6 +97,7 @@ export const useAppStore = create<AppState>()(
             executionResults: {},
             nodeStatuses: {}, // Initialize empty status map
             copiedNode: null, // Initialize copied node as null
+            layoutEngine: 'elk', // Default layout engine
 
             // Workflow Actions
             setCurrentWorkflow: (workflow, saveToHistory = true) => {
@@ -291,6 +297,9 @@ export const useAppStore = create<AppState>()(
                 })),
 
             resetNodeStatuses: () => set({ nodeStatuses: {} }),
+
+            // Layout Engine Actions
+            setLayoutEngine: (engine) => set({ layoutEngine: engine }),
         }),
         {
             name: 'prism-ai-storage',
@@ -304,6 +313,7 @@ export const useAppStore = create<AppState>()(
                 // chatMessages: EXCLUDED - can be large with execution results
                 // executionResults: EXCLUDED - very large (images, etc.)
                 editorState: state.editorState,
+                layoutEngine: state.layoutEngine, // Persist layout preference
             }),
             // Clear messages on page refresh but keep other state
             onRehydrateStorage: () => (state) => {
