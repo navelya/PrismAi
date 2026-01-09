@@ -370,42 +370,14 @@ function EditorCanvasInner({
                 deleteKeyCode="Delete"
                 onNodesDelete={onNodesDelete}
                 isValidConnection={isValidConnection}
-                selectionOnDrag={selectionMode}
-                panOnDrag={!selectionMode}
+                selectionOnDrag={true}
+                panOnDrag={[1]}
                 selectNodesOnDrag={false}
                 connectionMode={"loose" as any}
-                selectionMode={selectionMode ? 'partial' as any : undefined}
+                selectionMode={'partial' as any}
             >
                 <Background variant={BackgroundVariant.Dots} gap={16} size={1} style={{ backgroundColor: 'rgb(var(--canvas-bg))' }} color="rgb(var(--canvas-dots))" />
-                <Controls className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg">
-                    {/* Custom Selection Mode Button */}
-                    {onSelectionToggle && (
-                        <button
-                            onClick={onSelectionToggle}
-                            className="react-flow__controls-button"
-                            title={selectionMode ? 'Pan mode (click & drag canvas)' : 'Selection mode (drag to select)'}
-                            style={{
-                                backgroundColor: selectionMode ? '#f3e8ff' : 'transparent',
-                                borderColor: selectionMode ? '#7c3aed' : 'transparent',
-                                color: selectionMode ? '#7c3aed' : '#374151',
-                            }}
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                style={{ width: 16, height: 16 }}
-                            >
-                                <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
-                                <path d="M13 13l6 6" />
-                            </svg>
-                        </button>
-                    )}
-                </Controls>
+                <Controls className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg" />
             </ReactFlow>
         </div>
     );
