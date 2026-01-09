@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import ReactFlow, {
     Background,
     Controls,
     BackgroundVariant,
-    MarkerType,
     NodeMouseHandler,
     ReactFlowProvider,
     Edge,
@@ -22,6 +21,7 @@ import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
+import CanvasContextMenu from './CanvasContextMenu';
 
 interface EditorCanvasProps {
     nodes: any[];
@@ -59,6 +59,7 @@ function EditorCanvasInner({
 }: EditorCanvasProps) {
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
     // Get store actions for undo/redo and copy/paste
     const setIsDragging = useAppStore((state) => state.setIsDragging);
@@ -280,8 +281,32 @@ function EditorCanvasInner({
         [nodes, edges]
     );
 
+    // Context menu right-click handler
+    const handleContextMenu = useCallback((event: React.MouseEvent) => {
+        event.preventDefault();
+        // Only open if we're clicking on the canvas, not on nodes
+        const target = event.target as HTMLElement;
+        if (target.closest('.react-flow__node')) {
+            return; // Clicked on a node, don't show context menu
+        }
+        setContextMenu({ x: event.clientX, y: event.clientY });
+    }, []);
+
+    // Handle node creation from context menu
+    const handleContextMenuNodeSelect = useCallback((type: NodeType, position: { x: number; y: number }) => {
+        if (reactFlowInstance && reactFlowWrapper.current) {
+            // Convert screen coordinates to flow coordinates
+            const flowPosition = reactFlowInstance.screenToFlowPosition({
+                x: position.x,
+                y: position.y,
+            });
+            onDrop(type, flowPosition);
+        }
+        setContextMenu(null);
+    }, [reactFlowInstance, onDrop]);
+
     return (
-        <div ref={reactFlowWrapper} className="w-full h-full relative">
+        <div ref={reactFlowWrapper} className="w-full h-full relative" onContextMenu={handleContextMenu}>
             {/* Undo/Redo Buttons - Top Left */}
             <div className="absolute top-4 left-4 z-[5] flex gap-2">
                 <button
@@ -343,11 +368,6 @@ function EditorCanvasInner({
                     ...e,
                     type: 'default',
                     animated: true,
-                    markerEnd: {
-                        type: 'none', //MarkerType.ArrowClosed
-                        width: 10,
-                        height: 10,
-                    },
                     style: {
                         strokeWidth: 2,
                         stroke: '#667eea',
@@ -380,6 +400,16 @@ function EditorCanvasInner({
                 <Background variant={BackgroundVariant.Dots} gap={16} size={1} style={{ backgroundColor: 'rgb(var(--canvas-bg))' }} color="rgb(var(--canvas-dots))" />
                 <Controls className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg" />
             </ReactFlow>
+
+            {/* Context Menu */}
+            {contextMenu && reactFlowWrapper.current && (
+                <CanvasContextMenu
+                    position={contextMenu}
+                    canvasBounds={reactFlowWrapper.current.getBoundingClientRect()}
+                    onSelectNode={handleContextMenuNodeSelect}
+                    onClose={() => setContextMenu(null)}
+                />
+            )}
         </div>
     );
 }

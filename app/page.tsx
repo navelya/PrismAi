@@ -109,8 +109,72 @@ export default function Home() {
                         </Link>
                     </div>
 
-                    {/* Workflow Demo Section */}
-                    <div className="relative max-w-4xl mx-auto">
+                    {/* Screenshots Showcase */}
+                    <div className="relative max-w-5xl mx-auto">
+                        <div className="grid md:grid-cols-2 gap-6">
+                            {/* Screenshot 1 */}
+                            <div className="group relative">
+                                <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-2xl blur-xl opacity-20 group-hover:opacity-30 transition-opacity" />
+                                <div className="relative bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
+                                    <div className="flex items-center gap-2 px-4 py-2 bg-gray-800 border-b border-gray-700">
+                                        <div className="flex gap-1.5">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                                        </div>
+                                        <span className="text-xs text-gray-500 ml-2">Workflow Editor</span>
+                                    </div>
+                                    <img
+                                        src="/assets/workflow-2.png"
+                                        alt="PrismAI Workflow Example 1"
+                                        className="w-full h-auto"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Screenshot 2 */}
+                            <div className="group relative">
+                                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl blur-xl opacity-20 group-hover:opacity-30 transition-opacity" />
+                                <div className="relative bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
+                                    <div className="flex items-center gap-2 px-4 py-2 bg-gray-800 border-b border-gray-700">
+                                        <div className="flex gap-1.5">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                                        </div>
+                                        <span className="text-xs text-gray-500 ml-2">Chat Interface</span>
+                                    </div>
+                                    <img
+                                        src="/assets/workflow-1.png"
+                                        alt="PrismAI Workflow Example 2"
+                                        className="w-full h-auto"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Caption */}
+                        <p className="text-center text-gray-500 text-sm mt-6">
+                            Build powerful image automation workflows with our visual editor
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            {/* Video Demo Section */}
+            <section className="px-8 py-20 bg-white/70">
+                <div className="max-w-4xl mx-auto">
+                    <div className="text-center mb-10">
+                        <h2 className="text-3xl font-bold text-gray-900 mb-4">
+                            See PrismAI in Action
+                        </h2>
+                        <p className="text-lg text-gray-600">
+                            Watch how easy it is to build and run automated workflows
+                        </p>
+                    </div>
+
+                    {/* YouTube Video Embed */}
+                    <div className="relative">
                         <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-2xl blur-xl opacity-20" />
                         <div className="relative bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
                             {/* Browser-like header */}
@@ -122,61 +186,28 @@ export default function Home() {
                                 </div>
                                 <div className="flex-1 flex justify-center">
                                     <div className="px-4 py-1 rounded-md bg-gray-700 text-gray-400 text-xs">
-                                        PrismAI Workflow Editor
+                                        PrismAI Demo
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Demo content area */}
-                            <div className="relative aspect-video bg-gradient-to-br from-gray-800 to-gray-900">
-                                {/* Placeholder for demo video - replace src with actual video */}
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    {/* Static workflow illustration when no video */}
-                                    <div className="flex items-center gap-6 scale-90">
-                                        {nodeTypes.map((node, index) => (
-                                            <div key={node.name} className="flex items-center gap-4">
-                                                <div
-                                                    className="w-20 h-20 rounded-xl flex flex-col items-center justify-center shadow-xl border-2"
-                                                    style={{
-                                                        backgroundColor: `${node.color}15`,
-                                                        borderColor: node.color
-                                                    }}
-                                                >
-                                                    <node.icon className="w-8 h-8" style={{ color: node.color }} />
-                                                    <span className="text-[10px] text-gray-400 mt-1 font-medium">
-                                                        {node.name.split(' ')[0]}
-                                                    </span>
-                                                </div>
-                                                {index < nodeTypes.length - 1 && (
-                                                    <div className="flex items-center">
-                                                        <div className="w-10 h-0.5 bg-gradient-to-r rounded" style={{
-                                                            backgroundImage: `linear-gradient(to right, ${node.color}, ${nodeTypes[index + 1].color})`
-                                                        }} />
-                                                        <ArrowRight className="w-4 h-4 text-gray-500" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Animated pulse overlay */}
-                                <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 via-transparent to-transparent" />
-
-                                {/* Play button overlay - for when you add a real video */}
-                                <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-                                    <span className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm text-white/80 text-sm border border-white/20">
-                                        ✨ See how workflows come to life
-                                    </span>
-                                </div>
+                            {/* YouTube Embed - Replace VIDEO_ID with your actual video ID */}
+                            <div className="aspect-video">
+                                <iframe
+                                    className="w-full h-full"
+                                    src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                                    title="PrismAI Demo Video"
+                                    frameBorder="0"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                    allowFullScreen
+                                />
                             </div>
                         </div>
-
-                        {/* Caption */}
-                        <p className="text-center text-gray-500 text-sm mt-4">
-                            Drag, connect, and automate — all in your browser
-                        </p>
                     </div>
+
+                    <p className="text-center text-gray-500 text-sm mt-4">
+                        🎬 Demo Video comming soon
+                    </p>
                 </div>
             </section>
 

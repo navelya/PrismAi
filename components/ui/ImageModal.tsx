@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Download } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ImageModalProps {
     imageUrl: string;
@@ -9,6 +9,8 @@ interface ImageModalProps {
     onClose: () => void;
     imageIndex?: number;
     totalImages?: number;
+    onPrevious?: () => void;
+    onNext?: () => void;
 }
 
 export function ImageModal({
@@ -16,11 +18,34 @@ export function ImageModal({
     isOpen,
     onClose,
     imageIndex,
-    totalImages
+    totalImages,
+    onPrevious,
+    onNext,
 }: ImageModalProps) {
     const [isDownloading, setIsDownloading] = useState(false);
 
+    // Keyboard navigation
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowLeft' && onPrevious) {
+                onPrevious();
+            } else if (e.key === 'ArrowRight' && onNext) {
+                onNext();
+            } else if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onPrevious, onNext, onClose]);
+
     if (!isOpen) return null;
+
+    const canGoPrevious = imageIndex !== undefined && imageIndex > 0;
+    const canGoNext = imageIndex !== undefined && totalImages !== undefined && imageIndex < totalImages - 1;
 
     const handleDownload = async () => {
         try {
@@ -59,6 +84,30 @@ export function ImageModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
             onClick={handleBackdropClick}
         >
+            {/* Previous Arrow */}
+            {canGoPrevious && onPrevious && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onPrevious(); }}
+                    className="absolute left-4 md:left-8 z-20 p-3 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full 
+                               transition-all duration-200 group border border-white/20 hover:border-white/40"
+                    aria-label="Previous image"
+                >
+                    <ChevronLeft className="w-8 h-8 text-white group-hover:scale-110 transition-transform" />
+                </button>
+            )}
+
+            {/* Next Arrow */}
+            {canGoNext && onNext && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onNext(); }}
+                    className="absolute right-4 md:right-8 z-20 p-3 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full 
+                               transition-all duration-200 group border border-white/20 hover:border-white/40"
+                    aria-label="Next image"
+                >
+                    <ChevronRight className="w-8 h-8 text-white group-hover:scale-110 transition-transform" />
+                </button>
+            )}
+
             <div className="relative max-w-7xl max-h-[90vh] p-6 bg-gray-900 rounded-2xl shadow-2xl border border-gray-700">
                 {/* Close button */}
                 <button
@@ -85,8 +134,8 @@ export function ImageModal({
                     />
                 </div>
 
-                {/* Download button */}
-                <div className="flex justify-center">
+                {/* Download button and keyboard hints */}
+                <div className="flex flex-col items-center gap-2">
                     <button
                         onClick={handleDownload}
                         disabled={isDownloading}
@@ -95,6 +144,13 @@ export function ImageModal({
                         <Download className="w-5 h-5" />
                         {isDownloading ? 'Downloading...' : 'Download PNG'}
                     </button>
+
+                    {/* Keyboard hint */}
+                    {(canGoPrevious || canGoNext) && (
+                        <p className="text-xs text-gray-500">
+                            Use <kbd className="px-1.5 py-0.5 bg-gray-800 rounded border border-gray-700 text-gray-400 font-mono text-[10px]">←</kbd> <kbd className="px-1.5 py-0.5 bg-gray-800 rounded border border-gray-700 text-gray-400 font-mono text-[10px]">→</kbd> to navigate
+                        </p>
+                    )}
                 </div>
             </div>
         </div>

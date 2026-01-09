@@ -88,10 +88,17 @@ const removeBackgroundExecutor: NodeExecutor = async (
     context: ExecutionContext
 ): Promise<NodeExecutionResult> => {
     try {
-        const images = input as ImageObject[];
-
-        if (!Array.isArray(images)) {
-            throw new Error('Input must be an array of images');
+        // Normalize input to always be an array of images
+        let images: ImageObject[] = [];
+        if (Array.isArray(input)) {
+            images = input;
+        } else if (input?.images && Array.isArray(input.images)) {
+            images = input.images;
+        } else if (input?.url) {
+            // Single image object
+            images = [input];
+        } else {
+            throw new Error('Invalid input: expected images array or single image');
         }
 
         // Process images in parallel
@@ -167,10 +174,19 @@ const filterSortExecutor: NodeExecutor = async (
 ): Promise<NodeExecutionResult> => {
     try {
         const { criteria, order, limit } = config as FilterSortConfig;
-        let images = [...(input as ImageObject[])];
 
-        if (!Array.isArray(images)) {
-            throw new Error('Input must be an array');
+        // Normalize input to always be an array of images
+        let images: ImageObject[] = [];
+        if (Array.isArray(input)) {
+            images = [...input];
+        } else if (input?.images && Array.isArray(input.images)) {
+            // Handle { images: [...] } format from merge node
+            images = [...input.images];
+        } else if (input?.url) {
+            // Single image object
+            images = [input];
+        } else {
+            throw new Error('Invalid input: expected images array or single image');
         }
 
         // Sort based on criteria
@@ -296,16 +312,25 @@ const upscaleImageExecutor: NodeExecutor = async (
 
     try {
         const { scale = 4 } = config as UpscaleImageConfig;
-        const images = input as ImageObject[];
 
-        console.log('Scale:', scale);
-        console.log('Images count:', images?.length);
-
-        if (!Array.isArray(images)) {
-            const errorMsg = 'Input must be an array of images';
-            console.error('❌', errorMsg);
+        // Normalize input to always be an array of images
+        let images: ImageObject[] = [];
+        if (Array.isArray(input)) {
+            images = input;
+        } else if (input?.images && Array.isArray(input.images)) {
+            // Handle { images: [...] } format from merge node
+            images = input.images;
+        } else if (input?.url) {
+            // Single image object
+            images = [input];
+        } else {
+            const errorMsg = 'Invalid input: expected images array or single image';
+            console.error('❌', errorMsg, 'Received:', typeof input, input);
             throw new Error(errorMsg);
         }
+
+        console.log('Scale:', scale);
+        console.log('Images count:', images.length);
 
         if (images.length === 0) {
             console.warn('⚠️ No images to upscale');
@@ -546,7 +571,7 @@ const mergeImageExecutor: NodeExecutor = async (
 
         return {
             success: true,
-            data: { images: mergedImages },
+            data: mergedImages,
         };
 
     } catch (error) {

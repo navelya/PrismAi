@@ -123,6 +123,14 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                     onClose={() => setSelectedImage(null)}
                     imageIndex={selectedImage.index}
                     totalImages={images.length}
+                    onPrevious={selectedImage.index > 0
+                        ? () => setSelectedImage({ url: images[selectedImage.index - 1].url, index: selectedImage.index - 1 })
+                        : undefined
+                    }
+                    onNext={selectedImage.index < images.length - 1
+                        ? () => setSelectedImage({ url: images[selectedImage.index + 1].url, index: selectedImage.index + 1 })
+                        : undefined
+                    }
                 />
             )}
         </div>
