@@ -5,6 +5,7 @@ import { Code2, MessageSquare, GripVertical } from 'lucide-react';
 import { Workflow } from '@/lib/nodes/types';
 import SharedWorkflowEditor from '../editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
+import { useIsMobile } from '@/lib/hooks/use-mobile';
 
 interface SplitViewProps {
     chatPanel: React.ReactNode;
@@ -13,6 +14,8 @@ interface SplitViewProps {
 }
 
 export default function SplitView({ chatPanel, workflow, onExecutionResult }: SplitViewProps) {
+    const isMobile = useIsMobile();
+
     // Use global store for editor state
     const editorState = useAppStore((state) => state.editorState);
     const setEditorState = useAppStore((state) => state.setEditorState);
@@ -83,38 +86,21 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
         }
     };
 
-    return (
-        <div ref={containerRef} className="relative w-full h-full flex flex-col md:flex-row">
-            {/* Mobile: Tab Switcher */}
-            {workflow && isCanvasOpen && (
-                <div className="md:hidden flex border-b border-gray-200 bg-white">
-                    <button
-                        onClick={() => setActiveTab('chat')}
-                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'chat'
-                            ? 'text-purple-600 border-b-2 border-purple-600'
-                            : 'text-gray-600 hover:text-gray-900'
-                            }`}
-                    >
-                        <MessageSquare className="w-4 h-4" />
-                        Chat
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('editor')}
-                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'editor'
-                            ? 'text-purple-600 border-b-2 border-purple-600'
-                            : 'text-gray-600 hover:text-gray-900'
-                            }`}
-                    >
-                        <Code2 className="w-4 h-4" />
-                        Editor
-                    </button>
-                </div>
-            )}
+    // Mobile: Chat-only experience - no editor access
+    if (isMobile) {
+        return (
+            <div className="w-full h-full flex flex-col">
+                {chatPanel}
+            </div>
+        );
+    }
 
+    // Desktop: Full split view experience
+    return (
+        <div ref={containerRef} className="relative w-full h-full flex flex-row">
             {/* Chat Panel */}
             <div
-                className={`h-full relative transition-[width] duration-150 ease-out ${isCanvasOpen && activeTab === 'editor' ? 'hidden md:block' : 'block'
-                    }`}
+                className="h-full relative transition-[width] duration-150 ease-out"
                 style={{
                     width: isCanvasOpen ? `${splitRatio}%` : '100%',
                 }}
@@ -122,10 +108,10 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
                 {chatPanel}
             </div>
 
-            {/* Desktop: Resizable Divider */}
+            {/* Resizable Divider */}
             {isCanvasOpen && workflow && (
                 <div
-                    className="hidden md:flex items-center justify-center w-1 bg-gray-200 hover:bg-purple-400 cursor-e-resize group transition-colors relative"
+                    className="flex items-center justify-center w-1 bg-gray-200 hover:bg-purple-400 cursor-e-resize group transition-colors relative"
                     onMouseDown={handleMouseDown}
                 >
                     <div className="absolute inset-y-0 -left-1 -right-1" />
@@ -135,8 +121,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
 
             {/* Editor Panel */}
             <div
-                className={`h-full border-l border-gray-200 bg-white relative overflow-hidden transition-[width] duration-150 ease-out ${isCanvasOpen && activeTab === 'chat' ? 'hidden md:flex' : isCanvasOpen ? 'flex' : 'w-0'
-                    }`}
+                className={`h-full border-l border-gray-200 bg-white relative overflow-hidden transition-[width] duration-150 ease-out ${isCanvasOpen ? 'flex' : 'w-0'}`}
                 style={{
                     width: isCanvasOpen ? `${100 - splitRatio}%` : '0',
                 }}

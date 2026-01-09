@@ -163,7 +163,7 @@ export default function SettingsPage() {
                                 title="Layout Engine"
                                 description="Choose the algorithm used for auto-arranging workflow nodes."
                             >
-                                <div className="grid grid-cols-3 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     {layoutEngines.map((engine) => (
                                         <SelectOption
                                             key={engine.value}

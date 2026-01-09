@@ -54,7 +54,7 @@ export default function Home() {
     return (
         <div className="w-full h-full overflow-auto bg-gradient-to-br from-gray-50 via-purple-50/30 to-blue-50/30">
             {/* Hero Section */}
-            <section className="relative px-8 pt-16 pb-20 overflow-hidden">
+            <section className="relative px-4 sm:px-8 pt-12 sm:pt-16 pb-16 sm:pb-20 overflow-hidden">
                 {/* Background decoration */}
                 <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-purple-200/40 to-blue-200/40 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
                 <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-amber-200/30 to-pink-200/30 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
@@ -67,7 +67,7 @@ export default function Home() {
                     </div>
 
                     {/* Title */}
-                    <h1 className="text-5xl md:text-6xl font-bold mb-6">
+                    <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold mb-6">
                         <span className="text-gray-900">Build Image Workflows</span>
                         <br />
                         <span className="bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">
@@ -76,13 +76,13 @@ export default function Home() {
                     </h1>
 
                     {/* Subtitle */}
-                    <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-10">
+                    <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto mb-8 sm:mb-10 px-4">
                         Just describe what you need. PrismAI transforms your ideas into powerful
                         image processing workflows using cutting-edge AI technology.
                     </p>
 
                     {/* CTA Buttons */}
-                    <div className="flex items-center justify-center gap-4 mb-16">
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12 sm:mb-16">
                         <Link
                             href="/chat"
                             className="group inline-flex items-center gap-2 px-8 py-4 rounded-xl
@@ -111,7 +111,7 @@ export default function Home() {
 
                     {/* Screenshots Showcase */}
                     <div className="relative max-w-5xl mx-auto">
-                        <div className="grid md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {/* Screenshot 1 */}
                             <div className="group relative">
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-2xl blur-xl opacity-20 group-hover:opacity-30 transition-opacity" />
@@ -162,10 +162,10 @@ export default function Home() {
             </section>
 
             {/* Video Demo Section */}
-            <section className="px-8 py-20 bg-white/70">
+            <section className="px-4 sm:px-8 py-12 sm:py-20 bg-white/70">
                 <div className="max-w-4xl mx-auto">
-                    <div className="text-center mb-10">
-                        <h2 className="text-3xl font-bold text-gray-900 mb-4">
+                    <div className="text-center mb-8 sm:mb-10">
+                        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">
                             See PrismAI in Action
                         </h2>
                         <p className="text-lg text-gray-600">
@@ -212,7 +212,7 @@ export default function Home() {
             </section>
 
             {/* Features Section */}
-            <section className="px-8 py-20 bg-white/50">
+            <section className="px-4 sm:px-8 py-12 sm:py-20 bg-white/50">
                 <div className="max-w-5xl mx-auto">
                     <div className="text-center mb-12">
                         <h2 className="text-3xl font-bold text-gray-900 mb-4">
@@ -223,7 +223,7 @@ export default function Home() {
                         </p>
                     </div>
 
-                    <div className="grid md:grid-cols-3 gap-8">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
                         {features.map((feature) => (
                             <div
                                 key={feature.title}
@@ -251,7 +251,7 @@ export default function Home() {
             </section>
 
             {/* CTA Section */}
-            <section className="px-8 py-20">
+            <section className="px-4 sm:px-8 py-12 sm:py-20">
                 <div className="max-w-3xl mx-auto text-center">
                     <div className="relative">
                         <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-3xl blur-2xl opacity-20" />
