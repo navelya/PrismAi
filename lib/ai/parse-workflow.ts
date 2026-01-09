@@ -4,7 +4,7 @@ import { autoLayoutNodesAsync } from '../utils/graph-layout';
 
 /**
  * Parse user request and convert to workflow using Gemini
- * Can create new workflows or modify existing ones based on context
+ * Optimized for speed - minimal logging, fast layout
  */
 export async function parseRequestToWorkflow(
     userPrompt: string,
@@ -14,115 +14,86 @@ export async function parseRequestToWorkflow(
     workflow?: Workflow;
     error?: string;
 }> {
-    console.log('🎯 === WORKFLOW GENERATION START ===');
-    console.log('📝 User Prompt:', userPrompt);
-    console.log('🔄 Previous Workflow:', previousWorkflow ? 'YES' : 'NO');
-    console.log('🔑 Gemini API Key Present:', !!process.env.GEMINI_API_KEY);
-
     try {
-        // Build context-aware prompt
+        // Build context-aware prompt (compact format)
         let fullPrompt = userPrompt;
 
-        if (previousWorkflow && previousWorkflow.nodes && previousWorkflow.nodes.length > 0) {
-            console.log('📋 Including current workflow context...');
-            console.log('  - Current nodes:', previousWorkflow.nodes.length);
-            console.log('  - Current edges:', previousWorkflow.edges?.length || 0);
-
-            fullPrompt = `Current workflow in the editor:
-${JSON.stringify(previousWorkflow, null, 2)}
-
-User's request: "${userPrompt}"
-
-IMPORTANT: Analyze the request carefully:
-- If it's a MODIFICATION (e.g., "change them to X", "make it Y", "add Z", "remove background", "sort by...", "give me X instead"):
-  → Modify the current workflow above, preserve node IDs
-- If it's a NEW REQUEST (e.g., "get me X", "find Y", "search for Z"):
-  → Create a completely new workflow
-
-For modifications, maintain node IDs and only change what's requested.
-Return the modified or new workflow as JSON.`;
+        if (previousWorkflow?.nodes?.length) {
+            // Compact workflow context - only essential info
+            const compactWorkflow = {
+                nodes: previousWorkflow.nodes.map(n => ({
+                    id: n.id,
+                    type: n.type,
+                    config: n.data.config
+                })),
+                edges: previousWorkflow.edges?.map(e => ({
+                    source: e.source,
+                    target: e.target,
+                    targetHandle: (e as any).targetHandle
+                }))
+            };
+            fullPrompt = `Current:${JSON.stringify(compactWorkflow)}\nRequest:"${userPrompt}"\nModify or create new as needed.`;
         }
 
         // Generate workflow using Gemini
-        console.log('🤖 Calling Gemini API...');
         const response = await generateWithGemini(fullPrompt);
-        console.log('✅ Gemini Response Received');
-        console.log('📄 Raw Response:', response.substring(0, 200) + '...');
 
-        // Clean response (remove markdown code blocks if present)
+        // Clean response (remove markdown)
         let cleanedResponse = response.trim();
         if (cleanedResponse.startsWith('```')) {
-            cleanedResponse = cleanedResponse
-                .replace(/```json\n?/g, '')
-                .replace(/```\n?/g, '')
-                .trim();
+            cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         }
 
         // Parse JSON
-        console.log('🔍 Parsing JSON...');
         const workflow: Workflow = JSON.parse(cleanedResponse);
-        console.log('✅ Parsed Workflow Successfully');
-        console.log('📊 Workflow Details:');
-        console.log('  - Name:', workflow.name);
-        console.log('  - Nodes:', workflow.nodes?.length);
-        console.log('  - Edges:', workflow.edges?.length);
-
-
-        if (workflow.nodes?.[0]) {
-            const firstNode = workflow.nodes[0];
-            console.log('  - First Node Type:', firstNode.type);
-            if (firstNode.type === 'scrape_images' && 'searchTerm' in firstNode.data.config) {
-                console.log('  - Search Term:', (firstNode.data.config as ScrapeImagesConfig).searchTerm);
-                console.log('  - Limit:', (firstNode.data.config as ScrapeImagesConfig).limit);
-            }
-        }
 
         // Validate basic structure
         if (!workflow.nodes || !Array.isArray(workflow.nodes)) {
-            throw new Error('Invalid workflow: missing or invalid nodes array');
+            throw new Error('Invalid workflow: missing nodes array');
         }
+        if (!workflow.edges) workflow.edges = [];
 
-        if (!workflow.edges || !Array.isArray(workflow.edges)) {
-            throw new Error('Invalid workflow: missing or invalid edges array');
-        }
-
-        // Validate node types
+        // Validate node types and normalize structure
         const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image'];
-        for (const node of workflow.nodes) {
+        workflow.nodes = workflow.nodes.map((node, index) => {
             if (!validTypes.includes(node.type)) {
                 throw new Error(`Invalid node type: ${node.type}`);
             }
-        }
 
-        // ✨ AUTO-LAYOUT: Apply ELK.js positioning to the generated workflow
-        console.log('📐 Applying ELK.js auto-layout to AI-generated workflow...');
-        const layoutPositions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges);
-
-        // Update node positions based on layout calculation
-        workflow.nodes = workflow.nodes.map(node => {
-            const position = layoutPositions.get(node.id);
-            if (position) {
-                console.log(`  → Positioned ${node.type} at (${position.x}, ${position.y})`);
-                return {
-                    ...node,
-                    position: position
-                };
+            // Ensure node has a valid ID (ELK requires string IDs)
+            if (!node.id || typeof node.id !== 'string') {
+                node.id = `node_${index}`;
             }
+
+            // Ensure node has proper data.config structure
+            // AI might return config at top level or under data
+            if (!node.data) {
+                node.data = { label: node.type, config: (node as any).config || {} };
+            } else if (!node.data.config) {
+                node.data.config = {};
+            }
+
+            // Clean up top-level config if it was moved to data
+            if ((node as any).config) {
+                node.data.config = { ...node.data.config, ...(node as any).config };
+                delete (node as any).config;
+            }
+
             return node;
         });
 
-        console.log('✅ Auto-layout applied successfully!');
+        // AUTO-LAYOUT: Always apply ELK layout for consistent positioning
+        const layoutPositions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges);
+        workflow.nodes = workflow.nodes.map(node => {
+            const position = layoutPositions.get(node.id);
+            return position ? { ...node, position } : {
+                ...node,
+                position: node.position || { x: 0, y: 100 }
+            };
+        });
 
-        return {
-            success: true,
-            workflow,
-        };
+        return { success: true, workflow };
     } catch (error) {
-        console.error('❌ === WORKFLOW GENERATION ERROR ===');
-        console.error('Error Type:', error instanceof Error ? error.constructor.name : typeof error);
-        console.error('Error Message:', error instanceof Error ? error.message : String(error));
-        console.error('Stack:', error instanceof Error ? error.stack : 'N/A');
-
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Failed to parse workflow',

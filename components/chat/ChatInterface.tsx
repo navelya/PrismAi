@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff } from 'lucide-react';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
@@ -36,6 +36,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const [isLoading, setIsLoading] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const recognitionRef = useRef<any>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Check if this is a fresh chat (no user messages yet)
@@ -55,49 +56,93 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         if (typeof window !== 'undefined') {
             const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
             if (SpeechRecognition) {
-                recognitionRef.current = new SpeechRecognition();
-                recognitionRef.current.continuous = false;
-                recognitionRef.current.interimResults = true;
-                recognitionRef.current.lang = 'en-US';
+                const recognition = new SpeechRecognition();
+                recognition.continuous = true;  // Keep listening until manually stopped
+                recognition.interimResults = true;
+                recognition.lang = 'en-US';
+                recognition.maxAlternatives = 1;
 
-                recognitionRef.current.onresult = (event: any) => {
-                    const transcript = Array.from(event.results)
-                        .map((result: any) => result[0].transcript)
-                        .join('');
-                    setInput(transcript);
+                recognition.onresult = (event: any) => {
+                    let finalTranscript = '';
+                    let interimTranscript = '';
+
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const transcript = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            finalTranscript += transcript;
+                        } else {
+                            interimTranscript += transcript;
+                        }
+                    }
+
+                    // Show interim results while speaking, or final when done
+                    setInput(prev => {
+                        // If we have final transcript, append it
+                        if (finalTranscript) {
+                            return (prev + ' ' + finalTranscript).trim();
+                        }
+                        // Otherwise show the interim (will be replaced)
+                        return interimTranscript || prev;
+                    });
                 };
 
-                recognitionRef.current.onend = () => {
+                recognition.onend = () => {
                     setIsListening(false);
                 };
 
-                recognitionRef.current.onerror = (event: any) => {
+                recognition.onerror = (event: any) => {
                     console.error('Speech recognition error:', event.error);
                     setIsListening(false);
+
+                    // Provide user feedback for common errors
+                    if (event.error === 'not-allowed') {
+                        alert('Microphone access denied. Please allow microphone access in your browser settings.');
+                    } else if (event.error === 'no-speech') {
+                        // Don't show alert for no-speech, just silently stop
+                    }
                 };
+
+                recognitionRef.current = recognition;
             }
         }
 
         return () => {
             if (recognitionRef.current) {
-                recognitionRef.current.abort();
+                try {
+                    recognitionRef.current.abort();
+                } catch (e) {
+                    // Ignore abort errors
+                }
             }
         };
     }, []);
 
-    const toggleListening = () => {
+    const toggleListening = async () => {
         if (!recognitionRef.current) {
-            alert('Speech recognition is not supported in your browser.');
+            alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
             return;
         }
 
         if (isListening) {
-            recognitionRef.current.stop();
+            try {
+                recognitionRef.current.stop();
+            } catch (e) {
+                // Ignore stop errors
+            }
             setIsListening(false);
         } else {
-            setInput('');
-            recognitionRef.current.start();
-            setIsListening(true);
+            // Request microphone permission first on mobile
+            try {
+                // This triggers the permission dialog on mobile
+                await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                setInput('');
+                recognitionRef.current.start();
+                setIsListening(true);
+            } catch (err) {
+                console.error('Microphone permission error:', err);
+                alert('Please allow microphone access to use voice input.');
+            }
         }
     };
 
@@ -115,6 +160,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         addMessage(userMessage);
         setInput('');
         setIsLoading(true);
+
+        // Create abort controller for this request
+        abortControllerRef.current = new AbortController();
 
         try {
             // Generate workflow from user input (with current workflow as context)
@@ -173,7 +221,25 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             addMessage(errorMessage);
         } finally {
             setIsLoading(false);
+            abortControllerRef.current = null;
         }
+    };
+
+    const handleStop = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+        setIsLoading(false);
+
+        // Add a message indicating the workflow was stopped
+        const stopMessage: Message = {
+            id: Date.now().toString(),
+            type: 'assistant',
+            content: '⏹️ Workflow stopped by user.',
+            timestamp: new Date(),
+        };
+        addMessage(stopMessage);
     };
 
     // Expose method to add execution results from editor
@@ -207,15 +273,23 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                            focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white
                            transition-all duration-200 text-gray-800 placeholder-gray-400
                            ${isListening ? 'border-red-400 ring-2 ring-red-500/20' : 'border-gray-200'}`}
-                disabled={isLoading}
             />
-            {input.trim() ? (
+            {isLoading ? (
+                <button
+                    type="button"
+                    onClick={handleStop}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
+                        bg-red-500 text-white shadow-lg hover:bg-red-600 hover:scale-105"
+                    title="Stop workflow"
+                >
+                    <Square className="w-5 h-5 fill-current" />
+                </button>
+            ) : input.trim() ? (
                 <button
                     type="submit"
                     disabled={isLoading}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
-                        bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105
-                        disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                        bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105"
                 >
                     <Send className="w-5 h-5" />
                 </button>
@@ -223,13 +297,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 <button
                     type="button"
                     onClick={toggleListening}
-                    disabled={isLoading}
                     className={`absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
                         ${isListening
                             ? 'bg-red-500 text-white shadow-lg animate-pulse'
                             : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                        }
-                        disabled:opacity-50 disabled:cursor-not-allowed`}
+                        }`}
                 >
                     {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                 </button>

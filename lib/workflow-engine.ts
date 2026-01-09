@@ -47,9 +47,6 @@ export async function executeWorkflow(
             throw new Error('Workflow has no nodes');
         }
 
-        console.log('🚀 Starting PARALLEL workflow execution');
-        console.log(`  - Nodes: ${workflow.nodes.length}`);
-        console.log(`  - Edges: ${workflow.edges.length}`);
 
         // Build dependency graph
         const { parents, children, inDegree } = buildDependencyGraph(workflow.nodes, workflow.edges);
@@ -71,7 +68,6 @@ export async function executeWorkflow(
         // Find initial ready nodes (no dependencies)
         let readyNodes = workflow.nodes.filter(node => currentInDegree.get(node.id) === 0);
 
-        console.log(`📍 Initial ready nodes: ${readyNodes.map(n => n.type).join(', ')}`);
 
         let waveNumber = 1;
 
@@ -96,13 +92,34 @@ export async function executeWorkflow(
                     // For merge_image node, separate inputs by targetHandle
                     if (node.type === 'merge_image') {
                         const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-                        const baseEdge = incomingEdges.find(e => (e as any).targetHandle === 'base');
-                        const overlayEdge = incomingEdges.find(e => (e as any).targetHandle === 'overlay');
+                        let baseEdge = incomingEdges.find(e => (e as any).targetHandle === 'base');
+                        let overlayEdge = incomingEdges.find(e => (e as any).targetHandle === 'overlay');
+
+                        // Fallback: if no targetHandle, infer from source node type
+                        // - remove_background output goes to overlay (it's the subject)
+                        // - ai_generate_image output goes to base (it's the background)
+                        if (!baseEdge || !overlayEdge) {
+                            for (const edge of incomingEdges) {
+                                const sourceNode = workflow.nodes.find(n => n.id === edge.source);
+                                if (!sourceNode) continue;
+
+                                if (sourceNode.type === 'remove_background' && !overlayEdge) {
+                                    overlayEdge = edge;
+                                } else if ((sourceNode.type === 'ai_generate_image' || sourceNode.type === 'scrape_images') && !baseEdge) {
+                                    baseEdge = edge;
+                                }
+                            }
+
+                            // Final fallback: first edge = base, second = overlay
+                            if (!baseEdge && incomingEdges.length >= 1) baseEdge = incomingEdges[0];
+                            if (!overlayEdge && incomingEdges.length >= 2) overlayEdge = incomingEdges[1];
+                        }
 
                         input = {
                             base: baseEdge ? nodeOutputs.get(baseEdge.source) : null,
                             overlay: overlayEdge ? nodeOutputs.get(overlayEdge.source) : null,
                         };
+
                     } else if (parentIds.length === 1) {
                         // Single parent - use output directly
                         input = nodeOutputs.get(parentIds[0]);

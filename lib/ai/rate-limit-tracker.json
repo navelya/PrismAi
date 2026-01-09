@@ -1,4 +1,10 @@
 {
-    "info": "This file tracks Gemini model rate limits. Auto-managed by ModelManager.",
-    "note": "Models are automatically re-enabled after cooldown (60s or 24h)"
+  "info": "This file tracks Gemini model rate limits. Auto-managed by ModelManager.",
+  "note": "Models are automatically re-enabled after cooldown (60s or 24h)",
+  "gemini-3-flash-preview": {
+    "model": "gemini-3-flash-preview",
+    "isBlocked": true,
+    "blockedAt": 1767987975911,
+    "cooldownType": "daily"
+  }
 }

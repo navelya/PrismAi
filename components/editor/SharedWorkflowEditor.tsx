@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import EditorToolbar from './EditorToolbar';
 import EditorCanvas from './EditorCanvas';
 import NodePalette from './NodePalette';
@@ -59,6 +59,7 @@ export default function SharedWorkflowEditor({
     const [executionError, setExecutionError] = useState<string | null>(null);
     const [showResults, setShowResults] = useState(false);
     const [selectionMode, setSelectionMode] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // Save initial workflow to history on mount
     useEffect(() => {
@@ -82,7 +83,8 @@ export default function SharedWorkflowEditor({
                 onWorkflowChange(workflow);
             }
         }
-    }, [nodes, edges, workflowName, isDragging, getCurrentWorkflow, setCurrentWorkflow, onWorkflowChange]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [nodes, edges, workflowName, isDragging]);
 
     const handleNodeClick = (_event: any, node: any) => {
         if (readOnly) return;
@@ -109,6 +111,9 @@ export default function SharedWorkflowEditor({
         setIsExecuting(true);
         setExecutionError(null);
         setShowResults(true);
+
+        // Create abort controller
+        abortControllerRef.current = new AbortController();
 
         // Reset all node statuses
         const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
@@ -143,6 +148,20 @@ export default function SharedWorkflowEditor({
             setExecutionError(result.error || 'Execution failed');
             setExecutionResult(null);
         }
+
+        abortControllerRef.current = null;
+    };
+
+    const handleStop = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+        setIsExecuting(false);
+
+        // Reset all node statuses
+        const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
+        resetNodeStatuses();
     };
 
     const handleDelete = () => {
@@ -171,6 +190,8 @@ export default function SharedWorkflowEditor({
                     onNameChange={setWorkflowName}
                     onSave={handleSave}
                     onRun={handleRun}
+                    onStop={handleStop}
+                    isRunning={isExecuting}
                     onDelete={handleDelete}
                     onNew={handleNew}
                     selectionMode={selectionMode}
@@ -212,7 +233,7 @@ export default function SharedWorkflowEditor({
                 </div>
 
                 {/* Property Panel */}
-                {!readOnly && showPropertyPanel && selectedNodeData && selectedNodeData.type && (
+                {!readOnly && showPropertyPanel && selectedNodeData && selectedNodeData.type && selectedNodeData.data?.config && (
                     <PropertyPanel
                         nodeId={selectedNodeData.id}
                         nodeType={selectedNodeData.type}

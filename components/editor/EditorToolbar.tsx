@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer } from 'lucide-react';
+import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square } from 'lucide-react';
 
 interface EditorToolbarProps {
     workflowName: string;
     onNameChange: (name: string) => void;
     onSave: () => void;
     onRun: () => void;
+    onStop?: () => void;
+    isRunning?: boolean;
     onDelete: () => void;
     onNew: () => void;
     selectionMode?: boolean;
@@ -19,6 +21,8 @@ export default function EditorToolbar({
     onNameChange,
     onSave,
     onRun,
+    onStop,
+    isRunning = false,
     onDelete,
     onNew,
     selectionMode = false,
@@ -37,15 +41,26 @@ export default function EditorToolbar({
                 placeholder="Workflow name"
             />
 
-            {/* Primary Actions - Always visible */}
-            <button
-                onClick={onRun}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:shadow-md transition-all font-medium text-sm"
-                title="Run workflow"
-            >
-                <Play className="w-4 h-4" />
-                <span className="hidden sm:inline">Run</span>
-            </button>
+            {/* Primary Action - Run/Stop toggle */}
+            {isRunning ? (
+                <button
+                    onClick={onStop}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 hover:shadow-md transition-all font-medium text-sm"
+                    title="Stop workflow"
+                >
+                    <Square className="w-4 h-4 fill-current" />
+                    <span className="hidden sm:inline">Stop</span>
+                </button>
+            ) : (
+                <button
+                    onClick={onRun}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:shadow-md transition-all font-medium text-sm"
+                    title="Run workflow"
+                >
+                    <Play className="w-4 h-4" />
+                    <span className="hidden sm:inline">Run</span>
+                </button>
+            )}
 
             {/* Desktop: Show all buttons */}
             <div className="hidden lg:flex items-center gap-2">
