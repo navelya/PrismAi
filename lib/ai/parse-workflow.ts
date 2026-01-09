@@ -1,6 +1,6 @@
 import { generateWithGemini } from './gemini-client';
 import { Workflow, WorkflowNode, WorkflowEdge, ScrapeImagesConfig } from '../nodes/types';
-import { autoLayoutNodes } from '../utils/graph-layout';
+import { autoLayoutNodesAsync } from '../utils/graph-layout';
 
 /**
  * Parse user request and convert to workflow using Gemini
@@ -94,9 +94,9 @@ Return the modified or new workflow as JSON.`;
             }
         }
 
-        // ✨ AUTO-LAYOUT: Apply intelligent positioning to the generated workflow
-        console.log('📐 Applying auto-layout to AI-generated workflow...');
-        const layoutPositions = autoLayoutNodes(workflow.nodes, workflow.edges);
+        // ✨ AUTO-LAYOUT: Apply ELK.js positioning to the generated workflow
+        console.log('📐 Applying ELK.js auto-layout to AI-generated workflow...');
+        const layoutPositions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges);
 
         // Update node positions based on layout calculation
         workflow.nodes = workflow.nodes.map(node => {

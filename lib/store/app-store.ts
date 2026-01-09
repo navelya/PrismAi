@@ -44,7 +44,10 @@ interface AppState {
     setIsDragging: (isDragging: boolean) => void;
 
     // Node Management
+    copiedNode: WorkflowNode | null;
     deleteNode: (nodeId: string) => void;
+    copyNode: (nodeId: string) => void;
+    pasteNode: (position?: { x: number; y: number }) => void;
     updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
     updateNodePositions: (positions: Map<string, { x: number; y: number }>) => void;
 
@@ -88,6 +91,7 @@ export const useAppStore = create<AppState>()(
             },
             executionResults: {},
             nodeStatuses: {}, // Initialize empty status map
+            copiedNode: null, // Initialize copied node as null
 
             // Workflow Actions
             setCurrentWorkflow: (workflow, saveToHistory = true) => {
@@ -171,6 +175,40 @@ export const useAppStore = create<AppState>()(
                     edges: state.currentWorkflow.edges.filter(
                         (edge) => edge.source !== nodeId && edge.target !== nodeId
                     ),
+                };
+
+                set({ currentWorkflow: updatedWorkflow });
+                get().saveSnapshot();
+            },
+
+            copyNode: (nodeId) => {
+                const state = get();
+                if (!state.currentWorkflow) return;
+
+                const nodeToCopy = state.currentWorkflow.nodes.find((node) => node.id === nodeId);
+                if (nodeToCopy) {
+                    // Deep copy the node
+                    set({ copiedNode: JSON.parse(JSON.stringify(nodeToCopy)) });
+                }
+            },
+
+            pasteNode: (position) => {
+                const state = get();
+                if (!state.currentWorkflow || !state.copiedNode) return;
+
+                // Create new node with unique ID and offset position
+                const newNode: WorkflowNode = {
+                    ...JSON.parse(JSON.stringify(state.copiedNode)),
+                    id: `node_${Date.now()}`,
+                    position: position || {
+                        x: state.copiedNode.position.x + 50,
+                        y: state.copiedNode.position.y + 50,
+                    },
+                };
+
+                const updatedWorkflow: Workflow = {
+                    ...state.currentWorkflow,
+                    nodes: [...state.currentWorkflow.nodes, newNode],
                 };
 
                 set({ currentWorkflow: updatedWorkflow });

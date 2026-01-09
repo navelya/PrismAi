@@ -19,11 +19,29 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
         : Icons.Box;
 
     const deleteNode = useAppStore((state) => state.deleteNode);
+    const copyNode = useAppStore((state) => state.copyNode);
+    const pasteNode = useAppStore((state) => state.pasteNode);
+    const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
 
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
         deleteNode(id);
+    };
+
+    // Duplicate node immediately (copy + paste in one action)
+    const handleDuplicate = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        // Get current node position
+        const currentNode = currentWorkflow?.nodes.find((n) => n.id === id);
+        if (currentNode) {
+            copyNode(id);
+            // Paste immediately with offset position
+            pasteNode({
+                x: currentNode.position.x + 50,
+                y: currentNode.position.y + 50,
+            });
+        }
     };
 
     return (
@@ -38,19 +56,31 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 borderColor: metadata?.color || '#667eea',
             }}
         >
-            {/* Delete Button - appears on hover */}
-            <button
-                onClick={handleDelete}
-                className="absolute -top-2 -right-2 w-6 h-6 rounded-full
-                           bg-red-500/90 hover:bg-red-600 backdrop-blur-sm
-                           flex items-center justify-center
-                           opacity-0 group-hover:opacity-100
-                           transition-all duration-200 shadow-lg
-                           hover:scale-110 z-10"
-                title="Delete node"
-            >
-                <Icons.X className="w-3.5 h-3.5 text-white" />
-            </button>
+            {/* Node Action Buttons - appear on hover */}
+            <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
+                {/* Duplicate Button */}
+                <button
+                    onClick={handleDuplicate}
+                    className="w-6 h-6 rounded-full
+                               bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
+                               flex items-center justify-center
+                               shadow-lg hover:scale-110 transition-all duration-200"
+                    title="Duplicate node"
+                >
+                    <Icons.Copy className="w-3 h-3 text-white" />
+                </button>
+                {/* Delete Button */}
+                <button
+                    onClick={handleDelete}
+                    className="w-6 h-6 rounded-full
+                               bg-red-500/90 hover:bg-red-600 backdrop-blur-sm
+                               flex items-center justify-center
+                               shadow-lg hover:scale-110 transition-all duration-200"
+                    title="Delete node"
+                >
+                    <Icons.X className="w-3.5 h-3.5 text-white" />
+                </button>
+            </div>
 
             {/* Status Badge - shows execution state */}
             {status !== 'idle' && (
@@ -89,11 +119,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    className="w-3 h-3 !border-2 !border-white hover:!brightness-110 transition-colors"
+                                    className="w-6 h-6 !border-2 !border-white hover:!brightness-110 transition-colors"
                                     style={{
                                         background: metadata?.color || '#667eea',
                                         left: -6,
                                         top: `calc(50% + ${offset}px)`,
+                                        width: '10px',
+                                        height: '10px',
                                     }}
                                 />
                                 {/* Small label next to handle */}
@@ -116,11 +148,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className="w-3 h-3 !border-2 !border-white hover:!brightness-110 transition-colors
+                    className="w-4 h-4 !border-2 !border-white hover:!brightness-110 transition-colors
                               before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[20] before:rounded-full"
                     style={{
                         background: metadata?.color || '#667eea',
-                        left: -6
+                        left: -6,
+                        width: '10px',
+                        height: '10px',
                     }}
                 />
             )}
@@ -150,11 +184,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
             <Handle
                 type="source"
                 position={Position.Right}
-                className="w-3 h-3 !bg-blue-500 !border-2 !border-white hover:!bg-blue-600 transition-colors
+                className="w-4 h-4 !bg-blue-500 !border-2 !border-white hover:!bg-blue-600 transition-colors
                           before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[20] before:rounded-full"
                 style={{
                     background: metadata?.color || '#667eea',
-                    right: -6
+                    right: -6,
+                    width: '10px',
+                    height: '10px',
                 }}
             />
         </div>

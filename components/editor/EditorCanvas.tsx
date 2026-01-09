@@ -10,13 +10,18 @@ import ReactFlow, {
     ReactFlowProvider,
     Edge,
     NodeDragHandler,
+    getIncomers,
+    getOutgoers,
+    getConnectedEdges,
+    useReactFlow,
+    Connection,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network } from 'lucide-react';
-import { autoLayoutNodes } from '@/lib/utils/graph-layout';
+import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 
 interface EditorCanvasProps {
     nodes: any[];
@@ -55,7 +60,7 @@ function EditorCanvasInner({
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
 
-    // Get store actions for undo/redo
+    // Get store actions for undo/redo and copy/paste
     const setIsDragging = useAppStore((state) => state.setIsDragging);
     const updateNodePosition = useAppStore((state) => state.updateNodePosition);
     const saveSnapshot = useAppStore((state) => state.saveSnapshot);
@@ -63,6 +68,8 @@ function EditorCanvasInner({
     const redo = useAppStore((state) => state.redo);
     const canUndo = useAppStore((state) => state.canUndo());
     const canRedo = useAppStore((state) => state.canRedo());
+    const copyNode = useAppStore((state) => state.copyNode);
+    const pasteNode = useAppStore((state) => state.pasteNode);
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -95,11 +102,31 @@ function EditorCanvasInner({
                 }
                 return;
             }
+
+            // Copy: Ctrl+C - copy selected node
+            if (ctrlKey && event.key.toLowerCase() === 'c') {
+                // Get selected nodes from React Flow
+                const selectedNodes = nodes.filter((n: any) => n.selected);
+                if (selectedNodes.length === 1) {
+                    event.preventDefault();
+                    copyNode(selectedNodes[0].id);
+                    console.log('Node copied:', selectedNodes[0].id);
+                }
+                return;
+            }
+
+            // Paste: Ctrl+V - paste copied node
+            if (ctrlKey && event.key.toLowerCase() === 'v') {
+                event.preventDefault();
+                pasteNode();
+                console.log('Node pasted');
+                return;
+            }
         };
 
         document.addEventListener('keydown', handleKeyDown, true); // Use capture phase
         return () => document.removeEventListener('keydown', handleKeyDown, true);
-    }, [undo, redo, canUndo, canRedo]);
+    }, [undo, redo, canUndo, canRedo, nodes, copyNode, pasteNode]);
 
     // Handle node drag start
     const handleNodeDragStart: NodeDragHandler = useCallback(() => {
@@ -129,13 +156,13 @@ function EditorCanvasInner({
         }
     };
 
-    // Handle auto-layout button click
-    const handleAutoLayout = () => {
+    // Handle auto-layout button click (async for ELK.js)
+    const handleAutoLayout = async () => {
         console.log('Auto-layout clicked, nodes:', nodes.length, 'edges:', edges.length);
         if (nodes.length === 0 || !updatePositions) return;
 
-        // Calculate new positions using the graph layout algorithm
-        const newPositions = autoLayoutNodes(nodes, edges);
+        // Calculate new positions using ELK.js layout algorithm
+        const newPositions = await autoLayoutNodesAsync(nodes, edges);
         console.log('Calculated positions:', newPositions);
         console.log('Positions Map size:', newPositions.size);
 
@@ -182,6 +209,74 @@ function EditorCanvasInner({
             onEdgesChange([{ type: 'remove', id: edge.id }]);
         },
         [onEdgesChange]
+    );
+
+    // Handle node deletion - reconnect incomers to outgoers (delete middle node)
+    const onNodesDelete = useCallback(
+        (deleted: any[]) => {
+            // For each deleted node, connect its incomers to its outgoers
+            const newEdges = deleted.reduce((acc, node) => {
+                const incomers = getIncomers(node, nodes, acc);
+                const outgoers = getOutgoers(node, nodes, acc);
+                const connectedEdges = getConnectedEdges([node], acc);
+
+                // Remove edges connected to deleted node
+                const remainingEdges = acc.filter((edge: Edge) => !connectedEdges.includes(edge));
+
+                // Create new edges to bridge the gap
+                const createdEdges = incomers.flatMap(({ id: source }) =>
+                    outgoers.map(({ id: target }) => ({
+                        id: `${source}->${target}`,
+                        source,
+                        target,
+                        type: 'default',
+                        animated: true,
+                    }))
+                );
+
+                return [...remainingEdges, ...createdEdges];
+            }, edges);
+
+            // Update edges through the onChange callback
+            onEdgesChange(
+                edges.filter((e: Edge) => !newEdges.find((ne: Edge) => ne.id === e.id))
+                    .map((e: Edge) => ({ type: 'remove' as const, id: e.id }))
+            );
+
+            // Add the new bridging edges
+            newEdges.filter((ne: Edge) => !edges.find((e: Edge) => e.id === ne.id))
+                .forEach((edge: Edge) => {
+                    onConnect({ source: edge.source, target: edge.target, sourceHandle: null, targetHandle: null });
+                });
+        },
+        [nodes, edges, onEdgesChange, onConnect]
+    );
+
+    // Prevent cycles - check if new connection would create a cycle
+    const isValidConnection = useCallback(
+        (connection: Connection) => {
+            // Don't allow self-connections
+            if (connection.source === connection.target) return false;
+
+            // Check if this connection would create a cycle
+            const target = nodes.find((node: any) => node.id === connection.target);
+            if (!target) return false;
+
+            // DFS to check for cycle
+            const hasCycle = (node: any, visited = new Set<string>()): boolean => {
+                if (visited.has(node.id)) return false;
+                visited.add(node.id);
+
+                for (const outgoer of getOutgoers(node, nodes, edges)) {
+                    if (outgoer.id === connection.source) return true;
+                    if (hasCycle(outgoer, visited)) return true;
+                }
+                return false;
+            };
+
+            return !hasCycle(target);
+        },
+        [nodes, edges]
     );
 
     return (
@@ -245,12 +340,12 @@ function EditorCanvasInner({
                 nodes={nodes}
                 edges={edges.map(e => ({
                     ...e,
-                    type: 'smoothstep',
+                    type: 'default',
                     animated: true,
                     markerEnd: {
-                        type: MarkerType.ArrowClosed,
-                        width: 20,
-                        height: 20,
+                        type: 'none', //MarkerType.ArrowClosed
+                        width: 10,
+                        height: 10,
                     },
                     style: {
                         strokeWidth: 2,
@@ -273,6 +368,8 @@ function EditorCanvasInner({
                 fitView
                 fitViewOptions={{ padding: 0.3, maxZoom: 0.8 }}
                 deleteKeyCode="Delete"
+                onNodesDelete={onNodesDelete}
+                isValidConnection={isValidConnection}
                 selectionOnDrag={selectionMode}
                 panOnDrag={!selectionMode}
                 selectNodesOnDrag={false}
