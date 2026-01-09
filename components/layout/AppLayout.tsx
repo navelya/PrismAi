@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 
 interface AppLayoutProps {
@@ -8,6 +9,20 @@ interface AppLayoutProps {
 }
 
 export default function AppLayout({ children }: AppLayoutProps) {
+    const pathname = usePathname();
+
+    // Hide sidebar on home page (root URL)
+    const isHomePage = pathname === '/';
+
+    // Home page gets full width, no sidebar
+    if (isHomePage) {
+        return (
+            <div className="w-full h-screen overflow-hidden">
+                {children}
+            </div>
+        );
+    }
+
     return (
         <div className="w-full h-screen flex overflow-hidden">
             {/* Sidebar Navigation */}

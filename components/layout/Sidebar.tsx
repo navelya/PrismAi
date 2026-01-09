@@ -84,18 +84,22 @@ export default function Sidebar() {
                 </ul>
             </nav>
 
-            {/* Logo/Branding at Bottom */}
-            <div className={`
-        border-t border-gray-200 p-4 bg-gradient-to-br from-purple-600 to-blue-500
-        transition-all duration-300
-      `}>
+            {/* Logo/Branding at Bottom - Clickable to go home */}
+            <Link
+                href="/"
+                className={`
+                    border-t border-gray-200 p-4 bg-gradient-to-br from-purple-600 to-blue-500
+                    transition-all duration-300 hover:from-purple-500 hover:to-blue-400
+                    cursor-pointer block
+                `}
+            >
                 <div className={`flex items-center gap-3 ${!isExpanded && 'justify-center'}`}>
                     {/* Logo Icon */}
                     <div className={`
-            rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center
-            transition-all duration-300
-            ${isExpanded ? 'w-10 h-10' : 'w-8 h-8'}
-          `}>
+                        rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center
+                        transition-all duration-300
+                        ${isExpanded ? 'w-10 h-10' : 'w-8 h-8'}
+                    `}>
                         <Sparkles className={`text-white ${isExpanded ? 'w-6 h-6' : 'w-4 h-4'}`} />
                     </div>
 
@@ -107,7 +111,7 @@ export default function Sidebar() {
                         </div>
                     )}
                 </div>
-            </div>
+            </Link>
         </div>
     );
 }
