@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User, Mic, Sparkles } from 'lucide-react';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
@@ -34,6 +34,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+    const recognitionRef = useRef<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Check if this is a fresh chat (no user messages yet)
@@ -47,6 +49,57 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    // Initialize Web Speech API
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                recognitionRef.current = new SpeechRecognition();
+                recognitionRef.current.continuous = false;
+                recognitionRef.current.interimResults = true;
+                recognitionRef.current.lang = 'en-US';
+
+                recognitionRef.current.onresult = (event: any) => {
+                    const transcript = Array.from(event.results)
+                        .map((result: any) => result[0].transcript)
+                        .join('');
+                    setInput(transcript);
+                };
+
+                recognitionRef.current.onend = () => {
+                    setIsListening(false);
+                };
+
+                recognitionRef.current.onerror = (event: any) => {
+                    console.error('Speech recognition error:', event.error);
+                    setIsListening(false);
+                };
+            }
+        }
+
+        return () => {
+            if (recognitionRef.current) {
+                recognitionRef.current.abort();
+            }
+        };
+    }, []);
+
+    const toggleListening = () => {
+        if (!recognitionRef.current) {
+            alert('Speech recognition is not supported in your browser.');
+            return;
+        }
+
+        if (isListening) {
+            recognitionRef.current.stop();
+            setIsListening(false);
+        } else {
+            setInput('');
+            recognitionRef.current.start();
+            setIsListening(true);
+        }
+    };
 
     const handleSend = async () => {
         const trimmedInput = input.trim();
@@ -149,28 +202,38 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="e.g., Find 10 pink flowers and remove backgrounds..."
-                className="w-full px-5 py-4 pr-14 rounded-2xl border border-gray-200 bg-gray-50/50 
+                placeholder={isListening ? 'Listening...' : 'e.g., Find 10 pink flowers and remove backgrounds...'}
+                className={`w-full px-5 py-4 pr-14 rounded-2xl border bg-gray-50/50 
                            focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white
-                           transition-all duration-200 text-gray-800 placeholder-gray-400"
+                           transition-all duration-200 text-gray-800 placeholder-gray-400
+                           ${isListening ? 'border-red-400 ring-2 ring-red-500/20' : 'border-gray-200'}`}
                 disabled={isLoading}
             />
-            <button
-                type="submit"
-                disabled={isLoading || !input.trim()}
-                className={`absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
-                    ${input.trim()
-                        ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105'
-                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                    }
-                    disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
-            >
-                {input.trim() ? (
+            {input.trim() ? (
+                <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
+                        bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105
+                        disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                >
                     <Send className="w-5 h-5" />
-                ) : (
-                    <Mic className="w-5 h-5" />
-                )}
-            </button>
+                </button>
+            ) : (
+                <button
+                    type="button"
+                    onClick={toggleListening}
+                    disabled={isLoading}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
+                        ${isListening
+                            ? 'bg-red-500 text-white shadow-lg animate-pulse'
+                            : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                        }
+                        disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                    {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                </button>
+            )}
         </form>
     );
 
