@@ -14,12 +14,14 @@ import ReactFlow, {
     getConnectedEdges,
     useReactFlow,
     Connection,
+    Panel,
+    useViewport,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Undo2, Redo2, Network } from 'lucide-react';
+import { Undo2, Redo2, Network, Trash2, Copy } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 
@@ -71,7 +73,18 @@ function EditorCanvasInner({
     const canRedo = useAppStore((state) => state.canRedo());
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
+    const deleteNode = useAppStore((state) => state.deleteNode);
     const layoutEngine = useAppStore((state) => state.layoutEngine);
+
+    // Get selected nodes
+    const selectedNodes = useMemo(() => nodes.filter((n: any) => n.selected), [nodes]);
+    const multiSelectCount = selectedNodes.length;
+
+    // Track viewport changes to update button positions on zoom/pan
+    const viewport = useViewport();
+
+    // Get setNodes for programmatic selection
+    const { setNodes } = useReactFlow();
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -307,61 +320,7 @@ function EditorCanvasInner({
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full relative" onContextMenu={handleContextMenu}>
-            {/* Undo/Redo Buttons - Top Left */}
-            <div className="absolute top-4 left-4 z-[5] flex gap-2">
-                <button
-                    onClick={handleUndo}
-                    disabled={!canUndo}
-                    suppressHydrationWarning
-                    className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
-                               shadow-lg hover:shadow-xl transition-all duration-200
-                               flex items-center justify-center
-                               disabled:opacity-40 disabled:cursor-not-allowed
-                               hover:bg-white dark:hover:bg-gray-700 disabled:hover:bg-white/90 dark:disabled:hover:bg-gray-800/90
-                               group"
-                    title="Undo (Ctrl+Z)"
-                >
-                    <Undo2
-                        className={`w-4 h-4 transition-colors ${canUndo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`}
-                        suppressHydrationWarning
-                    />
-                </button>
-                <button
-                    onClick={handleRedo}
-                    disabled={!canRedo}
-                    suppressHydrationWarning
-                    className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
-                               shadow-lg hover:shadow-xl transition-all duration-200
-                               flex items-center justify-center
-                               disabled:opacity-40 disabled:cursor-not-allowed
-                               hover:bg-white dark:hover:bg-gray-700 disabled:hover:bg-white/90 dark:disabled:hover:bg-gray-800/90
-                               group"
-                    title="Redo (Ctrl+Y)"
-                >
-                    <Redo2
-                        className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`}
-                        suppressHydrationWarning
-                    />
-                </button>
-                <button
-                    onClick={handleAutoLayout}
-                    disabled={nodes.length === 0}
-                    suppressHydrationWarning
-                    className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
-                               shadow-lg hover:shadow-xl transition-all duration-200
-                               flex items-center justify-center
-                               disabled:opacity-40 disabled:cursor-not-allowed
-                               hover:bg-white dark:hover:bg-gray-700 disabled:hover:bg-white/90 dark:disabled:hover:bg-gray-800/90
-                               group"
-                    title="Auto Layout"
-                >
-                    <Network
-                        className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`}
-                        suppressHydrationWarning
-                    />
-                </button>
-            </div>
-
+            {/* Toolbar now inside ReactFlow via Panel */}
             <ReactFlow
                 nodes={nodes}
                 edges={edges.map(e => ({
@@ -399,18 +358,174 @@ function EditorCanvasInner({
             >
                 <Background variant={BackgroundVariant.Dots} gap={16} size={1} style={{ backgroundColor: 'rgb(var(--canvas-bg))' }} color="rgb(var(--canvas-dots))" />
                 <Controls className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg" />
+
+                {/* Undo/Redo/Layout Panel - Inside ReactFlow to not break selection */}
+                <Panel position="top-left" className="flex gap-2 !m-4">
+                    <button
+                        onClick={handleUndo}
+                        disabled={!canUndo}
+                        suppressHydrationWarning
+                        className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
+                                   shadow-lg hover:shadow-xl transition-all duration-200
+                                   flex items-center justify-center
+                                   disabled:opacity-40 disabled:cursor-not-allowed
+                                   hover:bg-white dark:hover:bg-gray-700 group"
+                        title="Undo (Ctrl+Z)"
+                    >
+                        <Undo2 className={`w-4 h-4 transition-colors ${canUndo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`} suppressHydrationWarning />
+                    </button>
+                    <button
+                        onClick={handleRedo}
+                        disabled={!canRedo}
+                        className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
+                                   shadow-lg hover:shadow-xl transition-all duration-200
+                                   flex items-center justify-center
+                                   disabled:opacity-40 disabled:cursor-not-allowed
+                                   hover:bg-white dark:hover:bg-gray-700 group"
+                        title="Redo (Ctrl+Y)"
+                    >
+                        <Redo2 className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`} />
+                    </button>
+                    <button
+                        onClick={handleAutoLayout}
+                        disabled={nodes.length === 0}
+                        className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
+                                   shadow-lg hover:shadow-xl transition-all duration-200
+                                   flex items-center justify-center
+                                   disabled:opacity-40 disabled:cursor-not-allowed
+                                   hover:bg-white dark:hover:bg-gray-700 group"
+                        title="Auto Layout"
+                    >
+                        <Network className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`} />
+                    </button>
+                </Panel>
+
+                {/* Selection Action Buttons - Positioned relative to selection bounding box */}
+                {multiSelectCount >= 2 && reactFlowInstance && (() => {
+                    // Calculate selection bounding box
+                    const NODE_WIDTH = 200;
+                    const NODE_HEIGHT = 80;
+
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    const selectedNodeIds = selectedNodes.map((n: any) => n.id);
+                    selectedNodes.forEach((node: any) => {
+                        const x = node.position?.x || 0;
+                        const y = node.position?.y || 0;
+                        minX = Math.min(minX, x);
+                        minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x + NODE_WIDTH);
+                        maxY = Math.max(maxY, y + NODE_HEIGHT);
+                    });
+
+                    const groupWidth = maxX - minX;
+
+                    // Convert flow position to screen position for button placement
+                    const screenPos = reactFlowInstance.flowToScreenPosition({ x: maxX, y: minY });
+                    const wrapperRect = reactFlowWrapper.current?.getBoundingClientRect();
+                    const left = screenPos.x - (wrapperRect?.left || 0);
+                    const top = screenPos.y - (wrapperRect?.top || 0) - 36;
+
+                    return (
+                        <Panel
+                            position="top-left"
+                            style={{
+                                position: 'absolute',
+                                left: Math.max(8, left - 64),
+                                top: Math.max(8, top),
+                                margin: 0,
+                            }}
+                        >
+                            <div className="flex gap-1">
+                                <button
+                                    onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+
+                                        // Copy entire group to the RIGHT of the selection box
+                                        if (selectedNodes.length > 0) {
+                                            const selectedIds = new Set(selectedNodes.map((n: any) => n.id));
+                                            const idMap = new Map<string, string>();
+                                            const newNodes: any[] = [];
+
+                                            // Offset = group width + 50px gap
+                                            const offsetX = groupWidth + 50;
+
+                                            selectedNodes.forEach((node: any, index: number) => {
+                                                const newId = `node_${Date.now()}_${index}`;
+                                                idMap.set(node.id, newId);
+                                                newNodes.push({
+                                                    ...JSON.parse(JSON.stringify(node)),
+                                                    id: newId,
+                                                    selected: false,
+                                                    position: {
+                                                        x: (node.position?.x || 0) + offsetX,
+                                                        y: (node.position?.y || 0), // Same Y, offset X
+                                                    },
+                                                });
+                                            });
+
+                                            const newEdges: any[] = [];
+                                            edges.forEach((edge: any) => {
+                                                if (selectedIds.has(edge.source) && selectedIds.has(edge.target)) {
+                                                    newEdges.push({
+                                                        ...edge,
+                                                        id: `edge_${Date.now()}_${edge.id}`,
+                                                        source: idMap.get(edge.source),
+                                                        target: idMap.get(edge.target),
+                                                    });
+                                                }
+                                            });
+
+                                            const state = useAppStore.getState();
+                                            if (state.currentWorkflow) {
+                                                // Just add new nodes - don't touch existing nodes
+                                                // This preserves ReactFlow's internal selection state
+                                                useAppStore.setState({
+                                                    currentWorkflow: {
+                                                        ...state.currentWorkflow,
+                                                        nodes: [...state.currentWorkflow.nodes, ...newNodes],
+                                                        edges: [...(state.currentWorkflow.edges || []), ...newEdges],
+                                                    }
+                                                });
+                                                saveSnapshot();
+                                            }
+                                        }
+                                    }}
+                                    className="p-1.5 rounded bg-white/95 border border-gray-200 text-gray-600 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-300 transition-colors shadow-md"
+                                    title="Copy selected nodes"
+                                >
+                                    <Copy className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        selectedNodes.forEach((node: any) => deleteNode(node.id));
+                                    }}
+                                    className="p-1.5 rounded bg-white/95 border border-gray-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-colors shadow-md"
+                                    title="Delete selected nodes"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </Panel>
+                    );
+                })()}
             </ReactFlow>
 
             {/* Context Menu */}
-            {contextMenu && reactFlowWrapper.current && (
-                <CanvasContextMenu
-                    position={contextMenu}
-                    canvasBounds={reactFlowWrapper.current.getBoundingClientRect()}
-                    onSelectNode={handleContextMenuNodeSelect}
-                    onClose={() => setContextMenu(null)}
-                />
-            )}
-        </div>
+            {
+                contextMenu && reactFlowWrapper.current && (
+                    <CanvasContextMenu
+                        position={contextMenu}
+                        canvasBounds={reactFlowWrapper.current.getBoundingClientRect()}
+                        onSelectNode={handleContextMenuNodeSelect}
+                        onClose={() => setContextMenu(null)}
+                    />
+                )
+            }
+        </div >
     );
 }
 

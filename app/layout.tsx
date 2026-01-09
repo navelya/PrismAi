@@ -16,6 +16,9 @@ export const metadata: Metadata = {
         statusBarStyle: 'default',
         title: 'Prism AI',
     },
+    other: {
+        'mobile-web-app-capable': 'yes',
+    },
     viewport: {
         width: 'device-width',
         initialScale: 1,

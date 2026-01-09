@@ -31,12 +31,14 @@ function buildDependencyGraph(nodes: WorkflowNode[], edges: { source: string; ta
  * - Independent nodes run simultaneously
  * - Nodes wait for ALL parents to complete
  * - Failures are isolated to individual branches
- * @param onStatusUpdate Optional callback for real-time status updates  
+ * @param onStatusUpdate Optional callback for real-time status updates
+ * @param onNodeOutput Optional callback for streaming node outputs
  */
 export async function executeWorkflow(
     workflow: Workflow,
     executionId: string,
-    onStatusUpdate?: (nodeId: string, status: NodeStatus) => void
+    onStatusUpdate?: (nodeId: string, status: NodeStatus) => void,
+    onNodeOutput?: (nodeId: string, output: any) => void
 ): Promise<{
     success: boolean;
     result: any;
@@ -174,6 +176,9 @@ export async function executeWorkflow(
                     completedNodes.add(node.id);
                     nodeOutputs.set(node.id, result.value.output);
                     onStatusUpdate?.(node.id, 'success');
+
+                    // Emit the output for live streaming results
+                    onNodeOutput?.(node.id, result.value.output);
 
                     // Unlock children
                     const childIds = children.get(node.id) || [];

@@ -71,6 +71,11 @@ interface AppState {
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
     resetNodeStatuses: () => void;
 
+    // Live Node Outputs (streaming results)
+    nodeOutputs: Record<string, any>;
+    setNodeOutput: (nodeId: string, output: any) => void;
+    clearNodeOutputs: () => void;
+
     // Layout Engine Preference
     layoutEngine: LayoutEngine;
     setLayoutEngine: (engine: LayoutEngine) => void;
@@ -96,6 +101,7 @@ export const useAppStore = create<AppState>()(
             },
             executionResults: {},
             nodeStatuses: {}, // Initialize empty status map
+            nodeOutputs: {}, // Initialize empty outputs map
             copiedNode: null, // Initialize copied node as null
             layoutEngine: 'elk', // Default layout engine
 
@@ -297,6 +303,17 @@ export const useAppStore = create<AppState>()(
                 })),
 
             resetNodeStatuses: () => set({ nodeStatuses: {} }),
+
+            // Live Node Output Actions (streaming results)
+            setNodeOutput: (nodeId, output) =>
+                set((state) => ({
+                    nodeOutputs: {
+                        ...state.nodeOutputs,
+                        [nodeId]: output,
+                    },
+                })),
+
+            clearNodeOutputs: () => set({ nodeOutputs: {} }),
 
             // Layout Engine Actions
             setLayoutEngine: (engine) => set({ layoutEngine: engine }),

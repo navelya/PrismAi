@@ -115,11 +115,14 @@ export default function SharedWorkflowEditor({
         // Create abort controller
         abortControllerRef.current = new AbortController();
 
-        // Reset all node statuses
+        // Reset all node statuses and outputs for live streaming
         const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
+        const clearNodeOutputs = useAppStore.getState().clearNodeOutputs;
         const setNodeStatus = useAppStore.getState().setNodeStatus;
+        const setNodeOutput = useAppStore.getState().setNodeOutput;
 
         resetNodeStatuses();
+        clearNodeOutputs();
 
         // Mark all nodes as pending
         nodes.forEach(node => setNodeStatus(node.id, 'pending'));
@@ -127,11 +130,12 @@ export default function SharedWorkflowEditor({
         const workflow = getCurrentWorkflow();
         const executionId = generateNodeId();
 
-        // Execute with real-time status callback
+        // Execute with real-time status and output callbacks
         const result = await executeWorkflow(
             workflow,
             executionId,
-            (nodeId, status) => setNodeStatus(nodeId, status)
+            (nodeId, status) => setNodeStatus(nodeId, status),
+            (nodeId, output) => setNodeOutput(nodeId, output)
         );
 
         setIsExecuting(false);
@@ -227,7 +231,6 @@ export default function SharedWorkflowEditor({
                             result={executionResult}
                             isExecuting={isExecuting}
                             error={executionError}
-                            onClose={() => setShowResults(false)}
                         />
                     )}
                 </div>
