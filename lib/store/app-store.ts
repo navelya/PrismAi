@@ -118,8 +118,33 @@ export const useAppStore = create<AppState>()(
                 const state = get();
                 if (state.isDragging) return; // Don't save during drag
 
+                // Create snapshot but strip large data (base64 images) to avoid localStorage quota
+                let workflowForSnapshot = null;
+                if (state.currentWorkflow) {
+                    const strippedWorkflow = {
+                        ...state.currentWorkflow,
+                        nodes: state.currentWorkflow.nodes.map(node => {
+                            // Strip base64 images from media_input nodes (they're too large for localStorage)
+                            if (node.type === 'media_input' && (node.data?.config as any)?.images) {
+                                return {
+                                    ...node,
+                                    data: {
+                                        ...node.data,
+                                        config: {
+                                            ...node.data.config,
+                                            images: [], // Empty the images array in snapshot
+                                        },
+                                    },
+                                };
+                            }
+                            return node;
+                        }),
+                    };
+                    workflowForSnapshot = JSON.parse(JSON.stringify(strippedWorkflow));
+                }
+
                 const snapshot: HistorySnapshot = {
-                    workflow: state.currentWorkflow ? JSON.parse(JSON.stringify(state.currentWorkflow)) : null,
+                    workflow: workflowForSnapshot,
                     timestamp: Date.now(),
                 };
 

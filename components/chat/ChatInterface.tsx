@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square } from 'lucide-react';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
@@ -131,17 +131,42 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             }
             setIsListening(false);
         } else {
-            // Request microphone permission first on mobile
             try {
-                // This triggers the permission dialog on mobile
-                await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Check permission state first (if Permissions API available)
+                if (navigator.permissions) {
+                    try {
+                        const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+
+                        if (permissionStatus.state === 'denied') {
+                            alert('Microphone access was denied. Please enable it in your browser or app settings and try again.');
+                            return;
+                        }
+                    } catch (permErr) {
+                        // Permissions API may not support 'microphone' query on some browsers, continue anyway
+                        console.log('Permissions API query not supported, continuing with getUserMedia');
+                    }
+                }
+
+                // Request microphone permission - this triggers the browser/app permission dialog
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                // Stop streaming immediately (we just need permission, SpeechRecognition handles audio)
+                stream.getTracks().forEach(track => track.stop());
 
                 setInput('');
                 recognitionRef.current.start();
                 setIsListening(true);
-            } catch (err) {
+            } catch (err: any) {
                 console.error('Microphone permission error:', err);
-                alert('Please allow microphone access to use voice input.');
+
+                // Provide specific error messages
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    alert('Microphone access denied. Please tap the mic button again and allow access when prompted, or enable microphone in your device settings.');
+                } else if (err.name === 'NotFoundError') {
+                    alert('No microphone found. Please connect a microphone and try again.');
+                } else {
+                    alert('Could not access microphone. Please check your device settings and try again.');
+                }
             }
         }
     };
@@ -258,54 +283,165 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, [onReady]);
 
-    // Input component (reused in both states)
+    // Textarea ref for auto-resize
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [isMultiLine, setIsMultiLine] = useState(false);
+
+    // Auto-resize textarea and detect multi-line
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setInput(e.target.value);
+
+        // Auto-resize
+        const textarea = textareaRef.current;
+        if (textarea) {
+            // First check if content requires multiple lines BEFORE resizing
+            const hasNewlines = e.target.value.includes('\n');
+
+            // Temporarily reset height to measure true content height
+            textarea.style.height = 'auto';
+            const contentHeight = textarea.scrollHeight;
+
+            // Multi-line if has newlines or content wraps beyond single line (~48px)
+            const isWrapping = contentHeight > 48;
+            setIsMultiLine(hasNewlines || isWrapping);
+
+            // Now apply the constrained height
+            const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
+            const newHeight = Math.min(contentHeight, maxHeight);
+            textarea.style.height = `${newHeight}px`;
+        }
+    };
+
+    // Check if textarea exceeds 3 lines (for mobile expand button)
+    const showExpandButton = isMobile && !isExpanded && textareaRef.current && textareaRef.current.scrollHeight > 72;
+
+    // Input component (reused in both states) - ChatGPT-style layout
     const InputField = (
         <form onSubmit={(e) => {
             e.preventDefault();
             handleSend();
         }} className="relative w-full max-w-3xl mx-auto">
-            <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={isListening ? 'Listening...' : 'e.g., Find 10 pink flowers and remove backgrounds...'}
-                className={`w-full px-5 py-4 pr-14 rounded-2xl border bg-gray-50/50 
-                           focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 focus:bg-white
-                           transition-all duration-200 text-gray-800 placeholder-gray-400
-                           ${isListening ? 'border-red-400 ring-2 ring-red-500/20' : 'border-gray-200'}`}
-            />
-            {isLoading ? (
+            {/* Mobile expand button */}
+            {showExpandButton && (
                 <button
                     type="button"
-                    onClick={handleStop}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
-                        bg-red-500 text-white shadow-lg hover:bg-red-600 hover:scale-105"
-                    title="Stop workflow"
+                    onClick={() => setIsExpanded(true)}
+                    className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 text-xs 
+                               bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-t-lg
+                               border border-b-0 border-gray-200 transition-colors z-10"
                 >
-                    <Square className="w-5 h-5 fill-current" />
-                </button>
-            ) : input.trim() ? (
-                <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
-                        bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105"
-                >
-                    <Send className="w-5 h-5" />
-                </button>
-            ) : (
-                <button
-                    type="button"
-                    onClick={toggleListening}
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all duration-200
-                        ${isListening
-                            ? 'bg-red-500 text-white shadow-lg animate-pulse'
-                            : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                        }`}
-                >
-                    {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    Expand ↑
                 </button>
             )}
+
+            {/* Input container - switches between row (single line) and column (multi-line) layout */}
+            <div className={`relative flex rounded-2xl border bg-gray-50/50 
+                           focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-400 focus-within:bg-white
+                           transition-all duration-200
+                           ${isMultiLine ? 'flex-col' : 'items-end'}
+                           ${isListening ? 'border-red-400 ring-2 ring-red-500/20' : 'border-gray-200'}`}>
+
+                {/* Single-line mode: Plus button inline with textarea */}
+                {!isMultiLine && (
+                    <button
+                        type="button"
+                        onClick={() => console.log('Plus button clicked')}
+                        className="flex-shrink-0 p-2 m-2 rounded-lg bg-gray-100 hover:bg-gray-200 
+                                   text-gray-500 hover:text-gray-700 transition-colors"
+                        title="Add attachment"
+                    >
+                        <Plus className="w-5 h-5" />
+                    </button>
+                )}
+
+                {/* Textarea - adapts padding based on layout mode */}
+                <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSend();
+                        }
+                    }}
+                    placeholder={isListening ? 'Listening...' : 'Message Prism AI...'}
+                    rows={1}
+                    className={`bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 resize-none leading-6
+                               [&::-webkit-scrollbar]:hidden
+                               ${isMultiLine ? 'w-full px-4 pt-3 pb-1' : 'flex-1 py-2.5 pr-2'}`}
+                    style={{
+                        minHeight: isMultiLine ? '24px' : '44px',
+                        maxHeight: isMobile ? (isExpanded ? '200px' : '72px') : '200px',
+                        overflowY: isMultiLine ? 'auto' : 'hidden',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                    }}
+                />
+
+                {/* Bottom row - buttons (layout adapts) */}
+                <div className={`flex items-center gap-1 ${isMultiLine ? 'justify-between px-2 pb-2 pt-1' : 'flex-shrink-0 p-2'}`}>
+                    {/* Multi-line mode: Plus button in bottom left */}
+                    {isMultiLine && (
+                        <button
+                            type="button"
+                            onClick={() => console.log('Plus button clicked')}
+                            className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 
+                                       text-gray-500 hover:text-gray-700 transition-colors"
+                            title="Add attachment"
+                        >
+                            <Plus className="w-5 h-5" />
+                        </button>
+                    )}
+
+                    {/* Right side - Mic and Send/Stop buttons */}
+                    <div className="flex items-center gap-1">
+                        {/* Mic button - always visible when not loading */}
+                        {!isLoading && (
+                            <button
+                                type="button"
+                                onClick={toggleListening}
+                                className={`p-2 rounded-lg transition-all duration-200
+                                    ${isListening
+                                        ? 'bg-red-500 text-white animate-pulse'
+                                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
+                                    }`}
+                                title={isListening ? 'Stop listening' : 'Voice input'}
+                            >
+                                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                            </button>
+                        )}
+
+                        {/* Send or Stop button */}
+                        {isLoading ? (
+                            <button
+                                type="button"
+                                onClick={handleStop}
+                                className="p-2 rounded-lg bg-gray-100 hover:bg-red-50 
+                                           border border-gray-200 hover:border-red-200 
+                                           transition-all duration-200 group"
+                                title="Stop"
+                            >
+                                <Square className="w-4 h-4 text-gray-400 group-hover:text-red-500 fill-current transition-colors" />
+                            </button>
+                        ) : (
+                            <button
+                                type="submit"
+                                disabled={!input.trim()}
+                                className={`p-2 rounded-lg transition-all duration-200
+                                    ${input.trim()
+                                        ? 'bg-gray-900 hover:bg-gray-800 text-white'
+                                        : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                    }`}
+                                title="Send message"
+                            >
+                                <Send className="w-4 h-4" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
         </form>
     );
 
@@ -315,15 +451,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             <div className="flex flex-col h-full bg-white">
                 <div className="flex-1 flex items-center justify-center p-6">
                     <div className="w-full max-w-2xl text-center">
-                        {/* Welcome Icon */}
-                        <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-lg">
-                            <Sparkles className="w-10 h-10 text-white" />
+                        {/* Welcome header with inline icon */}
+                        <div className="flex items-center justify-center gap-3 mb-2">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-md">
+                                <Sparkles className="w-5 h-5 text-white" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-gray-900">
+                                Welcome to Prism AI
+                            </h1>
                         </div>
-
-                        {/* Welcome Text */}
-                        <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                            Welcome to Prism AI
-                        </h1>
                         <p className="text-gray-500 mb-8">
                             Tell me what you'd like to do with images, and I'll create an automation workflow for you.
                         </p>
@@ -356,12 +492,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 {/* Welcome content */}
                 <div className="flex-1 flex items-center justify-center p-6">
                     <div className="text-center">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-lg">
-                            <Sparkles className="w-8 h-8 text-white" />
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-md">
+                                <Sparkles className="w-4 h-4 text-white" />
+                            </div>
+                            <h1 className="text-xl font-bold text-gray-900">
+                                Welcome to Prism AI
+                            </h1>
                         </div>
-                        <h1 className="text-xl font-bold text-gray-900 mb-2">
-                            Welcome to Prism AI
-                        </h1>
                         <p className="text-gray-500 text-sm">
                             Tell me what you'd like to do with images.
                         </p>

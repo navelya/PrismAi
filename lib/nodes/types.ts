@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'merge_image';
+export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'merge_image' | 'media_input';
 
 /**
  * Node execution status for real-time updates
@@ -81,13 +81,23 @@ export interface MergeImageConfig {
     padding: number;
 }
 
+/**
+ * Media Input Node Configuration
+ * Stores manually uploaded images as base64 data URLs
+ */
+export interface MediaInputConfig {
+    /** Array of base64 data URLs for uploaded images */
+    images: string[];
+}
+
 export type NodeConfig =
     | ScrapeImagesConfig
     | RemoveBackgroundConfig
     | FilterSortConfig
     | AIGenerateImageConfig
     | UpscaleImageConfig
-    | MergeImageConfig;
+    | MergeImageConfig
+    | MediaInputConfig;
 
 /**
  * Node definition for workflow

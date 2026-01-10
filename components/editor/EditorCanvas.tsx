@@ -15,13 +15,13 @@ import ReactFlow, {
     useReactFlow,
     Connection,
     Panel,
-    useViewport,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
+import MediaInputNode from '../canvas/MediaInputNode';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Undo2, Redo2, Network, Trash2, Copy } from 'lucide-react';
+import { Undo2, Redo2, Network, Trash2, Copy, Hand } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 
@@ -45,6 +45,7 @@ const nodeTypes = {
     ai_generate_image: CustomNode,
     upscale_image: CustomNode,
     merge_image: CustomNode,
+    media_input: MediaInputNode,
 };
 
 function EditorCanvasInner({
@@ -62,6 +63,7 @@ function EditorCanvasInner({
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+    const [isPanMode, setIsPanMode] = useState(false);
 
     // Get store actions for undo/redo and copy/paste
     const setIsDragging = useAppStore((state) => state.setIsDragging);
@@ -79,12 +81,6 @@ function EditorCanvasInner({
     // Get selected nodes
     const selectedNodes = useMemo(() => nodes.filter((n: any) => n.selected), [nodes]);
     const multiSelectCount = selectedNodes.length;
-
-    // Track viewport changes to update button positions on zoom/pan
-    const viewport = useViewport();
-
-    // Get setNodes for programmatic selection
-    const { setNodes } = useReactFlow();
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -350,8 +346,8 @@ function EditorCanvasInner({
                 deleteKeyCode="Delete"
                 onNodesDelete={onNodesDelete}
                 isValidConnection={isValidConnection}
-                selectionOnDrag={true}
-                panOnDrag={[1]}
+                selectionOnDrag={!isPanMode}
+                panOnDrag={isPanMode ? [0, 1] : [1]}
                 selectNodesOnDrag={false}
                 connectionMode={"loose" as any}
                 selectionMode={'partial' as any}
@@ -397,6 +393,18 @@ function EditorCanvasInner({
                         title="Auto Layout"
                     >
                         <Network className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`} />
+                    </button>
+                    <button
+                        onClick={() => setIsPanMode(!isPanMode)}
+                        className={`w-9 h-9 rounded-lg backdrop-blur-sm border shadow-lg hover:shadow-xl transition-all duration-200
+                                   flex items-center justify-center group
+                                   ${isPanMode
+                                ? 'bg-purple-500 border-purple-600 text-white'
+                                : 'bg-white/90 dark:bg-gray-800/90 border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700'
+                            }`}
+                        title={isPanMode ? 'Exit pan mode (click to select nodes)' : 'Pan mode (drag to move canvas)'}
+                    >
+                        <Hand className={`w-4 h-4 transition-colors ${isPanMode ? 'text-white' : 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600'}`} />
                     </button>
                 </Panel>
 

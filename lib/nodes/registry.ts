@@ -10,6 +10,7 @@ import {
     AIGenerateImageConfig,
     UpscaleImageConfig,
     MergeImageConfig,
+    MediaInputConfig,
 } from './types';
 
 // Backend URL - uses environment variable in production, localhost in development
@@ -584,6 +585,55 @@ const mergeImageExecutor: NodeExecutor = async (
 };
 
 /**
+ * Media Input Node
+ * Passes manually uploaded images to the next node
+ */
+const mediaInputExecutor: NodeExecutor = async (
+    config: NodeConfig,
+    input: any,
+    context: ExecutionContext
+): Promise<NodeExecutionResult> => {
+    try {
+        const { images } = config as MediaInputConfig;
+
+        if (!images || images.length === 0) {
+            return {
+                success: false,
+                data: null,
+                error: 'No images uploaded. Please add images to the Media Input node.',
+            };
+        }
+
+        // Convert base64 data URLs to ImageObject format
+        const imageObjects: ImageObject[] = images.map((dataUrl, index) => ({
+            url: dataUrl,
+            resolution: {
+                width: 800,  // Placeholder - actual dimensions determined at runtime
+                height: 600,
+            },
+            metadata: {
+                title: `Uploaded Image ${index + 1}`,
+                source: 'User Upload',
+                format: dataUrl.includes('image/png') ? 'png' : 'jpg',
+            },
+        }));
+
+        console.log(`📤 Media Input: Passing ${imageObjects.length} uploaded image(s)`);
+
+        return {
+            success: true,
+            data: imageObjects,
+        };
+    } catch (error) {
+        return {
+            success: false,
+            data: null,
+            error: error instanceof Error ? error.message : 'Failed to process uploaded images',
+        };
+    }
+};
+
+/**
  * Node Registry
  * Maps node types to their executor functions
  */
@@ -594,6 +644,7 @@ export const nodeRegistry: Record<string, NodeExecutor> = {
     ai_generate_image: aiGenerateImageExecutor,
     upscale_image: upscaleImageExecutor,
     merge_image: mergeImageExecutor,
+    media_input: mediaInputExecutor,
 };
 
 /**
@@ -661,5 +712,12 @@ export const nodeMetadata: Record<string, {
             { id: 'base', label: 'BASE', color: '#22c55e' },
             { id: 'overlay', label: 'OVER', color: '#f59e0b' },
         ],
+    },
+    media_input: {
+        label: 'Media Input',
+        description: 'Upload images manually',
+        color: '#3b82f6',
+        icon: 'ImagePlus',
+        // No inputs - this is a source node (manual upload)
     },
 };

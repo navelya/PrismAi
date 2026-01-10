@@ -19,6 +19,10 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
     // Use global store for editor state
     const editorState = useAppStore((state) => state.editorState);
     const setEditorState = useAppStore((state) => state.setEditorState);
+    const chatMessages = useAppStore((state) => state.chatMessages);
+
+    // Check if user has sent any messages (not on welcome screen)
+    const hasUserMessages = chatMessages.some((msg) => msg.type === 'user');
 
     const { isCanvasOpen, splitRatio } = editorState;
     const [isDragging, setIsDragging] = React.useState(false);
@@ -144,8 +148,8 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
                 )}
             </div>
 
-            {/* Toggle Button */}
-            {workflow && (
+            {/* Toggle Button - only show when user has started chatting */}
+            {workflow && hasUserMessages && (
                 <button
                     onClick={toggleEditor}
                     className="absolute z-40 bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-full shadow-sm hover:shadow-md hover:bg-white transition-all duration-200 text-gray-700 hover:text-gray-900 text-sm font-medium"
