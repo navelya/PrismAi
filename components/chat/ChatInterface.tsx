@@ -304,9 +304,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     };
 
     // Expose method to add execution results from editor
+    // Use ref to prevent infinite loop if onReady changes identity on every render
+    const onReadyRef = useRef(onReady);
     useEffect(() => {
-        if (onReady) {
-            onReady((result: any) => {
+        onReadyRef.current = onReady;
+    }, [onReady]);
+
+    useEffect(() => {
+        if (onReadyRef.current) {
+            onReadyRef.current((result: any) => {
                 const assistantMessage: Message = {
                     id: Date.now().toString(),
                     type: 'assistant',
@@ -317,7 +323,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 addMessage(assistantMessage);
             });
         }
-    }, [onReady]);
+    }, []); // Run once on mount
 
     // Auto-resize textarea and detect multi-line
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
