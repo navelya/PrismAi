@@ -40,6 +40,9 @@ export function createNodeFromType(
             opacity: 1.0,
             padding: 10,
         },
+        media_input: {
+            images: [],
+        },
     };
 
     const config = defaultConfigs[type];

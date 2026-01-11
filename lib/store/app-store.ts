@@ -364,6 +364,10 @@ export const useAppStore = create<AppState>()(
                     state.chatMessages = [];
                     // Ensure isDragging is false on reload
                     state.isDragging = false;
+                    // Always close editor on page reload (welcome screen default)
+                    if (state.editorState) {
+                        state.editorState.isCanvasOpen = false;
+                    }
                 }
             },
         }
