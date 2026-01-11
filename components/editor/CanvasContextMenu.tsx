@@ -14,6 +14,7 @@ interface CanvasContextMenuProps {
 }
 
 const nodeTypes: NodeType[] = [
+    'media_input',
     'scrape_images',
     'remove_background',
     'filter_sort',
@@ -23,8 +24,8 @@ const nodeTypes: NodeType[] = [
 ];
 
 // Menu dimensions for positioning calculations
-const MENU_WIDTH = 260;
-const MENU_HEIGHT = 380;
+const MENU_WIDTH = 220;
+const MENU_HEIGHT = 320;
 const MENU_PADDING = 8;
 
 export default function CanvasContextMenu({
@@ -113,17 +114,17 @@ export default function CanvasContextMenu({
             <div className="bg-white/95 backdrop-blur-xl rounded-xl shadow-2xl border border-gray-200/80 overflow-hidden"
                 style={{ width: MENU_WIDTH }}>
                 {/* Header */}
-                <div className="px-4 py-3 bg-gradient-to-r from-purple-50 to-blue-50 border-b border-gray-100">
+                <div className="px-3 py-2 bg-gradient-to-r from-purple-50 to-blue-50 border-b border-gray-100">
                     <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-                            <Plus className="w-4 h-4 text-white" />
+                        <div className="w-5 h-5 rounded-md bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                            <Plus className="w-3 h-3 text-white" />
                         </div>
-                        <span className="text-sm font-semibold text-gray-700">Add Node</span>
+                        <span className="text-xs font-semibold text-gray-700">Add Node</span>
                     </div>
                 </div>
 
                 {/* Node List */}
-                <div className="py-2 max-h-[320px] overflow-y-auto">
+                <div className="py-1 max-h-[260px] overflow-y-auto">
                     {nodeTypes.map((type) => {
                         const metadata = nodeMetadata[type];
                         const IconComponent = metadata?.icon
@@ -134,40 +135,33 @@ export default function CanvasContextMenu({
                             <button
                                 key={type}
                                 onClick={() => handleNodeClick(type)}
-                                className="w-full px-3 py-2 flex items-center gap-3 hover:bg-gray-50 
+                                className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-gray-50 
                                            transition-colors duration-100 group"
                             >
                                 <div
-                                    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0
+                                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0
                                                group-hover:scale-110 transition-transform duration-150"
                                     style={{ backgroundColor: `${metadata?.color}15` }}
                                 >
                                     <IconComponent
-                                        className="w-4.5 h-4.5"
+                                        className="w-3.5 h-3.5"
                                         style={{ color: metadata?.color }}
                                     />
                                 </div>
                                 <div className="flex-1 text-left min-w-0">
-                                    <div className="text-sm font-medium text-gray-800 group-hover:text-gray-900">
+                                    <div className="text-xs font-medium text-gray-800 group-hover:text-gray-900">
                                         {metadata?.label}
                                     </div>
-                                    <div className="text-xs text-gray-400 truncate group-hover:text-gray-500">
-                                        {metadata?.description}
-                                    </div>
                                 </div>
-                                <div
-                                    className="w-2 h-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                    style={{ backgroundColor: metadata?.color }}
-                                />
                             </button>
                         );
                     })}
                 </div>
 
                 {/* Footer hint */}
-                <div className="px-4 py-2 bg-gray-50 border-t border-gray-100">
-                    <p className="text-xs text-gray-400 text-center">
-                        Press <kbd className="px-1.5 py-0.5 bg-white rounded border border-gray-200 text-gray-500 font-mono text-[10px]">Esc</kbd> to close
+                <div className="px-3 py-1.5 bg-gray-50 border-t border-gray-100">
+                    <p className="text-[10px] text-gray-400 text-center">
+                        Press <kbd className="px-1 py-0.5 bg-white rounded border border-gray-200 text-gray-500 font-mono text-[9px]">Esc</kbd> to close
                     </p>
                 </div>
             </div>

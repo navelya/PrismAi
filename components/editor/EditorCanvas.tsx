@@ -343,6 +343,8 @@ function EditorCanvasInner({
                 defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                 fitView
                 fitViewOptions={{ padding: 0.3, maxZoom: 0.8 }}
+                minZoom={0.1}
+                maxZoom={2}
                 deleteKeyCode="Delete"
                 onNodesDelete={onNodesDelete}
                 isValidConnection={isValidConnection}
@@ -351,6 +353,8 @@ function EditorCanvasInner({
                 selectNodesOnDrag={false}
                 connectionMode={"loose" as any}
                 selectionMode={'partial' as any}
+                onPaneClick={() => setContextMenu(null)}
+                onMoveStart={() => setContextMenu(null)}
             >
                 <Background variant={BackgroundVariant.Dots} gap={16} size={1} style={{ backgroundColor: 'rgb(var(--canvas-bg))' }} color="rgb(var(--canvas-dots))" />
                 <Controls className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg" />

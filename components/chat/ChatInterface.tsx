@@ -392,14 +392,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 </button>
             )}
 
-            {/* Input container - uses flex-col when images attached or multiline */}
-            <div className={`relative flex rounded-2xl border bg-gray-50/50 
+            {/* Input container - always flex-col for stable layout */}
+            <div className={`relative flex flex-col rounded-2xl border bg-gray-50/50 
                            focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-400 focus-within:bg-white
                            transition-all duration-200
-                           ${(isMultiLine || attachedImages.length > 0) ? 'flex-col' : 'items-end'}
                            ${isListening ? 'border-red-400 ring-2 ring-red-500/20' : 'border-gray-200'}`}>
 
-                {/* Attached Images Preview Strip - Inside input box like ChatGPT/Gemini */}
+                {/* Attached Images Preview Strip */}
                 {attachedImages.length > 0 && (
                     <div className="flex gap-2 px-3 pt-3 pb-1 overflow-x-auto">
                         {attachedImages.map((img, index) => (
@@ -418,11 +417,33 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     </div>
                 )}
 
-                {/* Row for plus button and textarea when images attached */}
-                <div className={`flex w-full ${attachedImages.length > 0 ? 'items-end' : ''}`}>
+                {/* Single textarea - always in the same DOM position */}
+                <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSend();
+                        }
+                    }}
+                    placeholder={isListening ? 'Listening...' : 'Message Prism AI...'}
+                    rows={1}
+                    className="w-full px-4 py-3 bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 resize-none leading-6 [&::-webkit-scrollbar]:hidden"
+                    style={{
+                        minHeight: '44px',
+                        maxHeight: isMobile ? (isExpanded ? '200px' : '72px') : '200px',
+                        overflowY: isMultiLine ? 'auto' : 'hidden',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                    }}
+                />
 
-                    {/* Plus button with dropup menu - always visible */}
-                    <div className="relative flex-shrink-0 m-2">
+                {/* Bottom row - buttons always at the bottom */}
+                <div className="flex w-full items-center justify-between px-2 pb-2">
+                    {/* Plus button on left */}
+                    <div className="relative">
                         <button
                             type="button"
                             onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
@@ -456,79 +477,46 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         )}
                     </div>
 
-                    {/* Textarea - adapts padding based on layout mode */}
-                    <textarea
-                        ref={textareaRef}
-                        value={input}
-                        onChange={handleInputChange}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend();
-                            }
-                        }}
-                        placeholder={isListening ? 'Listening...' : 'Message Prism AI...'}
-                        rows={1}
-                        className={`bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 resize-none leading-6
-                               [&::-webkit-scrollbar]:hidden
-                               ${isMultiLine ? 'w-full px-4 pt-3 pb-1' : 'flex-1 py-2.5 pr-2'}`}
-                        style={{
-                            minHeight: isMultiLine ? '24px' : '44px',
-                            maxHeight: isMobile ? (isExpanded ? '200px' : '72px') : '200px',
-                            overflowY: isMultiLine ? 'auto' : 'hidden',
-                            scrollbarWidth: 'none',
-                            msOverflowStyle: 'none',
-                        }}
-                    />
+                    {/* Mic and Send buttons on right */}
+                    <div className="flex items-center gap-1">
+                        {!isLoading && (
+                            <button
+                                type="button"
+                                onClick={toggleListening}
+                                className={`p-2 rounded-lg transition-all duration-200
+                                ${isListening
+                                        ? 'bg-red-500 text-white animate-pulse'
+                                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
+                                    }`}
+                                title={isListening ? 'Stop listening' : 'Voice input'}
+                            >
+                                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                            </button>
+                        )}
 
-                    {/* Bottom row - buttons (layout adapts) */}
-                    <div className={`flex items-center gap-1 ${isMultiLine ? 'justify-end px-2 pb-2 pt-1' : 'flex-shrink-0 p-2'}`}>
-
-                        {/* Right side - Mic and Send/Stop buttons */}
-                        <div className="flex items-center gap-1">
-                            {/* Mic button - always visible when not loading */}
-                            {!isLoading && (
-                                <button
-                                    type="button"
-                                    onClick={toggleListening}
-                                    className={`p-2 rounded-lg transition-all duration-200
-                                    ${isListening
-                                            ? 'bg-red-500 text-white animate-pulse'
-                                            : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
-                                        }`}
-                                    title={isListening ? 'Stop listening' : 'Voice input'}
-                                >
-                                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                                </button>
-                            )}
-
-                            {/* Send or Stop button */}
-                            {isLoading ? (
-                                <button
-                                    type="button"
-                                    onClick={handleStop}
-                                    className="p-2 rounded-lg bg-gray-100 hover:bg-red-50 
-                                           border border-gray-200 hover:border-red-200 
-                                           transition-all duration-200 group"
-                                    title="Stop"
-                                >
-                                    <Square className="w-4 h-4 text-gray-400 group-hover:text-red-500 fill-current transition-colors" />
-                                </button>
-                            ) : (
-                                <button
-                                    type="submit"
-                                    disabled={!input.trim()}
-                                    className={`p-2 rounded-lg transition-all duration-200
-                                    ${input.trim()
-                                            ? 'bg-gray-900 hover:bg-gray-800 text-white'
-                                            : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                                        }`}
-                                    title="Send message"
-                                >
-                                    <Send className="w-4 h-4" />
-                                </button>
-                            )}
-                        </div>
+                        {isLoading ? (
+                            <button
+                                type="button"
+                                onClick={handleStop}
+                                className="p-2 rounded-lg bg-gray-100 hover:bg-red-50 border border-gray-200 hover:border-red-200 transition-all duration-200 group"
+                                title="Stop"
+                            >
+                                <Square className="w-4 h-4 text-gray-400 group-hover:text-red-500 fill-current transition-colors" />
+                            </button>
+                        ) : (
+                            <button
+                                type="submit"
+                                disabled={!input.trim()}
+                                className={`p-2 rounded-lg transition-all duration-200
+                                ${input.trim()
+                                        ? 'bg-gray-900 hover:bg-gray-800 text-white'
+                                        : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                    }`}
+                                title="Send message"
+                            >
+                                <Send className="w-4 h-4" />
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

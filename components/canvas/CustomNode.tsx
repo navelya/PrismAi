@@ -114,12 +114,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
 
                         return (
                             <React.Fragment key={input.id}>
-                                {/* Handle with standard styling - same as other nodes */}
+                                {/* Handle with hitbox extending inward into node */}
                                 <Handle
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    className="w-6 h-6 !border-2 !border-white hover:!brightness-110 transition-colors"
+                                    className="w-6 h-6 !border-2 !border-white hover:!brightness-110 transition-colors
+                                              before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                                     style={{
                                         background: metadata?.color || '#667eea',
                                         left: -6,
@@ -149,7 +150,7 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                     type="target"
                     position={Position.Left}
                     className="w-4 h-4 !border-2 !border-white hover:!brightness-110 transition-colors
-                              before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[20] before:rounded-full"
+                              before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                     style={{
                         background: metadata?.color || '#667eea',
                         left: -6,
@@ -180,12 +181,12 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 </div>
             </div>
 
-            {/* Output Handle - Small visual but HUGE hitbox */}
+            {/* Output Handle - hitbox extends inward into node */}
             <Handle
                 type="source"
                 position={Position.Right}
                 className="w-4 h-4 !bg-blue-500 !border-2 !border-white hover:!bg-blue-600 transition-colors
-                          before:content-[''] before:absolute before:inset-0 before:scale-x-[10] before:scale-y-[20] before:rounded-full"
+                          before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                 style={{
                     background: metadata?.color || '#667eea',
                     right: -6,
