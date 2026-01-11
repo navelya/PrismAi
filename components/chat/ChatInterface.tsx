@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
@@ -44,6 +44,12 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
 
+    // Textarea ref for auto-resize
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const ghostRef = useRef<HTMLDivElement>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [isMultiLine, setIsMultiLine] = useState(false);
+
     // Check if this is a fresh chat (no user messages yet)
     const hasUserMessages = messages.some(m => m.type === 'user');
     const isEmptyState = !hasUserMessages && !isLoading;
@@ -55,6 +61,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    // Correctly resize textarea when layout mode changes
+    useLayoutEffect(() => {
+        const textarea = textareaRef.current;
+        if (textarea && isMultiLine) {
+            // Reset to auto to get correct scrollHeight in the new 'relative' layout
+            textarea.style.height = 'auto';
+            const newHeight = textarea.scrollHeight;
+
+            const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
+            textarea.style.height = `${Math.min(newHeight, maxHeight)}px`;
+        }
+    }, [isMultiLine, isMobile, isExpanded]);
 
     // Initialize Web Speech API
     useEffect(() => {
@@ -340,33 +359,54 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, [onReady]);
 
-    // Textarea ref for auto-resize
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const [isExpanded, setIsExpanded] = useState(false);
-    const [isMultiLine, setIsMultiLine] = useState(false);
-
     // Auto-resize textarea and detect multi-line
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setInput(e.target.value);
-
-        // Auto-resize
+        const newValue = e.target.value;
         const textarea = textareaRef.current;
+        const ghost = ghostRef.current;
+        setInput(newValue);
+
         if (textarea) {
-            // First check if content requires multiple lines BEFORE resizing
-            const hasNewlines = e.target.value.includes('\n');
+            const hasNewlines = newValue.includes('\n');
 
-            // Temporarily reset height to measure true content height
-            textarea.style.height = 'auto';
-            const contentHeight = textarea.scrollHeight;
+            // Optimize: Avoid layout thrashing in single-line mode
+            // Only force 'auto' height reset if strictly necessary (shrinking in multi-line)
+            if (!isMultiLine && !hasNewlines) {
+                // In single line mode, we can just check if content exceeds generic single-line height
+                // without forcing a reflow. Single line is ~24px content.
+                // If it grows > 40px, it means it wrapped.
+                if (textarea.scrollHeight > 40) {
+                    setIsMultiLine(true);
+                    // Height update handled by useLayoutEffect
+                }
+            } else {
+                // Multi-line mode: needs robust measurement to handle shrinking
+                textarea.style.height = 'auto';
+                const contentHeight = textarea.scrollHeight;
 
-            // Multi-line if has newlines or content wraps beyond single line (~48px)
-            const isWrapping = contentHeight > 48;
-            setIsMultiLine(hasNewlines || isWrapping);
+                // Switch back to single line ONLY if content definitely fits in the narrower single-line width
+                // Threshold increased to 60px to handle subpixel rendering/padding differences safe margin (1 line is ~40-48px)
+                if (!hasNewlines && contentHeight < 60 && ghost) {
+                    // Configure ghost to mimic single-line state
+                    ghost.textContent = newValue;
+                    const singleLineAvailableWidth = textarea.clientWidth - 144; // Subtract absolute positioning offsets (left-12 + right-24)
+                    ghost.style.width = `${singleLineAvailableWidth}px`;
 
-            // Now apply the constrained height
-            const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
-            const newHeight = Math.min(contentHeight, maxHeight);
-            textarea.style.height = `${newHeight}px`;
+                    // Check if it fits in 1 line (~40px)
+                    if (ghost.scrollHeight < 50) {
+                        setIsMultiLine(false);
+                    }
+                } else if (!hasNewlines && contentHeight < 60) {
+                    // Fallback if ghost missing or undefined
+                    setIsMultiLine(false);
+                } else {
+                    setIsMultiLine(hasNewlines || contentHeight > 40);
+
+                    const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
+                    const newHeight = Math.min(contentHeight, maxHeight);
+                    textarea.style.height = `${newHeight}px`;
+                }
+            }
         }
     };
 
@@ -417,7 +457,21 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     </div>
                 )}
 
-                {/* Single textarea - always in the same DOM position */}
+                {/* Hidden ghost element for measuring text width/height to prevent flicker loops */}
+                <div
+                    ref={ghostRef}
+                    className="absolute top-0 left-0 -z-50 invisible whitespace-pre-wrap break-words pointer-events-none"
+                    style={{
+                        fontFamily: 'inherit',
+                        fontSize: 'inherit',
+                        lineHeight: '1.5rem', // leading-6
+                        padding: '8px 8px', // px-2 py-2 to match single line
+                        minHeight: '0px'
+                    }}
+                    aria-hidden="true"
+                />
+
+                {/* Textarea with position-based layout switching - Instant switch, no transition */}
                 <textarea
                     ref={textareaRef}
                     value={input}
@@ -430,9 +484,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     }}
                     placeholder={isListening ? 'Listening...' : 'Message Prism AI...'}
                     rows={1}
-                    className="w-full px-4 py-3 bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 resize-none leading-6 [&::-webkit-scrollbar]:hidden"
+                    className={`bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 resize-none leading-6 [&::-webkit-scrollbar]:hidden
+                               ${isMultiLine || attachedImages.length > 0
+                            ? 'relative w-full px-4 py-2'
+                            : 'absolute left-12 right-24 top-1/2 -translate-y-1/2 px-2 py-2'
+                        }`}
                     style={{
-                        minHeight: '44px',
+                        minHeight: isMultiLine || attachedImages.length > 0 ? '40px' : '24px',
                         maxHeight: isMobile ? (isExpanded ? '200px' : '72px') : '200px',
                         overflowY: isMultiLine ? 'auto' : 'hidden',
                         scrollbarWidth: 'none',
@@ -441,9 +499,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 />
 
                 {/* Bottom row - buttons always at the bottom */}
-                <div className="flex w-full items-center justify-between px-2 pb-2">
+                <div className={`flex w-full items-center justify-between px-2 pb-2
+                               ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}>
                     {/* Plus button on left */}
-                    <div className="relative">
+                    <div className="relative z-10">
                         <button
                             type="button"
                             onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
@@ -478,7 +537,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     </div>
 
                     {/* Mic and Send buttons on right */}
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 z-10">
                         {!isLoading && (
                             <button
                                 type="button"
