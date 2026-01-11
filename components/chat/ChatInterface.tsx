@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
@@ -13,6 +13,7 @@ interface Message {
     id: string;
     type: 'user' | 'assistant';
     content: string;
+    images?: string[]; // Attached images (base64)
     result?: any;
     workflow?: Workflow;
     timestamp: Date;
@@ -35,9 +36,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isListening, setIsListening] = useState(false);
+    const [attachedImages, setAttachedImages] = useState<string[]>([]);
+    const [isDragOver, setIsDragOver] = useState(false);
+    const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
     const recognitionRef = useRef<any>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const imageInputRef = useRef<HTMLInputElement>(null);
 
     // Check if this is a fresh chat (no user messages yet)
     const hasUserMessages = messages.some(m => m.type === 'user');
@@ -171,18 +176,69 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     };
 
+    // Image upload handlers
+    const handleImageFiles = useCallback((files: FileList | null) => {
+        if (!files || files.length === 0) return;
+
+        Array.from(files).forEach((file) => {
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64 = reader.result as string;
+                    setAttachedImages(prev => [...prev, base64]);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }, []);
+
+    const handleChatDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('Files')) {
+            setIsDragOver(true);
+        }
+    }, []);
+
+    const handleChatDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Check if leaving the container entirely (relatedTarget is null when leaving window)
+        const relatedTarget = e.relatedTarget as HTMLElement | null;
+        if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
+            setIsDragOver(false);
+        }
+    }, []);
+
+    const handleChatDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
+        handleImageFiles(e.dataTransfer.files);
+    }, [handleImageFiles]);
+
+    const removeAttachedImage = useCallback((index: number) => {
+        setAttachedImages(prev => prev.filter((_, i) => i !== index));
+    }, []);
+
     const handleSend = async () => {
         const trimmedInput = input.trim();
         if (!trimmedInput || isLoading) return;
 
-        // Add user message
+        // Capture and clear attached images first
+        const imagesToSend = [...attachedImages];
+        setAttachedImages([]);
+
+        // Add user message with images
         const userMessage: Message = {
             id: Date.now().toString(),
             type: 'user',
             content: trimmedInput,
+            images: imagesToSend.length > 0 ? imagesToSend : undefined,
             timestamp: new Date(),
         };
         addMessage(userMessage);
+
         setInput('');
         setIsLoading(true);
 
@@ -196,7 +252,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt: trimmedInput,
-                    previousWorkflow: currentWorkflow
+                    previousWorkflow: currentWorkflow,
+                    attachedImages: imagesToSend.length > 0 ? imagesToSend : undefined,
                 }),
             });
 
@@ -335,110 +392,143 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 </button>
             )}
 
-            {/* Input container - switches between row (single line) and column (multi-line) layout */}
+            {/* Input container - uses flex-col when images attached or multiline */}
             <div className={`relative flex rounded-2xl border bg-gray-50/50 
                            focus-within:ring-2 focus-within:ring-purple-500/20 focus-within:border-purple-400 focus-within:bg-white
                            transition-all duration-200
-                           ${isMultiLine ? 'flex-col' : 'items-end'}
+                           ${(isMultiLine || attachedImages.length > 0) ? 'flex-col' : 'items-end'}
                            ${isListening ? 'border-red-400 ring-2 ring-red-500/20' : 'border-gray-200'}`}>
 
-                {/* Single-line mode: Plus button inline with textarea */}
-                {!isMultiLine && (
-                    <button
-                        type="button"
-                        onClick={() => console.log('Plus button clicked')}
-                        className="flex-shrink-0 p-2 m-2 rounded-lg bg-gray-100 hover:bg-gray-200 
-                                   text-gray-500 hover:text-gray-700 transition-colors"
-                        title="Add attachment"
-                    >
-                        <Plus className="w-5 h-5" />
-                    </button>
+                {/* Attached Images Preview Strip - Inside input box like ChatGPT/Gemini */}
+                {attachedImages.length > 0 && (
+                    <div className="flex gap-2 px-3 pt-3 pb-1 overflow-x-auto">
+                        {attachedImages.map((img, index) => (
+                            <div key={index} className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden group/img bg-gray-100 border border-gray-200">
+                                <img src={img} alt={`Attached ${index + 1}`} className="w-full h-full object-cover" />
+                                <button
+                                    type="button"
+                                    onClick={() => removeAttachedImage(index)}
+                                    className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 rounded-full flex items-center justify-center
+                                               opacity-0 group-hover/img:opacity-100 hover:bg-red-500 transition-all"
+                                >
+                                    <X className="w-3 h-3 text-white" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
                 )}
 
-                {/* Textarea - adapts padding based on layout mode */}
-                <textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={handleInputChange}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSend();
-                        }
-                    }}
-                    placeholder={isListening ? 'Listening...' : 'Message Prism AI...'}
-                    rows={1}
-                    className={`bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 resize-none leading-6
-                               [&::-webkit-scrollbar]:hidden
-                               ${isMultiLine ? 'w-full px-4 pt-3 pb-1' : 'flex-1 py-2.5 pr-2'}`}
-                    style={{
-                        minHeight: isMultiLine ? '24px' : '44px',
-                        maxHeight: isMobile ? (isExpanded ? '200px' : '72px') : '200px',
-                        overflowY: isMultiLine ? 'auto' : 'hidden',
-                        scrollbarWidth: 'none',
-                        msOverflowStyle: 'none',
-                    }}
-                />
+                {/* Row for plus button and textarea when images attached */}
+                <div className={`flex w-full ${attachedImages.length > 0 ? 'items-end' : ''}`}>
 
-                {/* Bottom row - buttons (layout adapts) */}
-                <div className={`flex items-center gap-1 ${isMultiLine ? 'justify-between px-2 pb-2 pt-1' : 'flex-shrink-0 p-2'}`}>
-                    {/* Multi-line mode: Plus button in bottom left */}
-                    {isMultiLine && (
+                    {/* Plus button with dropup menu - always visible */}
+                    <div className="relative flex-shrink-0 m-2">
                         <button
                             type="button"
-                            onClick={() => console.log('Plus button clicked')}
-                            className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 
-                                       text-gray-500 hover:text-gray-700 transition-colors"
+                            onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                            className={`p-2 rounded-lg transition-colors ${isPlusMenuOpen ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`}
                             title="Add attachment"
                         >
-                            <Plus className="w-5 h-5" />
+                            <Plus className={`w-5 h-5 transition-transform ${isPlusMenuOpen ? 'rotate-45' : ''}`} />
                         </button>
-                    )}
 
-                    {/* Right side - Mic and Send/Stop buttons */}
-                    <div className="flex items-center gap-1">
-                        {/* Mic button - always visible when not loading */}
-                        {!isLoading && (
-                            <button
-                                type="button"
-                                onClick={toggleListening}
-                                className={`p-2 rounded-lg transition-all duration-200
-                                    ${isListening
-                                        ? 'bg-red-500 text-white animate-pulse'
-                                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
-                                    }`}
-                                title={isListening ? 'Stop listening' : 'Voice input'}
-                            >
-                                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                            </button>
+                        {/* Dropup Menu */}
+                        {isPlusMenuOpen && (
+                            <div className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        imageInputRef.current?.click();
+                                        setIsPlusMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-gray-700 hover:bg-gray-50 transition-colors"
+                                >
+                                    <ImagePlus className="w-5 h-5 text-blue-500" />
+                                    <span className="font-medium">Add Images</span>
+                                </button>
+                                <div className="border-t border-gray-100">
+                                    <button disabled className="w-full flex items-center gap-3 px-4 py-3 text-gray-400 cursor-not-allowed">
+                                        <Sparkles className="w-5 h-5" />
+                                        <span>Templates</span>
+                                    </button>
+                                </div>
+                            </div>
                         )}
+                    </div>
 
-                        {/* Send or Stop button */}
-                        {isLoading ? (
-                            <button
-                                type="button"
-                                onClick={handleStop}
-                                className="p-2 rounded-lg bg-gray-100 hover:bg-red-50 
+                    {/* Textarea - adapts padding based on layout mode */}
+                    <textarea
+                        ref={textareaRef}
+                        value={input}
+                        onChange={handleInputChange}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSend();
+                            }
+                        }}
+                        placeholder={isListening ? 'Listening...' : 'Message Prism AI...'}
+                        rows={1}
+                        className={`bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 resize-none leading-6
+                               [&::-webkit-scrollbar]:hidden
+                               ${isMultiLine ? 'w-full px-4 pt-3 pb-1' : 'flex-1 py-2.5 pr-2'}`}
+                        style={{
+                            minHeight: isMultiLine ? '24px' : '44px',
+                            maxHeight: isMobile ? (isExpanded ? '200px' : '72px') : '200px',
+                            overflowY: isMultiLine ? 'auto' : 'hidden',
+                            scrollbarWidth: 'none',
+                            msOverflowStyle: 'none',
+                        }}
+                    />
+
+                    {/* Bottom row - buttons (layout adapts) */}
+                    <div className={`flex items-center gap-1 ${isMultiLine ? 'justify-end px-2 pb-2 pt-1' : 'flex-shrink-0 p-2'}`}>
+
+                        {/* Right side - Mic and Send/Stop buttons */}
+                        <div className="flex items-center gap-1">
+                            {/* Mic button - always visible when not loading */}
+                            {!isLoading && (
+                                <button
+                                    type="button"
+                                    onClick={toggleListening}
+                                    className={`p-2 rounded-lg transition-all duration-200
+                                    ${isListening
+                                            ? 'bg-red-500 text-white animate-pulse'
+                                            : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
+                                        }`}
+                                    title={isListening ? 'Stop listening' : 'Voice input'}
+                                >
+                                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                                </button>
+                            )}
+
+                            {/* Send or Stop button */}
+                            {isLoading ? (
+                                <button
+                                    type="button"
+                                    onClick={handleStop}
+                                    className="p-2 rounded-lg bg-gray-100 hover:bg-red-50 
                                            border border-gray-200 hover:border-red-200 
                                            transition-all duration-200 group"
-                                title="Stop"
-                            >
-                                <Square className="w-4 h-4 text-gray-400 group-hover:text-red-500 fill-current transition-colors" />
-                            </button>
-                        ) : (
-                            <button
-                                type="submit"
-                                disabled={!input.trim()}
-                                className={`p-2 rounded-lg transition-all duration-200
+                                    title="Stop"
+                                >
+                                    <Square className="w-4 h-4 text-gray-400 group-hover:text-red-500 fill-current transition-colors" />
+                                </button>
+                            ) : (
+                                <button
+                                    type="submit"
+                                    disabled={!input.trim()}
+                                    className={`p-2 rounded-lg transition-all duration-200
                                     ${input.trim()
-                                        ? 'bg-gray-900 hover:bg-gray-800 text-white'
-                                        : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                                    }`}
-                                title="Send message"
-                            >
-                                <Send className="w-4 h-4" />
-                            </button>
-                        )}
+                                            ? 'bg-gray-900 hover:bg-gray-800 text-white'
+                                            : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                        }`}
+                                    title="Send message"
+                                >
+                                    <Send className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -448,7 +538,38 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     // Desktop Empty State: Centered welcome with input in middle
     if (isEmptyState && !isMobile) {
         return (
-            <div className="flex flex-col h-full bg-white">
+            <div
+                className="relative flex flex-col h-full bg-white"
+                onDragOver={handleChatDragOver}
+                onDragLeave={handleChatDragLeave}
+                onDrop={handleChatDrop}
+            >
+                {/* Hidden file input */}
+                <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                        handleImageFiles(e.target.files);
+                        if (imageInputRef.current) imageInputRef.current.value = '';
+                    }}
+                    className="hidden"
+                />
+
+                {/* Drag-drop overlay */}
+                {isDragOver && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/90 backdrop-blur-sm">
+                        <div className="text-center">
+                            <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                                <ImagePlus className="w-10 h-10 text-white" />
+                            </div>
+                            <h2 className="text-xl font-semibold text-gray-800">Add images</h2>
+                            <p className="text-gray-500 mt-1">Drop files here to add to your message</p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex-1 flex items-center justify-center p-6">
                     <div className="w-full max-w-2xl text-center">
                         {/* Welcome header with inline icon */}
@@ -473,7 +594,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 <button
                                     key={prompt}
                                     onClick={() => setInput(prompt)}
-                                    className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+                                    className="px-4 py-2 text-sm bg-gray-100 hover:bg-purple-50 text-gray-600 hover:text-purple-700 
+                                               rounded-full transition-colors border border-gray-200 hover:border-purple-200"
                                 >
                                     {prompt}
                                 </button>
@@ -488,7 +610,38 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     // Mobile Empty State: Welcome at top, input at bottom
     if (isEmptyState && isMobile) {
         return (
-            <div className="flex flex-col h-full bg-white">
+            <div
+                className="relative flex flex-col h-full bg-white"
+                onDragOver={handleChatDragOver}
+                onDragLeave={handleChatDragLeave}
+                onDrop={handleChatDrop}
+            >
+                {/* Hidden file input */}
+                <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                        handleImageFiles(e.target.files);
+                        if (imageInputRef.current) imageInputRef.current.value = '';
+                    }}
+                    className="hidden"
+                />
+
+                {/* Drag-drop overlay */}
+                {isDragOver && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/90 backdrop-blur-sm">
+                        <div className="text-center">
+                            <div className="w-16 h-16 mx-auto mb-3 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                                <ImagePlus className="w-8 h-8 text-white" />
+                            </div>
+                            <h2 className="text-lg font-semibold text-gray-800">Add images</h2>
+                            <p className="text-gray-500 text-sm mt-1">Drop files here</p>
+                        </div>
+                    </div>
+                )}
+
                 {/* Welcome content */}
                 <div className="flex-1 flex items-center justify-center p-6">
                     <div className="text-center">
@@ -516,7 +669,38 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     // Normal chat state with messages
     return (
-        <div className="flex flex-col h-full bg-white">
+        <div
+            className="relative flex flex-col h-full bg-white"
+            onDragOver={handleChatDragOver}
+            onDragLeave={handleChatDragLeave}
+            onDrop={handleChatDrop}
+        >
+            {/* Hidden file input */}
+            <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                    handleImageFiles(e.target.files);
+                    if (imageInputRef.current) imageInputRef.current.value = '';
+                }}
+                className="hidden"
+            />
+
+            {/* Drag-drop overlay */}
+            {isDragOver && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/90 backdrop-blur-sm">
+                    <div className="text-center">
+                        <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                            <ImagePlus className="w-10 h-10 text-white" />
+                        </div>
+                        <h2 className="text-xl font-semibold text-gray-800">Add images</h2>
+                        <p className="text-gray-500 mt-1">Drop files here to add to your message</p>
+                    </div>
+                </div>
+            )}
+
             {/* Messages with max-width centered content */}
             <div className="flex-1 overflow-y-auto p-6">
                 <div className="max-w-3xl mx-auto space-y-6">
@@ -567,6 +751,17 @@ const MemoizedMessage = React.memo(function MemoizedMessage({ message }: { messa
                     : ''
                     }`}
             >
+                {/* Attached images for user messages */}
+                {message.type === 'user' && message.images && message.images.length > 0 && (
+                    <div className="flex gap-2 flex-wrap mb-2">
+                        {message.images.map((img, index) => (
+                            <div key={index} className="w-16 h-16 rounded-lg overflow-hidden bg-white/20">
+                                <img src={img} alt={`Attachment ${index + 1}`} className="w-full h-full object-cover" />
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 <p className={message.type === 'user' ? 'text-white' : 'text-gray-800'}>
                     {message.content}
                 </p>

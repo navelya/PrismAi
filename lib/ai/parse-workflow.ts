@@ -8,7 +8,8 @@ import { autoLayoutNodesAsync } from '../utils/graph-layout';
  */
 export async function parseRequestToWorkflow(
     userPrompt: string,
-    previousWorkflow?: Workflow | null
+    previousWorkflow?: Workflow | null,
+    userImages?: string[]
 ): Promise<{
     success: boolean;
     workflow?: Workflow;
@@ -18,21 +19,34 @@ export async function parseRequestToWorkflow(
         // Build context-aware prompt (compact format)
         let fullPrompt = userPrompt;
 
+        // If user attached images, tell AI to create media_input node
+        if (userImages && userImages.length > 0) {
+            fullPrompt += `\n[USER ATTACHED ${userImages.length} IMAGE(S) - create a media_input node as source. Config: {images:[]}]`;
+        }
+
         if (previousWorkflow?.nodes?.length) {
             // Compact workflow context - only essential info
+            // CRITICAL: Strip base64 images from media_input nodes to avoid token explosion
             const compactWorkflow = {
-                nodes: previousWorkflow.nodes.map(n => ({
-                    id: n.id,
-                    type: n.type,
-                    config: n.data.config
-                })),
+                nodes: previousWorkflow.nodes.map(n => {
+                    const config = { ...n.data.config };
+                    // Remove large base64 data from media_input nodes
+                    if (n.type === 'media_input' && config && 'images' in config) {
+                        config.images = [`[${(config.images as string[])?.length || 0} images attached]`];
+                    }
+                    return {
+                        id: n.id,
+                        type: n.type,
+                        config
+                    };
+                }),
                 edges: previousWorkflow.edges?.map(e => ({
                     source: e.source,
                     target: e.target,
                     targetHandle: (e as any).targetHandle
                 }))
             };
-            fullPrompt = `Current:${JSON.stringify(compactWorkflow)}\nRequest:"${userPrompt}"\nModify or create new as needed.`;
+            fullPrompt = `Current:${JSON.stringify(compactWorkflow)}\nRequest:"${userPrompt}"${userImages?.length ? `\n[USER ATTACHED ${userImages.length} IMAGE(S) - create media_input node as source]` : ''}\nModify or create new as needed.`;
         }
 
         // Generate workflow using Gemini
@@ -54,7 +68,7 @@ export async function parseRequestToWorkflow(
         if (!workflow.edges) workflow.edges = [];
 
         // Validate node types and normalize structure
-        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image'];
+        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image', 'media_input'];
         workflow.nodes = workflow.nodes.map((node, index) => {
             if (!validTypes.includes(node.type)) {
                 throw new Error(`Invalid node type: ${node.type}`);
@@ -77,6 +91,11 @@ export async function parseRequestToWorkflow(
             if ((node as any).config) {
                 node.data.config = { ...node.data.config, ...(node as any).config };
                 delete (node as any).config;
+            }
+
+            // Inject user-uploaded images into media_input nodes
+            if (node.type === 'media_input' && userImages && userImages.length > 0) {
+                node.data.config = { ...node.data.config, images: userImages };
             }
 
             return node;

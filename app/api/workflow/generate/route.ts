@@ -3,7 +3,7 @@ import { parseRequestToWorkflow } from '@/lib/ai/parse-workflow';
 
 export async function POST(request: Request) {
     try {
-        const { prompt, previousWorkflow } = await request.json();
+        const { prompt, previousWorkflow, attachedImages } = await request.json();
 
         if (!prompt || typeof prompt !== 'string') {
             return NextResponse.json(
@@ -14,9 +14,10 @@ export async function POST(request: Request) {
 
         console.log('📥 API Request:', prompt);
         console.log('🔄 Has previous workflow:', !!previousWorkflow);
+        console.log('📷 Attached images:', attachedImages?.length || 0);
 
         // Use the original parseRequestToWorkflow function with context
-        const result = await parseRequestToWorkflow(prompt, previousWorkflow);
+        const result = await parseRequestToWorkflow(prompt, previousWorkflow, attachedImages);
 
         if (!result.success) {
             throw new Error(result.error || 'Failed to generate workflow');

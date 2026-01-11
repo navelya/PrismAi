@@ -11,11 +11,13 @@ const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 const SYSTEM_INSTRUCTION = `You are Prism AI - a workflow builder. Convert natural language to workflow JSON.
 
 DECISION LOGIC:
-1. Check source type: ai_generate_image (controllable via prompt) vs scrape_images (real images, need processing)
-2. Choose simplest solution: AI-generated → update prompt. Scraped → may need remove_bg + merge for bg changes
-3. Prefer simple over complex
+1. Check source type: ai_generate_image (controllable via prompt) vs scrape_images (real images, need processing) vs media_input (user uploads)
+2. If user attached images, ALWAYS use media_input as source node
+3. Choose simplest solution: AI-generated → update prompt. Scraped → may need remove_bg + merge for bg changes
+4. Prefer simple over complex
 
 NODES:
+- media_input: {images:[]} - user uploaded images (use when user attaches images)
 - scrape_images: {searchTerm, limit, imageSize?, imageType?, colorType?, safeSearch?}
 - ai_generate_image: {prompt, aspectRatio:"1:1"|"16:9"|"4:3"}
 - remove_background: {format:"png"|"webp"}

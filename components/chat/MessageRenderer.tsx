@@ -3,7 +3,7 @@
 import React from 'react';
 import { ImageObject } from '@/lib/nodes/types';
 import { FileText, ImageIcon } from 'lucide-react';
-import { ImageModal } from '@/components/ui/ImageModal';
+import ImageLightbox from '@/components/ui/ImageLightbox';
 
 interface MessageRendererProps {
     data: any;
@@ -46,7 +46,7 @@ export default function MessageRenderer({ data }: MessageRendererProps) {
 }
 
 const ImageGallery = React.memo(function ImageGallery({ images }: { images: ImageObject[] }) {
-    const [selectedImage, setSelectedImage] = React.useState<{ url: string; index: number } | null>(null);
+    const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
     const [thumbnails, setThumbnails] = React.useState<Map<number, string>>(new Map());
 
     // Generate thumbnails for large base64 images
@@ -76,6 +76,12 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
         generateThumbnails();
     }, [images]);
 
+    // Convert images to format expected by ImageLightbox
+    const lightboxImages = React.useMemo(() =>
+        images.map(img => ({ url: img.url })),
+        [images]
+    );
+
     return (
         <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -89,7 +95,7 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                         key={idx}
                         className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 cursor-pointer"
                         style={{ contentVisibility: 'auto', containIntrinsicSize: '0 192px' }}
-                        onClick={() => setSelectedImage({ url: img.url, index: idx })}
+                        onClick={() => setSelectedIndex(idx)}
                     >
                         <img
                             src={thumbnails.get(idx) || img.url}
@@ -115,22 +121,12 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                 ))}
             </div>
 
-            {/* Image Modal */}
-            {selectedImage && (
-                <ImageModal
-                    imageUrl={selectedImage.url}
-                    isOpen={true}
-                    onClose={() => setSelectedImage(null)}
-                    imageIndex={selectedImage.index}
-                    totalImages={images.length}
-                    onPrevious={selectedImage.index > 0
-                        ? () => setSelectedImage({ url: images[selectedImage.index - 1].url, index: selectedImage.index - 1 })
-                        : undefined
-                    }
-                    onNext={selectedImage.index < images.length - 1
-                        ? () => setSelectedImage({ url: images[selectedImage.index + 1].url, index: selectedImage.index + 1 })
-                        : undefined
-                    }
+            {/* Image Lightbox - same styling as editor preview */}
+            {selectedIndex !== null && (
+                <ImageLightbox
+                    images={lightboxImages}
+                    initialIndex={selectedIndex}
+                    onClose={() => setSelectedIndex(null)}
                 />
             )}
         </div>
