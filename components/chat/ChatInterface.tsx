@@ -75,122 +75,82 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, [isMultiLine, isMobile, isExpanded]);
 
-    // Initialize Web Speech API
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-            if (SpeechRecognition) {
-                const recognition = new SpeechRecognition();
-                recognition.continuous = true;  // Keep listening until manually stopped
-                recognition.interimResults = true;
-                recognition.lang = 'en-US';
-                recognition.maxAlternatives = 1;
+    const toggleListening = () => {
+        // Check browser support
+        if (typeof window === 'undefined') return;
 
-                recognition.onresult = (event: any) => {
-                    let finalTranscript = '';
-                    let interimTranscript = '';
-
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        const transcript = event.results[i][0].transcript;
-                        if (event.results[i].isFinal) {
-                            finalTranscript += transcript;
-                        } else {
-                            interimTranscript += transcript;
-                        }
-                    }
-
-                    // Show interim results while speaking, or final when done
-                    setInput(prev => {
-                        // If we have final transcript, append it
-                        if (finalTranscript) {
-                            return (prev + ' ' + finalTranscript).trim();
-                        }
-                        // Otherwise show the interim (will be replaced)
-                        return interimTranscript || prev;
-                    });
-                };
-
-                recognition.onend = () => {
-                    setIsListening(false);
-                };
-
-                recognition.onerror = (event: any) => {
-                    console.error('Speech recognition error:', event.error);
-                    setIsListening(false);
-
-                    // Provide user feedback for common errors
-                    if (event.error === 'not-allowed') {
-                        alert('Microphone access denied. Please allow microphone access in your browser settings.');
-                    } else if (event.error === 'no-speech') {
-                        // Don't show alert for no-speech, just silently stop
-                    }
-                };
-
-                recognitionRef.current = recognition;
-            }
-        }
-
-        return () => {
-            if (recognitionRef.current) {
-                try {
-                    recognitionRef.current.abort();
-                } catch (e) {
-                    // Ignore abort errors
-                }
-            }
-        };
-    }, []);
-
-    const toggleListening = async () => {
-        if (!recognitionRef.current) {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
             alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
             return;
         }
 
         if (isListening) {
             try {
-                recognitionRef.current.stop();
+                if (recognitionRef.current) {
+                    recognitionRef.current.stop();
+                }
             } catch (e) {
-                // Ignore stop errors
+                console.error('Error stopping recognition:', e);
             }
             setIsListening(false);
         } else {
+            // Capture current input state
+            const startingText = input;
+
             try {
-                // Check permission state first (if Permissions API available)
-                if (navigator.permissions) {
-                    try {
-                        const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+                // REMOVED: The manual getUserMedia call that was closing the stream
 
-                        if (permissionStatus.state === 'denied') {
-                            alert('Microphone access was denied. Please enable it in your browser or app settings and try again.');
-                            return;
-                        }
-                    } catch (permErr) {
-                        // Permissions API may not support 'microphone' query on some browsers, continue anyway
-                        console.log('Permissions API query not supported, continuing with getUserMedia');
+                const recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = 'en-US';
+
+                // Note: maxAlternatives is 1 by default, usually not needed to set explicitly
+
+                recognition.onstart = () => {
+                    setIsListening(true);
+                };
+
+                recognition.onresult = (event: any) => {
+                    const transcript = Array.from(event.results)
+                        .map((result: any) => result[0].transcript)
+                        .join('');
+
+                    const separator = startingText && !startingText.endsWith(' ') ? ' ' : '';
+                    setInput(startingText + separator + transcript);
+                };
+
+                recognition.onend = () => {
+                    // Only set listening to false if we stopped it manually or it timed out
+                    // We verify if the abortController is still active or check internal state
+                    setIsListening(false);
+                    recognitionRef.current = null;
+                };
+
+                recognition.onerror = (event: any) => {
+                    console.error('Speech recognition error details:', event);
+
+                    if (event.error === 'no-speech') {
+                        // Start/Stop cycle resulted in silence. 
+                        // Usually safe to ignore or just turn off the UI.
+                        setIsListening(false);
                     }
-                }
+                    else if (event.error === 'not-allowed') {
+                        setIsListening(false);
+                        alert('Microphone access denied. Please allow microphone access in browser settings.');
+                    }
+                    else {
+                        setIsListening(false);
+                    }
+                };
 
-                // Request microphone permission - this triggers the browser/app permission dialog
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                recognitionRef.current = recognition;
+                recognition.start();
 
-                // Stop streaming immediately (we just need permission, SpeechRecognition handles audio)
-                stream.getTracks().forEach(track => track.stop());
-
-                setInput('');
-                recognitionRef.current.start();
-                setIsListening(true);
             } catch (err: any) {
-                console.error('Microphone permission error:', err);
-
-                // Provide specific error messages
-                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                    alert('Microphone access denied. Please tap the mic button again and allow access when prompted, or enable microphone in your device settings.');
-                } else if (err.name === 'NotFoundError') {
-                    alert('No microphone found. Please connect a microphone and try again.');
-                } else {
-                    alert('Could not access microphone. Please check your device settings and try again.');
-                }
+                console.error('Initialization error:', err);
+                setIsListening(false);
             }
         }
     };
