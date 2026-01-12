@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import AppLayout from '@/components/layout/AppLayout';
+import { ThemeProvider } from '@/components/theme/ThemeProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -27,15 +28,35 @@ export const metadata: Metadata = {
     },
 };
 
+// Anti-flash script - runs before React hydration to prevent theme flash
+const themeScript = `
+(function() {
+  try {
+    const theme = localStorage.getItem('prism-theme') || 'system';
+    const resolved = theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : theme;
+    document.documentElement.setAttribute('data-theme', resolved);
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
     return (
-        <html lang="en">
+        <html lang="en" suppressHydrationWarning>
+            <head>
+                <script
+                    dangerouslySetInnerHTML={{ __html: themeScript }}
+                />
+            </head>
             <body className={inter.className}>
-                <AppLayout>{children}</AppLayout>
+                <ThemeProvider>
+                    <AppLayout>{children}</AppLayout>
+                </ThemeProvider>
             </body>
         </html>
     );

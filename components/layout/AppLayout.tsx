@@ -37,27 +37,27 @@ export default function AppLayout({ children }: AppLayoutProps) {
         return (
             <div className="w-full h-screen flex flex-col overflow-hidden">
                 {/* Mobile Header */}
-                <header className="flex-shrink-0 h-14 bg-white border-b border-gray-100 flex items-center px-4 gap-3">
+                <header className="flex-shrink-0 h-14 bg-surface-primary border-b border-stroke-subtle flex items-center px-4 gap-3">
                     <button
                         onClick={() => setSidebarOpen(true)}
-                        className="p-2 -ml-2 rounded-lg hover:bg-gray-100 transition-colors"
+                        className="p-2 -ml-2 rounded-lg hover:bg-interactive-hover transition-colors"
                         aria-label="Open menu"
                     >
-                        <Menu className="w-5 h-5 text-gray-700" />
+                        <Menu className="w-5 h-5 text-content-primary" />
                     </button>
 
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-600 to-blue-500 flex items-center justify-center flex-shrink-0">
-                            <Sparkles className="w-4 h-4 text-white" />
+                        <div className="w-7 h-7 rounded-lg bg-gradient-premium flex items-center justify-center flex-shrink-0">
+                            <Sparkles className="w-4 h-4 text-content-inverted" />
                         </div>
-                        <span className="font-semibold text-gray-800 truncate">
+                        <span className="font-semibold text-content-primary truncate">
                             {workflowName}
                         </span>
                     </div>
                 </header>
 
                 {/* Main Content */}
-                <main className="flex-1 overflow-hidden bg-gray-50">
+                <main className="flex-1 overflow-hidden bg-surface-secondary">
                     {children}
                 </main>
 
@@ -77,7 +77,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <Sidebar />
 
             {/* Main Content */}
-            <div className="flex-1 overflow-hidden bg-gray-50">
+            <div className="flex-1 overflow-hidden bg-surface-secondary">
                 {children}
             </div>
         </div>

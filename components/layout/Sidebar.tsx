@@ -44,25 +44,25 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
                 {/* Drawer */}
                 <div
-                    className={`fixed top-0 left-0 h-full w-72 bg-white z-50 transform transition-transform duration-300 ease-out shadow-2xl
+                    className={`fixed top-0 left-0 h-full w-72 bg-surface-primary z-50 transform transition-transform duration-300 ease-out shadow-2xl
                         ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
                 >
                     {/* Drawer Header */}
-                    <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                    <div className="flex items-center justify-between p-4 border-b border-stroke-subtle">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-blue-500 flex items-center justify-center">
-                                <Sparkles className="w-5 h-5 text-white" />
+                            <div className="w-10 h-10 rounded-xl bg-gradient-premium flex items-center justify-center">
+                                <Sparkles className="w-5 h-5 text-content-inverted" />
                             </div>
                             <div>
-                                <h1 className="font-bold text-gray-900">Prism AI</h1>
-                                <p className="text-xs text-gray-500">Automation Platform</p>
+                                <h1 className="font-bold text-content-primary">Prism AI</h1>
+                                <p className="text-xs text-content-secondary">Automation Platform</p>
                             </div>
                         </div>
                         <button
                             onClick={onClose}
-                            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                            className="p-2 rounded-lg hover:bg-interactive-hover transition-colors"
                         >
-                            <X className="w-5 h-5 text-gray-500" />
+                            <X className="w-5 h-5 text-content-secondary" />
                         </button>
                     </div>
 
@@ -82,15 +82,15 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                                 flex items-center gap-3 px-4 py-3 rounded-xl
                                                 transition-all duration-200
                                                 ${isActive
-                                                    ? 'bg-gradient-to-r from-purple-50 to-blue-50 text-purple-600'
-                                                    : 'text-gray-700 hover:bg-gray-50'
+                                                    ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 text-accent-primary'
+                                                    : 'text-content-primary hover:bg-interactive-hover'
                                                 }
                                             `}
                                         >
                                             <Icon className="w-5 h-5" />
                                             <span className="font-medium">{item.name}</span>
                                             {isActive && (
-                                                <div className="ml-auto w-2 h-2 rounded-full bg-purple-500" />
+                                                <div className="ml-auto w-2 h-2 rounded-full bg-accent-primary" />
                                             )}
                                         </Link>
                                     </li>
@@ -100,14 +100,14 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     </nav>
 
                     {/* Bottom Section */}
-                    <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-100">
+                    <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-stroke-subtle">
                         <Link
                             href="/"
                             onClick={onClose}
-                            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors"
+                            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-tertiary hover:bg-interactive-hover transition-colors"
                         >
-                            <Sparkles className="w-5 h-5 text-purple-600" />
-                            <span className="font-medium text-gray-700">Back to Home</span>
+                            <Sparkles className="w-5 h-5 text-accent-primary" />
+                            <span className="font-medium text-content-primary">Back to Home</span>
                         </Link>
                     </div>
                 </div>
@@ -115,11 +115,11 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         );
     }
 
-    // Desktop: Side navigation (unchanged)
+    // Desktop: Side navigation
     return (
         <div
             className={`
-                flex flex-col bg-white border-r border-gray-200 h-full
+                flex flex-col bg-surface-primary border-r border-stroke-subtle h-full
                 transition-all duration-300 ease-in-out
                 ${isExpanded ? 'w-60' : 'w-16'}
             `}
@@ -128,7 +128,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             <div className="h-14 flex items-center px-3">
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-700"
+                    className="p-2 rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
                     aria-label="Toggle menu"
                 >
                     <Menu className="w-5 h-5" />
@@ -150,8 +150,8 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                         group relative flex items-center gap-3 px-3 py-2.5 rounded-lg
                                         transition-all duration-200
                                         ${isActive
-                                            ? 'bg-gradient-to-r from-purple-50 to-blue-50 text-purple-600'
-                                            : 'text-gray-700 hover:bg-gray-100'
+                                            ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 text-accent-primary'
+                                            : 'text-content-primary hover:bg-interactive-hover'
                                         }
                                     `}
                                 >
@@ -164,11 +164,11 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                     )}
 
                                     {isActive && (
-                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-gradient-to-b from-purple-600 to-blue-500 rounded-r-full" />
+                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-gradient-premium rounded-r-full" />
                                     )}
 
                                     {!isExpanded && (
-                                        <div className="absolute left-full ml-2 px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+                                        <div className="absolute left-full ml-2 px-3 py-1.5 bg-content-primary text-surface-primary text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 shadow-lg">
                                             {item.name}
                                         </div>
                                     )}
@@ -182,7 +182,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             {/* Logo at Bottom */}
             <Link
                 href="/"
-                className="border-t border-gray-200 p-4 bg-gradient-to-br from-purple-600 to-blue-500 transition-all duration-300 hover:from-purple-500 hover:to-blue-400 cursor-pointer block"
+                className="border-t border-stroke-subtle p-4 bg-gradient-premium transition-all duration-300 hover:brightness-110 cursor-pointer block"
             >
                 <div className={`flex items-center gap-3 ${!isExpanded && 'justify-center'}`}>
                     <div className={`

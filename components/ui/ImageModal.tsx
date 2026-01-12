@@ -64,10 +64,8 @@ export function ImageModal({
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-
-            console.log('✅ Image downloaded successfully');
         } catch (error) {
-            console.error('❌ Download failed:', error);
+            console.error('Download failed:', error);
         } finally {
             setIsDownloading(false);
         }
@@ -108,11 +106,11 @@ export function ImageModal({
                 </button>
             )}
 
-            <div className="relative max-w-7xl max-h-[90vh] p-6 bg-gray-900 rounded-2xl shadow-2xl border border-gray-700">
+            <div className="relative max-w-7xl max-h-[90vh] p-6 bg-surface-elevated rounded-2xl shadow-2xl border border-stroke-subtle">
                 {/* Close button */}
                 <button
                     onClick={onClose}
-                    className="absolute top-4 right-4 p-2 bg-gray-800 rounded-full hover:bg-gray-700 transition-colors z-10"
+                    className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full transition-colors z-10"
                     aria-label="Close"
                 >
                     <X className="w-5 h-5 text-white" />
@@ -139,7 +137,7 @@ export function ImageModal({
                     <button
                         onClick={handleDownload}
                         disabled={isDownloading}
-                        className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-medium rounded-lg transition-colors shadow-lg"
+                        className="flex items-center gap-2 px-6 py-3 bg-accent-primary hover:bg-accent-secondary disabled:bg-surface-tertiary text-white font-medium rounded-lg transition-colors shadow-lg"
                     >
                         <Download className="w-5 h-5" />
                         {isDownloading ? 'Downloading...' : 'Download PNG'}
@@ -147,8 +145,8 @@ export function ImageModal({
 
                     {/* Keyboard hint */}
                     {(canGoPrevious || canGoNext) && (
-                        <p className="text-xs text-gray-500">
-                            Use <kbd className="px-1.5 py-0.5 bg-gray-800 rounded border border-gray-700 text-gray-400 font-mono text-[10px]">←</kbd> <kbd className="px-1.5 py-0.5 bg-gray-800 rounded border border-gray-700 text-gray-400 font-mono text-[10px]">→</kbd> to navigate
+                        <p className="text-xs text-content-tertiary">
+                            Use <kbd className="px-1.5 py-0.5 bg-surface-tertiary rounded border border-stroke-subtle text-content-secondary font-mono text-[10px]">←</kbd> <kbd className="px-1.5 py-0.5 bg-surface-tertiary rounded border border-stroke-subtle text-content-secondary font-mono text-[10px]">→</kbd> to navigate
                         </p>
                     )}
                 </div>

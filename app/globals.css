@@ -1,9 +1,12 @@
+@import './theme-tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    /* Legacy HSL variables for backward compatibility */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --primary: 250 84% 67%;
@@ -19,50 +22,70 @@
     --card-foreground: 222.2 84% 4.9%;
   }
 
+  [data-theme="dark"] {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --primary: 250 84% 67%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --border: 217.2 32.6% 17.5%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+  }
+
   * {
-    @apply border-border;
+    border-color: rgb(var(--border-subtle));
   }
 
   body {
-    @apply bg-background text-foreground;
+    background-color: rgb(var(--bg-primary));
+    color: rgb(var(--text-primary));
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
 @layer utilities {
   .glassmorphism {
-    background: rgba(255, 255, 255, 0.7);
+    background: rgb(var(--glass-bg) / var(--glass-opacity));
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid rgb(var(--glass-border) / var(--glass-border-opacity));
   }
 
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-premium;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    background-image: linear-gradient(135deg, rgb(var(--accent-primary)) 0%, rgb(var(--accent-secondary)) 100%);
   }
 
   .shadow-premium {
-    box-shadow: 0 10px 40px rgba(102, 126, 234, 0.2);
+    box-shadow: 0 10px 40px rgb(var(--accent-primary) / 0.2);
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - theme aware */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: rgb(var(--scrollbar-track));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: rgb(var(--scrollbar-thumb));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: rgb(var(--scrollbar-thumb-hover));
 }
 
 /* Animation improvements */
@@ -82,7 +105,7 @@
   animation: fadeIn 0.3s ease-out;
 }
 
-/* React Flow custom styles */
+/* React Flow custom styles - theme aware */
 .react-flow__node {
   cursor: grab;
 }
@@ -98,9 +121,8 @@
 .react-flow__handle {
   width: 12px;
   height: 12px;
-  border: 2px solid white;
+  border: 2px solid rgb(var(--bg-primary));
 }
-
 
 /* Performance: GPU acceleration for smooth animations */
 .react-flow__node,
@@ -112,4 +134,32 @@
 /* Performance: Smooth transitions */
 .react-flow__pane {
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* React Flow controls - theme aware */
+.react-flow__controls {
+  background: rgb(var(--bg-elevated) / 0.9) !important;
+  border: 1px solid rgb(var(--border-subtle)) !important;
+  border-radius: 8px !important;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border-bottom: 1px solid rgb(var(--border-subtle)) !important;
+  fill: rgb(var(--text-secondary)) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgb(var(--interactive-hover)) !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+/* React Flow minimap - theme aware */
+.react-flow__minimap {
+  background: rgb(var(--bg-secondary)) !important;
+  border: 1px solid rgb(var(--border-subtle)) !important;
+  border-radius: 8px !important;
 }

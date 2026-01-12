@@ -10,35 +10,29 @@ interface MessageRendererProps {
 }
 
 export default function MessageRenderer({ data }: MessageRendererProps) {
-    // If data is null/undefined, don't render anything
     if (!data) return null;
 
-    // Unwrap if data has an images property (common for workflow results)
     const actualData = data?.images || data;
 
-    // Detect array of images - check for url property
+    // Detect array of images
     if (Array.isArray(actualData) && actualData.length > 0) {
-        // Check if it looks like image data
         const firstItem = actualData[0];
         if (firstItem && typeof firstItem === 'object' && ('url' in firstItem)) {
             return <ImageGallery images={actualData} />;
         }
-
-        // Check if it's an array of objects (table data) - but not images
         if (typeof firstItem === 'object') {
             return <DataTable data={actualData} />;
         }
     }
 
-    // Text or JSON
     if (typeof data === 'string') {
         return <TextRenderer text={data} />;
     }
 
     // Fallback: JSON display
     return (
-        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <pre className="text-sm text-gray-700 overflow-x-auto">
+        <div className="bg-surface-secondary rounded-lg p-4 border border-stroke-subtle">
+            <pre className="text-sm text-content-secondary overflow-x-auto">
                 {JSON.stringify(data, null, 2)}
             </pre>
         </div>
@@ -49,34 +43,25 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
     const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
     const [thumbnails, setThumbnails] = React.useState<Map<number, string>>(new Map());
 
-    // Generate thumbnails for large base64 images
     React.useEffect(() => {
         const generateThumbnails = async () => {
             const newThumbnails = new Map<number, string>();
-
             for (let i = 0; i < images.length; i++) {
                 const img = images[i];
-                // Only generate thumbnails for base64 images (data URLs)
                 if (img.url.startsWith('data:')) {
                     try {
                         const thumbnail = await createThumbnail(img.url, 300);
                         newThumbnails.set(i, thumbnail);
                     } catch (e) {
-                        // Fallback to original if thumbnail generation fails
-                        console.warn('Thumbnail generation failed for image', i);
+                        console.warn('Thumbnail generation failed', i);
                     }
                 }
             }
-
-            if (newThumbnails.size > 0) {
-                setThumbnails(newThumbnails);
-            }
+            if (newThumbnails.size > 0) setThumbnails(newThumbnails);
         };
-
         generateThumbnails();
     }, [images]);
 
-    // Convert images to format expected by ImageLightbox
     const lightboxImages = React.useMemo(() =>
         images.map(img => ({ url: img.url })),
         [images]
@@ -84,7 +69,7 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
 
     return (
         <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
+            <div className="flex items-center gap-2 text-sm text-content-secondary">
                 <ImageIcon className="w-4 h-4" />
                 <span>{images.length} images</span>
             </div>
@@ -93,18 +78,18 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                 {images.map((img, idx) => (
                     <div
                         key={idx}
-                        className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 cursor-pointer"
+                        className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 cursor-pointer border border-stroke-subtle"
                         style={{ contentVisibility: 'auto', containIntrinsicSize: '0 192px' }}
                         onClick={() => setSelectedIndex(idx)}
                     >
                         <img
                             src={thumbnails.get(idx) || img.url}
                             alt={img.metadata?.title || `Image ${idx + 1}`}
-                            className="w-full h-48 object-cover"
+                            className="w-full h-48 object-cover bg-surface-tertiary"
                             loading="lazy"
                             decoding="async"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                             <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
                                 <div className="text-xs font-medium truncate">
                                     {img.metadata?.title || 'Image'}
@@ -112,7 +97,7 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                                 <div className="text-xs text-gray-300">
                                     {img.resolution.width} x {img.resolution.height}
                                 </div>
-                                <div className="text-xs text-purple-300 mt-1">
+                                <div className="text-xs text-accent-primary mt-1 font-medium">
                                     Click to view full size
                                 </div>
                             </div>
@@ -121,7 +106,6 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                 ))}
             </div>
 
-            {/* Image Lightbox - same styling as editor preview */}
             {selectedIndex !== null && (
                 <ImageLightbox
                     images={lightboxImages}
@@ -133,7 +117,6 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
     );
 });
 
-// Utility function to create a thumbnail from a base64 image
 function createThumbnail(base64Url: string, maxWidth: number): Promise<string> {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -142,15 +125,11 @@ function createThumbnail(base64Url: string, maxWidth: number): Promise<string> {
             const scale = Math.min(1, maxWidth / img.width);
             canvas.width = img.width * scale;
             canvas.height = img.height * scale;
-
             const ctx = canvas.getContext('2d');
-            if (!ctx) {
-                reject(new Error('Could not get canvas context'));
-                return;
-            }
-
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/png'));
+            if (ctx) {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/png'));
+            } else reject(new Error('Canvas context error'));
         };
         img.onerror = reject;
         img.src = base64Url;
@@ -159,35 +138,34 @@ function createThumbnail(base64Url: string, maxWidth: number): Promise<string> {
 
 function DataTable({ data }: { data: any[] }) {
     if (data.length === 0) return null;
-
     const keys = Object.keys(data[0]);
 
     return (
         <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
+            <div className="flex items-center gap-2 text-sm text-content-secondary">
                 <FileText className="w-4 h-4" />
                 <span>{data.length} rows</span>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
+            <div className="overflow-x-auto rounded-lg border border-stroke-subtle">
+                <table className="min-w-full divide-y divide-stroke-subtle">
+                    <thead className="bg-surface-secondary">
                         <tr>
                             {keys.map((key) => (
                                 <th
                                     key={key}
-                                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider"
+                                    className="px-4 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider"
                                 >
                                     {key}
                                 </th>
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody className="bg-surface-primary divide-y divide-stroke-subtle">
                         {data.map((row, idx) => (
-                            <tr key={idx} className="hover:bg-gray-50">
+                            <tr key={idx} className="hover:bg-surface-secondary/50">
                                 {keys.map((key) => (
-                                    <td key={key} className="px-4 py-3 text-sm text-gray-900">
+                                    <td key={key} className="px-4 py-3 text-sm text-content-primary">
                                         {typeof row[key] === 'object'
                                             ? JSON.stringify(row[key])
                                             : String(row[key])}
@@ -204,8 +182,8 @@ function DataTable({ data }: { data: any[] }) {
 
 function TextRenderer({ text }: { text: string }) {
     return (
-        <div className="prose prose-sm max-w-none">
-            <p className="text-gray-700 whitespace-pre-wrap">{text}</p>
+        <div className="prose prose-sm max-w-none dark:prose-invert">
+            <p className="text-content-primary whitespace-pre-wrap">{text}</p>
         </div>
     );
 }

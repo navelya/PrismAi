@@ -31,13 +31,15 @@ export default function EditorToolbar({
     const [showMenu, setShowMenu] = useState(false);
 
     return (
-        <div className="flex items-center gap-2 px-4 py-3 bg-white border-b border-gray-200">
+        <div className="flex items-center gap-2 px-4 py-3 bg-surface-primary border-b border-stroke-subtle">
             {/* Workflow Name - Responsive */}
             <input
                 type="text"
                 value={workflowName}
                 onChange={(e) => onNameChange(e.target.value)}
-                className="flex-1 min-w-0 px-3 py-1.5 text-sm font-medium bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="flex-1 min-w-0 px-3 py-1.5 text-sm font-medium bg-surface-tertiary border border-stroke-subtle rounded-lg 
+                           text-content-primary placeholder:text-content-tertiary
+                           focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent"
                 placeholder="Workflow name"
             />
 
@@ -54,7 +56,7 @@ export default function EditorToolbar({
             ) : (
                 <button
                     onClick={onRun}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:shadow-md transition-all font-medium text-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-gradient-premium text-white rounded-lg hover:shadow-md hover:shadow-accent-primary/25 transition-all font-medium text-sm"
                     title="Run workflow"
                 >
                     <Play className="w-4 h-4" />
@@ -66,7 +68,7 @@ export default function EditorToolbar({
             <div className="hidden lg:flex items-center gap-2">
                 <button
                     onClick={onSave}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors text-sm border border-stroke-subtle"
                     title="Save workflow"
                 >
                     <Save className="w-4 h-4" />
@@ -75,7 +77,7 @@ export default function EditorToolbar({
 
                 <button
                     onClick={onNew}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors text-sm border border-stroke-subtle"
                     title="New workflow"
                 >
                     <FilePlus className="w-4 h-4" />
@@ -84,7 +86,7 @@ export default function EditorToolbar({
 
                 <button
                     onClick={onDelete}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-600 rounded-lg hover:bg-red-500/20 transition-colors text-sm border border-transparent hover:border-red-200 dark:hover:border-red-900"
                     title="Delete workflow"
                 >
                     <Trash2 className="w-4 h-4" />
@@ -96,7 +98,7 @@ export default function EditorToolbar({
             <div className="flex lg:hidden items-center gap-1">
                 <button
                     onClick={onSave}
-                    className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                    className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
                     title="Save workflow"
                 >
                     <Save className="w-4 h-4" />
@@ -106,7 +108,7 @@ export default function EditorToolbar({
                 <div className="relative">
                     <button
                         onClick={() => setShowMenu(!showMenu)}
-                        className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                        className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
                         title="More actions"
                     >
                         <MoreVertical className="w-4 h-4" />
@@ -119,13 +121,13 @@ export default function EditorToolbar({
                                 className="fixed inset-0 z-10"
                                 onClick={() => setShowMenu(false)}
                             />
-                            <div className="absolute right-0 top-full mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                            <div className="absolute right-0 top-full mt-1 w-40 bg-surface-elevated border border-stroke-subtle rounded-lg shadow-lg z-20 py-1">
                                 <button
                                     onClick={() => {
                                         onNew();
                                         setShowMenu(false);
                                     }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content-secondary hover:bg-surface-tertiary transition-colors"
                                 >
                                     <FilePlus className="w-4 h-4" />
                                     New Workflow
@@ -135,7 +137,7 @@ export default function EditorToolbar({
                                         onDelete();
                                         setShowMenu(false);
                                     }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                                 >
                                     <Trash2 className="w-4 h-4" />
                                     Delete

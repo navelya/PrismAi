@@ -24,6 +24,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network, Trash2, Copy, Hand } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
+import { useTheme } from '@/components/theme/ThemeProvider';
 
 interface EditorCanvasProps {
     nodes: any[];
@@ -65,6 +66,9 @@ function EditorCanvasInner({
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
     const [isPanMode, setIsPanMode] = useState(false);
 
+    // Theme context for dynamic updates
+    const { resolvedTheme } = useTheme();
+
     // Get store actions for undo/redo and copy/paste
     const setIsDragging = useAppStore((state) => state.setIsDragging);
     const updateNodePosition = useAppStore((state) => state.updateNodePosition);
@@ -81,6 +85,13 @@ function EditorCanvasInner({
     // Get selected nodes
     const selectedNodes = useMemo(() => nodes.filter((n: any) => n.selected), [nodes]);
     const multiSelectCount = selectedNodes.length;
+
+    // Edge style that uses CSS variables - recomputes when theme changes
+    const edgeStyle = useMemo(() => ({
+        strokeWidth: 2,
+        stroke: 'rgb(var(--canvas-edge))',
+        cursor: 'pointer',
+    }), [resolvedTheme]);
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -323,11 +334,7 @@ function EditorCanvasInner({
                     ...e,
                     type: 'default',
                     animated: true,
-                    style: {
-                        strokeWidth: 2,
-                        stroke: '#667eea',
-                        cursor: 'pointer',
-                    },
+                    style: edgeStyle,
                 }))}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -356,8 +363,14 @@ function EditorCanvasInner({
                 onPaneClick={() => setContextMenu(null)}
                 onMoveStart={() => setContextMenu(null)}
             >
-                <Background variant={BackgroundVariant.Dots} gap={16} size={1} style={{ backgroundColor: 'rgb(var(--canvas-bg))' }} color="rgb(var(--canvas-dots))" />
-                <Controls className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg" />
+                <Background
+                    variant={BackgroundVariant.Dots}
+                    gap={16}
+                    size={1}
+                    style={{ backgroundColor: 'rgb(var(--canvas-bg))' }}
+                    color="rgb(var(--canvas-dots))"
+                />
+                <Controls className="!bg-surface-elevated/90 !backdrop-blur-sm !border !border-stroke-subtle !rounded-lg !shadow-lg" />
 
                 {/* Undo/Redo/Layout Panel - Inside ReactFlow to not break selection */}
                 <Panel position="top-left" className="flex gap-2 !m-4">
@@ -365,50 +378,50 @@ function EditorCanvasInner({
                         onClick={handleUndo}
                         disabled={!canUndo}
                         suppressHydrationWarning
-                        className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
+                        className="w-9 h-9 rounded-lg bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle
                                    shadow-lg hover:shadow-xl transition-all duration-200
                                    flex items-center justify-center
                                    disabled:opacity-40 disabled:cursor-not-allowed
-                                   hover:bg-white dark:hover:bg-gray-700 group"
+                                   hover:bg-surface-tertiary group"
                         title="Undo (Ctrl+Z)"
                     >
-                        <Undo2 className={`w-4 h-4 transition-colors ${canUndo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`} suppressHydrationWarning />
+                        <Undo2 className={`w-4 h-4 transition-colors ${canUndo ? 'text-content-primary group-hover:text-accent-primary' : 'text-content-tertiary'}`} suppressHydrationWarning />
                     </button>
                     <button
                         onClick={handleRedo}
                         disabled={!canRedo}
-                        className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
+                        className="w-9 h-9 rounded-lg bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle
                                    shadow-lg hover:shadow-xl transition-all duration-200
                                    flex items-center justify-center
                                    disabled:opacity-40 disabled:cursor-not-allowed
-                                   hover:bg-white dark:hover:bg-gray-700 group"
+                                   hover:bg-surface-tertiary group"
                         title="Redo (Ctrl+Y)"
                     >
-                        <Redo2 className={`w-4 h-4 transition-colors ${canRedo ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`} />
+                        <Redo2 className={`w-4 h-4 transition-colors ${canRedo ? 'text-content-primary group-hover:text-accent-primary' : 'text-content-tertiary'}`} />
                     </button>
                     <button
                         onClick={handleAutoLayout}
                         disabled={nodes.length === 0}
-                        className="w-9 h-9 rounded-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700
+                        className="w-9 h-9 rounded-lg bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle
                                    shadow-lg hover:shadow-xl transition-all duration-200
                                    flex items-center justify-center
                                    disabled:opacity-40 disabled:cursor-not-allowed
-                                   hover:bg-white dark:hover:bg-gray-700 group"
+                                   hover:bg-surface-tertiary group"
                         title="Auto Layout"
                     >
-                        <Network className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600' : 'text-gray-400 dark:text-gray-600'}`} />
+                        <Network className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-content-primary group-hover:text-accent-primary' : 'text-content-tertiary'}`} />
                     </button>
                     <button
                         onClick={() => setIsPanMode(!isPanMode)}
                         className={`w-9 h-9 rounded-lg backdrop-blur-sm border shadow-lg hover:shadow-xl transition-all duration-200
                                    flex items-center justify-center group
                                    ${isPanMode
-                                ? 'bg-purple-500 border-purple-600 text-white'
-                                : 'bg-white/90 dark:bg-gray-800/90 border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700'
+                                ? 'bg-accent-primary border-accent-primary text-content-inverted'
+                                : 'bg-surface-elevated/90 border-stroke-subtle hover:bg-surface-tertiary'
                             }`}
                         title={isPanMode ? 'Exit pan mode (click to select nodes)' : 'Pan mode (drag to move canvas)'}
                     >
-                        <Hand className={`w-4 h-4 transition-colors ${isPanMode ? 'text-white' : 'text-gray-700 dark:text-gray-300 group-hover:text-purple-600'}`} />
+                        <Hand className={`w-4 h-4 transition-colors ${isPanMode ? 'text-content-inverted' : 'text-content-primary group-hover:text-accent-primary'}`} />
                     </button>
                 </Panel>
 
@@ -504,7 +517,7 @@ function EditorCanvasInner({
                                             }
                                         }
                                     }}
-                                    className="p-1.5 rounded bg-white/95 border border-gray-200 text-gray-600 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-300 transition-colors shadow-md"
+                                    className="p-1.5 rounded bg-surface-elevated/95 border border-stroke-subtle text-content-secondary hover:bg-interactive-hover hover:text-accent-primary hover:border-accent-primary/30 transition-colors shadow-md"
                                     title="Copy selected nodes"
                                 >
                                     <Copy className="w-4 h-4" />
@@ -515,7 +528,7 @@ function EditorCanvasInner({
                                         e.stopPropagation();
                                         selectedNodes.forEach((node: any) => deleteNode(node.id));
                                     }}
-                                    className="p-1.5 rounded bg-white/95 border border-gray-200 text-red-500 hover:bg-red-50 hover:border-red-300 transition-colors shadow-md"
+                                    className="p-1.5 rounded bg-surface-elevated/95 border border-stroke-subtle text-accent-error hover:bg-accent-error/10 hover:border-accent-error/30 transition-colors shadow-md"
                                     title="Delete selected nodes"
                                 >
                                     <Trash2 className="w-4 h-4" />

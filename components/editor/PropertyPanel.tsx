@@ -13,6 +13,9 @@ interface PropertyPanelProps {
 }
 
 export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onClose }: PropertyPanelProps) {
+    const inputClass = "w-full px-3 py-2 border border-stroke-subtle rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-primary bg-surface-secondary text-content-primary";
+    const labelClass = "block text-sm font-medium text-content-secondary mb-2";
+
     const renderForm = () => {
         switch (nodeType) {
             case 'scrape_images':
@@ -20,35 +23,35 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 return (
                     <>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Search Term</label>
+                            <label className={labelClass}>Search Term</label>
                             <input
                                 type="text"
                                 value={scrapeConfig.searchTerm}
                                 onChange={(e) => onUpdate({ ...scrapeConfig, searchTerm: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                className={inputClass}
                                 placeholder="e.g., sunset, logo, product"
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Limit</label>
+                            <label className={labelClass}>Limit</label>
                             <input
                                 type="number"
                                 value={scrapeConfig.limit}
                                 onChange={(e) => onUpdate({ ...scrapeConfig, limit: parseInt(e.target.value) || 0 })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                className={inputClass}
                                 min="1"
                                 max="100"
                             />
                         </div>
 
                         {/* Advanced Options */}
-                        <div className="pt-2 border-t border-gray-200">
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Advanced Options</div>
+                        <div className="pt-2 border-t border-stroke-subtle">
+                            <div className="text-xs font-semibold text-content-tertiary uppercase tracking-wide mb-3">Advanced Options</div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <label className={labelClass}>
                                     Source Websites (optional)
-                                    <span className="text-xs text-gray-500 ml-1">comma-separated</span>
+                                    <span className="text-xs text-content-tertiary ml-1">comma-separated</span>
                                 </label>
                                 <input
                                     type="text"
@@ -60,17 +63,17 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                                             .filter(s => s.length > 0);
                                         onUpdate({ ...scrapeConfig, sources: sources.length > 0 ? sources : undefined });
                                     }}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    className={inputClass}
                                     placeholder="e.g., nike.com, pinterest.com"
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Image Size</label>
+                                <label className={labelClass}>Image Size</label>
                                 <select
                                     value={scrapeConfig.imageSize || 'any'}
                                     onChange={(e) => onUpdate({ ...scrapeConfig, imageSize: e.target.value as any })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    className={inputClass}
                                 >
                                     <option value="any">Any Size</option>
                                     <option value="small">Small</option>
@@ -81,11 +84,11 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Image Type</label>
+                                <label className={labelClass}>Image Type</label>
                                 <select
                                     value={scrapeConfig.imageType || 'any'}
                                     onChange={(e) => onUpdate({ ...scrapeConfig, imageType: e.target.value as any })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    className={inputClass}
                                 >
                                     <option value="any">Any Type</option>
                                     <option value="photo">Photo</option>
@@ -96,11 +99,11 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Color Type</label>
+                                <label className={labelClass}>Color Type</label>
                                 <select
                                     value={scrapeConfig.colorType || 'any'}
                                     onChange={(e) => onUpdate({ ...scrapeConfig, colorType: e.target.value as any })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    className={inputClass}
                                 >
                                     <option value="any">Any Color</option>
                                     <option value="color">Color</option>
@@ -110,11 +113,11 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Safe Search</label>
+                                <label className={labelClass}>Safe Search</label>
                                 <select
                                     value={scrapeConfig.safeSearch || 'medium'}
                                     onChange={(e) => onUpdate({ ...scrapeConfig, safeSearch: e.target.value as any })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    className={inputClass}
                                 >
                                     <option value="off">Off</option>
                                     <option value="medium">Medium</option>
@@ -129,11 +132,11 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 const bgConfig = config as RemoveBackgroundConfig;
                 return (
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Output Format</label>
+                        <label className={labelClass}>Output Format</label>
                         <select
                             value={bgConfig.format || 'png'}
                             onChange={(e) => onUpdate({ ...bgConfig, format: e.target.value as 'png' | 'webp' })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            className={inputClass}
                         >
                             <option value="png">PNG</option>
                             <option value="webp">WebP</option>
@@ -146,11 +149,11 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 return (
                     <>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Criteria</label>
+                            <label className={labelClass}>Criteria</label>
                             <select
                                 value={sortConfig.criteria}
                                 onChange={(e) => onUpdate({ ...sortConfig, criteria: e.target.value as any })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                className={inputClass}
                             >
                                 <option value="resolution">Resolution</option>
                                 <option value="size">Size</option>
@@ -158,11 +161,11 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Order</label>
+                            <label className={labelClass}>Order</label>
                             <select
                                 value={sortConfig.order}
                                 onChange={(e) => onUpdate({ ...sortConfig, order: e.target.value as 'asc' | 'desc' })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                className={inputClass}
                             >
                                 <option value="asc">Ascending</option>
                                 <option value="desc">Descending</option>
@@ -170,12 +173,12 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                         </div>
                         {sortConfig.limit !== undefined && (
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Limit (optional)</label>
+                                <label className={labelClass}>Limit (optional)</label>
                                 <input
                                     type="number"
                                     value={sortConfig.limit || ''}
                                     onChange={(e) => onUpdate({ ...sortConfig, limit: parseInt(e.target.value) || undefined })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    className={inputClass}
                                     placeholder="No limit"
                                 />
                             </div>
@@ -188,20 +191,20 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 return (
                     <>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Prompt</label>
+                            <label className={labelClass}>Prompt</label>
                             <textarea
                                 value={aiConfig.prompt}
                                 onChange={(e) => onUpdate({ ...aiConfig, prompt: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                className={inputClass}
                                 rows={3}
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Aspect Ratio</label>
+                            <label className={labelClass}>Aspect Ratio</label>
                             <select
                                 value={aiConfig.aspectRatio || '1:1'}
                                 onChange={(e) => onUpdate({ ...aiConfig, aspectRatio: e.target.value as any })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                className={inputClass}
                             >
                                 <option value="1:1">1:1 (Square)</option>
                                 <option value="16:9">16:9 (Widescreen)</option>
@@ -215,45 +218,45 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 const upscaleConfig = config as UpscaleImageConfig;
                 return (
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Upscale Factor</label>
+                        <label className={labelClass}>Upscale Factor</label>
                         <select
                             value={upscaleConfig.scale || 4}
                             onChange={(e) => onUpdate({ ...upscaleConfig, scale: parseInt(e.target.value) as 2 | 3 | 4 | 8 })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            className={inputClass}
                         >
                             <option value={2}>2x (Double Size)</option>
                             <option value={3}>3x (Triple Size)</option>
                             <option value={4}>4x (Quadruple Size)</option>
                             <option value={8}>8x (Ultra Super Resolution)</option>
                         </select>
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-content-tertiary mt-2">
                             Higher scale = better quality but slower processing
                         </p>
                     </div>
                 );
 
             default:
-                return <p className="text-gray-500">No properties available</p>;
+                return <p className="text-content-secondary">No properties available</p>;
         }
     };
 
     return (
-        <div className="w-80 bg-white border-l border-gray-200 p-4 space-y-4 overflow-y-auto">
+        <div className="w-80 bg-surface-primary border-l border-stroke-subtle p-4 space-y-4 overflow-y-auto">
             {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                <h3 className="font-semibold text-gray-900">Properties</h3>
+            <div className="flex items-center justify-between pb-3 border-b border-stroke-subtle">
+                <h3 className="font-semibold text-content-primary">Properties</h3>
                 <button
                     onClick={onClose}
-                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                    className="p-1 hover:bg-surface-secondary rounded transition-colors"
                 >
-                    <X className="w-5 h-5 text-gray-500" />
+                    <X className="w-5 h-5 text-content-secondary" />
                 </button>
             </div>
 
             {/* Node Info */}
-            <div className="bg-gray-50 rounded-lg p-3">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Node ID</div>
-                <div className="text-sm font-mono text-gray-700 mt-1">{nodeId.substring(0, 8)}...</div>
+            <div className="bg-surface-secondary rounded-lg p-3">
+                <div className="text-xs text-content-tertiary uppercase tracking-wide">Node ID</div>
+                <div className="text-sm font-mono text-content-primary mt-1">{nodeId.substring(0, 8)}...</div>
             </div>
 
             {/* Form Fields */}

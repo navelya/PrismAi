@@ -9,6 +9,49 @@ const config: Config = {
     theme: {
         extend: {
             colors: {
+                // === SEMANTIC SURFACE TOKENS ===
+                surface: {
+                    primary: 'rgb(var(--bg-primary) / <alpha-value>)',
+                    secondary: 'rgb(var(--bg-secondary) / <alpha-value>)',
+                    tertiary: 'rgb(var(--bg-tertiary) / <alpha-value>)',
+                    elevated: 'rgb(var(--bg-elevated) / <alpha-value>)',
+                },
+                // === SEMANTIC TEXT TOKENS ===
+                content: {
+                    primary: 'rgb(var(--text-primary) / <alpha-value>)',
+                    secondary: 'rgb(var(--text-secondary) / <alpha-value>)',
+                    tertiary: 'rgb(var(--text-tertiary) / <alpha-value>)',
+                    inverted: 'rgb(var(--text-inverted) / <alpha-value>)',
+                },
+                // === SEMANTIC BORDER TOKENS ===
+                stroke: {
+                    subtle: 'rgb(var(--border-subtle) / <alpha-value>)',
+                    DEFAULT: 'rgb(var(--border-default) / <alpha-value>)',
+                    strong: 'rgb(var(--border-strong) / <alpha-value>)',
+                },
+                // === ACCENT COLORS ===
+                accent: {
+                    primary: 'rgb(var(--accent-primary) / <alpha-value>)',
+                    secondary: 'rgb(var(--accent-secondary) / <alpha-value>)',
+                    success: 'rgb(var(--accent-success) / <alpha-value>)',
+                    error: 'rgb(var(--accent-error) / <alpha-value>)',
+                    warning: 'rgb(var(--accent-warning) / <alpha-value>)',
+                },
+                // === INTERACTIVE STATES ===
+                interactive: {
+                    hover: 'rgb(var(--interactive-hover) / <alpha-value>)',
+                    active: 'rgb(var(--interactive-active) / <alpha-value>)',
+                },
+                // === CANVAS TOKENS ===
+                canvas: {
+                    bg: 'rgb(var(--canvas-bg) / <alpha-value>)',
+                    dots: 'rgb(var(--canvas-dots) / <alpha-value>)',
+                    node: 'rgb(var(--canvas-node-bg) / <alpha-value>)',
+                    text: 'rgb(var(--canvas-node-text) / <alpha-value>)',
+                    subtext: 'rgb(var(--canvas-node-subtext) / <alpha-value>)',
+                    edge: 'rgb(var(--canvas-edge) / <alpha-value>)',
+                },
+                // === LEGACY COMPATIBILITY (will be phased out) ===
                 background: "hsl(var(--background))",
                 foreground: "hsl(var(--foreground))",
                 primary: {
@@ -18,10 +61,6 @@ const config: Config = {
                 secondary: {
                     DEFAULT: "hsl(var(--secondary))",
                     foreground: "hsl(var(--secondary-foreground))",
-                },
-                accent: {
-                    DEFAULT: "hsl(var(--accent))",
-                    foreground: "hsl(var(--accent-foreground))",
                 },
                 muted: {
                     DEFAULT: "hsl(var(--muted))",
@@ -36,7 +75,7 @@ const config: Config = {
             backgroundImage: {
                 "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
                 "gradient-conic": "conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))",
-                "gradient-premium": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                "gradient-premium": "linear-gradient(to bottom right, #a855f7, #4f46e5)",
                 "gradient-accent": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
             },
             animation: {

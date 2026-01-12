@@ -24,6 +24,9 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
 
     const images = data.config?.images || [];
 
+    // Node color with fallback to accent
+    const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
+
     // Update node config with new images - use getState to avoid stale closure
     const updateImages = useCallback((newImages: string[]) => {
         const { currentWorkflow, setCurrentWorkflow } = useAppStore.getState();
@@ -115,14 +118,14 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
     return (
         <div
             className={cn(
-                "rounded-xl shadow-lg border-2 backdrop-blur-sm relative group",
+                "rounded-xl shadow-lg border-2 backdrop-blur-sm relative group bg-canvas-node",
                 "transition-all duration-300 hover:shadow-2xl",
                 "w-[160px]",
-                isDragOver && "ring-2 ring-blue-400 ring-offset-2"
+                isDragOver && "ring-2 ring-accent-primary ring-offset-2"
             )}
             style={{
-                background: `linear-gradient(135deg, ${metadata?.color}20 0%, ${metadata?.color}40 100%)`,
-                borderColor: metadata?.color || '#3b82f6',
+                background: `linear-gradient(135deg, ${nodeColor}20 0%, ${nodeColor}40 100%)`,
+                borderColor: nodeColor,
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -132,25 +135,25 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
                 <button
                     onClick={handleDelete}
-                    className="w-6 h-6 rounded-full bg-red-500/90 hover:bg-red-600 backdrop-blur-sm
+                    className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
                                flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
                     title="Delete node"
                 >
-                    <X className="w-3.5 h-3.5 text-white" />
+                    <X className="w-3.5 h-3.5 text-content-inverted" />
                 </button>
             </div>
 
             {/* Header */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/20">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-stroke-subtle/20">
                 <div
                     className="w-6 h-6 rounded-md flex items-center justify-center"
-                    style={{ backgroundColor: `${metadata?.color}40` }}
+                    style={{ backgroundColor: `${nodeColor}40` }}
                 >
-                    <ImagePlus className="w-3.5 h-3.5" style={{ color: metadata?.color }} />
+                    <ImagePlus className="w-3.5 h-3.5" style={{ color: nodeColor }} />
                 </div>
-                <span className="text-xs font-semibold text-gray-800 truncate">Media Input</span>
+                <span className="text-xs font-semibold text-canvas-text truncate">Media Input</span>
                 {images.length > 0 && (
-                    <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-500 text-white">
+                    <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary text-content-inverted">
                         {images.length}
                     </span>
                 )}
@@ -165,8 +168,8 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
                         className={cn(
                             "w-full h-16 rounded-lg border-2 border-dashed transition-all",
                             "flex flex-col items-center justify-center gap-1",
-                            "text-gray-400 hover:text-blue-500 hover:border-blue-400",
-                            isDragOver ? "border-blue-400 bg-blue-50" : "border-gray-300"
+                            "text-content-tertiary hover:text-accent-primary hover:border-accent-primary",
+                            isDragOver ? "border-accent-primary bg-accent-primary/10" : "border-stroke-default"
                         )}
                     >
                         <Upload className="w-4 h-4" />
@@ -179,7 +182,7 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
                             {images.slice(0, 6).map((img, index) => (
                                 <div
                                     key={index}
-                                    className="relative aspect-square rounded overflow-hidden bg-gray-100 group/thumb"
+                                    className="relative aspect-square rounded overflow-hidden bg-surface-tertiary group/thumb"
                                 >
                                     <img
                                         src={img}
@@ -191,13 +194,13 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
                                         className="absolute inset-0 bg-black/50 opacity-0 group-hover/thumb:opacity-100 
                                                    flex items-center justify-center transition-opacity"
                                     >
-                                        <X className="w-3 h-3 text-white" />
+                                        <X className="w-3 h-3 text-content-inverted" />
                                     </button>
                                 </div>
                             ))}
                             {images.length > 6 && (
-                                <div className="aspect-square rounded bg-gray-200 flex items-center justify-center">
-                                    <span className="text-[10px] font-medium text-gray-600">+{images.length - 6}</span>
+                                <div className="aspect-square rounded bg-surface-tertiary flex items-center justify-center">
+                                    <span className="text-[10px] font-medium text-content-secondary">+{images.length - 6}</span>
                                 </div>
                             )}
                         </div>
@@ -205,8 +208,8 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
                         {/* Add more button */}
                         <button
                             onClick={() => fileInputRef.current?.click()}
-                            className="w-full py-1 rounded text-[10px] font-medium text-blue-600 
-                                       bg-blue-50 hover:bg-blue-100 transition-colors"
+                            className="w-full py-1 rounded text-[10px] font-medium text-accent-primary 
+                                       bg-accent-primary/10 hover:bg-accent-primary/20 transition-colors"
                         >
                             + Add more
                         </button>
@@ -229,7 +232,8 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
                 type="source"
                 position={Position.Right}
                 id="output"
-                className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white"
+                className="!w-3 !h-3 !border-2 !border-surface-primary"
+                style={{ background: nodeColor }}
             />
         </div>
     );

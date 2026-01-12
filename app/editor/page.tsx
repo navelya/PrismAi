@@ -16,28 +16,28 @@ export default function EditorPage() {
     // Mobile: Show message that editor requires desktop
     if (isMobile) {
         return (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+            <div className="w-full h-full flex items-center justify-center bg-surface-secondary p-6">
                 <div className="max-w-md text-center">
-                    <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center">
-                        <Monitor className="w-10 h-10 text-purple-600" />
+                    <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-premium flex items-center justify-center">
+                        <Monitor className="w-10 h-10 text-content-inverted" />
                     </div>
-                    <h1 className="text-2xl font-bold text-gray-900 mb-3">
+                    <h1 className="text-2xl font-bold text-content-primary mb-3">
                         Desktop Only
                     </h1>
-                    <p className="text-gray-600 mb-8 leading-relaxed">
+                    <p className="text-content-secondary mb-8 leading-relaxed">
                         The visual workflow editor requires a larger screen for the best experience.
                         Please use a desktop or tablet device.
                     </p>
                     <div className="space-y-3">
                         <Link
                             href="/chat"
-                            className="flex items-center justify-center gap-2 w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-medium rounded-xl hover:from-purple-700 hover:to-indigo-700 transition-all shadow-lg hover:shadow-xl"
+                            className="flex items-center justify-center gap-2 w-full px-6 py-3 bg-gradient-premium text-content-inverted font-medium rounded-xl hover:scale-105 transition-all shadow-lg shadow-accent-primary/25"
                         >
                             <MessageSquare className="w-5 h-5" />
                             Use Chat Instead
                             <ArrowRight className="w-4 h-4" />
                         </Link>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-content-tertiary">
                             Create workflows using natural language in the chat
                         </p>
                     </div>
@@ -48,10 +48,9 @@ export default function EditorPage() {
 
     // Desktop: Full editor experience
     return (
-        <div className="w-full h-full">
+        <div className="w-full h-full bg-surface-primary">
             <SharedWorkflowEditor
                 workflow={currentWorkflow}
-                onWorkflowChange={setCurrentWorkflow}
             />
         </div>
     );

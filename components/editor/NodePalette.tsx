@@ -29,8 +29,8 @@ export default function NodePalette({ onDragStart }: NodePaletteProps) {
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className={`transition-all duration-300 z-50 flex items-center justify-center
                     ${isCollapsed
-                        ? 'absolute top-16 -right-10 p-2.5 rounded-full shadow-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 transform hover:scale-105'
-                        : 'absolute top-3 right-3 p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+                        ? 'absolute top-16 -right-10 p-2.5 rounded-full shadow-lg border border-stroke-subtle bg-surface-primary hover:bg-surface-secondary text-content-primary transform hover:scale-105'
+                        : 'absolute top-3 right-3 p-1.5 rounded-lg hover:bg-surface-secondary text-content-secondary hover:text-content-primary'
                     }`}
                 title={isCollapsed ? 'Expand nodes panel' : 'Collapse nodes panel'}
             >
@@ -42,20 +42,20 @@ export default function NodePalette({ onDragStart }: NodePaletteProps) {
             </button>
 
             {/* Clipping Container - Handles the "Wipe" animation (Width 0 -> 64) */}
-            <div className={`h-full bg-white border-r border-gray-200 overflow-hidden transition-all duration-500 ease-in-out ${isCollapsed ? 'w-0' : 'w-64'}`}>
+            <div className={`h-full bg-surface-primary border-r border-stroke-subtle overflow-hidden transition-all duration-500 ease-in-out ${isCollapsed ? 'w-0' : 'w-64'}`}>
 
                 {/* Fixed Width Content - Stays stable (w-64) while parent clips it */}
                 <div className="w-64 h-full flex flex-col">
 
                     {/* Header */}
-                    <div className="h-14 flex items-center px-4 border-b border-gray-200 flex-shrink-0">
-                        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Nodes</h3>
+                    <div className="h-14 flex items-center px-4 border-b border-stroke-subtle flex-shrink-0">
+                        <h3 className="text-sm font-semibold text-content-secondary uppercase tracking-wide">Nodes</h3>
                     </div>
 
                     {/* Content */}
                     <div className="flex-1 p-4 space-y-3 overflow-y-auto">
                         <div className="space-y-2">
-                            <p className="text-xs text-gray-500">Drag nodes to the canvas</p>
+                            <p className="text-xs text-content-tertiary">Drag nodes to the canvas</p>
                         </div>
 
                         <div className="space-y-2">
@@ -70,7 +70,7 @@ export default function NodePalette({ onDragStart }: NodePaletteProps) {
                                         key={type}
                                         draggable
                                         onDragStart={(e) => handleDragStart(e, type)}
-                                        className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-move hover:border-purple-300 hover:bg-purple-50 transition-all bg-white"
+                                        className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-lg cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary"
                                         style={{ borderLeftColor: metadata?.color, borderLeftWidth: '3px' }}
                                     >
                                         <div
@@ -83,8 +83,8 @@ export default function NodePalette({ onDragStart }: NodePaletteProps) {
                                             />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <div className="font-medium text-sm text-gray-900">{metadata?.label}</div>
-                                            <div className="text-xs text-gray-500 truncate">{metadata?.description}</div>
+                                            <div className="font-medium text-sm text-content-primary">{metadata?.label}</div>
+                                            <div className="text-xs text-content-secondary truncate">{metadata?.description}</div>
                                         </div>
                                     </div>
                                 );

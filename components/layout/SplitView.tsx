@@ -115,17 +115,17 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
             {/* Resizable Divider */}
             {isCanvasOpen && workflow && (
                 <div
-                    className="flex items-center justify-center w-1 bg-gray-200 hover:bg-purple-400 cursor-e-resize group transition-colors relative"
+                    className="flex items-center justify-center w-1 bg-stroke-subtle hover:bg-accent-primary cursor-e-resize group transition-colors relative"
                     onMouseDown={handleMouseDown}
                 >
                     <div className="absolute inset-y-0 -left-1 -right-1" />
-                    <GripVertical className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
+                    <GripVertical className="w-4 h-4 text-content-tertiary group-hover:text-content-inverted transition-colors" />
                 </div>
             )}
 
             {/* Editor Panel */}
             <div
-                className={`h-full border-l border-gray-200 bg-white relative overflow-hidden transition-[width] duration-150 ease-out ${isCanvasOpen ? 'flex' : 'w-0'}`}
+                className={`h-full border-l border-stroke-subtle bg-surface-primary relative overflow-hidden transition-[width] duration-150 ease-out ${isCanvasOpen ? 'flex' : 'w-0'}`}
                 style={{
                     width: isCanvasOpen ? `${100 - splitRatio}%` : '0',
                 }}
@@ -152,7 +152,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
             {workflow && hasUserMessages && (
                 <button
                     onClick={toggleEditor}
-                    className="absolute z-40 bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-3 py-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-full shadow-sm hover:shadow-md hover:bg-white transition-all duration-200 text-gray-700 hover:text-gray-900 text-sm font-medium"
+                    className="absolute z-40 bottom-24 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle rounded-full shadow-sm hover:shadow-md hover:bg-surface-elevated transition-all duration-200 text-content-secondary hover:text-content-primary text-sm font-medium"
                     title={isCanvasOpen ? 'Hide workflow editor' : 'View workflow editor'}
                 >
                     <Code2 className="w-4 h-4" />

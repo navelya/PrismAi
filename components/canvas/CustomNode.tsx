@@ -44,16 +44,19 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
         }
     };
 
+    // Use node metadata color or fallback to accent
+    const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
+
     return (
         <div
             className={cn(
                 "px-6 py-4 rounded-xl shadow-lg border-2 backdrop-blur-sm relative group",
                 "transition-all duration-300 hover:scale-105 hover:shadow-2xl",
-                "min-w-[200px]"
+                "min-w-[200px] bg-canvas-node"
             )}
             style={{
-                background: `linear-gradient(135deg, ${metadata?.color}20 0%, ${metadata?.color}40 100%)`,
-                borderColor: metadata?.color || '#667eea',
+                background: `linear-gradient(135deg, ${nodeColor}20 0%, ${nodeColor}40 100%)`,
+                borderColor: nodeColor,
             }}
         >
             {/* Node Action Buttons - appear on hover */}
@@ -67,18 +70,18 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                                shadow-lg hover:scale-110 transition-all duration-200"
                     title="Duplicate node"
                 >
-                    <Icons.Copy className="w-3 h-3 text-white" />
+                    <Icons.Copy className="w-3 h-3 text-content-inverted" />
                 </button>
                 {/* Delete Button */}
                 <button
                     onClick={handleDelete}
                     className="w-6 h-6 rounded-full
-                               bg-red-500/90 hover:bg-red-600 backdrop-blur-sm
+                               bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
                                flex items-center justify-center
                                shadow-lg hover:scale-110 transition-all duration-200"
                     title="Delete node"
                 >
-                    <Icons.X className="w-3.5 h-3.5 text-white" />
+                    <Icons.X className="w-3.5 h-3.5 text-content-inverted" />
                 </button>
             </div>
 
@@ -87,17 +90,17 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 <div
                     className={cn(
                         "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
-                        "shadow-lg border-2 border-white transition-all duration-300",
-                        status === 'pending' && "bg-gray-400",
+                        "shadow-lg border-2 border-surface-primary transition-all duration-300",
+                        status === 'pending' && "bg-content-tertiary",
                         status === 'running' && "bg-blue-500 animate-pulse",
-                        status === 'success' && "bg-green-500",
-                        status === 'error' && "bg-red-500"
+                        status === 'success' && "bg-accent-success",
+                        status === 'error' && "bg-accent-error"
                     )}
                 >
-                    {status === 'running' && <Icons.Loader2 className="w-4 h-4 animate-spin text-white" />}
-                    {status === 'success' && <Icons.Check className="w-4 h-4 text-white" />}
-                    {status === 'error' && <Icons.X className="w-4 h-4 text-white" />}
-                    {status === 'pending' && <Icons.Circle className="w-2 h-2 text-white" />}
+                    {status === 'running' && <Icons.Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
+                    {status === 'success' && <Icons.Check className="w-4 h-4 text-content-inverted" />}
+                    {status === 'error' && <Icons.X className="w-4 h-4 text-content-inverted" />}
+                    {status === 'pending' && <Icons.Circle className="w-2 h-2 text-content-inverted" />}
                 </div>
             )}
 
@@ -119,10 +122,10 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    className="w-6 h-6 !border-2 !border-white hover:!brightness-110 transition-colors
+                                    className="w-6 h-6 !border-2 !border-surface-primary hover:!brightness-110 transition-colors
                                               before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                                     style={{
-                                        background: metadata?.color || '#667eea',
+                                        background: nodeColor,
                                         left: -6,
                                         top: `calc(50% + ${offset}px)`,
                                         width: '10px',
@@ -131,11 +134,10 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                                 />
                                 {/* Small label next to handle */}
                                 <div
-                                    className="absolute text-[8px] font-semibold pointer-events-none select-none"
+                                    className="absolute text-[8px] font-semibold pointer-events-none select-none text-canvas-subtext"
                                     style={{
                                         left: 10,
                                         top: `calc(50% + ${offset}px - 5px)`,
-                                        color: '#666',
                                     }}
                                 >
                                     {input.label}
@@ -149,10 +151,10 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className="w-4 h-4 !border-2 !border-white hover:!brightness-110 transition-colors
+                    className="w-4 h-4 !border-2 !border-surface-primary hover:!brightness-110 transition-colors
                               before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                     style={{
-                        background: metadata?.color || '#667eea',
+                        background: nodeColor,
                         left: -6,
                         width: '10px',
                         height: '10px',
@@ -163,19 +165,19 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
             <div className="flex items-center gap-3">
                 <div
                     className="p-2 rounded-lg"
-                    style={{ backgroundColor: `${metadata?.color}30` }}
+                    style={{ backgroundColor: `${nodeColor}30` }}
                 >
                     <IconComponent
                         className="w-5 h-5"
-                        style={{ color: metadata?.color }}
+                        style={{ color: nodeColor }}
                     />
                 </div>
 
                 <div className="flex-1">
-                    <div className="font-semibold text-sm text-gray-800">
+                    <div className="font-semibold text-sm text-canvas-text">
                         {metadata?.label || data.label}
                     </div>
-                    <div className="text-xs text-gray-600 mt-0.5">
+                    <div className="text-xs text-canvas-subtext mt-0.5">
                         {metadata?.description}
                     </div>
                 </div>
@@ -185,10 +187,10 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
             <Handle
                 type="source"
                 position={Position.Right}
-                className="w-4 h-4 !bg-blue-500 !border-2 !border-white hover:!bg-blue-600 transition-colors
+                className="w-4 h-4 !border-2 !border-surface-primary hover:!brightness-110 transition-colors
                           before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                 style={{
-                    background: metadata?.color || '#667eea',
+                    background: nodeColor,
                     right: -6,
                     width: '10px',
                     height: '10px',
