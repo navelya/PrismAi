@@ -35,7 +35,7 @@ export default function EditorToolbar({
             {/* Workflow Name - Responsive */}
             <input
                 type="text"
-                value={workflowName}
+                value={workflowName || ''}
                 onChange={(e) => onNameChange(e.target.value)}
                 className="flex-1 min-w-0 px-3 py-1.5 text-sm font-medium bg-surface-tertiary border border-stroke-subtle rounded-lg 
                            text-content-primary placeholder:text-content-tertiary

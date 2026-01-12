@@ -41,12 +41,15 @@ function isRateLimitError(error: any): boolean {
 
   return (
     status === 429 ||
-    status === 'RESOURCE_EXHAUSTED' ||
+    status === 503 ||
     message.includes('rate limit') ||
     message.includes('quota exceeded') ||
     message.includes('resource exhausted') ||
     message.includes('too many requests') ||
-    message.includes('429')
+    message.includes('overloaded') ||
+    message.includes('service unavailable') ||
+    message.includes('429') ||
+    message.includes('503')
   );
 }
 
@@ -60,8 +63,8 @@ export async function generateWithGemini(prompt: string): Promise<string> {
   let lastError: Error | null = null;
   let currentModel = '';
 
-  // Try up to 3 different models before giving up
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Try up to 10 models (more than enough to cover our priority list)
+  for (let attempt = 0; attempt < 10; attempt++) {
     try {
       currentModel = modelManager.getNextAvailableModel();
 
@@ -74,17 +77,23 @@ export async function generateWithGemini(prompt: string): Promise<string> {
     } catch (error: any) {
       lastError = error;
 
-      // Check if this is a rate limit error
+      // Check if this is a rate limit error or a 404 (Not Found)
       if (isRateLimitError(error)) {
         console.warn(`⏱️ Rate limit hit on ${currentModel}, switching models...`);
         modelManager.markAsBlocked(currentModel, error.message || error.toString());
-
-        // Continue to try next model
         continue;
       }
 
-      // Non-rate-limit error - throw immediately
-      console.error(`❌ Non-rate-limit error with ${currentModel}:`, error.message);
+      // If model not found (404), mark it as blocked/invalid so we don't try it again immediately
+      if (error.message?.includes('404') || error.status === 404) {
+        console.warn(`🚫 Model ${currentModel} not found (404), blocking and skipping...`);
+        // Block it so getNextAvailableModel() picks the next one
+        modelManager.markAsBlocked(currentModel, '404 - Not Found');
+        continue;
+      }
+
+      // Non-recoverable error - throw immediately
+      console.error(`❌ Non-recoverable error with ${currentModel}:`, error.message);
       throw error;
     }
   }

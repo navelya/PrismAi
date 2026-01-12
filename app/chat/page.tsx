@@ -1,40 +1,27 @@
-'use client';
-
-import { useRef } from 'react';
-import ChatInterface from '@/components/chat/ChatInterface';
-import SplitView from '@/components/layout/SplitView';
-import { useAppStore } from '@/lib/store/app-store';
+import { cookies } from 'next/headers';
+import ChatClientPage from './ChatClientPage';
 
 export default function ChatPage() {
-    // Use global store instead of local state
-    const currentWorkflow = useAppStore((state) => state.currentWorkflow);
-    const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
+    const cookieStore = cookies();
+    const tokenCookie = cookieStore.get('supabase-auth-token');
 
-    const addResultRef = useRef<((result: any) => void) | null>(null);
+    let userName = '';
 
-    const handleChatReady = (addResult: (result: any) => void) => {
-        addResultRef.current = addResult;
-    };
+    if (tokenCookie?.value) {
+        try {
+            // The cookie might be URI encoded
+            const decodedValue = decodeURIComponent(tokenCookie.value);
+            const session = JSON.parse(decodedValue);
 
-    const handleExecutionResult = (result: any) => {
-        if (addResultRef.current) {
-            addResultRef.current(result);
+            // Extract display name or full name from user metadata
+            userName = session.user?.user_metadata?.display_name ||
+                session.user?.user_metadata?.full_name ||
+                '';
+        } catch (error) {
+            console.error('Error parsing auth cookie:', error);
+            // Fallback to client-side fetching if parsing fails
         }
-    };
+    }
 
-    return (
-        <div className="w-full h-full">
-            <SplitView
-                chatPanel={
-                    <ChatInterface
-                        onWorkflowGenerated={setCurrentWorkflow}
-                        currentWorkflow={currentWorkflow}
-                        onReady={handleChatReady}
-                    />
-                }
-                workflow={currentWorkflow}
-                onExecutionResult={handleExecutionResult}
-            />
-        </div>
-    );
+    return <ChatClientPage initialUserName={userName} />;
 }

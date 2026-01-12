@@ -24,9 +24,10 @@ interface ChatInterfaceProps {
     onWorkflowGenerated: (workflow: Workflow) => void;
     currentWorkflow?: Workflow | null;
     onReady?: (addResult: (result: any) => void) => void;
+    userName?: string;
 }
 
-export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady }: ChatInterfaceProps) {
+export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady, userName: initialUserName }: ChatInterfaceProps) {
     const isMobile = useIsMobile();
 
     // Use global store for messages
@@ -534,6 +535,36 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         </form>
     );
 
+    // Mobile: Slide-out drawer
+    // ... (This hook logic is in Sidebar, not here. We are in ChatInterface)
+
+    // START: Add User Name Fetching Logic
+    const [userName, setUserName] = useState<string>(initialUserName || '');
+    const supabase = React.useMemo(() => {
+        // Dynamic import to avoid SSR issues if needed, but client component is fine
+        // We need to import createClient here
+        const { createClient } = require('@/lib/supabase/client');
+        return createClient();
+    }, []);
+
+    useEffect(() => {
+        const getUserName = async () => {
+            // If we already have it from server/props, we might prefer that, or refresh it.
+            // But let's check anyhow in case session changed or if not provided.
+            const { data: { user } } = await supabase.auth.getUser();
+            // Check display_name first, then full_name
+            const name = user?.user_metadata?.display_name || user?.user_metadata?.full_name;
+            if (name) {
+                setUserName(name);
+            }
+        };
+
+        // Only fetch if we don't have it or want to ensure freshness. 
+        // For "immediate" requirement, the prop is key.
+        getUserName();
+    }, [supabase]);
+    // END: User Name Fetching Logic
+
     // Desktop Empty State
     if (isEmptyState && !isMobile) {
         return (
@@ -576,7 +607,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 <Sparkles className="w-5 h-5 text-content-inverted" />
                             </div>
                             <h1 className="text-2xl font-bold text-content-primary">
-                                Welcome to Prism AI
+                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prism AI'}
                             </h1>
                         </div>
                         <p className="text-content-secondary mb-8">

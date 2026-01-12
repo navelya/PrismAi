@@ -6,6 +6,7 @@ import type { Node } from 'reactflow';
 import { WorkflowNode, WorkflowEdge, Workflow, NodeType } from '@/lib/nodes/types';
 import { createNodeFromType } from '@/lib/editor/node-factory';
 import { generateEdgeId } from '@/lib/utils';
+import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 
 export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
     const [nodes, setNodes, onNodesChange] = useNodesState<any>(
@@ -39,7 +40,9 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
         if (initialWorkflow) {
             // Create a stable ID based on workflow structure and CONFIGURATION
             // Must include node data to detect property changes (e.g. sort order)
-            const configHash = JSON.stringify(initialWorkflow.nodes.map(n => ({ id: n.id, data: n.data })));
+            // Sort nodes to ensure array order doesn't affect hash (React Flow internal reordering)
+            const sortedNodes = [...initialWorkflow.nodes].sort((a, b) => a.id.localeCompare(b.id));
+            const configHash = JSON.stringify(sortedNodes.map(n => ({ id: n.id, data: n.data })));
             const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}-${configHash}`;
 
             // Only update if this is a different workflow (not just position changes)
@@ -50,26 +53,55 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
                 lastLoadedWorkflowRef.current = workflowId;
 
-                // Update nodes
-                const newNodes = initialWorkflow.nodes.map(n => ({
-                    id: n.id,
-                    type: n.type,
-                    position: n.position,
-                    data: n.data,
-                }));
-                setNodes(newNodes);
+                // Deduplicate nodes
+                const uniqueNodes = new Map();
+                initialWorkflow.nodes.forEach(n => {
+                    if (!uniqueNodes.has(n.id)) {
+                        uniqueNodes.set(n.id, {
+                            id: n.id,
+                            type: n.type,
+                            position: n.position,
+                            data: n.data,
+                        });
+                    }
+                });
+                const newNodes = Array.from(uniqueNodes.values());
 
-                // Update edges
-                const newEdges = initialWorkflow.edges.map(e => ({
-                    id: e.id,
-                    source: e.source,
-                    target: e.target,
-                    sourceHandle: e.sourceHandle,
-                    targetHandle: e.targetHandle,
-                    type: 'smoothstep',
-                    animated: true,
-                }));
-                setEdges(newEdges);
+                // Deduplicate edges
+                const uniqueEdges = new Map();
+                initialWorkflow.edges.forEach(e => {
+                    const edgeId = e.id || `e-${e.source}-${e.target}`;
+                    if (!uniqueEdges.has(edgeId)) {
+                        uniqueEdges.set(edgeId, {
+                            id: edgeId,
+                            source: e.source,
+                            target: e.target,
+                            sourceHandle: e.sourceHandle,
+                            targetHandle: e.targetHandle,
+                            type: 'smoothstep',
+                            animated: true,
+                        });
+                    }
+                });
+                const newEdges = Array.from(uniqueEdges.values());
+
+                // Check if layout is needed (e.g. all nodes at 0,0 or x=0 which implies raw generation)
+                const needsLayout = newNodes.length > 0 && newNodes.every(n => n.position.x === 0 && n.position.y === 0 || (n.position.x === 0 && n.position.y === 100));
+
+                if (needsLayout) {
+                    console.log('📐 Triggering auto-layout for new workflow...');
+                    autoLayoutNodesAsync(newNodes, newEdges, 'elk').then(layoutedPositions => {
+                        const layoutedNodes = newNodes.map(n => {
+                            const pos = layoutedPositions.get(n.id);
+                            return pos ? { ...n, position: pos } : n;
+                        });
+                        setNodes(layoutedNodes);
+                        setEdges(newEdges);
+                    });
+                } else {
+                    setNodes(newNodes);
+                    setEdges(newEdges);
+                }
 
                 // Update workflow name
                 setWorkflowName(initialWorkflow.name);

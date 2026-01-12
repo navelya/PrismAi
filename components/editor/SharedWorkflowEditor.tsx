@@ -68,6 +68,9 @@ export default function SharedWorkflowEditor({
         }
     }, []); // Only run once on mount
 
+    // Track last saved state to prevent infinite loops
+    const lastSavedStateRef = useRef<string>('');
+
     // Sync workflow changes to Zustand store (creates history snapshots)
     useEffect(() => {
         if (nodes.length > 0 || edges.length > 0) {
@@ -75,7 +78,20 @@ export default function SharedWorkflowEditor({
 
             // Only update if not dragging and workflow has changed
             if (!isDragging) {
-                setCurrentWorkflow(workflow, true);
+                // Create a stable serialization for comparison
+                // We exclude the full images data for comparison to improve performance if needed, 
+                // but for correctness in this loop fix, a full stirngify is safest provided we handle it efficiently.
+                // Given the loop issue, stability is key.
+                const currentStateString = JSON.stringify({
+                    nodes: workflow.nodes.map(n => ({ id: n.id, data: n.data, position: n.position })),
+                    edges: workflow.edges,
+                    name: workflow.name
+                });
+
+                if (currentStateString !== lastSavedStateRef.current) {
+                    lastSavedStateRef.current = currentStateString;
+                    setCurrentWorkflow(workflow, true);
+                }
             }
 
             // Also notify parent component
