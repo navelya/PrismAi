@@ -52,10 +52,23 @@ export async function parseRequestToWorkflow(
         // Generate workflow using Gemini
         const response = await generateWithGemini(fullPrompt);
 
-        // Clean response (remove markdown)
+        // Clean response (remove markdown and find JSON object)
         let cleanedResponse = response.trim();
-        if (cleanedResponse.startsWith('```')) {
-            cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+        // Remove markdown code blocks
+        if (cleanedResponse.includes('```')) {
+            cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        }
+
+        // Find the first '{' and last '}' to extract the JSON object
+        const firstBrace = cleanedResponse.indexOf('{');
+        const lastBrace = cleanedResponse.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1);
+        } else {
+            // Fallback: if no braces found, threw error or try parsing as is (likely fail)
+            console.warn('⚠️ No JSON object found in response, attempting flush parse:', cleanedResponse);
         }
 
         // Parse JSON

@@ -5,9 +5,12 @@ import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
+import { generateNodeId, generateEdgeId } from '@/lib/utils';
+import { stableStringify } from '@/lib/utils/stable-stringify';
 import { executeWorkflow } from '@/lib/workflow-engine';
-import { generateNodeId } from '@/lib/utils';
+import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { NodeStatus } from '@/lib/nodes/types';
 
 interface Message {
     id: string;
@@ -237,7 +240,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 throw new Error(generateData.error || 'Failed to generate workflow');
             }
 
-            const workflow = generateData.workflow;
+            let workflow = generateData.workflow;
+
+            // Apply auto-layout if needed (e.g. if generic linear layout from AI)
+            // This ensures the editor shows a nice graph and the execution engine (if it uses positions later) is synced.
+            // More importantly, it ensures the `currentWorkflow` we set in the store is fully "baked".
+            if (workflow.nodes.length > 0) {
+                const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
+                workflow.nodes = workflow.nodes.map((n: any) => {
+                    const pos = positions.get(n.id);
+                    return pos ? { ...n, position: pos } : n;
+                });
+            }
+
             onWorkflowGenerated(workflow);
 
             // Execute workflow CLIENT-SIDE with live status updates
@@ -250,7 +265,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             const executeData = await executeWorkflow(
                 workflow,
                 generateNodeId(),
-                (nodeId, status) => setNodeStatus(nodeId, status)
+                (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status)
             );
 
             if (!executeData.success) {
@@ -677,7 +692,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 <Sparkles className="w-4 h-4 text-white" />
                             </div>
                             <h1 className="text-xl font-bold text-content-primary">
-                                Welcome to Prism AI
+                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prism AI'}
                             </h1>
                         </div>
                         <p className="text-content-secondary text-sm">

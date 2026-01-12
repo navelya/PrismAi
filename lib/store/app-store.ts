@@ -364,6 +364,16 @@ export const useAppStore = create<AppState>()(
                     state.chatMessages = [];
                     // Ensure isDragging is false on reload
                     state.isDragging = false;
+
+                    // CRITICAL: Clear current workflow and history to prevent stale state from previous sessions
+                    // This ensures a "clean slate" on every refresh
+                    state.currentWorkflow = null;
+                    state.history = [];
+                    state.historyIndex = -1;
+                    state.nodeStatuses = {};
+                    state.nodeOutputs = {};
+                    state.executionResults = {};
+
                     // Always close editor on page reload (welcome screen default)
                     if (state.editorState) {
                         state.editorState.isCanvasOpen = false;

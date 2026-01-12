@@ -120,15 +120,55 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     </nav>
 
                     {/* Bottom Section */}
-                    <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-stroke-subtle">
-                        <Link
-                            href="/"
-                            onClick={onClose}
-                            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-tertiary hover:bg-interactive-hover transition-colors"
-                        >
-                            <Sparkles className="w-5 h-5 text-accent-primary" />
-                            <span className="font-medium text-content-primary">Back to Home</span>
-                        </Link>
+                    <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-stroke-subtle bg-surface-primary">
+                        {user ? (
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="relative group">
+                                        <div className={`
+                                            w-10 h-10 rounded-full bg-gradient-premium flex items-center justify-center text-white text-sm font-medium
+                                            shadow-md ring-2 ring-white/10
+                                        `}>
+                                            {user.user_metadata?.avatar_url ? (
+                                                <img
+                                                    src={user.user_metadata.avatar_url}
+                                                    alt={user.email}
+                                                    className="w-full h-full rounded-full object-cover"
+                                                />
+                                            ) : (
+                                                <span>{user.email?.[0].toUpperCase()}</span>
+                                            )}
+                                        </div>
+                                        {/* Status Indicator */}
+                                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-surface-secondary rounded-full"></div>
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-content-primary truncate max-w-[120px]">
+                                            {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
+                                        </p>
+                                        <p className="text-xs text-content-tertiary truncate max-w-[120px]">
+                                            {user.email}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={handleLogout}
+                                    className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                                    title="Sign out"
+                                >
+                                    <LogOut className="w-5 h-5" />
+                                </button>
+                            </div>
+                        ) : (
+                            <Link
+                                href="/"
+                                onClick={onClose}
+                                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-tertiary hover:bg-interactive-hover transition-colors"
+                            >
+                                <Sparkles className="w-5 h-5 text-accent-primary" />
+                                <span className="font-medium text-content-primary">Back to Home</span>
+                            </Link>
+                        )}
                     </div>
                 </div>
             </>

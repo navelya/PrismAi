@@ -82,13 +82,23 @@ async function layoutWithELK(
         };
     });
 
-    const elkEdges = edges.map((edge) => ({
-        id: edge.id,
-        sources: [edge.source],
-        targets: [edge.target],
-        sourcePort: edge.sourceHandle,
-        targetPort: edge.targetHandle,
-    }));
+    const elkEdges = edges.map((edge) => {
+        const edgeObj: any = {
+            id: edge.id,
+            sources: [edge.source],
+            targets: [edge.target],
+        };
+
+        if (edge.sourceHandle) {
+            edgeObj.sourcePort = edge.sourceHandle;
+        }
+
+        if (edge.targetHandle) {
+            edgeObj.targetPort = edge.targetHandle;
+        }
+
+        return edgeObj;
+    });
 
     const elkGraph = {
         id: 'root',

@@ -20,6 +20,11 @@ export const createClient = () => {
     // Singleton pattern to prevent multiple instances
     if (clientInstance) return clientInstance;
 
+    // Check strict window property to avoid HMR issues / React Strict Mode double-invoke
+    if (typeof window !== 'undefined' && (window as any).__supabaseInstance) {
+        return (window as any).__supabaseInstance;
+    }
+
     clientInstance = createSupabaseClient(supabaseUrl!, supabaseKey!, {
         auth: {
             storage: cookieStorage,
@@ -28,6 +33,10 @@ export const createClient = () => {
             detectSessionInUrl: true,
         },
     });
+
+    if (typeof window !== 'undefined') {
+        (window as any).__supabaseInstance = clientInstance;
+    }
 
     return clientInstance;
 };

@@ -7,6 +7,7 @@ import { WorkflowNode, WorkflowEdge, Workflow, NodeType } from '@/lib/nodes/type
 import { createNodeFromType } from '@/lib/editor/node-factory';
 import { generateEdgeId } from '@/lib/utils';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
+import { stableStringify } from '@/lib/utils/stable-stringify';
 
 export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
     const [nodes, setNodes, onNodesChange] = useNodesState<any>(
@@ -41,8 +42,9 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             // Create a stable ID based on workflow structure and CONFIGURATION
             // Must include node data to detect property changes (e.g. sort order)
             // Sort nodes to ensure array order doesn't affect hash (React Flow internal reordering)
+            // Use stableStringify to ensure object key order doesn't causing flapping
             const sortedNodes = [...initialWorkflow.nodes].sort((a, b) => a.id.localeCompare(b.id));
-            const configHash = JSON.stringify(sortedNodes.map(n => ({ id: n.id, data: n.data })));
+            const configHash = stableStringify(sortedNodes.map(n => ({ id: n.id, data: n.data })));
             const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}-${configHash}`;
 
             // Only update if this is a different workflow (not just position changes)

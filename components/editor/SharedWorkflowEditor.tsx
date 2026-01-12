@@ -12,6 +12,7 @@ import { executeWorkflow } from '@/lib/workflow-engine';
 import { saveWorkflow } from '@/lib/db/workflows';
 import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { stableStringify } from '@/lib/utils/stable-stringify';
 
 interface SharedWorkflowEditorProps {
     workflow?: Workflow | null;
@@ -71,6 +72,9 @@ export default function SharedWorkflowEditor({
     // Track last saved state to prevent infinite loops
     const lastSavedStateRef = useRef<string>('');
 
+    // Debounce timer ref
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
     // Sync workflow changes to Zustand store (creates history snapshots)
     useEffect(() => {
         if (nodes.length > 0 || edges.length > 0) {
@@ -82,7 +86,7 @@ export default function SharedWorkflowEditor({
                 // We exclude the full images data for comparison to improve performance if needed, 
                 // but for correctness in this loop fix, a full stirngify is safest provided we handle it efficiently.
                 // Given the loop issue, stability is key.
-                const currentStateString = JSON.stringify({
+                const currentStateString = stableStringify({
                     nodes: workflow.nodes.map(n => ({ id: n.id, data: n.data, position: n.position })),
                     edges: workflow.edges,
                     name: workflow.name
@@ -90,15 +94,32 @@ export default function SharedWorkflowEditor({
 
                 if (currentStateString !== lastSavedStateRef.current) {
                     lastSavedStateRef.current = currentStateString;
-                    setCurrentWorkflow(workflow, true);
+
+                    // Clear existing timer
+                    if (debounceTimerRef.current) {
+                        clearTimeout(debounceTimerRef.current);
+                    }
+
+                    // Debounce the update to prevent rapid-fire loops
+                    debounceTimerRef.current = setTimeout(() => {
+                        setCurrentWorkflow(workflow, true);
+                    }, 300);
                 }
             }
 
-            // Also notify parent component
+            // Also notify parent component (immediate, or maybe also debounced?)
+            // Parent notification is usually for local UI state, safe to be immediate unless parent updates Props.
             if (onWorkflowChange) {
                 onWorkflowChange(workflow);
             }
         }
+
+        // Cleanup function
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [nodes, edges, workflowName, isDragging]);
 
