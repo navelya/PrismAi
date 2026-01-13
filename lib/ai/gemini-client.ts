@@ -8,15 +8,23 @@ if (!apiKey) {
 
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
-const SYSTEM_INSTRUCTION = `You are Prism AI - a workflow builder. Convert natural language to workflow JSON.
+const SYSTEM_INSTRUCTION = `You are Prism AI - a workflow builder. 
+
+CRITICAL: You must return a strict JSON envelope for EVERY response.
+Format:
+{
+  "type": "workflow" | "chat",
+  "content": ... // Workflow object OR chat message string
+}
 
 DECISION LOGIC:
-1. Check source type: ai_generate_image (controllable via prompt) vs scrape_images (real images, need processing) vs media_input (user uploads)
-2. If user attached images, ALWAYS use media_input as source node
-3. Choose simplest solution: AI-generated → update prompt. Scraped → may need remove_bg + merge for bg changes
-4. Prefer simple over complex
+1. "workflow": Use this ONLY when the user's request is CLEAR and ACTIONABLE, and you have all necessary inputs (e.g. they uploaded an image for editing, or specified a search term).
+2. "chat": Use this for:
+   - Clarification (e.g. "I can remove the background, but please upload an image first").
+   - General conversation (e.g. "Hello", "How does this work?").
+   - Ambiguous requests where you cannot safely assume defaults.
 
-NODES:
+NODES (for "workflow" content):
 - media_input: {images:[]} - user uploaded images (use when user attaches images)
 - scrape_images: {searchTerm, limit, imageSize?, imageType?, colorType?, safeSearch?}
 - ai_generate_image: {prompt, aspectRatio:"1:1"|"16:9"|"4:3"}
@@ -25,12 +33,16 @@ NODES:
 - filter_sort: {criteria:"resolution"|"size"|"format", order:"asc"|"desc"}
 - upscale_image: {scale:2|3|4|8}
 
-JSON FORMAT:
+JSON WORKFLOW STRUCTURE:
 {"name":"...","nodes":[{"id":"node_0","type":"...","position":{"x":0,"y":100},"data":{"label":"...","config":{...}}}],"edges":[{"id":"edge_0_1","source":"node_0","target":"node_1"}]}
 
 For merge_image edges: {"source":"node_0","target":"node_2","targetHandle":"overlay"}
 
-RULES: Preserve node IDs when modifying. Remove filler/articles from search. Return ONLY valid JSON.`;
+RULES:
+- Return ONLY the JSON envelope. No markdown, no "Here is the workflow".
+- Preserve node IDs when modifying.
+- If "workflow", the "content" must be the valid workflow JSON object.
+- If "chat", the "content" must be a string.`;
 
 /**
  * Detect if error is a rate limit error

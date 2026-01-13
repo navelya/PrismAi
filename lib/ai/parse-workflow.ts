@@ -12,7 +12,9 @@ export async function parseRequestToWorkflow(
     userImages?: string[]
 ): Promise<{
     success: boolean;
+    type?: 'workflow' | 'chat';
     workflow?: Workflow;
+    message?: string;
     error?: string;
 }> {
     try {
@@ -67,12 +69,53 @@ export async function parseRequestToWorkflow(
         if (firstBrace !== -1 && lastBrace !== -1) {
             cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1);
         } else {
-            // Fallback: if no braces found, threw error or try parsing as is (likely fail)
-            console.warn('⚠️ No JSON object found in response, attempting flush parse:', cleanedResponse);
+            console.warn('⚠️ No JSON object found in response, treating as chat:', cleanedResponse);
+            // Fallback: treat as raw chat if no JSON found
+            return {
+                success: true,
+                type: 'chat',
+                message: response
+            };
         }
 
-        // Parse JSON
-        const workflow: Workflow = JSON.parse(cleanedResponse);
+        // Parse JSON Envelope
+        let envelope: any;
+        try {
+            envelope = JSON.parse(cleanedResponse);
+        } catch (e) {
+            console.warn('⚠️ Failed to parse JSON envelope, treating as chat:', cleanedResponse);
+            return {
+                success: true,
+                type: 'chat',
+                message: response
+            };
+        }
+
+        // HANDLE CHAT RESPONSE
+        if (envelope.type === 'chat') {
+            return {
+                success: true,
+                type: 'chat',
+                message: typeof envelope.content === 'string' ? envelope.content : JSON.stringify(envelope.content)
+            };
+        }
+
+        // HANDLE WORKFLOW RESPONSE
+        // If type is explicitly 'workflow', OR if it looks like a workflow (legacy fallback)
+        let workflow: Workflow;
+        if (envelope.type === 'workflow') {
+            workflow = envelope.content;
+        } else if (envelope.nodes && Array.isArray(envelope.nodes)) {
+            // Legacy/Direct workflow format fallback
+            workflow = envelope as Workflow;
+        } else {
+            // Unknown structure - assume chat/error
+            return {
+                success: true,
+                type: 'chat',
+                message: typeof envelope.content === 'string' ? envelope.content : "I'm not sure how to handle that."
+            };
+        }
 
         // Validate basic structure
         if (!workflow.nodes || !Array.isArray(workflow.nodes)) {
@@ -124,7 +167,7 @@ export async function parseRequestToWorkflow(
             };
         });
 
-        return { success: true, workflow };
+        return { success: true, type: 'workflow', workflow };
     } catch (error) {
         return {
             success: false,

@@ -3,14 +3,16 @@ import path from 'path';
 
 // Model priority: best to fallback
 const MODEL_PRIORITY = [
-    // Tier 1: Best models
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
+    // Tier 1: Gemini 3 (Preview)
+    'gemini-3-flash-preview',
+    'gemini-3-pro-preview',
 
-    // Tier 2: Flash variants
+    // Tier 2: Gemini 2.5 (Stable)
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
 
-    // Tier 3: Gemini 2.0
+    // Tier 3: Gemini 2.0 (Fallback)
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
 ];
@@ -20,6 +22,7 @@ interface ModelStatus {
     isBlocked: boolean;
     blockedAt?: number; // timestamp in ms
     cooldownType?: 'short' | 'daily'; // 60s or 24h
+    errorReason?: string;
 }
 
 interface TrackerData {
@@ -77,6 +80,7 @@ export class ModelManager {
             isBlocked: true,
             blockedAt: Date.now(),
             cooldownType,
+            errorReason: errorMessage,
         });
 
         const cooldownMin = cooldownType === 'short' ? 1 : 1440; // 1 min or 24 hours

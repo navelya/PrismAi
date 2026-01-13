@@ -27,6 +27,8 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
             success: true,
+            type: result.type,
+            message: result.message,
             workflow: result.workflow,
         });
 

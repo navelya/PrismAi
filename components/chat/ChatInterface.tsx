@@ -240,6 +240,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 throw new Error(generateData.error || 'Failed to generate workflow');
             }
 
+            // HANDLE CONVERSATIONAL RESPONSE
+            if (generateData.type === 'chat') {
+                const assistantMessage: Message = {
+                    id: Date.now().toString(),
+                    type: 'assistant',
+                    content: generateData.message || "I'm not sure how to respond to that.",
+                    timestamp: new Date(),
+                };
+                addMessage(assistantMessage);
+                setIsLoading(false);
+                return;
+            }
+
             let workflow = generateData.workflow;
 
             // Apply auto-layout if needed (e.g. if generic linear layout from AI)
