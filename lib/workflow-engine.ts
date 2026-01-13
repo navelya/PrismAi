@@ -66,6 +66,7 @@ export async function executeWorkflow(
         const failedNodes = new Set<string>();
         const blockedNodes = new Set<string>();
         const currentInDegree = new Map(inDegree); // Mutable copy
+        let firstError: string | undefined;
 
         // Find initial ready nodes (no dependencies)
         let readyNodes = workflow.nodes.filter(node => currentInDegree.get(node.id) === 0);
@@ -172,6 +173,7 @@ export async function executeWorkflow(
                 const node = readyNodes[index];
 
                 if (result.status === 'fulfilled' && result.value.success) {
+                    // ... (keep existing success logic)
                     // Node succeeded
                     completedNodes.add(node.id);
                     nodeOutputs.set(node.id, result.value.output);
@@ -200,6 +202,8 @@ export async function executeWorkflow(
                 } else {
                     // Node failed
                     const errorMsg = result.status === 'fulfilled' ? result.value.error : 'Promise rejected';
+                    if (!firstError) firstError = `${node.type} failed: ${errorMsg}`;
+
                     failedNodes.add(node.id);
                     onStatusUpdate?.(node.id, 'error');
 
@@ -259,7 +263,7 @@ export async function executeWorkflow(
         return {
             success: completedNodes.size > 0,
             result: finalResult,
-            error: failedNodes.size > 0 ? `${failedNodes.size} node(s) failed` : undefined,
+            error: failedNodes.size > 0 ? (firstError || `${failedNodes.size} node(s) failed`) : undefined,
         };
 
     } catch (error) {

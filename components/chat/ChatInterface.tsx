@@ -270,9 +270,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
             // Execute workflow CLIENT-SIDE with live status updates
             const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
+            const clearExecutionResults = useAppStore.getState().clearExecutionResults;
+            const clearNodeOutputs = useAppStore.getState().clearNodeOutputs;
             const setNodeStatus = useAppStore.getState().setNodeStatus;
 
             resetNodeStatuses();
+            clearExecutionResults();
+            clearNodeOutputs();
+
             workflow.nodes.forEach((node: any) => setNodeStatus(node.id, 'pending'));
 
             const executeData = await executeWorkflow(
@@ -285,11 +290,18 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 throw new Error(executeData.error || 'Failed to execute workflow');
             }
 
-            // Success message
+            // Construct success/partial execution message
+            let responseContent = '';
+            if (executeData.error) {
+                responseContent = `⚠️ Workflow executed partially.\n${executeData.error}`;
+            } else if (!executeData.result && workflow.nodes.length > 0) {
+                responseContent = `✅ Workflow finished, but produced no output.`;
+            }
+
             const assistantMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 type: 'assistant',
-                content: `✅ Workflow executed successfully!`,
+                content: responseContent,
                 timestamp: new Date(),
                 result: executeData.result,
                 workflow,
@@ -766,7 +778,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             </div>
                             <div className="flex items-center gap-2 text-content-secondary">
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                <span className="text-sm">Creating workflow...</span>
+                                <ExecutionUserFeedback />
                             </div>
                         </div>
                     )}
@@ -779,6 +791,51 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 {InputField}
             </div>
         </div>
+    );
+}
+
+// Dynamic execution status component
+function ExecutionUserFeedback() {
+    const nodeStatuses = useAppStore((state) => state.nodeStatuses);
+    const workflow = useAppStore((state) => state.currentWorkflow);
+
+    // Map node types to present continuous action verbs
+    const actionDescriptions: Record<string, string> = {
+        scrape_images: 'Searching for images',
+        remove_background: 'Removing background',
+        filter_sort: 'Filtering results',
+        ai_generate_image: 'Generating AI image',
+        upscale_image: 'Upscaling image',
+        merge_image: 'Merging images',
+        media_input: 'Processing upload',
+    };
+
+    // Find currently running node
+    // We prioritize 'running' nodes. If none, we check if we are in a 'pending' state implying transition.
+    const runningNodeId = Object.entries(nodeStatuses).find(([_, status]) => status === 'running')?.[0];
+    const runningNode = workflow?.nodes.find(n => n.id === runningNodeId);
+
+    const [dots, setDots] = useState('');
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setDots(prev => prev.length >= 3 ? '' : prev + '.');
+        }, 500);
+        return () => clearInterval(interval);
+    }, []);
+
+    let statusText = 'Creating workflow';
+    if (runningNode) {
+        statusText = actionDescriptions[runningNode.type] || 'Processing';
+    } else if (workflow && Object.keys(nodeStatuses).length > 0) {
+        // Workflow exists and execution started (statuses exist), but nothing currently 'running' (maybe between nodes)
+        statusText = 'Finalizing';
+    }
+
+    return (
+        <span className="text-sm min-w-[120px]">
+            {statusText}{dots}
+        </span>
     );
 }
 
@@ -811,9 +868,11 @@ const MemoizedMessage = React.memo(function MemoizedMessage({ message }: { messa
                     </div>
                 )}
 
-                <p className={message.type === 'user' ? 'text-white' : 'text-content-primary'}>
-                    {message.content}
-                </p>
+                {message.content && (
+                    <p className={message.type === 'user' ? 'text-white' : 'text-content-primary'}>
+                        {message.content}
+                    </p>
+                )}
 
                 {message.result && (
                     <MessageRenderer data={message.result} />
