@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
         const encodedPrompt = encodeURIComponent(prompt);
         const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true`;
 
-        console.log(`🎨 Proxying image generation: "${prompt}"`);
+
 
         // Fetch with browser-like headers
         const response = await fetch(imageUrl, {

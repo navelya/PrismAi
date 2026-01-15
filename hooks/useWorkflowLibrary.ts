@@ -23,7 +23,7 @@ export function useWorkflowLibrary() {
 
     const deleteWorkflow = async (id: string) => {
         // Placeholder for delete functionality
-        console.log('Delete workflow:', id);
+        // Placeholder for delete functionality
         // After implementing delete API, reload workflows
     };
 

@@ -305,11 +305,7 @@ const upscaleImageExecutor: NodeExecutor = async (
     input: any,
     context: ExecutionContext
 ): Promise<NodeExecutionResult> => {
-    console.log('🔍 Upscale executor called');
-    console.log('Config:', config);
-    console.log('Input:', input);
-    console.log('Input type:', typeof input);
-    console.log('Is array:', Array.isArray(input));
+
 
     try {
         const { scale = 4 } = config as UpscaleImageConfig;
@@ -330,8 +326,7 @@ const upscaleImageExecutor: NodeExecutor = async (
             throw new Error(errorMsg);
         }
 
-        console.log('Scale:', scale);
-        console.log('Images count:', images.length);
+
 
         if (images.length === 0) {
             console.warn('⚠️ No images to upscale');
@@ -341,7 +336,7 @@ const upscaleImageExecutor: NodeExecutor = async (
             };
         }
 
-        console.log(`📤 Starting upscale for ${images.length} images at ${scale}x`);
+
 
         // Process images in parallel
         const upscaledImages = await Promise.all(
@@ -479,7 +474,7 @@ const mergeImageExecutor: NodeExecutor = async (
             };
         }
 
-        console.log(`🖼️ Merge Image: ${baseImages.length} base(s) + ${overlayImages.length} overlay(s)`);
+
 
         // Determine iteration mode:
         // - 1 base + N overlays: broadcast base to all overlays → N results
@@ -493,7 +488,7 @@ const mergeImageExecutor: NodeExecutor = async (
                 ? overlayImages.length
                 : Math.min(baseImages.length, overlayImages.length);
 
-        console.log(`📋 Mode: ${isBroadcastOverlay ? 'Broadcast overlay (1-to-Many)' : isBroadcastBase ? 'Broadcast base (Many-to-1)' : overlayImages.length === 1 && baseImages.length === 1 ? '1-to-1' : 'Pairwise (Many-to-Many)'}`);
+
 
         const mergedImages: ImageObject[] = [];
 
@@ -577,7 +572,7 @@ const mergeImageExecutor: NodeExecutor = async (
                     },
                 });
 
-                console.log(`✅ Merged image ${i + 1}/${iterationCount}`);
+
 
             } catch (imgError) {
                 console.error(`❌ Failed to merge image ${i + 1}:`, imgError);
@@ -640,7 +635,7 @@ const mediaInputExecutor: NodeExecutor = async (
             },
         }));
 
-        console.log(`📤 Media Input: Passing ${imageObjects.length} uploaded image(s)`);
+
 
         return {
             success: true,

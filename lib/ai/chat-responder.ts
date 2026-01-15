@@ -8,7 +8,7 @@ export async function generateChatResponse(
     userMessage: string,
     conversationHistory: Message[] = []
 ): Promise<string> {
-    console.log('💬 Generating chat response for:', userMessage);
+
 
     const recentHistory = conversationHistory.slice(-5);
     const historyText = recentHistory
@@ -38,7 +38,7 @@ Respond as the Assistant:`;
 
     try {
         const response = await generateWithGemini(prompt);
-        console.log('✅ Chat response generated');
+
         return response.trim();
     } catch (error) {
         console.error('❌ Chat response failed:', error);
@@ -53,7 +53,7 @@ export async function answerPlatformQuestion(
     question: string,
     conversationHistory: Message[] = []
 ): Promise<string> {
-    console.log('❓ Answering platform question:', question);
+
 
     const recentHistory = conversationHistory.slice(-3);
     const historyText = recentHistory
@@ -87,7 +87,7 @@ Answer:`;
 
     try {
         const response = await generateWithGemini(prompt);
-        console.log('✅ Platform question answered');
+
         return response.trim();
     } catch (error) {
         console.error('❌ Platform question failed:', error);

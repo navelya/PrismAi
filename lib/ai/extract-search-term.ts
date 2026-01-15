@@ -2,7 +2,7 @@
  * Extract search term from prompt - IMPROVED
  */
 function extractSearchTerm(prompt: string): string {
-    console.log('🔍 Extracting search term from:', prompt);
+
 
     const lower = prompt.toLowerCase();
 
@@ -29,7 +29,7 @@ function extractSearchTerm(prompt: string): string {
         .trim()
         .replace(/\s+/g, ' '); // Normalize spaces
 
-    console.log('🧹 Cleaned search term:', cleaned);
+
 
     // If we have something meaningful, return it
     if (cleaned && cleaned.length > 2) {
@@ -46,6 +46,6 @@ function extractSearchTerm(prompt: string): string {
         );
 
     const result = words.join(' ') || 'images';
-    console.log('✅ Final search term:', result);
+
     return result;
 }

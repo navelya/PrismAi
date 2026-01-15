@@ -64,10 +64,7 @@ export function useSession() {
 
     // Load a session by ID
     const loadSession = useCallback(async (sessionId: string) => {
-        console.log(`[useSession] 🚨 loadSession called with: ${sessionId}`);
-        if (sessionId) {
-            console.trace('[useSession] Trace for loading session:');
-        }
+
         setIsLoading(true);
 
         // ⚠️ CRITICAL: Immediately clear current workflow state BEFORE async operations
@@ -75,7 +72,7 @@ export function useSession() {
         const store = useAppStore.getState();
         store.setActiveSessionId(sessionId);
         store.setCurrentWorkflow(null, false);  // Clear workflow first!
-        console.log('[loadSession] 🧹 Cleared state, loading session:', sessionId);
+
 
         try {
             // 1. Fetch Session (Metadata + Canvas)
@@ -98,26 +95,17 @@ export function useSession() {
 
             // 3. Hydrate Store with loaded data
             // Hydrate Workflow from Session State (primary source of truth for canvas)
-            console.log('[loadSession] 📦 Raw session data:', {
-                id: session.id,
-                title: session.title,
-                canvas_state_name: session.canvas_state?.name,
-                canvas_state_nodes_count: session.canvas_state?.nodes?.length ?? 0,
-            });
+
 
             if (session.canvas_state && session.canvas_state.nodes && session.canvas_state.nodes.length > 0) {
                 const workflow = session.canvas_state as Workflow;
-                console.log('[loadSession] 🔄 Setting currentWorkflow:', {
-                    name: workflow.name,
-                    nodesCount: workflow.nodes.length,
-                    edgesCount: workflow.edges.length,
-                });
+
                 store.setCurrentWorkflow(workflow, false);
-                console.log('[loadSession] ✅ Set currentWorkflow with', workflow.nodes.length, 'nodes');
+
             } else {
                 // Clear workflow if no valid canvas_state
                 store.setCurrentWorkflow(null, false);
-                console.log('[loadSession] ⚠️ No valid canvas_state - cleared currentWorkflow');
+
             }
 
             // Hydrate Messages
@@ -174,7 +162,7 @@ export function useSession() {
     // Delete a session
     const deleteSession = useCallback(async (sessionId: string) => {
         try {
-            console.log('[deleteSession] Starting deletion for:', sessionId);
+
 
             // 1. Fetch messages to find images
             const { data: messages } = await supabase
@@ -206,7 +194,7 @@ export function useSession() {
             });
 
             const paths = Array.from(pathsToDelete);
-            console.log(`[deleteSession] Found ${paths.length} files to delete`);
+
 
             // 2. Delete from Storage
             if (paths.length > 0) {
@@ -215,13 +203,12 @@ export function useSession() {
                     .remove(paths);
 
                 if (storageError) console.error('[deleteSession] Storage delete error:', storageError);
-                else console.log('[deleteSession] Storage cleanup complete');
             }
 
             // 3. Delete Session from DB
             const { error } = await supabase.from('sessions').delete().eq('id', sessionId);
             if (error) throw error;
-            console.log('[deleteSession] DB session deleted');
+
 
             // 4. Update UI
             // If deleting current session, redirect home

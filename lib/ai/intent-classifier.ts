@@ -41,7 +41,7 @@ export async function classifyIntent(
     message: string,
     conversationHistory: Message[] = []
 ): Promise<IntentResult> {
-    console.log('🎯 Classifying intent for:', message);
+
 
     const prompt = `You are an intent classifier for a workflow automation platform called "Prism".
 
@@ -105,7 +105,7 @@ Return ONLY valid JSON:
         const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         const result = JSON.parse(cleaned);
 
-        console.log('✅ Intent classified:', result);
+
 
         return result;
     } catch (error) {

@@ -96,7 +96,7 @@ export async function DELETE(
         });
 
         const paths = Array.from(pathsToDelete);
-        console.log(`[DELETE Session] Found ${paths.length} files to delete for session ${sessionId}`);
+
 
         // 3. Delete files from Storage
         if (paths.length > 0) {
@@ -108,7 +108,7 @@ export async function DELETE(
                 console.error('[DELETE Session] Storage deletion failed partially', storageError);
                 // We continue to delete the session anyway to avoid blocking user
             } else {
-                console.log('[DELETE Session] Successfully deleted files from storage');
+                // console.log('[DELETE Session] Successfully deleted files from storage');
             }
         }
 

@@ -7,7 +7,7 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 
 // Debug: Log to confirm we are using these exact values
 if (typeof window !== 'undefined') {
-    console.log('[Supabase] Client Initializing with HARDCODED credentials.');
+    // console.log('[Supabase] Client Initializing with HARDCODED credentials.');
 }
 
 let clientInstance: ReturnType<typeof createSupabaseClient> | null = null;

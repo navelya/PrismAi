@@ -19,12 +19,10 @@ export default function SessionPage() {
 
     useEffect(() => {
         if (sessionId && loadingSessionIdRef.current !== sessionId) {
-            console.log('[SessionPage] 🔄 Session changed, triggering load:', sessionId);
             loadingSessionIdRef.current = sessionId;
             setIsSessionReady(false);  // Reset ready state for new session
 
             loadSession(sessionId).then(() => {
-                console.log('[SessionPage] ✅ Session loaded:', sessionId);
                 setIsSessionReady(true);
             });
         }

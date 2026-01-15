@@ -58,14 +58,14 @@ export class ModelManager {
         for (const model of MODEL_PRIORITY) {
             const status = this.status.get(model);
             if (!status || !status.isBlocked) {
-                console.log(`✅ Selected model: ${model}`);
+
                 return model;
             }
         }
 
         // All blocked? Use the one that was blocked longest ago (likely reset)
         const oldestBlocked = this.getOldestBlockedModel();
-        console.log(`⚠️ All models blocked, trying oldest: ${oldestBlocked}`);
+
         return oldestBlocked;
     }
 
@@ -84,7 +84,7 @@ export class ModelManager {
         });
 
         const cooldownMin = cooldownType === 'short' ? 1 : 1440; // 1 min or 24 hours
-        console.log(`🚫 Model ${model} blocked for ${cooldownMin} minutes (${cooldownType} cooldown)`);
+
 
         this.persist();
     }
@@ -108,7 +108,7 @@ export class ModelManager {
                 status.isBlocked = false;
                 delete status.blockedAt;
                 delete status.cooldownType;
-                console.log(`✅ Model ${model} cooldown expired, re-enabled`);
+
                 resetCount++;
             }
         }
@@ -169,7 +169,7 @@ export class ModelManager {
                     this.status.set(model, status);
                 }
 
-                console.log(`📂 Loaded ${this.status.size} model statuses from tracker`);
+
             }
         } catch (error) {
             console.error('Failed to load rate limit tracker:', error);

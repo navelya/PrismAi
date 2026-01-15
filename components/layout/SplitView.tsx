@@ -33,17 +33,12 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
     // Requires active session AND (has workflow prop, store workflow, or workflow in messages)
     const showEditorButton = activeSessionId && hasMessages && (workflow || currentWorkflow || hasWorkflowInMessages);
 
-    console.log('[SplitView] activeSessionId:', activeSessionId, 'showEditorButton:', showEditorButton);
+
 
     const { isCanvasOpen, splitRatio } = editorState;
 
     // 🔍 DEBUG: Trace editor visibility decision
-    console.log('[SplitView] 🔍 Render check:', {
-        isCanvasOpen,
-        workflowProp: workflow?.name ?? 'null',
-        storeWorkflow: currentWorkflow?.name ?? 'null',
-        willRenderEditor: isCanvasOpen && workflow,
-    });
+
     const [isDragging, setIsDragging] = React.useState(false);
     const [activeTab, setActiveTab] = React.useState<'chat' | 'editor'>('chat');
     const containerRef = useRef<HTMLDivElement>(null);

@@ -21,7 +21,6 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
     // This runs synchronously BEFORE render to prevent stale editor from flashing
     useLayoutEffect(() => {
         if (!sessionId) {
-            console.log('[ChatClientPage] 🆕 New chat detected - forcing state reset');
             const store = useAppStore.getState();
 
             // Force close editor

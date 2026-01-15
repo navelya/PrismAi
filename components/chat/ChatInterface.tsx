@@ -251,7 +251,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         if (validResults.length > 0) {
             attachedBlobsRef.current = [...attachedBlobsRef.current, ...validResults.map(r => r.blob)];
             setAttachedImages(prev => [...prev, ...validResults.map(r => r.preview)]);
-            console.log('[DEBUG] Attached', validResults.length, 'images. Total blobs:', attachedBlobsRef.current.length);
         }
     }, []);
 
@@ -325,25 +324,20 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     createdSessionIdRef.current = data.id;
                     // ⚠️ CRITICAL: Instantly update active session in store
                     useAppStore.getState().setActiveSessionId(data.id);
-                    console.log('[ChatInterface] 🆕 Lazy session created:', data.id);
                 }
             }
         }
 
         // Upload images to persistent storage
         let uploadedPaths: string[] = [];
-        console.log('[DEBUG] blobsToSend:', blobsToSend.length, 'activeSessionId:', activeSessionId);
         if (blobsToSend.length > 0 && activeSessionId) {
             const { data: { user } } = await supabase.auth.getUser();
-            console.log('[DEBUG] User for upload:', user?.id);
             if (user) {
                 try {
-                    console.log('[DEBUG] Starting upload of', blobsToSend.length, 'images');
                     const results = await Promise.all(
                         blobsToSend.map(blob => uploadImageToStorage(blob, user.id, supabase))
                     );
                     uploadedPaths = results.map(r => r.path);
-                    console.log('[DEBUG] Upload successful, paths:', uploadedPaths);
                 } catch (e) {
                     console.error("[DEBUG] Image upload failed", e);
                 }
@@ -459,7 +453,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user) {
                     try {
-                        console.log('[DEBUG] Processing result images...');
                         const { uploadedPaths, processedResult: newResult } = await extractAndUploadResultImages(
                             executeData.result,
                             user.id,
@@ -467,7 +460,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         );
                         processedResult = newResult;
                         resultImagePaths = uploadedPaths;
-                        console.log('[DEBUG] Uploaded', uploadedPaths.length, 'result images');
                     } catch (e) {
                         console.error('[DEBUG] Failed to process result images:', e);
                     }
@@ -572,7 +564,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
                                 // Update URL silently
                                 window.history.replaceState({}, '', `/chat/${data.id}`);
-                                console.log('[ChatInterface] 🆕 Lazy session created for editor result:', data.id);
                             }
                         } catch (err) {
                             console.error("Failed to create session for editor result:", err);

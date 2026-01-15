@@ -17,7 +17,7 @@ export interface WorkflowEntities {
  * Extracts all relevant parameters
  */
 export async function extractWorkflowEntities(message: string): Promise<WorkflowEntities> {
-    console.log('🔍 Extracting entities from:', message);
+
 
     const prompt = `You are an entity extractor for a workflow automation platform.
 
@@ -70,7 +70,7 @@ Return ONLY valid JSON:
         const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         const entities = JSON.parse(cleaned);
 
-        console.log('✅ Extracted entities:', entities);
+
 
         // Validate and provide defaults
         return {
@@ -93,7 +93,7 @@ Return ONLY valid JSON:
  * Fallback entity extraction using improved regex
  */
 function extractEntitiesFallback(message: string): WorkflowEntities {
-    console.log('⚠️ Using fallback extraction');
+
 
     const lower = message.toLowerCase();
 

@@ -108,7 +108,6 @@ function EditorCanvasInner({
             // Undo: Ctrl+Z (Windows) or Cmd+Z (Mac)
             if (ctrlKey && event.key.toLowerCase() === 'z' && !event.shiftKey) {
                 event.preventDefault();
-                console.log('Undo shortcut pressed, canUndo:', canUndo);
                 if (canUndo) {
                     undo();
                 }
@@ -118,7 +117,6 @@ function EditorCanvasInner({
             // Redo: Ctrl+Y (Windows) or Cmd+Shift+Z (Mac)
             if ((ctrlKey && event.key.toLowerCase() === 'y') || (ctrlKey && event.shiftKey && event.key.toLowerCase() === 'z')) {
                 event.preventDefault();
-                console.log('Redo shortcut pressed, canRedo:', canRedo);
                 if (canRedo) {
                     redo();
                 }
@@ -132,7 +130,6 @@ function EditorCanvasInner({
                 if (selectedNodes.length === 1) {
                     event.preventDefault();
                     copyNode(selectedNodes[0].id);
-                    console.log('Node copied:', selectedNodes[0].id);
                 }
                 return;
             }
@@ -141,7 +138,6 @@ function EditorCanvasInner({
             if (ctrlKey && event.key.toLowerCase() === 'v') {
                 event.preventDefault();
                 pasteNode();
-                console.log('Node pasted');
                 return;
             }
         };
@@ -164,7 +160,6 @@ function EditorCanvasInner({
 
     // Handle undo button click
     const handleUndo = () => {
-        console.log('Undo button clicked, canUndo:', canUndo);
         if (canUndo) {
             undo();
         }
@@ -172,7 +167,6 @@ function EditorCanvasInner({
 
     // Handle redo button click
     const handleRedo = () => {
-        console.log('Redo button clicked, canRedo:', canRedo);
         if (canRedo) {
             redo();
         }
@@ -180,24 +174,17 @@ function EditorCanvasInner({
 
     // Handle auto-layout button click (async for ELK.js)
     const handleAutoLayout = async () => {
-        console.log('Auto-layout clicked, nodes:', nodes.length, 'edges:', edges.length, 'engine:', layoutEngine);
         if (nodes.length === 0 || !updatePositions) return;
 
         // Calculate new positions using selected layout engine
         const newPositions = await autoLayoutNodesAsync(nodes, edges, layoutEngine);
-        console.log('Calculated positions:', newPositions);
-        console.log('Positions Map size:', newPositions.size);
 
         // Log a sample position
         const firstEntry = Array.from(newPositions.entries())[0];
-        if (firstEntry) {
-            console.log('Sample position:', firstEntry);
-        }
+
 
         // Update positions directly in the canvas (bypasses store to avoid re-render loop)
-        console.log('Calling updatePositions directly...');
         updatePositions(newPositions);
-        console.log('Positions updated!');
     };
 
     const onDragOver = useCallback((event: React.DragEvent) => {
@@ -226,7 +213,6 @@ function EditorCanvasInner({
     const handleEdgeClick = useCallback(
         (event: React.MouseEvent, edge: Edge) => {
             event.stopPropagation();
-            console.log('🔗 Edge clicked, removing:', edge.id);
             // Remove the clicked edge
             onEdgesChange([{ type: 'remove', id: edge.id }]);
         },

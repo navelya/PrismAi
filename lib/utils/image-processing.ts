@@ -110,7 +110,7 @@ export async function extractAndUploadResultImages(
                 try {
                     const { path, publicUrl } = await uploadBase64ToStorage(url, userId, supabase);
                     imagePaths.push(path);
-                    console.log('[DEBUG] Uploaded base64 image, path:', path);
+
                     return { ...value, url: publicUrl }; // Use public URL for display
                 } catch (e) {
                     console.error('Failed to upload base64 image:', e);
@@ -121,13 +121,13 @@ export async function extractAndUploadResultImages(
             // HTTP URL - download and save to storage
             if (url.startsWith('http://') || url.startsWith('https://')) {
                 try {
-                    console.log('[DEBUG] Downloading HTTP image:', url.substring(0, 80));
+
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
                     const blob = await response.blob();
                     const { path, publicUrl } = await uploadImageToStorage(blob, userId, supabase);
                     imagePaths.push(path);
-                    console.log('[DEBUG] Uploaded HTTP image, publicUrl:', publicUrl);
+
                     return { ...value, url: publicUrl }; // Use public URL for display
                 } catch (e) {
                     console.error('Failed to download/upload HTTP image:', e);
@@ -139,7 +139,7 @@ export async function extractAndUploadResultImages(
 
             // Blob URL - skip (temporary, can't persist)
             if (url.startsWith('blob:')) {
-                console.log('[DEBUG] Skipping blob URL (temporary)');
+
                 return value;
             }
 
@@ -177,6 +177,6 @@ export async function extractAndUploadResultImages(
     }
 
     const processedResult = await processValue(JSON.parse(JSON.stringify(result))); // Deep copy to avoid mutation
-    console.log('[DEBUG] Total image paths collected:', imagePaths.length);
+
     return { uploadedPaths: imagePaths, processedResult };
 }

@@ -68,7 +68,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     return;
                 }
                 if (data) {
-                    console.log("Sidebar: Fetched sessions", data.length);
+
                     setSessions(data);
                 }
             };
@@ -81,8 +81,8 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 .on(
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
-                    (payload) => {
-                        console.log('Sidebar: Realtime update received', payload);
+                    (payload: any) => {
+
                         fetchSessions();
                     }
                 )
@@ -90,7 +90,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
             // Listen for custom local events (Immediate UI update fallback)
             const handleLocalUpdate = () => {
-                console.log('Sidebar: Local session update event received');
+
                 fetchSessions();
             };
             window.addEventListener('session-updated', handleLocalUpdate);
@@ -106,11 +106,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         // Reset ALL state immediately (synchronously before navigation)
         const store = useAppStore.getState();
 
-        console.log('[handleNewChat] 🧹 BEFORE clear:', {
-            currentWorkflow: store.currentWorkflow?.name ?? 'null',
-            isCanvasOpen: store.editorState.isCanvasOpen,
-            activeSessionId: store.activeSessionId,
-        });
+
 
         // Clear workflow and close canvas FIRST
         store.setCurrentWorkflow(null);
@@ -125,11 +121,8 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         // Clear active session ID - this is key for fresh state
         store.setActiveSessionId(null);
 
-        console.log('[handleNewChat] ✅ AFTER clear:', {
-            currentWorkflow: useAppStore.getState().currentWorkflow?.name ?? 'null',
-            isCanvasOpen: useAppStore.getState().editorState.isCanvasOpen,
-            activeSessionId: useAppStore.getState().activeSessionId,
-        });
+
+
 
         // Navigate to fresh chat (session will be created lazily on first message)
         router.push('/chat');
@@ -199,7 +192,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                                     e.preventDefault();
                                                     handleNewChat();
                                                 } else {
-                                                    onClose();
+                                                    onClose?.();
                                                 }
                                             }}
                                             className={`

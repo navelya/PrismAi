@@ -42,10 +42,7 @@ export async function searchPixabayImages(params: PixabayImageSearchParams): Pro
     // Alternative: You can still use process.env.PIXABAY_API_KEY if you prefer
     const apiKey = '53989148-4f79afe4f6d04a341b1592d81';
 
-    console.log('🔍 Pixabay API Debug:', {
-        hasKey: !!apiKey,
-        keyPreview: apiKey ? `${apiKey.substring(0, 8)}...` : 'NOT FOUND',
-    });
+
 
     if (!apiKey) {
         console.warn('⚠️ Pixabay API key not configured - using mock data');

@@ -80,12 +80,7 @@ export default function SharedWorkflowEditor({
         const storeState = useAppStore.getState();
         const hasActiveSession = !!storeState.activeSessionId;
 
-        console.log('[SharedWorkflowEditor] 🚀 Mount effect:', {
-            initialWorkflowName: initialWorkflow?.name,
-            nodeCount: nodes.length,
-            hasActiveSession,
-            activeSessionId: storeState.activeSessionId
-        });
+
 
         if (initialWorkflow && nodes.length > 0) {
             if (hasActiveSession) {
@@ -138,7 +133,8 @@ export default function SharedWorkflowEditor({
                         if (isMountedRef.current && currentActiveId) {
                             setCurrentWorkflow(workflow, true);
                         } else {
-                            console.log('[SharedWorkflowEditor] 🛑 Prevented stale write: Session changed or cleared');
+                            // Session changed or cleared
+
                         }
                     }, 300);
                 }

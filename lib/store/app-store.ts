@@ -112,21 +112,13 @@ export const useAppStore = create<AppState>()(
 
             // Session Context Actions
             setActiveSessionId: (sessionId) => {
-                console.log(`[Store] 🚨 setActiveSessionId called with: ${sessionId}`);
-                if (sessionId) {
-                    // Trace where this call originated
-                    console.trace('[Store] Trace for setting session ID:');
-                }
+
                 set({ activeSessionId: sessionId });
             },
             setCurrentWorkflow: (workflow, saveToHistory = true) => {
                 const isClearing = !workflow;
                 const nodeCount = workflow?.nodes?.length ?? 0;
-                console.log(`[Store] 🚨 setCurrentWorkflow called! Clearing: ${isClearing}, Nodes: ${nodeCount}`);
-                if (!isClearing) {
-                    // Only trace when SETTING a workflow, not when clearing
-                    console.trace('[Store] Trace for setting workflow:');
-                }
+
 
                 set((state) => ({ currentWorkflow: workflow }));
                 if (saveToHistory && !get().isDragging) {
@@ -289,29 +281,23 @@ export const useAppStore = create<AppState>()(
             },
 
             updateNodePositions: (positions) => {
-                console.log('[Store] updateNodePositions called with:', positions);
+
                 const state = get();
-                console.log('[Store] Current workflow exists?', !!state.currentWorkflow);
                 if (!state.currentWorkflow) return;
 
-                console.log('[Store] Current nodes count:', state.currentWorkflow.nodes.length);
+
                 const updatedWorkflow: Workflow = {
                     ...state.currentWorkflow,
                     nodes: state.currentWorkflow.nodes.map((node) => {
                         const newPosition = positions.get(node.id);
                         if (newPosition) {
-                            console.log(`[Store] Updating node ${node.id} from`, node.position, 'to', newPosition);
+
                         }
                         return newPosition ? { ...node, position: newPosition } : node;
                     }),
                 };
 
-                console.log('[Store] Setting updated workflow');
-                set({ currentWorkflow: updatedWorkflow });
-                console.log('[Store] Workflow set, saving snapshot');
                 // Save snapshot after batch update
-                get().saveSnapshot();
-                console.log('[Store] Snapshot saved');
             },
 
             // Chat Actions
@@ -396,7 +382,7 @@ export const useAppStore = create<AppState>()(
                         state.editorState.isCanvasOpen = false;
                     }
 
-                    console.log('[Store] Rehydrated with activeSessionId:', state.activeSessionId);
+
                 }
             },
         }

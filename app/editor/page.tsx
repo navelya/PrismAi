@@ -19,7 +19,6 @@ export default function EditorPage() {
     // This ensures stale workflows don't appear in the editor for new chats
     useLayoutEffect(() => {
         if (!activeSessionId && currentWorkflow) {
-            console.log('[EditorPage] 🧹 No active session - clearing stale workflow');
             setCurrentWorkflow(null);
         }
     }, [activeSessionId, currentWorkflow, setCurrentWorkflow]);

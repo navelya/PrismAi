@@ -12,9 +12,7 @@ export async function POST(request: Request) {
             );
         }
 
-        console.log('📥 API Request:', prompt);
-        console.log('🔄 Has previous workflow:', !!previousWorkflow);
-        console.log('📷 Attached images:', attachedImages?.length || 0);
+
 
         // Use the original parseRequestToWorkflow function with context
         const result = await parseRequestToWorkflow(prompt, previousWorkflow, attachedImages);
@@ -23,7 +21,7 @@ export async function POST(request: Request) {
             throw new Error(result.error || 'Failed to generate workflow');
         }
 
-        console.log('✅ Workflow generated successfully');
+
 
         return NextResponse.json({
             success: true,

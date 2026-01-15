@@ -64,7 +64,8 @@ export async function parseModificationCommand(
             return geminiResult;
         }
     } catch (error) {
-        console.log('Gemini parsing failed, using fallback:', error);
+        // Gemini parsing failed
+
     }
 
     // Fallback to rule-based parsing

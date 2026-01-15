@@ -27,7 +27,7 @@ export async function detectAndModifyWorkflow(
         return { isModification: false };
     }
 
-    console.log('🔄 Checking for workflow modification...');
+
 
     // Get the first node (assuming scrape_images for now)
     const firstNode = currentWorkflow.nodes[0];
@@ -77,7 +77,7 @@ Return ONLY valid JSON:
         const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         const result = JSON.parse(cleaned);
 
-        console.log('🔍 Modification detection result:', result);
+
 
         if (!result.isModification) {
             return { isModification: false };

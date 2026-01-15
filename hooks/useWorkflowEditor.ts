@@ -20,7 +20,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
     const prevIdentityRef = useRef<string | null>(null);
 
     // Debug logging
-    console.log('[useWorkflowEditor] 🔄 Hook called, identity:', currentIdentity, 'prev:', prevIdentityRef.current);
+
 
     // Compute initial values
     const getInitialNodes = (wf: Workflow | null | undefined) => {
@@ -58,13 +58,11 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
         // Skip the first render (when prevIdentityRef is null)
         if (prevIdentityRef.current === null) {
             prevIdentityRef.current = currentIdentity;
-            console.log('[useWorkflowEditor] 🚀 First mount, identity:', currentIdentity);
             return;
         }
 
         // Only reset if identity actually changed
         if (prevIdentityRef.current !== currentIdentity) {
-            console.log('[useWorkflowEditor] ⚡ IDENTITY CHANGED! Forcing state reset:', prevIdentityRef.current, '->', currentIdentity);
             prevIdentityRef.current = currentIdentity;
             lastLoadedWorkflowRef.current = null;
 
@@ -72,8 +70,6 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             const newNodes = getInitialNodes(initialWorkflow);
             const newEdges = getInitialEdges(initialWorkflow);
             const newName = initialWorkflow?.name || 'Untitled Workflow';
-
-            console.log('[useWorkflowEditor] 🔄 Resetting to:', newName, 'nodes:', newNodes.length, 'edges:', newEdges.length);
 
             setNodes(newNodes);
             setEdges(newEdges);
@@ -92,10 +88,6 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
             // Only update if this is a different workflow (not just position changes)
             if (lastLoadedWorkflowRef.current !== workflowId) {
-                console.log('📊 New workflow loaded in editor:', initialWorkflow.name);
-                console.log('  - Nodes:', initialWorkflow.nodes.length);
-                console.log('  - Edges:', initialWorkflow.edges.length);
-
                 lastLoadedWorkflowRef.current = workflowId;
 
                 // Deduplicate nodes
@@ -134,7 +126,6 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 const needsLayout = newNodes.length > 0 && newNodes.every(n => n.position.x === 0 && n.position.y === 0 || (n.position.x === 0 && n.position.y === 100));
 
                 if (needsLayout) {
-                    console.log('📐 Triggering auto-layout for new workflow...');
                     autoLayoutNodesAsync(newNodes, newEdges, 'elk').then(layoutedPositions => {
                         const layoutedNodes = newNodes.map(n => {
                             const pos = layoutedPositions.get(n.id);
@@ -153,7 +144,6 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             }
         } else {
             // ⭐ Clear the canvas when workflow becomes null/empty
-            console.log('[useWorkflowEditor] 🧹 Clearing editor - workflow is null/empty');
             lastLoadedWorkflowRef.current = null;
             setNodes([]);
             setEdges([]);
@@ -164,12 +154,10 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Method to directly update node positions (used by auto-layout)
     const updatePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
-        console.log('📍 Directly updating node positions');
         setNodes((currentNodes) =>
             currentNodes.map((node) => {
                 const newPosition = positions.get(node.id);
                 if (newPosition) {
-                    console.log(`  - Moving ${node.id} to (${newPosition.x}, ${newPosition.y})`);
                     return { ...node, position: newPosition };
                 }
                 return node;

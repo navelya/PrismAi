@@ -291,7 +291,7 @@ function hydrateWorkflow(newWorkflow: Workflow, oldWorkflow: Workflow) {
                         (typeof newConfig.images[0] === 'string' && newConfig.images[0].startsWith('[')));
 
                 if (hasPlaceholder && oldConfig.images && oldConfig.images.length > 0) {
-                    console.log(`💧 Hydrating media_input ${newNode.id} with ${oldConfig.images.length} images`);
+
                     newConfig.images = oldConfig.images;
                 }
             }
@@ -449,7 +449,7 @@ function extractSearchTerm(prompt: string): string {
     // Remove trailing words
     text = text.replace(/\s+(pics?|images?|photos?)$/gi, '').trim();
 
-    console.log('✅ Search term:', text || 'images');
+
     return text || 'images';
 }
 
