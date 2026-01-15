@@ -353,27 +353,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         // Save to DB
         saveMessageToDb(userMessage, uploadedPaths);
 
-        // Generate Title if first message
-        if (messages.length === 0 && activeSessionId) {
-            fetch('/api/session/generate-title', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId: activeSessionId, message: trimmedInput })
-            })
-                .then(async (res) => {
-                    if (!res.ok) {
-                        // Fallback if API fails (e.g. 500 or rate limit)
-                        const fallbackTitle = trimmedInput.slice(0, 30) + (trimmedInput.length > 30 ? '...' : '');
-                        await supabase.from('sessions').update({ title: fallbackTitle }).eq('id', activeSessionId);
-                    }
-                })
-                .catch(async (e) => {
-                    console.error("Title generation failed, using fallback", e);
-                    const fallbackTitle = trimmedInput.slice(0, 30) + (trimmedInput.length > 30 ? '...' : '');
-                    await supabase.from('sessions').update({ title: fallbackTitle }).eq('id', activeSessionId);
-                });
-        }
-
         // Create abort controller for this request
         abortControllerRef.current = new AbortController();
 
@@ -410,6 +389,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 // Seamlessly update URL if this was the first message (no reload)
                 if (!sessionId && createdSessionIdRef.current) {
                     window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
+
+                    // Generate smart title
+                    fetch('/api/session/generate-title', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sessionId: createdSessionIdRef.current,
+                            message: trimmedInput,
+                            assistantResponse: generateData.message
+                        })
+                    }).then(() => {
+                        window.dispatchEvent(new Event('session-updated'));
+                    }).catch(console.error);
                 }
                 return;
             }
@@ -492,6 +484,22 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             };
             addMessage(assistantMessage);
             saveMessageToDb(assistantMessage, resultImagePaths);
+
+            // Generate smart title for Workflow
+            if (!sessionId && createdSessionIdRef.current) {
+                fetch('/api/session/generate-title', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionId: createdSessionIdRef.current,
+                        message: trimmedInput,
+                        workflowName: workflow.name, // Use generated workflow name
+                        assistantResponse: responseContent
+                    })
+                }).then(() => {
+                    window.dispatchEvent(new Event('session-updated'));
+                }).catch(console.error);
+            }
         } catch (error) {
             const errorMessage: Message = {
                 id: (Date.now() + 1).toString(),
@@ -507,7 +515,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
             if (!sessionId && createdSessionIdRef.current) {
                 window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
+                // Notify sidebar to refresh
+                window.dispatchEvent(new Event('session-updated'));
             }
+
+            // Get most recent assistant message for context if needed (it was added to local state 'messages' but better to just use the data we have)
+            // Actually, accessing 'workflow' variable from here is tricky if it's outside scope. 
+            // Ideally this call should be inside the try block after workflow generation.
+            // Moving it up to line 494 area.
         }
     };
 

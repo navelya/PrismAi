@@ -129,6 +129,17 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
                 }}
             >
                 {chatPanel}
+
+                {/* Toggle Button - show when chat has messages AND workflow exists (prop, store, or message) */}
+                {showEditorButton && (
+                    <button
+                        onClick={toggleEditor}
+                        className="absolute z-40 top-4 right-4 w-10 h-10 flex items-center justify-center bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle rounded-full shadow-sm hover:shadow-md hover:bg-surface-elevated hover:border-accent-primary/30 transition-all duration-200 text-content-secondary hover:text-accent-primary group"
+                        title={isCanvasOpen ? 'Hide workflow editor' : 'View workflow editor'}
+                    >
+                        <Code2 className="w-5 h-5 transition-transform group-hover:scale-110" />
+                    </button>
+                )}
             </div>
 
             {/* Resizable Divider - Only show when editor is open AND workflow exists */}
@@ -167,17 +178,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
                 </div>
             )}
 
-            {/* Toggle Button - show when chat has messages AND workflow exists (prop, store, or message) */}
-            {showEditorButton && (
-                <button
-                    onClick={toggleEditor}
-                    className="absolute z-40 bottom-24 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle rounded-full shadow-sm hover:shadow-md hover:bg-surface-elevated transition-all duration-200 text-content-secondary hover:text-content-primary text-sm font-medium"
-                    title={isCanvasOpen ? 'Hide workflow editor' : 'View workflow editor'}
-                >
-                    <Code2 className="w-4 h-4" />
-                    <span>{isCanvasOpen ? 'Hide Editor' : 'Editor'}</span>
-                </button>
-            )}
+
 
             {/* Dragging Overlay */}
             {isDragging && <div className="fixed inset-0 z-50 cursor-e-resize" />}

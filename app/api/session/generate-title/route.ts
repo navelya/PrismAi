@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 export async function POST(req: NextRequest) {
     try {
-        const { sessionId, message } = await req.json();
+        const { sessionId, message, workflowName, assistantResponse } = await req.json();
 
         if (!sessionId || !message) {
             return NextResponse.json({ error: 'Missing defined parameters' }, { status: 400 });
@@ -32,27 +32,38 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Session not found or unauthorized' }, { status: 404 });
         }
 
-        // Generate Title using Gemini Flash for speed (with fallback)
-        const prompt = `Generate a very concise, 3-5 word title for a chat based on this initial user message: "${message}". Return ONLY the title text, no quotes or prefixes.`;
+        let title = '';
 
-        let title = message.slice(0, 30) + (message.length > 30 ? '...' : ''); // Fallback title
+        // Priority 1: Use Workflow Name if available
+        if (workflowName) {
+            title = workflowName;
+        } else {
+            // Priority 2: Generate from conversation context
+            const prompt = assistantResponse
+                ? `Generate a 3-5 word title for this chat.\nUser: "${message}"\nAssistant: "${assistantResponse}"\nTitle (NO quotes):`
+                : `Generate a 3-5 word title for a chat starting with: "${message}". Title (NO quotes):`;
 
-        try {
-            // Try Flash first
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            title = response.text().trim().replace(/^["']|["']$/g, '');
-        } catch (geminiError) {
-            console.warn('Gemini Flash failed, trying Pro:', geminiError);
+            // Fallback
+            title = message.slice(0, 30) + (message.length > 30 ? '...' : '');
+
             try {
-                const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+                // Try Flash first
+                const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
                 const result = await model.generateContent(prompt);
                 const response = await result.response;
-                title = response.text().trim().replace(/^["']|["']$/g, '');
-            } catch (fallbackError) {
-                console.warn('Gemini Pro also failed, using fallback title');
-                // Keep the fallback title set above
+                const generatedTitle = response.text().trim().replace(/^["']|["']$/g, '');
+                if (generatedTitle) title = generatedTitle;
+            } catch (geminiError) {
+                console.warn('Gemini Flash failed, trying Pro:', geminiError);
+                try {
+                    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+                    const result = await model.generateContent(prompt);
+                    const response = await result.response;
+                    const generatedTitle = response.text().trim().replace(/^["']|["']$/g, '');
+                    if (generatedTitle) title = generatedTitle;
+                } catch (fallbackError) {
+                    console.warn('Gemini Pro also failed, using fallback title');
+                }
             }
         }
 

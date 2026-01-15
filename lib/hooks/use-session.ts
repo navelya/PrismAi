@@ -52,6 +52,8 @@ export function useSession() {
                 store.setEditorState({ isCanvasOpen: false, splitRatio: 50 });
 
                 router.push(`/chat/${data.id}`);
+                // Notify sidebar to refresh immediately
+                window.dispatchEvent(new Event('session-updated'));
             }
         } catch (error) {
             console.error('Failed to create session:', error);

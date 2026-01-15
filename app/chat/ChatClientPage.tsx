@@ -21,14 +21,24 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
     // This runs synchronously BEFORE render to prevent stale editor from flashing
     useLayoutEffect(() => {
         if (!sessionId) {
-            console.log('[ChatClientPage] 🆕 New chat detected - forcing editor closed');
+            console.log('[ChatClientPage] 🆕 New chat detected - forcing state reset');
+            const store = useAppStore.getState();
+
             // Force close editor
             setEditorState({ isCanvasOpen: false });
-            // Clear any stale workflow
+
+            // Clear workflow
             setCurrentWorkflow(null);
+
+            // Clear message history and execution state to prevent stale data
+            store.clearMessages();
+            store.clearExecutionResults();
+            store.resetNodeStatuses();
+            store.clearNodeOutputs();
+
             // ⚠️ CRITICAL: Ensure activeSessionId is null for new chat
             // This corrects any stale state from localStorage rehydration
-            useAppStore.getState().setActiveSessionId(null);
+            store.setActiveSessionId(null);
         }
     }, [sessionId, setEditorState, setCurrentWorkflow]);
 

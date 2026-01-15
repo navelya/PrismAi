@@ -31,6 +31,9 @@ export async function convertImageToWebP(file: File, quality = 0.8): Promise<Blo
     });
 }
 
+// Counter for unique filenames within the same millisecond
+let fileCounter = 0;
+
 /**
  * Uploads a file to Supabase Storage and returns path and public URL.
  * @param file The file or blob to upload
@@ -41,8 +44,9 @@ export async function convertImageToWebP(file: File, quality = 0.8): Promise<Blo
 export async function uploadImageToStorage(file: Blob, userId: string, supabase: any): Promise<{ path: string, publicUrl: string }> {
     // Generate unique filename
     const timestamp = Date.now();
+    fileCounter = (fileCounter + 1) % 1000;
     const random = Math.random().toString(36).substring(7);
-    const filename = `${userId}/${timestamp}-${random}.webp`;
+    const filename = `${userId}/${timestamp}-${fileCounter}-${random}.webp`;
 
     const { data, error } = await supabase.storage
         .from('chat-assets')
@@ -52,6 +56,7 @@ export async function uploadImageToStorage(file: Blob, userId: string, supabase:
         });
 
     if (error) {
+        console.error("Upload failed", error);
         throw error;
     }
 
@@ -140,16 +145,22 @@ export async function extractAndUploadResultImages(
 
             // Storage path already - add to paths
             if (!url.startsWith('data:') && !url.startsWith('http') && !url.startsWith('blob:')) {
-                imagePaths.push(url);
+                if (!imagePaths.includes(url)) {
+                    imagePaths.push(url);
+                }
                 return value;
             }
 
             return value;
         }
 
-        // Handle arrays (including ImageObject[])
+        // Handle arrays (including ImageObject[]) - SEQUENTIAL processing to prevent race conditions
         if (Array.isArray(value)) {
-            return Promise.all(value.map(item => processValue(item)));
+            const newArray = [];
+            for (const item of value) {
+                newArray.push(await processValue(item));
+            }
+            return newArray;
         }
 
         // Handle other objects recursively
@@ -165,7 +176,7 @@ export async function extractAndUploadResultImages(
         return value;
     }
 
-    const processedResult = await processValue(result);
+    const processedResult = await processValue(JSON.parse(JSON.stringify(result))); // Deep copy to avoid mutation
     console.log('[DEBUG] Total image paths collected:', imagePaths.length);
     return { uploadedPaths: imagePaths, processedResult };
 }

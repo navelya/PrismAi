@@ -533,21 +533,43 @@ const mergeImageExecutor: NodeExecutor = async (
 
                 // Get merged image as blob
                 const mergedBlob = await mergeResponse.blob();
-                const mergedUrl = URL.createObjectURL(mergedBlob);
 
-                // Get image dimensions
+                // Convert blob to Image to get dimensions and resize
                 const img = await new Promise<HTMLImageElement>((resolve, reject) => {
                     const image = new window.Image();
                     image.onload = () => resolve(image);
                     image.onerror = reject;
-                    image.src = mergedUrl;
+                    image.src = URL.createObjectURL(mergedBlob);
                 });
+
+                // Resize logic (Downgrade resolution standard)
+                const MAX_DIMENSION = 1280; // Standardize max dimension like other processing nodes
+                let width = img.width;
+                let height = img.height;
+
+                if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+                    const ratio = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
+                    width = Math.round(width * ratio);
+                    height = Math.round(height * ratio);
+                }
+
+                // Draw to canvas for resizing and base64 conversion
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Failed to get canvas context');
+
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Get optimized base64 string
+                const mergedUrl = canvas.toDataURL('image/png', 0.85);
 
                 mergedImages.push({
                     url: mergedUrl,
                     resolution: {
-                        width: img.width,
-                        height: img.height,
+                        width: width,
+                        height: height,
                     },
                     metadata: {
                         processedBy: 'merge_image',
