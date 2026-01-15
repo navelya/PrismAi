@@ -48,7 +48,7 @@ export async function parseRequestToWorkflow(
                     targetHandle: (e as any).targetHandle
                 }))
             };
-            fullPrompt = `Current:${JSON.stringify(compactWorkflow)}\nRequest:"${userPrompt}"${userImages?.length ? `\n[USER ATTACHED ${userImages.length} IMAGE(S) - create media_input node as source]` : ''}\nModify or create new as needed.`;
+            fullPrompt = `Current:${JSON.stringify(compactWorkflow)}\nRequest:"${userPrompt}"${userImages?.length ? `\n[USER ATTACHED ${userImages.length} IMAGE(S) - create media_input node as source]` : ''}\nModify or create new as needed. IMPORTANT: Preserve existing node IDs where possible to maintain state.`;
         }
 
         // Generate workflow using Gemini
@@ -142,6 +142,28 @@ export async function parseRequestToWorkflow(
             }
         }
 
+        // Final Robust Attempt: fix common LLM JSON errors
+        if (!envelope) {
+            try {
+                // 1. Try parsing the cleaned response directly (sometimes regex misses)
+                envelope = JSON.parse(cleanedResponse);
+            } catch {
+                try {
+                    // 2. Try fixing trailing commas (common AI error)
+                    // Replaces ", }" with "}" and ", ]" with "]"
+                    const repaired = cleanedResponse.replace(/,\s*([}\]])/g, '$1');
+                    envelope = JSON.parse(repaired);
+                } catch {
+                    // 3. Try to rescue if it's a valid JSON but with some extra text at the end that regex missed
+                    // (already covered by first/last brace, but maybe braces were unbalanced in text?)
+                    // If we found a "type": "workflow" but failed to parse, we can try to force it.
+                    if (cleanedResponse.includes('"type"')) {
+                        console.warn('⚠️ Found JSON pattern but failed to parse. content:', cleanedResponse.substring(0, 100) + '...');
+                    }
+                }
+            }
+        }
+
         if (!envelope) {
             console.warn('⚠️ No valid JSON envelope found, treating as chat');
             return {
@@ -227,6 +249,11 @@ export async function parseRequestToWorkflow(
             };
         });
 
+        // HYDRATION: Restore state (images, positions) from previous workflow
+        if (previousWorkflow) {
+            hydrateWorkflow(workflow, previousWorkflow);
+        }
+
         return { success: true, type: 'workflow', workflow };
     } catch (error) {
         return {
@@ -234,6 +261,42 @@ export async function parseRequestToWorkflow(
             error: error instanceof Error ? error.message : 'Failed to parse workflow',
         };
     }
+}
+
+/**
+ * Restore state (heavy data, positions) from old workflow to new workflow
+ * Matches nodes by ID
+ */
+function hydrateWorkflow(newWorkflow: Workflow, oldWorkflow: Workflow) {
+    newWorkflow.nodes.forEach(newNode => {
+        const oldNode = oldWorkflow.nodes.find(n => n.id === newNode.id);
+        if (oldNode) {
+            // 1. Restore Position (Prioritize user-defined positions over auto-layout if they exist)
+            // Logic: If the node existed before, keep its place unless it was significantly moved by layout
+            // For now, we strictly prefer the old position to prevent "jumping"
+            if (oldNode.position) {
+                newNode.position = oldNode.position;
+            }
+
+            // 2. Restore Heavy Data (Media Input)
+            // The AI only sees placeholders like "[1 images attached]", we need to put the real base64 back
+            if (newNode.type === 'media_input' && oldNode.type === 'media_input') {
+                const newConfig = newNode.data.config as any; // Cast to any to access dynamic props
+                const oldConfig = oldNode.data.config as any;
+
+                // If new config has placeholder or is empty, and old config had images
+                // Check if images is a placeholder array or empty
+                const hasPlaceholder = Array.isArray(newConfig.images) &&
+                    (newConfig.images.length === 0 ||
+                        (typeof newConfig.images[0] === 'string' && newConfig.images[0].startsWith('[')));
+
+                if (hasPlaceholder && oldConfig.images && oldConfig.images.length > 0) {
+                    console.log(`💧 Hydrating media_input ${newNode.id} with ${oldConfig.images.length} images`);
+                    newConfig.images = oldConfig.images;
+                }
+            }
+        }
+    });
 }
 
 /**

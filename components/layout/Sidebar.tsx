@@ -9,6 +9,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { createClient } from '@/lib/supabase/client';
 import { useSession } from '@/lib/hooks/use-session';
 import { LogOut, User as UserIcon, Plus } from 'lucide-react';
+import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
@@ -43,6 +44,14 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
     const [sessions, setSessions] = React.useState<any[]>([]);
     const { createNewSession, deleteSession } = useSession();
+    const [deleteConfirmation, setDeleteConfirmation] = React.useState<{ isOpen: boolean, sessionId: string | null }>({ isOpen: false, sessionId: null });
+
+    const confirmDelete = async () => {
+        if (deleteConfirmation.sessionId) {
+            setSessions(prev => prev.filter(s => s.id !== deleteConfirmation.sessionId));
+            await deleteSession(deleteConfirmation.sessionId);
+        }
+    };
 
     React.useEffect(() => {
         if (user) {
@@ -246,10 +255,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                                         onClick={async (e) => {
                                                             e.preventDefault();
                                                             e.stopPropagation();
-                                                            if (confirm('Delete session?')) {
-                                                                setSessions(prev => prev.filter(s => s.id !== session.id));
-                                                                await deleteSession(session.id);
-                                                            }
+                                                            setDeleteConfirmation({ isOpen: true, sessionId: session.id });
                                                         }}
                                                         className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                                                     >
@@ -428,10 +434,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                                 onClick={async (e) => {
                                                     e.preventDefault();
                                                     e.stopPropagation();
-                                                    if (confirm('Delete session?')) {
-                                                        setSessions(prev => prev.filter(s => s.id !== session.id));
-                                                        await deleteSession(session.id);
-                                                    }
+                                                    setDeleteConfirmation({ isOpen: true, sessionId: session.id });
                                                 }}
                                                 className="p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md opacity-0 group-hover:opacity-100 transition-all z-10"
                                                 title="Delete session"
@@ -525,6 +528,16 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     </Link>
                 )}
             </div>
+
+            <ConfirmationModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, sessionId: null })}
+                onConfirm={confirmDelete}
+                title="Delete Chat?"
+                message="This will permanently delete this chat session and all its history. This action cannot be undone."
+                confirmText="Delete"
+                variant="danger"
+            />
         </div>
     );
 }
