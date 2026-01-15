@@ -29,7 +29,11 @@ interface HistorySnapshot {
 
 // App state interface
 interface AppState {
-    // Workflow State
+    // Session Context (which chat is active)
+    activeSessionId: string | null;
+    setActiveSessionId: (sessionId: string | null) => void;
+
+    // Workflow State (belongs to active session)
     currentWorkflow: Workflow | null;
     setCurrentWorkflow: (workflow: Workflow | null, saveToHistory?: boolean) => void;
 
@@ -88,6 +92,7 @@ export const useAppStore = create<AppState>()(
     persist(
         (set, get) => ({
             // Initial State
+            activeSessionId: null, // No active session initially
             currentWorkflow: null,
             history: [],
             historyIndex: -1,
@@ -105,9 +110,25 @@ export const useAppStore = create<AppState>()(
             copiedNode: null, // Initialize copied node as null
             layoutEngine: 'elk', // Default layout engine
 
-            // Workflow Actions
+            // Session Context Actions
+            setActiveSessionId: (sessionId) => {
+                console.log(`[Store] 🚨 setActiveSessionId called with: ${sessionId}`);
+                if (sessionId) {
+                    // Trace where this call originated
+                    console.trace('[Store] Trace for setting session ID:');
+                }
+                set({ activeSessionId: sessionId });
+            },
             setCurrentWorkflow: (workflow, saveToHistory = true) => {
-                set({ currentWorkflow: workflow });
+                const isClearing = !workflow;
+                const nodeCount = workflow?.nodes?.length ?? 0;
+                console.log(`[Store] 🚨 setCurrentWorkflow called! Clearing: ${isClearing}, Nodes: ${nodeCount}`);
+                if (!isClearing) {
+                    // Only trace when SETTING a workflow, not when clearing
+                    console.trace('[Store] Trace for setting workflow:');
+                }
+
+                set((state) => ({ currentWorkflow: workflow }));
                 if (saveToHistory && !get().isDragging) {
                     get().saveSnapshot();
                 }
@@ -345,28 +366,24 @@ export const useAppStore = create<AppState>()(
         }),
         {
             name: 'prism-ai-storage',
-            storage: createJSONStorage(() => localStorage), // Changed to localStorage for persistence
-            // Don't persist functions, only data
-            // IMPORTANT: Don't persist chatMessages or executionResults - they can be huge and cause quota errors
+            storage: createJSONStorage(() => localStorage),
+            // Only persist minimal state - workflows load on-demand from DB
             partialize: (state) => ({
-                currentWorkflow: state.currentWorkflow,
-                history: state.history,
-                historyIndex: state.historyIndex,
-                // chatMessages: EXCLUDED - can be large with execution results
-                // executionResults: EXCLUDED - very large (images, etc.)
+                // Session context - persist so Editor knows which chat was last active
+                activeSessionId: state.activeSessionId,
+                // Don't persist currentWorkflow - it loads from DB per-session
+                // Don't persist chatMessages or executionResults - too large
                 editorState: state.editorState,
                 layoutEngine: state.layoutEngine, // Persist layout preference
             }),
-            // Clear messages on page refresh but keep other state
+            // Clean slate on page refresh - session loading will restore state
             onRehydrateStorage: () => (state) => {
                 if (state) {
-                    // Clear chat messages on page reload
+                    // Clear transient state on page reload
                     state.chatMessages = [];
-                    // Ensure isDragging is false on reload
                     state.isDragging = false;
 
-                    // CRITICAL: Clear current workflow and history to prevent stale state from previous sessions
-                    // This ensures a "clean slate" on every refresh
+                    // Clear workflow - will be loaded from DB based on activeSessionId
                     state.currentWorkflow = null;
                     state.history = [];
                     state.historyIndex = -1;
@@ -374,10 +391,12 @@ export const useAppStore = create<AppState>()(
                     state.nodeOutputs = {};
                     state.executionResults = {};
 
-                    // Always close editor on page reload (welcome screen default)
+                    // Close editor on page reload (welcome screen default)
                     if (state.editorState) {
                         state.editorState.isCanvasOpen = false;
                     }
+
+                    console.log('[Store] Rehydrated with activeSessionId:', state.activeSessionId);
                 }
             },
         }

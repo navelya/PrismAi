@@ -62,28 +62,88 @@ export async function parseRequestToWorkflow(
             cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
         }
 
-        // Find the first '{' and last '}' to extract the JSON object
-        const firstBrace = cleanedResponse.indexOf('{');
-        const lastBrace = cleanedResponse.lastIndexOf('}');
+        // Try to find a valid envelope JSON object - look for {"type": pattern
+        let envelope: any = null;
 
-        if (firstBrace !== -1 && lastBrace !== -1) {
-            cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1);
-        } else {
-            console.warn('⚠️ No JSON object found in response, treating as chat:', cleanedResponse);
-            // Fallback: treat as raw chat if no JSON found
-            return {
-                success: true,
-                type: 'chat',
-                message: response
-            };
+        // Strategy 1: Find all potential JSON objects starting with {"type"
+        const typePattern = /\{"type"\s*:\s*"(workflow|chat)"/g;
+        let match;
+        const candidates: string[] = [];
+
+        while ((match = typePattern.exec(cleanedResponse)) !== null) {
+            // Try to extract a valid JSON starting from this position
+            let braceCount = 0;
+            let inString = false;
+            let escape = false;
+            let startPos = match.index;
+            let endPos = startPos;
+
+            for (let i = startPos; i < cleanedResponse.length; i++) {
+                const char = cleanedResponse[i];
+
+                if (escape) {
+                    escape = false;
+                    continue;
+                }
+
+                if (char === '\\' && inString) {
+                    escape = true;
+                    continue;
+                }
+
+                if (char === '"' && !escape) {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (!inString) {
+                    if (char === '{') braceCount++;
+                    if (char === '}') {
+                        braceCount--;
+                        if (braceCount === 0) {
+                            endPos = i + 1;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (endPos > startPos) {
+                candidates.push(cleanedResponse.substring(startPos, endPos));
+            }
         }
 
-        // Parse JSON Envelope
-        let envelope: any;
-        try {
-            envelope = JSON.parse(cleanedResponse);
-        } catch (e) {
-            console.warn('⚠️ Failed to parse JSON envelope, treating as chat:', cleanedResponse);
+        // Try to parse each candidate, preferring workflow over chat
+        for (const candidate of candidates) {
+            try {
+                const parsed = JSON.parse(candidate);
+                if (parsed.type === 'workflow' && parsed.content) {
+                    envelope = parsed;
+                    break; // Prefer workflow
+                } else if (parsed.type === 'chat' && !envelope) {
+                    envelope = parsed;
+                }
+            } catch {
+                continue;
+            }
+        }
+
+        // Fallback: try simple first/last brace approach
+        if (!envelope) {
+            const firstBrace = cleanedResponse.indexOf('{');
+            const lastBrace = cleanedResponse.lastIndexOf('}');
+
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                try {
+                    envelope = JSON.parse(cleanedResponse.substring(firstBrace, lastBrace + 1));
+                } catch {
+                    // Failed to parse
+                }
+            }
+        }
+
+        if (!envelope) {
+            console.warn('⚠️ No valid JSON envelope found, treating as chat');
             return {
                 success: true,
                 type: 'chat',

@@ -23,5 +23,5 @@ export default function ChatPage() {
         }
     }
 
-    return <ChatClientPage initialUserName={userName} />;
+    return <ChatClientPage key="new-chat" initialUserName={userName} />;
 }

@@ -36,6 +36,9 @@ export default function SharedWorkflowEditor({
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
     const isDragging = useAppStore((state) => state.isDragging);
 
+    // ⚠️ CRITICAL: Use initialWorkflow prop directly, NOT currentWorkflow from store
+    // The store's currentWorkflow is stale during session switches and causes state leakage
+    // The prop is the source of truth from the parent component (which has the correct session context)
     const {
         nodes,
         edges,
@@ -52,7 +55,7 @@ export default function SharedWorkflowEditor({
         updatePositions,
         getWorkflow: getCurrentWorkflow,
         clearWorkflow,
-    } = useWorkflowEditor(currentWorkflow || initialWorkflow);
+    } = useWorkflowEditor(initialWorkflow);
 
     const [showPropertyPanel, setShowPropertyPanel] = useState(false);
     const [executionResult, setExecutionResult] = useState<any>(null);
@@ -62,12 +65,40 @@ export default function SharedWorkflowEditor({
     const [selectionMode, setSelectionMode] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
 
+    // Track if component is mounted to prevent stale updates
+    const isMountedRef = useRef(true);
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
+
     // Save initial workflow to history on mount
     useEffect(() => {
+        // 🛡️ DEFENSIVE: Prevent writing stale workflow to store if no active session
+        const storeState = useAppStore.getState();
+        const hasActiveSession = !!storeState.activeSessionId;
+
+        console.log('[SharedWorkflowEditor] 🚀 Mount effect:', {
+            initialWorkflowName: initialWorkflow?.name,
+            nodeCount: nodes.length,
+            hasActiveSession,
+            activeSessionId: storeState.activeSessionId
+        });
+
         if (initialWorkflow && nodes.length > 0) {
-            setCurrentWorkflow(initialWorkflow, true);
+            if (hasActiveSession) {
+                setCurrentWorkflow(initialWorkflow, true);
+            } else {
+                console.warn('[SharedWorkflowEditor] 🛑 Aborted reviving workflow: No active session!');
+                // Optional: Force clear if we shouldn't be here with data
+                if (storeState.currentWorkflow) {
+                    setCurrentWorkflow(null);
+                }
+            }
         }
-    }, []); // Only run once on mount
+    }, [initialWorkflow, nodes.length, setCurrentWorkflow]);
 
     // Track last saved state to prevent infinite loops
     const lastSavedStateRef = useRef<string>('');
@@ -83,9 +114,6 @@ export default function SharedWorkflowEditor({
             // Only update if not dragging and workflow has changed
             if (!isDragging) {
                 // Create a stable serialization for comparison
-                // We exclude the full images data for comparison to improve performance if needed, 
-                // but for correctness in this loop fix, a full stirngify is safest provided we handle it efficiently.
-                // Given the loop issue, stability is key.
                 const currentStateString = stableStringify({
                     nodes: workflow.nodes.map(n => ({ id: n.id, data: n.data, position: n.position })),
                     edges: workflow.edges,
@@ -101,14 +129,22 @@ export default function SharedWorkflowEditor({
                     }
 
                     // Debounce the update to prevent rapid-fire loops
+                    // ⚠️ CRITICAL: Check isMountedRef AND activeSessionId to prevent stale updates
                     debounceTimerRef.current = setTimeout(() => {
-                        setCurrentWorkflow(workflow, true);
+                        // Ensure we are still the active session (or there IS an active session)
+                        // This prevents the old editor from writing back to store after "New Chat" clears the session
+                        const currentActiveId = useAppStore.getState().activeSessionId;
+
+                        if (isMountedRef.current && currentActiveId) {
+                            setCurrentWorkflow(workflow, true);
+                        } else {
+                            console.log('[SharedWorkflowEditor] 🛑 Prevented stale write: Session changed or cleared');
+                        }
                     }, 300);
                 }
             }
 
-            // Also notify parent component (immediate, or maybe also debounced?)
-            // Parent notification is usually for local UI state, safe to be immediate unless parent updates Props.
+            // Also notify parent component
             if (onWorkflowChange) {
                 onWorkflowChange(workflow);
             }

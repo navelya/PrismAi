@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp } from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
@@ -11,6 +12,9 @@ import { executeWorkflow } from '@/lib/workflow-engine';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { NodeStatus } from '@/lib/nodes/types';
+import { createClient } from '@/lib/supabase/client';
+import { useDebounce } from '@/lib/hooks/use-debounce';
+import { convertImageToWebP, uploadImageToStorage, extractAndUploadResultImages } from '@/lib/utils/image-processing';
 
 interface Message {
     id: string;
@@ -31,7 +35,71 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady, userName: initialUserName }: ChatInterfaceProps) {
+    const params = useParams();
+    const router = useRouter();
+    const sessionId = params?.sessionId as string;
+    const createdSessionIdRef = useRef<string | null>(null); // Handle lazy creation
+
+    // Reset lazy session on new chat navigation (Fix for "Always New Chat")
+    useEffect(() => {
+        if (!sessionId) {
+            createdSessionIdRef.current = null;
+            useAppStore.getState().clearMessages();
+            useAppStore.getState().setCurrentWorkflow(null);
+        }
+    }, [sessionId]);
+
+    // Use store workflow for auto-save as it's the source of truth
+    const storeWorkflow = useAppStore((state) => state.currentWorkflow);
+    const debouncedWorkflow = useDebounce(storeWorkflow, 2000);
+    const supabase = React.useMemo(() => createClient(), []);
+
+    // Auto-save Canvas
+    useEffect(() => {
+        if (sessionId && debouncedWorkflow) {
+            supabase.from('sessions').update({
+                canvas_state: debouncedWorkflow,
+                updated_at: new Date().toISOString()
+            }).eq('id', sessionId).then(({ error }: any) => {
+                if (error) console.error("Auto-save failed", error);
+            });
+        }
+    }, [debouncedWorkflow, sessionId, supabase]);
+
+    // Helper to save messages
+    const saveMessageToDb = async (msg: Message, imagePaths?: string[]) => {
+        const activeSessionId = createdSessionIdRef.current || sessionId;
+        if (!activeSessionId) return;
+
+        // Map UI message type to DB role
+        const role = msg.type;
+
+        // Use uploaded paths if available. We prefer saving paths to DB.
+        const imagesToSave = imagePaths || [];
+
+        // Insert message (without metadata for now as db migration might be pending)
+        await supabase.from('messages').insert({
+            session_id: activeSessionId,
+            role,
+            content: msg.content || '', // Ensure content is not null
+            images: imagesToSave,
+            created_at: msg.timestamp.toISOString()
+        });
+
+        // Update session timestamp AND canvas state if this message produced a workflow
+        const updatePayload: any = { updated_at: new Date().toISOString() };
+        if (msg.workflow) {
+            updatePayload.canvas_state = msg.workflow;
+        }
+
+        await supabase.from('sessions')
+            .update(updatePayload)
+            .eq('id', activeSessionId);
+    };
+
     const isMobile = useIsMobile();
+
+    // ... existing code ...
 
     // Use global store for messages
     const messages = useAppStore((state) => state.chatMessages);
@@ -47,6 +115,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const abortControllerRef = useRef<AbortController | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
+    const attachedBlobsRef = useRef<Blob[]>([]); // Store WebP blobs for upload
 
     // Textarea ref for auto-resize
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -154,19 +223,36 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     };
 
     // Image upload handlers
-    const handleImageFiles = useCallback((files: FileList | null) => {
+    const handleImageFiles = useCallback(async (files: FileList | null) => {
         if (!files || files.length === 0) return;
 
-        Array.from(files).forEach((file) => {
+        const promises = Array.from(files).map(async (file) => {
             if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64 = reader.result as string;
-                    setAttachedImages(prev => [...prev, base64]);
-                };
-                reader.readAsDataURL(file);
+                try {
+                    const webpBlob = await convertImageToWebP(file);
+                    // Create preview
+                    const preview = await new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.readAsDataURL(webpBlob);
+                    });
+                    return { blob: webpBlob, preview };
+                } catch (e) {
+                    console.error("Image conversion failed", e);
+                    return null;
+                }
             }
+            return null;
         });
+
+        const results = await Promise.all(promises);
+        const validResults = results.filter((r): r is { blob: Blob, preview: string } => r !== null);
+
+        if (validResults.length > 0) {
+            attachedBlobsRef.current = [...attachedBlobsRef.current, ...validResults.map(r => r.blob)];
+            setAttachedImages(prev => [...prev, ...validResults.map(r => r.preview)]);
+            console.log('[DEBUG] Attached', validResults.length, 'images. Total blobs:', attachedBlobsRef.current.length);
+        }
     }, []);
 
     const handleChatDragOver = useCallback((e: React.DragEvent) => {
@@ -196,17 +282,24 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const removeAttachedImage = useCallback((index: number) => {
         setAttachedImages(prev => prev.filter((_, i) => i !== index));
+        // Sync ref removal
+        attachedBlobsRef.current = attachedBlobsRef.current.filter((_, i) => i !== index);
     }, []);
 
     const handleSend = async () => {
         const trimmedInput = input.trim();
         if (!trimmedInput || isLoading) return;
 
-        // Capture and clear attached images first
-        const imagesToSend = [...attachedImages];
-        setAttachedImages([]);
+        // Capture state
+        const blobsToSend = [...attachedBlobsRef.current];
+        const imagesToSend = [...attachedImages]; // Base64
 
-        // Add user message with images
+        // Clear state
+        setAttachedImages([]);
+        attachedBlobsRef.current = [];
+        setInput('');
+
+        // Optimistic UI Update
         const userMessage: Message = {
             id: Date.now().toString(),
             type: 'user',
@@ -215,9 +308,71 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             timestamp: new Date(),
         };
         addMessage(userMessage);
-
-        setInput('');
         setIsLoading(true);
+
+        // Lazy Session Creation
+        let activeSessionId = sessionId || createdSessionIdRef.current;
+        if (!activeSessionId) {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data } = await supabase.from('sessions').insert({
+                    user_id: user.id,
+                    title: 'New Workflow'
+                }).select().single();
+
+                if (data) {
+                    activeSessionId = data.id;
+                    createdSessionIdRef.current = data.id;
+                    // ⚠️ CRITICAL: Instantly update active session in store
+                    useAppStore.getState().setActiveSessionId(data.id);
+                    console.log('[ChatInterface] 🆕 Lazy session created:', data.id);
+                }
+            }
+        }
+
+        // Upload images to persistent storage
+        let uploadedPaths: string[] = [];
+        console.log('[DEBUG] blobsToSend:', blobsToSend.length, 'activeSessionId:', activeSessionId);
+        if (blobsToSend.length > 0 && activeSessionId) {
+            const { data: { user } } = await supabase.auth.getUser();
+            console.log('[DEBUG] User for upload:', user?.id);
+            if (user) {
+                try {
+                    console.log('[DEBUG] Starting upload of', blobsToSend.length, 'images');
+                    const results = await Promise.all(
+                        blobsToSend.map(blob => uploadImageToStorage(blob, user.id, supabase))
+                    );
+                    uploadedPaths = results.map(r => r.path);
+                    console.log('[DEBUG] Upload successful, paths:', uploadedPaths);
+                } catch (e) {
+                    console.error("[DEBUG] Image upload failed", e);
+                }
+            }
+        }
+
+        // Save to DB
+        saveMessageToDb(userMessage, uploadedPaths);
+
+        // Generate Title if first message
+        if (messages.length === 0 && activeSessionId) {
+            fetch('/api/session/generate-title', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: activeSessionId, message: trimmedInput })
+            })
+                .then(async (res) => {
+                    if (!res.ok) {
+                        // Fallback if API fails (e.g. 500 or rate limit)
+                        const fallbackTitle = trimmedInput.slice(0, 30) + (trimmedInput.length > 30 ? '...' : '');
+                        await supabase.from('sessions').update({ title: fallbackTitle }).eq('id', activeSessionId);
+                    }
+                })
+                .catch(async (e) => {
+                    console.error("Title generation failed, using fallback", e);
+                    const fallbackTitle = trimmedInput.slice(0, 30) + (trimmedInput.length > 30 ? '...' : '');
+                    await supabase.from('sessions').update({ title: fallbackTitle }).eq('id', activeSessionId);
+                });
+        }
 
         // Create abort controller for this request
         abortControllerRef.current = new AbortController();
@@ -249,7 +404,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     timestamp: new Date(),
                 };
                 addMessage(assistantMessage);
+                saveMessageToDb(assistantMessage);
                 setIsLoading(false);
+
+                // Seamlessly update URL if this was the first message (no reload)
+                if (!sessionId && createdSessionIdRef.current) {
+                    window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
+                }
                 return;
             }
 
@@ -298,15 +459,39 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 responseContent = `✅ Workflow finished, but produced no output.`;
             }
 
+            // Process result images - upload base64 to storage and get paths
+            let processedResult = executeData.result;
+            let resultImagePaths: string[] = [];
+
+            if (executeData.result) {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    try {
+                        console.log('[DEBUG] Processing result images...');
+                        const { uploadedPaths, processedResult: newResult } = await extractAndUploadResultImages(
+                            executeData.result,
+                            user.id,
+                            supabase
+                        );
+                        processedResult = newResult;
+                        resultImagePaths = uploadedPaths;
+                        console.log('[DEBUG] Uploaded', uploadedPaths.length, 'result images');
+                    } catch (e) {
+                        console.error('[DEBUG] Failed to process result images:', e);
+                    }
+                }
+            }
+
             const assistantMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 type: 'assistant',
                 content: responseContent,
                 timestamp: new Date(),
-                result: executeData.result,
+                result: processedResult,
                 workflow,
             };
             addMessage(assistantMessage);
+            saveMessageToDb(assistantMessage, resultImagePaths);
         } catch (error) {
             const errorMessage: Message = {
                 id: (Date.now() + 1).toString(),
@@ -315,9 +500,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 timestamp: new Date(),
             };
             addMessage(errorMessage);
+            saveMessageToDb(errorMessage);
         } finally {
             setIsLoading(false);
             abortControllerRef.current = null;
+
+            if (!sessionId && createdSessionIdRef.current) {
+                window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
+            }
         }
     };
 
@@ -580,12 +770,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     // START: Add User Name Fetching Logic
     const [userName, setUserName] = useState<string>(initialUserName || '');
-    const supabase = React.useMemo(() => {
-        // Dynamic import to avoid SSR issues if needed, but client component is fine
-        // We need to import createClient here
-        const { createClient } = require('@/lib/supabase/client');
-        return createClient();
-    }, []);
+    // Removed redundant supabase declaration
 
     useEffect(() => {
         const getUserName = async () => {

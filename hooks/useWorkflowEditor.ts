@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNodesState, useEdgesState, addEdge, Connection, Edge } from 'reactflow';
 import type { Node } from 'reactflow';
 import { WorkflowNode, WorkflowEdge, Workflow, NodeType } from '@/lib/nodes/types';
@@ -10,39 +10,82 @@ import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 
 export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
-    const [nodes, setNodes, onNodesChange] = useNodesState<any>(
-        initialWorkflow?.nodes.map(n => ({
+    // Create a stable identity for the workflow to detect changes
+    const getWorkflowIdentity = (wf: Workflow | null | undefined) => {
+        if (!wf || !wf.nodes) return 'empty';
+        return `${wf.name}-${wf.nodes.length}-${wf.edges.length}`;
+    };
+
+    const currentIdentity = getWorkflowIdentity(initialWorkflow);
+    const prevIdentityRef = useRef<string | null>(null);
+
+    // Debug logging
+    console.log('[useWorkflowEditor] 🔄 Hook called, identity:', currentIdentity, 'prev:', prevIdentityRef.current);
+
+    // Compute initial values
+    const getInitialNodes = (wf: Workflow | null | undefined) => {
+        if (!wf?.nodes) return [];
+        return wf.nodes.map(n => ({
             id: n.id,
             type: n.type,
             position: n.position,
             data: n.data,
-        })) || []
-    );
+        }));
+    };
 
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
-        initialWorkflow?.edges.map(e => ({
+    const getInitialEdges = (wf: Workflow | null | undefined) => {
+        if (!wf?.edges) return [];
+        return wf.edges.map(e => ({
             id: e.id,
             source: e.source,
             target: e.target,
             type: 'smoothstep',
             animated: true,
-        })) || []
-    );
+        }));
+    };
 
+    const [nodes, setNodes, onNodesChange] = useNodesState<any>(getInitialNodes(initialWorkflow));
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(getInitialEdges(initialWorkflow));
     const [selectedNode, setSelectedNode] = useState<string | null>(null);
     const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || 'Untitled Workflow');
 
     // Track the last workflow we loaded to avoid re-rendering during drag
     const lastLoadedWorkflowRef = useRef<string | null>(null);
 
-    // ⭐ CRITICAL FIX: Update nodes/edges when workflow prop changes
-    // Only update when workflow ID/structure changes, not during drag operations
+    // ⭐ CRITICAL FIX: Use useLayoutEffect for SYNCHRONOUS state reset before paint
+    // This ensures state is updated BEFORE React renders, avoiding stale UI
+    useLayoutEffect(() => {
+        // Skip the first render (when prevIdentityRef is null)
+        if (prevIdentityRef.current === null) {
+            prevIdentityRef.current = currentIdentity;
+            console.log('[useWorkflowEditor] 🚀 First mount, identity:', currentIdentity);
+            return;
+        }
+
+        // Only reset if identity actually changed
+        if (prevIdentityRef.current !== currentIdentity) {
+            console.log('[useWorkflowEditor] ⚡ IDENTITY CHANGED! Forcing state reset:', prevIdentityRef.current, '->', currentIdentity);
+            prevIdentityRef.current = currentIdentity;
+            lastLoadedWorkflowRef.current = null;
+
+            // SYNCHRONOUSLY reset all state to match the new workflow
+            const newNodes = getInitialNodes(initialWorkflow);
+            const newEdges = getInitialEdges(initialWorkflow);
+            const newName = initialWorkflow?.name || 'Untitled Workflow';
+
+            console.log('[useWorkflowEditor] 🔄 Resetting to:', newName, 'nodes:', newNodes.length, 'edges:', newEdges.length);
+
+            setNodes(newNodes);
+            setEdges(newEdges);
+            setSelectedNode(null);
+            setWorkflowName(newName);
+        }
+    }, [currentIdentity, initialWorkflow, setNodes, setEdges]);
+
+    // ⭐ Main effect to update state when workflow changes
     useEffect(() => {
-        if (initialWorkflow) {
+        if (initialWorkflow && initialWorkflow.nodes && initialWorkflow.nodes.length > 0) {
             // Create a stable ID based on workflow structure and CONFIGURATION
-            // Must include node data to detect property changes (e.g. sort order)
-            // Sort nodes to ensure array order doesn't affect hash (React Flow internal reordering)
-            // Use stableStringify to ensure object key order doesn't causing flapping
             const sortedNodes = [...initialWorkflow.nodes].sort((a, b) => a.id.localeCompare(b.id));
             const configHash = stableStringify(sortedNodes.map(n => ({ id: n.id, data: n.data })));
             const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}-${configHash}`;
@@ -87,7 +130,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 });
                 const newEdges = Array.from(uniqueEdges.values());
 
-                // Check if layout is needed (e.g. all nodes at 0,0 or x=0 which implies raw generation)
+                // Check if layout is needed
                 const needsLayout = newNodes.length > 0 && newNodes.every(n => n.position.x === 0 && n.position.y === 0 || (n.position.x === 0 && n.position.y === 100));
 
                 if (needsLayout) {
@@ -108,8 +151,16 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 // Update workflow name
                 setWorkflowName(initialWorkflow.name);
             }
+        } else {
+            // ⭐ Clear the canvas when workflow becomes null/empty
+            console.log('[useWorkflowEditor] 🧹 Clearing editor - workflow is null/empty');
+            lastLoadedWorkflowRef.current = null;
+            setNodes([]);
+            setEdges([]);
+            setSelectedNode(null);
+            setWorkflowName('Untitled Workflow');
         }
-    }, [initialWorkflow]); // Still depend on workflow, but check if it's actually new
+    }, [initialWorkflow, setNodes, setEdges]); // Include setters in deps
 
     // Method to directly update node positions (used by auto-layout)
     const updatePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {

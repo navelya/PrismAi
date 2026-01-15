@@ -3,14 +3,15 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, Sparkles, X } from 'lucide-react';
+import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, Sparkles, X, Trash2 } from 'lucide-react';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
 import { createClient } from '@/lib/supabase/client';
-import { LogOut, User as UserIcon } from 'lucide-react';
+import { useSession } from '@/lib/hooks/use-session';
+import { LogOut, User as UserIcon, Plus } from 'lucide-react';
 
 const navItems = [
-    { name: 'Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
+    { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
     { name: 'Editor', path: '/editor', icon: Pen, desktopOnly: true },
     { name: 'Library', path: '/library', icon: BookOpen, desktopOnly: false },
     { name: 'Nodes', path: '/nodes', icon: Boxes, desktopOnly: false },
@@ -28,7 +29,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const isMobile = useIsMobile();
     const [user, setUser] = React.useState<any>(null);
     const supabase = createClient();
-    const router = useRouter(); // Error: useRouter needs to be imported
+    const router = useRouter();
 
     React.useEffect(() => {
         const getUser = async () => {
@@ -36,12 +37,88 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             setUser(user);
         };
         getUser();
-    }, []);
+    }, [supabase]);
+
+    // ...
+
+    const [sessions, setSessions] = React.useState<any[]>([]);
+    const { createNewSession, deleteSession } = useSession();
+
+    React.useEffect(() => {
+        if (user) {
+            const fetchSessions = async () => {
+                const { data, error } = await supabase
+                    .from('sessions')
+                    .select('id, title, updated_at')
+                    .eq('user_id', user.id)
+                    .order('updated_at', { ascending: false })
+                    .limit(20);
+
+                if (error) {
+                    console.error("Sidebar: Fetch failed", error);
+                    return;
+                }
+                if (data) {
+                    console.log("Sidebar: Fetched sessions", data.length);
+                    setSessions(data);
+                }
+            };
+
+            fetchSessions();
+
+            // Subscribe to session changes (e.g. title updates, new sessions)
+            const channel = supabase
+                .channel('sidebar-sessions')
+                .on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
+                    () => fetchSessions()
+                )
+                .subscribe();
+
+            return () => {
+                supabase.removeChannel(channel);
+            };
+        }
+    }, [user, supabase]);
+
+    const handleNewChat = () => {
+        // Reset ALL state immediately (synchronously before navigation)
+        const store = useAppStore.getState();
+
+        console.log('[handleNewChat] 🧹 BEFORE clear:', {
+            currentWorkflow: store.currentWorkflow?.name ?? 'null',
+            isCanvasOpen: store.editorState.isCanvasOpen,
+            activeSessionId: store.activeSessionId,
+        });
+
+        // Clear workflow and close canvas FIRST
+        store.setCurrentWorkflow(null);
+        store.setEditorState({ isCanvasOpen: false, splitRatio: 50 });
+
+        // Clear chat messages and execution state
+        store.clearMessages();
+        store.clearExecutionResults();
+        store.resetNodeStatuses();
+        store.clearNodeOutputs();
+
+        // Clear active session ID - this is key for fresh state
+        store.setActiveSessionId(null);
+
+        console.log('[handleNewChat] ✅ AFTER clear:', {
+            currentWorkflow: useAppStore.getState().currentWorkflow?.name ?? 'null',
+            isCanvasOpen: useAppStore.getState().editorState.isCanvasOpen,
+            activeSessionId: useAppStore.getState().activeSessionId,
+        });
+
+        // Navigate to fresh chat (session will be created lazily on first message)
+        router.push('/chat');
+
+        if (isMobile && onClose) onClose();
+    };
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
-        router.refresh(); // Refresh to trigger middleware redirect if on protected route? 
-        // Or manual redirect
         window.location.href = '/login';
     };
 
@@ -196,8 +273,8 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             </div>
 
             {/* Navigation Items */}
-            <nav className="flex-1 px-2 py-2">
-                <ul className="space-y-1">
+            <nav className={`flex-1 px-2 py-2 scrollbar-thin scrollbar-thumb-stroke-subtle ${isExpanded ? 'overflow-y-auto overflow-x-hidden' : 'overflow-visible'}`}>
+                <ul className="space-y-1 mb-2">
                     {navItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = pathname === item.path;
@@ -237,6 +314,55 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         );
                     })}
                 </ul>
+
+                {/* History List - Only show when expanded */}
+                {isExpanded && sessions.length > 0 && (
+                    <div className="pt-2 mt-2 border-t border-stroke-subtle/50">
+                        <div className="px-3 py-2 text-xs font-semibold text-content-tertiary uppercase tracking-wider">
+                            History
+                        </div>
+                        <ul className="space-y-0.5">
+                            {sessions.map((session) => {
+                                const isSessionActive = pathname === `/chat/${session.id}`;
+                                return (
+                                    <li key={session.id}>
+                                        <Link
+                                            href={`/chat/${session.id}`}
+                                            className={`
+                                                 group relative flex items-center gap-3 px-3 py-2 rounded-lg
+                                                 transition-all duration-200
+                                                 ${isSessionActive
+                                                    ? 'bg-surface-tertiary text-content-primary font-medium'
+                                                    : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
+                                                }
+                                             `}
+                                        >
+                                            <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isSessionActive ? 'text-accent-primary' : 'opacity-50'}`} />
+                                            <span className="text-sm truncate flex-1 text-left">
+                                                {session.title || 'Untitled Session'}
+                                            </span>
+                                            <button
+                                                onClick={async (e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    if (confirm('Delete session?')) {
+                                                        // Optimistic update
+                                                        setSessions(prev => prev.filter(s => s.id !== session.id));
+                                                        await deleteSession(session.id);
+                                                    }
+                                                }}
+                                                className="p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md opacity-0 group-hover:opacity-100 transition-all z-10"
+                                                title="Delete session"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </Link>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                )}
             </nav>
 
             {/* Logo at Bottom (Replaced by Profile for Authenticated Users) */}
