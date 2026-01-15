@@ -172,16 +172,56 @@ export function useSession() {
     // Delete a session
     const deleteSession = useCallback(async (sessionId: string) => {
         try {
-            // Use API to ensure storage artifacts are also deleted
-            const response = await fetch(`/api/session/${sessionId}`, {
-                method: 'DELETE',
+            console.log('[deleteSession] Starting deletion for:', sessionId);
+
+            // 1. Fetch messages to find images
+            const { data: messages } = await supabase
+                .from('messages')
+                .select('role, images')
+                .eq('session_id', sessionId);
+
+            const pathsToDelete: Set<string> = new Set();
+
+            // Helper to extract path
+            const extractPath = (urlOrPath: string) => {
+                if (!urlOrPath) return null;
+                if (urlOrPath.includes('chat-assets/')) {
+                    const parts = urlOrPath.split('chat-assets/');
+                    return parts.length > 1 ? parts[1] : null;
+                }
+                if (!urlOrPath.startsWith('http')) return urlOrPath;
+                return null;
+            };
+
+            // Collect paths
+            messages?.forEach((msg: any) => {
+                if (msg.images && Array.isArray(msg.images)) {
+                    msg.images.forEach((img: any) => {
+                        const path = extractPath(img);
+                        if (path) pathsToDelete.add(path);
+                    });
+                }
             });
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to delete session');
+            const paths = Array.from(pathsToDelete);
+            console.log(`[deleteSession] Found ${paths.length} files to delete`);
+
+            // 2. Delete from Storage
+            if (paths.length > 0) {
+                const { error: storageError } = await supabase.storage
+                    .from('chat-assets')
+                    .remove(paths);
+
+                if (storageError) console.error('[deleteSession] Storage delete error:', storageError);
+                else console.log('[deleteSession] Storage cleanup complete');
             }
 
+            // 3. Delete Session from DB
+            const { error } = await supabase.from('sessions').delete().eq('id', sessionId);
+            if (error) throw error;
+            console.log('[deleteSession] DB session deleted');
+
+            // 4. Update UI
             // If deleting current session, redirect home
             if (currentSessionId === sessionId) {
                 router.push('/chat');

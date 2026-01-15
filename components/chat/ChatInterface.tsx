@@ -537,15 +537,67 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     useEffect(() => {
         if (onReadyRef.current) {
-            onReadyRef.current((result: any) => {
+            onReadyRef.current(async (result: any) => {
+                // 1. Ensure Active Session Exists (Lazy Creation)
+                let activeSessionId = sessionId || createdSessionIdRef.current;
+
+                if (!activeSessionId) {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (user) {
+                        try {
+                            const { data } = await supabase.from('sessions').insert({
+                                user_id: user.id,
+                                title: 'New Workflow'
+                            }).select().single();
+
+                            if (data) {
+                                activeSessionId = data.id;
+                                createdSessionIdRef.current = data.id;
+                                useAppStore.getState().setActiveSessionId(data.id);
+
+                                // Update URL silently
+                                window.history.replaceState({}, '', `/chat/${data.id}`);
+                                console.log('[ChatInterface] 🆕 Lazy session created for editor result:', data.id);
+                            }
+                        } catch (err) {
+                            console.error("Failed to create session for editor result:", err);
+                            return; // Cannot save if session creation failed
+                        }
+                    } else {
+                        return; // No user, cannot save
+                    }
+                }
+
+                let processedResult = result;
+                let resultImagePaths: string[] = [];
+
+                // 2. Process images
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    try {
+                        const { uploadedPaths, processedResult: newResult } = await extractAndUploadResultImages(
+                            result,
+                            user.id,
+                            supabase
+                        );
+                        processedResult = newResult;
+                        resultImagePaths = uploadedPaths;
+                    } catch (e) {
+                        console.error("Failed to process editor result images:", e);
+                    }
+                }
+
+                // 3. Save Message with persistence
                 const assistantMessage: Message = {
                     id: Date.now().toString(),
                     type: 'assistant',
                     content: 'Workflow executed from editor:',
-                    result,
+                    result: processedResult,
                     timestamp: new Date(),
                 };
+
                 addMessage(assistantMessage);
+                saveMessageToDb(assistantMessage, resultImagePaths);
             });
         }
     }, []); // Run once on mount
