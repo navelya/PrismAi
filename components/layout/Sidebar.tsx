@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useSession } from '@/lib/hooks/use-session';
 import { LogOut, User as UserIcon, Plus } from 'lucide-react';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
+import { useLongPress } from '@/lib/hooks/use-long-press';
+import { MobileActionSheet, ActionItem } from '@/components/ui/MobileActionSheet';
 
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
@@ -45,6 +47,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const [sessions, setSessions] = React.useState<any[]>([]);
     const { createNewSession, deleteSession } = useSession();
     const [deleteConfirmation, setDeleteConfirmation] = React.useState<{ isOpen: boolean, sessionId: string | null }>({ isOpen: false, sessionId: null });
+    const [actionSheetSessionId, setActionSheetSessionId] = React.useState<string | null>(null);
 
     const confirmDelete = async () => {
         if (deleteConfirmation.sessionId) {
@@ -224,40 +227,17 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                     History
                                 </div>
                                 <ul className="space-y-1">
-                                    {sessions.map((session) => {
-                                        const isSessionActive = pathname === `/chat/${session.id}`;
-                                        return (
-                                            <li key={session.id}>
-                                                <Link
-                                                    href={`/chat/${session.id}`}
-                                                    onClick={onClose}
-                                                    className={`
-                                                        group flex items-center gap-3 px-4 py-3 rounded-xl
-                                                        transition-all duration-200
-                                                        ${isSessionActive
-                                                            ? 'bg-surface-tertiary text-content-primary font-medium'
-                                                            : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
-                                                        }
-                                                    `}
-                                                >
-                                                    <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isSessionActive ? 'text-accent-primary' : 'opacity-50'}`} />
-                                                    <span className="text-sm truncate flex-1">
-                                                        {session.title || 'Untitled Session'}
-                                                    </span>
-                                                    <button
-                                                        onClick={async (e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            setDeleteConfirmation({ isOpen: true, sessionId: session.id });
-                                                        }}
-                                                        className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                </Link>
-                                            </li>
-                                        );
-                                    })}
+                                    {sessions.map((session) => (
+                                        <SidebarSessionItem
+                                            key={session.id}
+                                            session={session}
+                                            isActive={pathname === `/chat/${session.id}`}
+                                            isMobile={isMobile}
+                                            onClose={onClose}
+                                            onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
+                                            onLongPress={(id) => setActionSheetSessionId(id)}
+                                        />
+                                    ))}
                                 </ul>
                             </div>
                         </div>
@@ -265,6 +245,24 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
                     {/* Spacer if no sessions to push bottom section down */}
                     {sessions.length === 0 && <div className="flex-1" />}
+
+                    <MobileActionSheet
+                        isOpen={!!actionSheetSessionId}
+                        onClose={() => setActionSheetSessionId(null)}
+                        title="Session Options"
+                    >
+                        <ActionItem
+                            icon={Trash2}
+                            label="Delete Chat"
+                            variant="danger"
+                            onClick={() => {
+                                if (actionSheetSessionId) {
+                                    setDeleteConfirmation({ isOpen: true, sessionId: actionSheetSessionId });
+                                    setActionSheetSessionId(null);
+                                }
+                            }}
+                        />
+                    </MobileActionSheet>
 
                     {/* Bottom Section - Fixed in Flex column */}
                     <div className="p-4 border-t border-stroke-subtle bg-surface-primary safe-area-bottom">
@@ -404,40 +402,16 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                             History
                         </div>
                         <ul className="space-y-0.5">
-                            {sessions.map((session) => {
-                                const isSessionActive = pathname === `/chat/${session.id}`;
-                                return (
-                                    <li key={session.id}>
-                                        <Link
-                                            href={`/chat/${session.id}`}
-                                            className={`
-                                                    group relative flex items-center gap-3 px-3 py-2 rounded-lg
-                                                    transition-all duration-200
-                                                    ${isSessionActive
-                                                    ? 'bg-surface-tertiary text-content-primary font-medium'
-                                                    : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
-                                                }
-                                                `}
-                                        >
-                                            <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isSessionActive ? 'text-accent-primary' : 'opacity-50'}`} />
-                                            <span className="text-sm truncate flex-1 text-left whitespace-nowrap">
-                                                {session.title || 'Untitled Session'}
-                                            </span>
-                                            <button
-                                                onClick={async (e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    setDeleteConfirmation({ isOpen: true, sessionId: session.id });
-                                                }}
-                                                className="p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md opacity-0 group-hover:opacity-100 transition-all z-10"
-                                                title="Delete session"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                        </Link>
-                                    </li>
-                                );
-                            })}
+                            {sessions.map((session) => (
+                                <SidebarSessionItem
+                                    key={session.id}
+                                    session={session}
+                                    isActive={pathname === `/chat/${session.id}`}
+                                    isMobile={isMobile}
+                                    onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
+                                    onLongPress={() => { }} // No op on desktop
+                                />
+                            ))}
                         </ul>
                     </div>
                 )}
@@ -532,5 +506,100 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 variant="danger"
             />
         </div>
+    );
+}
+
+// Helper Component for Mobile Long Press
+function SidebarSessionItem({
+    session,
+    isActive,
+    isMobile,
+    onClose,
+    onDeleteClick,
+    onLongPress
+}: {
+    session: any;
+    isActive: boolean;
+    isMobile: boolean;
+    onClose?: () => void;
+    onDeleteClick: (id: string) => void;
+    onLongPress: (id: string) => void;
+}) {
+    const router = useRouter();
+
+    const longPressProps = useLongPress(
+        // On Long Press
+        (e) => {
+            if (isMobile) {
+                // Prevent navigation/click
+                e.preventDefault();
+                onLongPress(session.id);
+            }
+        },
+        // On Click (Normal)
+        (e) => {
+            if (onClose) onClose();
+            router.push(`/chat/${session.id}`);
+        },
+        {
+            shouldPreventDefault: true,
+            delay: 500,
+        }
+    );
+
+    if (isMobile) {
+        return (
+            <li>
+                <div
+                    {...longPressProps}
+                    className={`
+                        group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer
+                        transition-all duration-200 select-none
+                        ${isActive
+                            ? 'bg-surface-tertiary text-content-primary font-medium'
+                            : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
+                        }
+                    `}
+                >
+                    <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent-primary' : 'opacity-50'}`} />
+                    <span className="text-sm truncate flex-1">
+                        {session.title || 'Untitled Session'}
+                    </span>
+                </div>
+            </li>
+        );
+    }
+
+    // DESKTOP RENDER (Standard)
+    return (
+        <li>
+            <Link
+                href={`/chat/${session.id}`}
+                className={`
+                    group relative flex items-center gap-3 px-3 py-2 rounded-lg
+                    transition-all duration-200
+                    ${isActive
+                        ? 'bg-surface-tertiary text-content-primary font-medium'
+                        : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
+                    }
+                `}
+            >
+                <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent-primary' : 'opacity-50'}`} />
+                <span className="text-sm truncate flex-1 text-left whitespace-nowrap">
+                    {session.title || 'Untitled Session'}
+                </span>
+                <button
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onDeleteClick(session.id);
+                    }}
+                    className="p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md opacity-0 group-hover:opacity-100 transition-all z-10"
+                    title="Delete session"
+                >
+                    <Trash2 className="w-4 h-4" />
+                </button>
+            </Link>
+        </li>
     );
 }
