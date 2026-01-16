@@ -315,6 +315,16 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                             </Link>
                         )}
                     </div>
+
+                    <ConfirmationModal
+                        isOpen={deleteConfirmation.isOpen}
+                        onClose={() => setDeleteConfirmation({ isOpen: false, sessionId: null })}
+                        onConfirm={confirmDelete}
+                        title="Delete Chat?"
+                        message="This action cannot be undone. The chat history will be permanently removed."
+                        confirmText="Delete"
+                        variant="danger"
+                    />
                 </div>
             </>
         );

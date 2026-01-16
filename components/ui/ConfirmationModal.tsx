@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 interface ConfirmationModalProps {
     isOpen: boolean;
@@ -24,6 +25,12 @@ export function ConfirmationModal({
     cancelText = 'Cancel',
     variant = 'danger'
 }: ConfirmationModalProps) {
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     // Keyboard navigation
     useEffect(() => {
         if (!isOpen) return;
@@ -39,6 +46,7 @@ export function ConfirmationModal({
     }, [isOpen, onClose]);
 
     if (!isOpen) return null;
+    if (!mounted) return null;
 
     const handleBackdropClick = (e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
@@ -46,7 +54,7 @@ export function ConfirmationModal({
         }
     };
 
-    return (
+    return createPortal(
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
             onClick={handleBackdropClick}
@@ -107,6 +115,7 @@ export function ConfirmationModal({
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }

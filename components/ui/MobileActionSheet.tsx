@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 interface MobileActionSheetProps {
     isOpen: boolean;
@@ -17,6 +18,11 @@ export function MobileActionSheet({
     children
 }: MobileActionSheetProps) {
     const [isVisible, setIsVisible] = useState(false);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     useEffect(() => {
         if (isOpen) {
@@ -31,8 +37,9 @@ export function MobileActionSheet({
     }, [isOpen]);
 
     if (!isVisible && !isOpen) return null;
+    if (!mounted) return null;
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[60] flex items-end justify-center">
             {/* Backdrop */}
             <div
@@ -46,7 +53,7 @@ export function MobileActionSheet({
             {/* Sheet */}
             <div
                 className={`
-                    relative w-full max-w-md bg-surface-elevated rounded-t-2xl shadow-xl transform transition-transform duration-300 ease-out
+                    relative w-full bg-surface-elevated rounded-t-2xl shadow-xl transform transition-transform duration-300 ease-out
                     ${isOpen ? 'translate-y-0' : 'translate-y-full'}
                 `}
             >
@@ -71,7 +78,8 @@ export function MobileActionSheet({
                     {children}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 
