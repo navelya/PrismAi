@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square } from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 interface EditorToolbarProps {
     workflowName: string;
@@ -45,23 +46,25 @@ export default function EditorToolbar({
 
             {/* Primary Action - Run/Stop toggle */}
             {isRunning ? (
-                <button
-                    onClick={onStop}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 hover:shadow-md transition-all font-medium text-sm"
-                    title="Stop workflow"
-                >
-                    <Square className="w-4 h-4 fill-current" />
-                    <span className="hidden sm:inline">Stop</span>
-                </button>
+                <Tooltip content="Stop" popupClassName="sm:hidden">
+                    <button
+                        onClick={onStop}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 hover:shadow-md transition-all font-medium text-sm"
+                    >
+                        <Square className="w-4 h-4 fill-current" />
+                        <span className="hidden sm:inline">Stop</span>
+                    </button>
+                </Tooltip>
             ) : (
-                <button
-                    onClick={onRun}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-gradient-premium text-white rounded-lg hover:shadow-md hover:shadow-accent-primary/25 transition-all font-medium text-sm"
-                    title="Run workflow"
-                >
-                    <Play className="w-4 h-4" />
-                    <span className="hidden sm:inline">Run</span>
-                </button>
+                <Tooltip content="Run" popupClassName="sm:hidden">
+                    <button
+                        onClick={onRun}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-gradient-premium text-white rounded-lg hover:shadow-md hover:shadow-accent-primary/25 transition-all font-medium text-sm"
+                    >
+                        <Play className="w-4 h-4" />
+                        <span className="hidden sm:inline">Run</span>
+                    </button>
+                </Tooltip>
             )}
 
             {/* Desktop: Show all buttons */}
@@ -69,7 +72,6 @@ export default function EditorToolbar({
                 <button
                     onClick={onSave}
                     className="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors text-sm border border-stroke-subtle"
-                    title="Save workflow"
                 >
                     <Save className="w-4 h-4" />
                     <span>Save</span>
@@ -78,7 +80,6 @@ export default function EditorToolbar({
                 <button
                     onClick={onNew}
                     className="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors text-sm border border-stroke-subtle"
-                    title="New workflow"
                 >
                     <FilePlus className="w-4 h-4" />
                     <span>New</span>
@@ -87,7 +88,6 @@ export default function EditorToolbar({
                 <button
                     onClick={onDelete}
                     className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-600 rounded-lg hover:bg-red-500/20 transition-colors text-sm border border-transparent hover:border-red-200 dark:hover:border-red-900"
-                    title="Delete workflow"
                 >
                     <Trash2 className="w-4 h-4" />
                     <span>Delete</span>
@@ -96,23 +96,25 @@ export default function EditorToolbar({
 
             {/* Mobile/Tablet: Icon-only buttons */}
             <div className="flex lg:hidden items-center gap-1">
-                <button
-                    onClick={onSave}
-                    className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
-                    title="Save workflow"
-                >
-                    <Save className="w-4 h-4" />
-                </button>
+                <Tooltip content="Save" position="bottom">
+                    <button
+                        onClick={onSave}
+                        className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
+                    >
+                        <Save className="w-4 h-4" />
+                    </button>
+                </Tooltip>
 
                 {/* More menu for New and Delete */}
                 <div className="relative">
-                    <button
-                        onClick={() => setShowMenu(!showMenu)}
-                        className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
-                        title="More actions"
-                    >
-                        <MoreVertical className="w-4 h-4" />
-                    </button>
+                    <Tooltip content="More actions" position="bottom-end">
+                        <button
+                            onClick={() => setShowMenu(!showMenu)}
+                            className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
+                        >
+                            <MoreVertical className="w-4 h-4" />
+                        </button>
+                    </Tooltip>
 
                     {/* Dropdown Menu */}
                     {showMenu && (

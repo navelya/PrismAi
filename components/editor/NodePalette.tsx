@@ -5,6 +5,7 @@ import { NodeType } from '@/lib/nodes/types';
 import { nodeMetadata } from '@/lib/nodes/registry';
 import * as Icons from 'lucide-react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 interface NodePaletteProps {
     onDragStart: (type: NodeType) => void;
@@ -25,21 +26,24 @@ export default function NodePalette({ onDragStart }: NodePaletteProps) {
         <div className={`relative h-full transition-all duration-300 z-40 ${isCollapsed ? 'w-0' : 'w-64'}`}>
 
             {/* Toggle Button - Outside clipping container to remain visible */}
-            <button
-                onClick={() => setIsCollapsed(!isCollapsed)}
-                className={`transition-all duration-300 z-50 flex items-center justify-center
-                    ${isCollapsed
-                        ? 'absolute top-16 -right-10 p-2.5 rounded-full shadow-lg border border-stroke-subtle bg-surface-primary hover:bg-surface-secondary text-content-primary transform hover:scale-105'
-                        : 'absolute top-3 right-3 p-1.5 rounded-lg hover:bg-surface-secondary text-content-secondary hover:text-content-primary'
-                    }`}
-                title={isCollapsed ? 'Expand nodes panel' : 'Collapse nodes panel'}
+            {/* Toggle Button - Stable structure for animation */}
+            <Tooltip
+                content={isCollapsed ? "Expand nodes panel" : ""}
+                position="right"
+                className="absolute top-4 z-50 transition-all duration-500 ease-in-out"
+                style={{ left: isCollapsed ? '0.5rem' : '13.25rem' }}
             >
-                {isCollapsed ? (
-                    <ChevronRight className="w-5 h-5" />
-                ) : (
-                    <ChevronLeft className="w-4 h-4" />
-                )}
-            </button>
+                <button
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className={`flex items-center justify-center transition-all duration-500 ease-in-out
+                        ${isCollapsed
+                            ? 'p-2.5 rounded-full shadow-lg border border-stroke-subtle bg-surface-primary hover:bg-surface-secondary text-content-primary transform hover:scale-105'
+                            : 'p-1.5 rounded-lg hover:bg-surface-secondary text-content-secondary hover:text-content-primary'
+                        }`}
+                >
+                    {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-4 h-4" />}
+                </button>
+            </Tooltip>
 
             {/* Clipping Container - Handles the "Wipe" animation (Width 0 -> 64) */}
             <div className={`h-full bg-surface-primary border-r border-stroke-subtle overflow-hidden transition-all duration-500 ease-in-out ${isCollapsed ? 'w-0' : 'w-64'}`}>

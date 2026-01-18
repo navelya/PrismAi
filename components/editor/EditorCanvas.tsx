@@ -554,6 +554,8 @@ export default function EditorCanvas(props: EditorCanvasProps) {
 // Toolbar Helper Components
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { Tooltip } from '@/components/ui/Tooltip';
+
 interface ToolbarButtonProps {
     icon: React.ComponentType<{ className?: string }>;
     onClick: () => void;
@@ -563,11 +565,10 @@ interface ToolbarButtonProps {
 }
 
 function ToolbarButton({ icon: Icon, onClick, disabled, active, title }: ToolbarButtonProps) {
-    return (
+    const button = (
         <button
             onClick={onClick}
             disabled={disabled}
-            title={title}
             className={`
                 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200
                 ${disabled
@@ -581,6 +582,16 @@ function ToolbarButton({ icon: Icon, onClick, disabled, active, title }: Toolbar
             <Icon className="w-4 h-4" />
         </button>
     );
+
+    if (title && !disabled) {
+        return (
+            <Tooltip content={title} position="top">
+                {button}
+            </Tooltip>
+        );
+    }
+
+    return button;
 }
 
 function ToolbarDivider() {

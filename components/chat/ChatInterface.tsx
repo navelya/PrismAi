@@ -6,6 +6,7 @@ import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { generateNodeId, generateEdgeId } from '@/lib/utils';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { executeWorkflow } from '@/lib/workflow-engine';
@@ -744,14 +745,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}>
                     {/* Plus button on left */}
                     <div className="relative z-10">
-                        <button
-                            type="button"
-                            onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
-                            className={`p-2 rounded-lg transition-colors ${isPlusMenuOpen ? 'bg-surface-tertiary text-content-primary' : 'bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary'}`}
-                            title="Add attachment"
-                        >
-                            <Plus className={`w-5 h-5 transition-transform ${isPlusMenuOpen ? 'rotate-45' : ''}`} />
-                        </button>
+                        <Tooltip content="Add attachment" position="top">
+                            <button
+                                type="button"
+                                onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                                className={`p-2 rounded-lg transition-colors ${isPlusMenuOpen ? 'bg-surface-tertiary text-content-primary' : 'bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary'}`}
+                            >
+                                <Plus className={`w-5 h-5 transition-transform ${isPlusMenuOpen ? 'rotate-45' : ''}`} />
+                            </button>
+                        </Tooltip>
 
                         {/* Dropup Menu */}
                         {isPlusMenuOpen && (
@@ -780,42 +782,45 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     {/* Mic and Send buttons on right */}
                     <div className="flex items-center gap-1 z-10">
                         {!isLoading && (
-                            <button
-                                type="button"
-                                onClick={toggleListening}
-                                className={`p-2 rounded-lg transition-all duration-200
+                            <Tooltip content={isListening ? 'Stop listening' : 'Voice input'} position="top">
+                                <button
+                                    type="button"
+                                    onClick={toggleListening}
+                                    className={`p-2 rounded-lg transition-all duration-200
                                 ${isListening
-                                        ? 'bg-accent-error text-white animate-pulse'
-                                        : 'bg-surface-secondary text-content-tertiary hover:bg-surface-tertiary hover:text-content-secondary'
-                                    }`}
-                                title={isListening ? 'Stop listening' : 'Voice input'}
-                            >
-                                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                            </button>
+                                            ? 'bg-accent-error text-white animate-pulse'
+                                            : 'bg-surface-secondary text-content-tertiary hover:bg-surface-tertiary hover:text-content-secondary'
+                                        }`}
+                                >
+                                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                                </button>
+                            </Tooltip>
                         )}
 
                         {isLoading ? (
-                            <button
-                                type="button"
-                                onClick={handleStop}
-                                className="p-2 rounded-lg bg-surface-secondary hover:bg-accent-error/10 border border-stroke-subtle hover:border-accent-error/30 transition-all duration-200 group"
-                                title="Stop"
-                            >
-                                <Square className="w-4 h-4 text-content-tertiary group-hover:text-accent-error fill-current transition-colors" />
-                            </button>
+                            <Tooltip content="Stop" position="top">
+                                <button
+                                    type="button"
+                                    onClick={handleStop}
+                                    className="p-2 rounded-lg bg-surface-secondary hover:bg-accent-error/10 border border-stroke-subtle hover:border-accent-error/30 transition-all duration-200 group"
+                                >
+                                    <Square className="w-4 h-4 text-content-tertiary group-hover:text-accent-error fill-current transition-colors" />
+                                </button>
+                            </Tooltip>
                         ) : (
-                            <button
-                                type="submit"
-                                disabled={!input.trim()}
-                                className={`p-2 rounded-lg transition-all duration-200
+                            <Tooltip content="Send message" position="top">
+                                <button
+                                    type="submit"
+                                    disabled={!input.trim()}
+                                    className={`p-2 rounded-lg transition-all duration-200
                                 ${input.trim()
-                                        ? 'bg-content-primary hover:bg-content-secondary text-surface-primary'
-                                        : 'bg-surface-secondary text-content-tertiary cursor-not-allowed'
-                                    }`}
-                                title="Send message"
-                            >
-                                <Send className="w-4 h-4" />
-                            </button>
+                                            ? 'bg-content-primary hover:bg-content-secondary text-surface-primary'
+                                            : 'bg-surface-secondary text-content-tertiary cursor-not-allowed'
+                                        }`}
+                                >
+                                    <Send className="w-4 h-4" />
+                                </button>
+                            </Tooltip>
                         )}
                     </div>
                 </div>

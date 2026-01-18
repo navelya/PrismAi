@@ -1,15 +1,16 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
-import { Code2, MessageSquare, GripVertical } from 'lucide-react';
-import { Workflow } from '@/lib/nodes/types';
+import { Workflow, MessageSquare, GripVertical } from 'lucide-react';
+import { Workflow as WorkflowType } from '@/lib/nodes/types';
 import SharedWorkflowEditor from '../editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 interface SplitViewProps {
     chatPanel: React.ReactNode;
-    workflow: Workflow | null;
+    workflow: WorkflowType | null;
     onExecutionResult?: (result: any) => void;
 }
 
@@ -127,13 +128,18 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
 
                 {/* Toggle Button - show when chat has messages AND workflow exists (prop, store, or message) */}
                 {showEditorButton && (
-                    <button
-                        onClick={toggleEditor}
-                        className="absolute z-40 top-4 right-4 w-10 h-10 flex items-center justify-center bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle rounded-full shadow-sm hover:shadow-md hover:bg-surface-elevated hover:border-accent-primary/30 transition-all duration-200 text-content-secondary hover:text-accent-primary group"
-                        title={isCanvasOpen ? 'Hide workflow editor' : 'View workflow editor'}
+                    <Tooltip
+                        content={isCanvasOpen ? 'Hide editor' : 'View editor'}
+                        position="left"
+                        className="absolute z-40 top-4 right-4"
                     >
-                        <Code2 className="w-5 h-5 transition-transform group-hover:scale-110" />
-                    </button>
+                        <button
+                            onClick={toggleEditor}
+                            className="w-10 h-10 flex items-center justify-center bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle rounded-full shadow-sm hover:shadow-md hover:bg-surface-elevated hover:border-accent-primary/30 transition-all duration-200 text-content-secondary hover:text-accent-primary group"
+                        >
+                            <Workflow className="w-5 h-5 transition-transform group-hover:scale-110" />
+                        </button>
+                    </Tooltip>
                 )}
             </div>
 
