@@ -1,11 +1,13 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/registry';
 import * as Icons from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import ImageLightbox from '@/components/ui/ImageLightbox';
 
 interface CustomNodeData {
     label: string;
@@ -23,6 +25,18 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
     const pasteNode = useAppStore((state) => state.pasteNode);
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
+
+    // Subscribe to specific output for this node
+    const output = useAppStore((state) => state.nodeOutputs[id]);
+
+    // Lightbox state
+    const [lightboxOpen, setLightboxOpen] = useState(false);
+    const [lightboxIndex, setLightboxIndex] = useState(0);
+
+    const openLightbox = (index: number) => {
+        setLightboxIndex(index);
+        setLightboxOpen(true);
+    };
 
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -183,6 +197,63 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                 </div>
             </div>
 
+            {/* In-Node Results Gallery */}
+            {
+                output && (
+                    <div className="mt-3 pt-3 border-t border-stroke-subtle/50">
+                        {Array.isArray(output) && output.length > 0 ? (
+                            <div className="flex gap-1.5 flex-wrap">
+                                {output.slice(0, 4).map((item: any, idx: number) => (
+                                    <button
+                                        key={idx}
+                                        onClick={(e) => { e.stopPropagation(); openLightbox(idx); }}
+                                        className="relative w-10 h-10 rounded-md overflow-hidden border border-stroke-subtle hover:border-accent-primary transition-colors group/thumb"
+                                    >
+                                        {item.url || item.base64 ? (
+                                            <img
+                                                src={item.url || item.base64}
+                                                alt={`Result ${idx + 1}`}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full bg-surface-tertiary flex items-center justify-center text-[10px] text-content-tertiary">
+                                                ?
+                                            </div>
+                                        )}
+                                    </button>
+                                ))}
+                                {output.length > 4 && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); openLightbox(4); }}
+                                        className="w-10 h-10 rounded-md bg-surface-tertiary border border-stroke-subtle flex items-center justify-center text-xs text-content-secondary hover:bg-surface-secondary transition-colors"
+                                    >
+                                        +{output.length - 4}
+                                    </button>
+                                )}
+                            </div>
+                        ) : typeof output === 'object' ? (
+                            <div className="text-xs text-content-secondary bg-surface-tertiary/50 p-2 rounded max-h-20 overflow-y-auto">
+                                <pre className="whitespace-pre-wrap font-mono text-[10px] leading-tight">
+                                    {JSON.stringify(output, null, 2)}
+                                </pre>
+                            </div>
+                        ) : null}
+                    </div>
+                )
+            }
+
+            {/* Lightbox Portal */}
+            {
+                lightboxOpen && output && Array.isArray(output) && createPortal(
+                    <ImageLightbox
+                        images={output}
+                        initialIndex={lightboxIndex}
+                        onClose={() => setLightboxOpen(false)}
+                    />,
+                    document.body
+                )
+            }
+
             {/* Output Handle - hitbox extends inward into node */}
             <Handle
                 type="source"
@@ -196,7 +267,7 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                     height: '10px',
                 }}
             />
-        </div>
+        </div >
     );
 }
 

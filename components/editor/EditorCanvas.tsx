@@ -3,7 +3,6 @@
 import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import ReactFlow, {
     Background,
-    Controls,
     BackgroundVariant,
     NodeMouseHandler,
     ReactFlowProvider,
@@ -15,13 +14,14 @@ import ReactFlow, {
     useReactFlow,
     Connection,
     Panel,
+    useViewport,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
 import MediaInputNode from '../canvas/MediaInputNode';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Undo2, Redo2, Network, Trash2, Copy, Hand } from 'lucide-react';
+import { Undo2, Redo2, Network, Trash2, Copy, Hand, Minus, Plus, Maximize2 } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 import { useTheme } from '@/components/theme/ThemeProvider';
@@ -319,7 +319,7 @@ function EditorCanvasInner({
                 edges={edges.map(e => ({
                     ...e,
                     type: 'default',
-                    animated: true,
+                    animated: false,
                     style: edgeStyle,
                 }))}
                 onNodesChange={onNodesChange}
@@ -343,6 +343,9 @@ function EditorCanvasInner({
                 isValidConnection={isValidConnection}
                 selectionOnDrag={!isPanMode}
                 panOnDrag={isPanMode ? [0, 1] : [1]}
+                panOnScroll={true}
+                zoomOnScroll={false}
+                zoomOnPinch={true}
                 selectNodesOnDrag={false}
                 connectionMode={"loose" as any}
                 selectionMode={'partial' as any}
@@ -356,59 +359,58 @@ function EditorCanvasInner({
                     style={{ backgroundColor: 'rgb(var(--canvas-bg))' }}
                     color="rgb(var(--canvas-dots))"
                 />
-                <Controls className="!bg-surface-elevated/90 !backdrop-blur-sm !border !border-stroke-subtle !rounded-lg !shadow-lg" />
 
-                {/* Undo/Redo/Layout Panel - Inside ReactFlow to not break selection */}
-                <Panel position="top-left" className="flex gap-2 !m-4">
-                    <button
-                        onClick={handleUndo}
-                        disabled={!canUndo}
-                        suppressHydrationWarning
-                        className="w-9 h-9 rounded-lg bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle
-                                   shadow-lg hover:shadow-xl transition-all duration-200
-                                   flex items-center justify-center
-                                   disabled:opacity-40 disabled:cursor-not-allowed
-                                   hover:bg-surface-tertiary group"
-                        title="Undo (Ctrl+Z)"
-                    >
-                        <Undo2 className={`w-4 h-4 transition-colors ${canUndo ? 'text-content-primary group-hover:text-accent-primary' : 'text-content-tertiary'}`} suppressHydrationWarning />
-                    </button>
-                    <button
-                        onClick={handleRedo}
-                        disabled={!canRedo}
-                        className="w-9 h-9 rounded-lg bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle
-                                   shadow-lg hover:shadow-xl transition-all duration-200
-                                   flex items-center justify-center
-                                   disabled:opacity-40 disabled:cursor-not-allowed
-                                   hover:bg-surface-tertiary group"
-                        title="Redo (Ctrl+Y)"
-                    >
-                        <Redo2 className={`w-4 h-4 transition-colors ${canRedo ? 'text-content-primary group-hover:text-accent-primary' : 'text-content-tertiary'}`} />
-                    </button>
-                    <button
-                        onClick={handleAutoLayout}
-                        disabled={nodes.length === 0}
-                        className="w-9 h-9 rounded-lg bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle
-                                   shadow-lg hover:shadow-xl transition-all duration-200
-                                   flex items-center justify-center
-                                   disabled:opacity-40 disabled:cursor-not-allowed
-                                   hover:bg-surface-tertiary group"
-                        title="Auto Layout"
-                    >
-                        <Network className={`w-4 h-4 transition-colors ${nodes.length > 0 ? 'text-content-primary group-hover:text-accent-primary' : 'text-content-tertiary'}`} />
-                    </button>
-                    <button
-                        onClick={() => setIsPanMode(!isPanMode)}
-                        className={`w-9 h-9 rounded-lg backdrop-blur-sm border shadow-lg hover:shadow-xl transition-all duration-200
-                                   flex items-center justify-center group
-                                   ${isPanMode
-                                ? 'bg-accent-primary border-accent-primary text-content-inverted'
-                                : 'bg-surface-elevated/90 border-stroke-subtle hover:bg-surface-tertiary'
-                            }`}
-                        title={isPanMode ? 'Exit pan mode (click to select nodes)' : 'Pan mode (drag to move canvas)'}
-                    >
-                        <Hand className={`w-4 h-4 transition-colors ${isPanMode ? 'text-content-inverted' : 'text-content-primary group-hover:text-accent-primary'}`} />
-                    </button>
+                {/* Unified Floating Bottom Toolbar */}
+                <Panel position="bottom-center" className="!mb-4">
+                    <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl">
+                        {/* History Group */}
+                        <ToolbarButton
+                            icon={Undo2}
+                            onClick={handleUndo}
+                            disabled={!canUndo}
+                            title="Undo (Ctrl+Z)"
+                        />
+                        <ToolbarButton
+                            icon={Redo2}
+                            onClick={handleRedo}
+                            disabled={!canRedo}
+                            title="Redo (Ctrl+Y)"
+                        />
+                        <ToolbarDivider />
+
+                        {/* Canvas Group */}
+                        <ToolbarButton
+                            icon={Network}
+                            onClick={handleAutoLayout}
+                            disabled={nodes.length === 0}
+                            title="Auto Layout"
+                        />
+                        <ToolbarButton
+                            icon={Hand}
+                            onClick={() => setIsPanMode(!isPanMode)}
+                            active={isPanMode}
+                            title={isPanMode ? 'Exit Pan Mode' : 'Pan Mode'}
+                        />
+                        <ToolbarButton
+                            icon={Maximize2}
+                            onClick={() => reactFlowInstance?.fitView({ padding: 0.3, maxZoom: 1 })}
+                            title="Fit View"
+                        />
+                        <ToolbarDivider />
+
+                        {/* Zoom Group */}
+                        <ToolbarButton
+                            icon={Minus}
+                            onClick={() => reactFlowInstance?.zoomOut()}
+                            title="Zoom Out"
+                        />
+                        <ZoomDisplay />
+                        <ToolbarButton
+                            icon={Plus}
+                            onClick={() => reactFlowInstance?.zoomIn()}
+                            title="Zoom In"
+                        />
+                    </div>
                 </Panel>
 
                 {/* Selection Action Buttons - Positioned relative to selection bounding box */}
@@ -547,3 +549,50 @@ export default function EditorCanvas(props: EditorCanvasProps) {
         </ReactFlowProvider>
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Toolbar Helper Components
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ToolbarButtonProps {
+    icon: React.ComponentType<{ className?: string }>;
+    onClick: () => void;
+    disabled?: boolean;
+    active?: boolean;
+    title?: string;
+}
+
+function ToolbarButton({ icon: Icon, onClick, disabled, active, title }: ToolbarButtonProps) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            className={`
+                w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200
+                ${disabled
+                    ? 'opacity-40 cursor-not-allowed text-content-tertiary'
+                    : active
+                        ? 'bg-accent-primary text-content-inverted'
+                        : 'text-content-primary hover:bg-surface-tertiary hover:text-accent-primary'
+                }
+            `}
+        >
+            <Icon className="w-4 h-4" />
+        </button>
+    );
+}
+
+function ToolbarDivider() {
+    return <div className="w-px h-5 bg-stroke-subtle mx-1" />;
+}
+
+function ZoomDisplay() {
+    const { zoom } = useViewport();
+    return (
+        <span className="px-2 text-xs font-medium text-content-secondary min-w-[40px] text-center tabular-nums">
+            {Math.round(zoom * 100)}%
+        </span>
+    );
+}
+
