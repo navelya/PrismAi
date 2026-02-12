@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ModelManager } from '@/lib/ai/model-manager';
+import { getAuthenticatedUser } from '@/lib/api/auth';
 
 /**
  * Get current model status and rate limit info
@@ -7,6 +8,9 @@ import { ModelManager } from '@/lib/ai/model-manager';
  */
 export async function GET() {
     try {
+        // Authenticate the request
+        const auth = await getAuthenticatedUser();
+        if (auth.error) return auth.error;
         const modelManager = ModelManager.getInstance();
         const status = modelManager.getStatus();
         const nextModel = modelManager.getNextAvailableModel();

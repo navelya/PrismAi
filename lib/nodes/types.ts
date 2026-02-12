@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'merge_image' | 'media_input';
+export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'merge_image' | 'media_input' | 'compositor';
 
 /**
  * Node execution status for real-time updates
@@ -82,6 +82,53 @@ export interface MergeImageConfig {
 }
 
 /**
+ * Layer transformation data for Compositor
+ */
+export interface LayerTransform {
+    x: number;              // Left position (pixels)
+    y: number;              // Top position (pixels)
+    width: number;          // Rendered width (pixels)
+    height: number;         // Rendered height (pixels)
+    rotation: number;       // Degrees (0-360)
+    opacity: number;        // 0.0 - 1.0
+    flipX: boolean;         // Horizontal flip
+    flipY: boolean;         // Vertical flip
+}
+
+/**
+ * Single layer definition within the Compositor
+ */
+export interface CompositorLayer {
+    id: string;                 // Unique layer ID (e.g., "layer_0")
+    name: string;               // User-editable name (e.g., "Background")
+    sourceHandleId: string;     // React Flow handle ID this layer is connected to
+    selectedIndex: number;      // Which image from source array (default: 0)
+    transform: LayerTransform;  // Position/scale/rotation data
+    visible: boolean;           // Toggle visibility
+    locked: boolean;            // Prevent edits
+}
+
+/**
+ * Compositor Cube Configuration
+ * Client-side image compositing with full layer control
+ */
+export interface CompositorConfig {
+    /** Canvas dimensions */
+    canvasWidth: number;        // Default: 1920
+    canvasHeight: number;       // Default: 1080
+
+    /** Background color (if no base image) */
+    backgroundColor: string;    // Default: '#00000000' (transparent)
+
+    /** Ordered array of layers (bottom to top) */
+    layers: CompositorLayer[];
+
+    /** Output quality */
+    outputFormat: 'png' | 'webp' | 'jpeg';
+    outputQuality: number;      // 0.0 - 1.0 (for jpeg/webp)
+}
+
+/**
  * Media Input Node Configuration
  * Stores manually uploaded images as base64 data URLs
  */
@@ -97,7 +144,8 @@ export type NodeConfig =
     | AIGenerateImageConfig
     | UpscaleImageConfig
     | MergeImageConfig
-    | MediaInputConfig;
+    | MediaInputConfig
+    | CompositorConfig;
 
 /**
  * Node definition for workflow

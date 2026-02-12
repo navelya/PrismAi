@@ -3,9 +3,14 @@ import { executeWorkflow, validateWorkflow } from '@/lib/workflow-engine';
 import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
 import { generateNodeId } from '@/lib/utils';
+import { getAuthenticatedUser } from '@/lib/api/auth';
 
 export async function POST(request: NextRequest) {
     try {
+        // Authenticate the request
+        const auth = await getAuthenticatedUser();
+        if (auth.error) return auth.error;
+
         const body = await request.json();
         const { workflow } = body;
 

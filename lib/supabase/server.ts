@@ -1,9 +1,8 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
-// REUSING CREDENTIALS FROM client.ts (As per user request/existing setup)
-const supabaseUrl = 'https://wyqkbwpybqokmtlghdsr.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5cWtid3B5YnFva210bGdoZHNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxNzAyMDAsImV4cCI6MjA4Mjc0NjIwMH0.ijbswrAfHzNpenCd1cA3CxuIooQIMGzlZCEwbPtDrw4';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const AUTH_COOKIE_NAME = 'supabase-auth-token';
 
 export const createClient = () => {

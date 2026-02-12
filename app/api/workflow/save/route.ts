@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveWorkflow } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
+import { getAuthenticatedUser } from '@/lib/api/auth';
 
 export async function POST(request: NextRequest) {
     try {
+        // Authenticate the request
+        const auth = await getAuthenticatedUser();
+        if (auth.error) return auth.error;
+        const { user } = auth;
+
         const body = await request.json();
-        const { workflow, userId = 'anonymous' } = body;
+        const { workflow } = body;
 
         if (!workflow || !workflow.nodes) {
             return NextResponse.json(
@@ -14,8 +20,8 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Save workflow to database
-        const result = await saveWorkflow(workflow as Workflow, userId);
+        // Use authenticated user ID — never trust client-supplied userId
+        const result = await saveWorkflow(workflow as Workflow, user.id);
 
         if (result.success) {
             return NextResponse.json({

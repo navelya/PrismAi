@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { parseRequestToWorkflow } from '@/lib/ai/parse-workflow';
+import { getAuthenticatedUser } from '@/lib/api/auth';
 
 export async function POST(request: Request) {
     try {
+        // Authenticate the request
+        const auth = await getAuthenticatedUser();
+        if (auth.error) return auth.error;
+
         const { prompt, previousWorkflow, attachedImages } = await request.json();
 
         if (!prompt || typeof prompt !== 'string') {

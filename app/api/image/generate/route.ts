@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthenticatedUser } from '@/lib/api/auth';
 
 // Force dynamic rendering - this route uses request.url
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,10 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
     try {
+        // Authenticate the request
+        const auth = await getAuthenticatedUser();
+        if (auth.error) return auth.error;
+
         const { searchParams } = new URL(request.url);
         const prompt = searchParams.get('prompt');
         const width = searchParams.get('width') || '1024';

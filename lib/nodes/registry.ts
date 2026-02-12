@@ -11,6 +11,8 @@ import {
     UpscaleImageConfig,
     MergeImageConfig,
     MediaInputConfig,
+    CompositorConfig,
+    CompositorLayer,
 } from './types';
 
 // Backend URL - uses environment variable in production, localhost in development
@@ -651,6 +653,135 @@ const mediaInputExecutor: NodeExecutor = async (
 };
 
 /**
+ * Compositor Node
+ * Client-side image compositing with layer control
+ * Each layer has a selectedIndex to pick from array inputs
+ */
+const compositorExecutor: NodeExecutor = async (
+    config: NodeConfig,
+    input: any,
+    context: ExecutionContext
+): Promise<NodeExecutionResult> => {
+    try {
+        const compositorConfig = config as CompositorConfig;
+        const {
+            canvasWidth = 1920,
+            canvasHeight = 1080,
+            backgroundColor = '#00000000',
+            layers = [],
+            outputFormat = 'png',
+            outputQuality = 1.0,
+        } = compositorConfig;
+
+        if (layers.length === 0) {
+            return {
+                success: false,
+                data: null,
+                error: 'No layers configured. Add at least one layer to the Compositor.',
+            };
+        }
+
+        // Check if we're in browser environment (client-side rendering)
+        if (typeof window === 'undefined' || typeof document === 'undefined') {
+            return {
+                success: false,
+                data: null,
+                error: 'Compositor requires browser environment for rendering.',
+            };
+        }
+
+        // Create offscreen canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+            return {
+                success: false,
+                data: null,
+                error: 'Failed to create canvas context.',
+            };
+        }
+
+        // Set background color
+        if (backgroundColor && backgroundColor !== '#00000000') {
+            ctx.fillStyle = backgroundColor;
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        }
+
+        // Render each visible layer (bottom to top)
+        for (const layer of layers) {
+            if (!layer.visible) continue;
+
+            // Get source images from input (keyed by handle ID)
+            const handleInputs = input as Record<string, ImageObject[] | ImageObject>;
+            const sourceData = handleInputs[layer.sourceHandleId];
+
+            if (!sourceData) continue;
+
+            // Handle array or single image
+            const sourceArray = Array.isArray(sourceData) ? sourceData : [sourceData];
+            const imageData = sourceArray[layer.selectedIndex] || sourceArray[0];
+
+            if (!imageData?.url) continue;
+
+            // Load image
+            const img = await loadImage(imageData.url);
+
+            // Apply transform
+            ctx.save();
+            const { x, y, width, height, rotation, opacity, flipX, flipY } = layer.transform;
+
+            ctx.globalAlpha = opacity;
+            ctx.translate(x + width / 2, y + height / 2);
+            ctx.rotate((rotation * Math.PI) / 180);
+            ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+            ctx.drawImage(img, -width / 2, -height / 2, width, height);
+            ctx.restore();
+        }
+
+        // Generate output data URL
+        const mimeType = outputFormat === 'jpeg' ? 'image/jpeg' :
+            outputFormat === 'webp' ? 'image/webp' : 'image/png';
+        const dataUrl = canvas.toDataURL(mimeType, outputQuality);
+
+        return {
+            success: true,
+            data: [{
+                url: dataUrl,
+                resolution: {
+                    width: canvasWidth,
+                    height: canvasHeight,
+                },
+                metadata: {
+                    title: 'Compositor Output',
+                    source: 'Compositor Cube',
+                    format: outputFormat,
+                },
+            }],
+        };
+    } catch (error) {
+        return {
+            success: false,
+            data: null,
+            error: error instanceof Error ? error.message : 'Failed to composite images',
+        };
+    }
+};
+
+// Helper function to load an image from URL/base64
+function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load image: ${src.substring(0, 50)}...`));
+        img.src = src;
+    });
+}
+
+/**
  * Node Registry
  * Maps node types to their executor functions
  */
@@ -662,6 +793,7 @@ export const nodeRegistry: Record<string, NodeExecutor> = {
     upscale_image: upscaleImageExecutor,
     merge_image: mergeImageExecutor,
     media_input: mediaInputExecutor,
+    compositor: compositorExecutor,
 };
 
 /**
@@ -685,6 +817,7 @@ export const nodeMetadata: Record<string, {
     color: string;
     icon: string;
     inputs?: Array<{ id: string; label: string; color: string }>;
+    dynamicInputs?: boolean;
 }> = {
     scrape_images: {
         label: 'Scrape Images',
@@ -736,5 +869,13 @@ export const nodeMetadata: Record<string, {
         color: '#3b82f6',
         icon: 'ImagePlus',
         // No inputs - this is a source node (manual upload)
+    },
+    compositor: {
+        label: 'Compositor',
+        description: 'Layer-based image compositing',
+        color: '#8b5cf6',
+        icon: 'Layers2',
+        // Dynamic inputs - handled by CompositorNode
+        dynamicInputs: true,
     },
 };
