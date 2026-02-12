@@ -20,7 +20,8 @@ const nodeTypes: NodeType[] = [
     'filter_sort',
     'ai_generate_image',
     'upscale_image',
-    'merge_image'
+    'merge_image',
+    'compositor',
 ];
 
 // Menu dimensions for positioning calculations

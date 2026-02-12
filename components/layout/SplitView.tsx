@@ -31,8 +31,8 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
     const hasWorkflowInMessages = chatMessages.some((msg: any) => msg.workflow?.nodes?.length > 0);
 
     // Determine if Editor button should be visible
-    // Requires active session AND (has workflow prop, store workflow, or workflow in messages)
-    const showEditorButton = activeSessionId && hasMessages && (workflow || currentWorkflow || hasWorkflowInMessages);
+    // Requires messages AND workflow (from prop, store, or message history)
+    const showEditorButton = hasMessages && (workflow || currentWorkflow || hasWorkflowInMessages);
 
 
 

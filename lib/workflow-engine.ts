@@ -123,6 +123,18 @@ export async function executeWorkflow(
                             overlay: overlayEdge ? nodeOutputs.get(overlayEdge.source) : null,
                         };
 
+                    } else if (node.type === 'compositor') {
+                        // Compositor: map inputs by target handle ID (layer_0, layer_1, etc.)
+                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
+                        const handleInputs: Record<string, any> = {};
+
+                        for (const edge of incomingEdges) {
+                            const handleId = (edge as any).targetHandle || 'default';
+                            handleInputs[handleId] = nodeOutputs.get(edge.source);
+                        }
+
+                        input = handleInputs;
+
                     } else if (parentIds.length === 1) {
                         // Single parent - use output directly
                         input = nodeOutputs.get(parentIds[0]);

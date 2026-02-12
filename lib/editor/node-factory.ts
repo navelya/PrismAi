@@ -43,6 +43,14 @@ export function createNodeFromType(
         media_input: {
             images: [],
         },
+        compositor: {
+            canvasWidth: 1920,
+            canvasHeight: 1080,
+            backgroundColor: '#00000000',
+            layers: [],
+            outputFormat: 'png',
+            outputQuality: 1.0,
+        },
     };
 
     const config = defaultConfigs[type];

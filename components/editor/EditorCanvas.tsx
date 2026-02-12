@@ -19,6 +19,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
 import MediaInputNode from '../canvas/MediaInputNode';
+import CompositorNode from '../canvas/CompositorNode';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network, Trash2, Copy, Hand, Minus, Plus, Maximize2 } from 'lucide-react';
@@ -47,6 +48,7 @@ const nodeTypes = {
     upscale_image: CustomNode,
     merge_image: CustomNode,
     media_input: MediaInputNode,
+    compositor: CompositorNode,
 };
 
 function EditorCanvasInner({
@@ -351,6 +353,7 @@ function EditorCanvasInner({
                 selectionMode={'partial' as any}
                 onPaneClick={() => setContextMenu(null)}
                 onMoveStart={() => setContextMenu(null)}
+                proOptions={{ hideAttribution: true }}
             >
                 <Background
                     variant={BackgroundVariant.Dots}
