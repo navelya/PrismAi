@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Header
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from rembg import remove
@@ -10,12 +10,27 @@ import numpy as np
 import os
 import requests
 from pathlib import Path
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Image Processing Service")
+
+# API Key for internal authentication (set via environment variable)
+INTERNAL_API_KEY = os.environ.get("INTERNAL_API_KEY", "")
+
+async def verify_api_key(authorization: Optional[str] = Header(None)):
+    """Dependency that verifies the Authorization header contains a valid API key."""
+    if not INTERNAL_API_KEY:
+        # If no key is configured, skip auth (dev mode)
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = authorization[7:]  # Strip "Bearer "
+    if token != INTERNAL_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
 
 # Add CORS middleware - Allow Vercel deployments and localhost
 app.add_middleware(
@@ -116,7 +131,7 @@ async def root():
         "services": ["background-removal", "upscaling"]
     }
 
-@app.post("/remove-background")
+@app.post("/remove-background", dependencies=[Depends(verify_api_key)])
 async def remove_background(file: UploadFile = File(...)):
     try:
         logger.info(f"Processing image: {file.filename}")
@@ -137,7 +152,7 @@ async def remove_background(file: UploadFile = File(...)):
         logger.error(f"Error processing image: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/upscale")
+@app.post("/upscale", dependencies=[Depends(verify_api_key)])
 async def upscale_image(file: UploadFile = File(...), scale: int = Form(default=4)):
     try:
         logger.info(f"📤 Upscaling {file.filename} at {scale}x")
@@ -185,7 +200,7 @@ async def upscale_image(file: UploadFile = File(...), scale: int = Form(default=
         logger.error(f"❌ Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/merge-images")
+@app.post("/merge-images", dependencies=[Depends(verify_api_key)])
 async def merge_images(
     base_file: UploadFile = File(...),
     overlay_file: UploadFile = File(...),

@@ -13,9 +13,9 @@ import { executeWorkflow } from '@/lib/workflow-engine';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { NodeStatus } from '@/lib/nodes/types';
-import { createClient } from '@/lib/supabase/client';
+import { sessionsApi, messagesApi, uploadApi, userApi } from '@/lib/api/client';
 import { useDebounce } from '@/lib/hooks/use-debounce';
-import { convertImageToWebP, uploadImageToStorage, extractAndUploadResultImages } from '@/lib/utils/image-processing';
+import { convertImageToWebP } from '@/lib/utils/image-processing';
 
 interface Message {
     id: string;
@@ -53,21 +53,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     // Use store workflow for auto-save as it's the source of truth
     const storeWorkflow = useAppStore((state) => state.currentWorkflow);
     const debouncedWorkflow = useDebounce(storeWorkflow, 2000);
-    const supabase = React.useMemo(() => createClient(), []);
 
-    // Auto-save Canvas
+    // Auto-save Canvas via BFF API
     useEffect(() => {
         if (sessionId && debouncedWorkflow) {
-            supabase.from('sessions').update({
+            sessionsApi.update(sessionId, {
                 canvas_state: debouncedWorkflow,
-                updated_at: new Date().toISOString()
-            }).eq('id', sessionId).then(({ error }: any) => {
-                if (error) console.error("Auto-save failed", error);
+            }).catch((error: any) => {
+                console.error("Auto-save failed", error);
             });
         }
-    }, [debouncedWorkflow, sessionId, supabase]);
+    }, [debouncedWorkflow, sessionId]);
 
-    // Helper to save messages
+    // Helper to save messages via BFF API
     const saveMessageToDb = async (msg: Message, imagePaths?: string[]) => {
         const activeSessionId = createdSessionIdRef.current || sessionId;
         if (!activeSessionId) return;
@@ -75,27 +73,17 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         // Map UI message type to DB role
         const role = msg.type;
 
-        // Use uploaded paths if available. We prefer saving paths to DB.
+        // Use uploaded paths if available
         const imagesToSave = imagePaths || [];
 
-        // Insert message (without metadata for now as db migration might be pending)
-        await supabase.from('messages').insert({
-            session_id: activeSessionId,
+        // Insert message via API (also updates session timestamp)
+        await messagesApi.create(activeSessionId, {
             role,
-            content: msg.content || '', // Ensure content is not null
+            content: msg.content || '',
             images: imagesToSave,
-            created_at: msg.timestamp.toISOString()
-        });
-
-        // Update session timestamp AND canvas state if this message produced a workflow
-        const updatePayload: any = { updated_at: new Date().toISOString() };
-        if (msg.workflow) {
-            updatePayload.canvas_state = msg.workflow;
-        }
-
-        await supabase.from('sessions')
-            .update(updatePayload)
-            .eq('id', activeSessionId);
+            created_at: msg.timestamp.toISOString(),
+            canvas_state: msg.workflow || undefined, // Update canvas_state if workflow present
+        }).catch((err: any) => console.error('Failed to save message:', err));
     };
 
     const isMobile = useIsMobile();
@@ -310,38 +298,32 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         addMessage(userMessage);
         setIsLoading(true);
 
-        // Lazy Session Creation
+        // Lazy Session Creation via BFF API
         let activeSessionId = sessionId || createdSessionIdRef.current;
         if (!activeSessionId) {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { data } = await supabase.from('sessions').insert({
-                    user_id: user.id,
-                    title: 'New Workflow'
-                }).select().single();
-
-                if (data) {
-                    activeSessionId = data.id;
-                    createdSessionIdRef.current = data.id;
+            try {
+                const { session } = await sessionsApi.create('New Workflow');
+                if (session) {
+                    activeSessionId = session.id;
+                    createdSessionIdRef.current = session.id;
                     // ⚠️ CRITICAL: Instantly update active session in store
-                    useAppStore.getState().setActiveSessionId(data.id);
+                    useAppStore.getState().setActiveSessionId(session.id);
                 }
+            } catch (err) {
+                console.error('Failed to create session:', err);
             }
         }
 
-        // Upload images to persistent storage
+        // Upload images to persistent storage via BFF API
         let uploadedPaths: string[] = [];
         if (blobsToSend.length > 0 && activeSessionId) {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                try {
-                    const results = await Promise.all(
-                        blobsToSend.map(blob => uploadImageToStorage(blob, user.id, supabase))
-                    );
-                    uploadedPaths = results.map(r => r.path);
-                } catch (e) {
-                    console.error("[DEBUG] Image upload failed", e);
-                }
+            try {
+                const results = await Promise.all(
+                    blobsToSend.map(blob => uploadApi.upload(blob))
+                );
+                uploadedPaths = results.map(r => r.path);
+            } catch (e) {
+                console.error("[DEBUG] Image upload failed", e);
             }
         }
 
@@ -446,24 +428,34 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 responseContent = `✅ Workflow finished, but produced no output.`;
             }
 
-            // Process result images - upload base64 to storage and get paths
+            // Process result images - upload base64 to storage via BFF API
             let processedResult = executeData.result;
             let resultImagePaths: string[] = [];
 
             if (executeData.result) {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
-                    try {
-                        const { uploadedPaths, processedResult: newResult } = await extractAndUploadResultImages(
-                            executeData.result,
-                            user.id,
-                            supabase
-                        );
-                        processedResult = newResult;
-                        resultImagePaths = uploadedPaths;
-                    } catch (e) {
-                        console.error('[DEBUG] Failed to process result images:', e);
+                try {
+                    // Extract base64 images from result and upload them
+                    const results = executeData.result;
+                    if (Array.isArray(results)) {
+                        for (let i = 0; i < results.length; i++) {
+                            const item = results[i];
+                            if (item?.url && item.url.startsWith('data:')) {
+                                try {
+                                    const response = await fetch(item.url);
+                                    const blob = await response.blob();
+                                    const uploaded = await uploadApi.upload(blob);
+                                    resultImagePaths.push(uploaded.path);
+                                    // Replace base64 with public URL
+                                    results[i] = { ...item, url: uploaded.publicUrl };
+                                } catch (e) {
+                                    console.error('[DEBUG] Failed to upload result image:', e);
+                                }
+                            }
+                        }
+                        processedResult = results;
                     }
+                } catch (e) {
+                    console.error('[DEBUG] Failed to process result images:', e);
                 }
             }
 
@@ -546,52 +538,50 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     useEffect(() => {
         if (onReadyRef.current) {
             onReadyRef.current(async (result: any) => {
-                // 1. Ensure Active Session Exists (Lazy Creation)
+                // 1. Ensure Active Session Exists (Lazy Creation) via BFF API
                 let activeSessionId = sessionId || createdSessionIdRef.current;
 
                 if (!activeSessionId) {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (user) {
-                        try {
-                            const { data } = await supabase.from('sessions').insert({
-                                user_id: user.id,
-                                title: 'New Workflow'
-                            }).select().single();
+                    try {
+                        const { session } = await sessionsApi.create('New Workflow');
+                        if (session) {
+                            activeSessionId = session.id;
+                            createdSessionIdRef.current = session.id;
+                            useAppStore.getState().setActiveSessionId(session.id);
 
-                            if (data) {
-                                activeSessionId = data.id;
-                                createdSessionIdRef.current = data.id;
-                                useAppStore.getState().setActiveSessionId(data.id);
-
-                                // Update URL silently
-                                window.history.replaceState({}, '', `/chat/${data.id}`);
-                            }
-                        } catch (err) {
-                            console.error("Failed to create session for editor result:", err);
-                            return; // Cannot save if session creation failed
+                            // Update URL silently
+                            window.history.replaceState({}, '', `/chat/${session.id}`);
                         }
-                    } else {
-                        return; // No user, cannot save
+                    } catch (err) {
+                        console.error("Failed to create session for editor result:", err);
+                        return;
                     }
                 }
 
                 let processedResult = result;
                 let resultImagePaths: string[] = [];
 
-                // 2. Process images
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
-                    try {
-                        const { uploadedPaths, processedResult: newResult } = await extractAndUploadResultImages(
-                            result,
-                            user.id,
-                            supabase
-                        );
-                        processedResult = newResult;
-                        resultImagePaths = uploadedPaths;
-                    } catch (e) {
-                        console.error("Failed to process editor result images:", e);
+                // 2. Process images via BFF upload API
+                try {
+                    if (Array.isArray(result)) {
+                        for (let i = 0; i < result.length; i++) {
+                            const item = result[i];
+                            if (item?.url && item.url.startsWith('data:')) {
+                                try {
+                                    const response = await fetch(item.url);
+                                    const blob = await response.blob();
+                                    const uploaded = await uploadApi.upload(blob);
+                                    resultImagePaths.push(uploaded.path);
+                                    result[i] = { ...item, url: uploaded.publicUrl };
+                                } catch (e) {
+                                    console.error("Failed to upload editor result image:", e);
+                                }
+                            }
+                        }
+                        processedResult = result;
                     }
+                } catch (e) {
+                    console.error("Failed to process editor result images:", e);
                 }
 
                 // 3. Save Message with persistence
@@ -837,20 +827,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     useEffect(() => {
         const getUserName = async () => {
-            // If we already have it from server/props, we might prefer that, or refresh it.
-            // But let's check anyhow in case session changed or if not provided.
-            const { data: { user } } = await supabase.auth.getUser();
-            // Check display_name first, then full_name
-            const name = user?.user_metadata?.display_name || user?.user_metadata?.full_name;
-            if (name) {
-                setUserName(name);
+            try {
+                const { user } = await userApi.me();
+                const name = user?.user_metadata?.display_name || user?.user_metadata?.full_name;
+                if (name) {
+                    setUserName(name);
+                }
+            } catch {
+                // Not authenticated or failed
             }
         };
 
-        // Only fetch if we don't have it or want to ensure freshness. 
-        // For "immediate" requirement, the prop is key.
         getUserName();
-    }, [supabase]);
+    }, []);
     // END: User Name Fetching Logic
 
     // Desktop Empty State

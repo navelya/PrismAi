@@ -7,6 +7,7 @@ import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, Sparkles, X, Trash
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
 import { createClient } from '@/lib/supabase/client';
+import { sessionsApi, userApi } from '@/lib/api/client';
 import { useSession } from '@/lib/hooks/use-session';
 import { LogOut, User as UserIcon, Plus } from 'lucide-react';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
@@ -36,18 +37,15 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
     React.useEffect(() => {
         const getUser = async () => {
-            // Optimistic load from local session (FAST)
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                setUser(session.user);
+            try {
+                const { user } = await userApi.me();
+                if (user) setUser(user);
+            } catch {
+                // Not authenticated
             }
-
-            // Verify with server in background (Consistent)
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) setUser(user);
         };
         getUser();
-    }, [supabase]);
+    }, []);
 
     // ...
 
@@ -66,20 +64,11 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     React.useEffect(() => {
         if (user) {
             const fetchSessions = async () => {
-                const { data, error } = await supabase
-                    .from('sessions')
-                    .select('id, title, updated_at')
-                    .eq('user_id', user.id)
-                    .order('updated_at', { ascending: false })
-                    .limit(20);
-
-                if (error) {
+                try {
+                    const { sessions: data } = await sessionsApi.list();
+                    if (data) setSessions(data);
+                } catch (error) {
                     console.error("Sidebar: Fetch failed", error);
-                    return;
-                }
-                if (data) {
-
-                    setSessions(data);
                 }
             };
 
