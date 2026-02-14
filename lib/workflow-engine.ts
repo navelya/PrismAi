@@ -289,6 +289,239 @@ export async function executeWorkflow(
 }
 
 /**
+ * Execute a workflow starting from a specific node.
+ * - Upstream nodes with cached outputs are skipped (pre-seeded)
+ * - Only the startNode and its downstream descendants are executed
+ * - If an upstream node has no cached output, it is included in execution
+ */
+export async function executeWorkflowFromNode(
+    workflow: Workflow,
+    executionId: string,
+    startNodeId: string,
+    cachedOutputs: Record<string, any>,
+    onStatusUpdate?: (nodeId: string, status: NodeStatus) => void,
+    onNodeOutput?: (nodeId: string, output: any) => void
+): Promise<{
+    success: boolean;
+    result: any;
+    error?: string;
+}> {
+    try {
+        if (!workflow.nodes || workflow.nodes.length === 0) {
+            throw new Error('Workflow has no nodes');
+        }
+
+        const { parents, children, inDegree } = buildDependencyGraph(workflow.nodes, workflow.edges);
+
+        // BFS from startNode to find all downstream nodes (including startNode itself)
+        const downstreamSet = new Set<string>();
+        const queue = [startNodeId];
+        while (queue.length > 0) {
+            const nodeId = queue.shift()!;
+            if (downstreamSet.has(nodeId)) continue;
+            downstreamSet.add(nodeId);
+            const childIds = children.get(nodeId) || [];
+            childIds.forEach(c => queue.push(c));
+        }
+
+        // Create execution context
+        const context: ExecutionContext = {
+            workflowId: workflow.id || 'temp',
+            executionId,
+            data: null,
+        };
+
+        // Track node states
+        const nodeOutputs = new Map<string, any>();
+        const completedNodes = new Set<string>();
+        const failedNodes = new Set<string>();
+        const blockedNodes = new Set<string>();
+        const currentInDegree = new Map(inDegree);
+        let firstError: string | undefined;
+
+        // Pre-seed upstream nodes: any node NOT in downstreamSet that has cached output
+        for (const node of workflow.nodes) {
+            if (!downstreamSet.has(node.id) && cachedOutputs[node.id] !== undefined) {
+                nodeOutputs.set(node.id, cachedOutputs[node.id]);
+                completedNodes.add(node.id);
+                onStatusUpdate?.(node.id, 'success');
+
+                // Decrement in-degree for children of this pre-seeded node
+                const childIds = children.get(node.id) || [];
+                childIds.forEach(childId => {
+                    currentInDegree.set(childId, (currentInDegree.get(childId) || 0) - 1);
+                });
+            }
+        }
+
+        // Find initial ready nodes within the downstream set
+        let readyNodes = workflow.nodes.filter(node =>
+            downstreamSet.has(node.id) && currentInDegree.get(node.id) === 0
+        );
+
+        // Mark downstream nodes as pending
+        for (const node of workflow.nodes) {
+            if (downstreamSet.has(node.id) && !readyNodes.find(r => r.id === node.id)) {
+                onStatusUpdate?.(node.id, 'pending');
+            }
+        }
+
+        let waveNumber = 1;
+
+        while (readyNodes.length > 0) {
+            const waveExecutions = readyNodes.map(async (node) => {
+                onStatusUpdate?.(node.id, 'running');
+
+                try {
+                    const executor = getNodeExecutor(node.type);
+                    if (!executor) {
+                        throw new Error(`No executor found for node type: ${node.type}`);
+                    }
+
+                    // Gather inputs from all parents (same logic as executeWorkflow)
+                    const parentIds = parents.get(node.id) || [];
+                    let input = null;
+
+                    if (node.type === 'merge_image') {
+                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
+                        let baseEdge = incomingEdges.find(e => (e as any).targetHandle === 'base');
+                        let overlayEdge = incomingEdges.find(e => (e as any).targetHandle === 'overlay');
+
+                        if (!baseEdge || !overlayEdge) {
+                            for (const edge of incomingEdges) {
+                                const sourceNode = workflow.nodes.find(n => n.id === edge.source);
+                                if (!sourceNode) continue;
+                                if (sourceNode.type === 'remove_background' && !overlayEdge) {
+                                    overlayEdge = edge;
+                                } else if ((sourceNode.type === 'ai_generate_image' || sourceNode.type === 'scrape_images') && !baseEdge) {
+                                    baseEdge = edge;
+                                }
+                            }
+                            if (!baseEdge && incomingEdges.length >= 1) baseEdge = incomingEdges[0];
+                            if (!overlayEdge && incomingEdges.length >= 2) overlayEdge = incomingEdges[1];
+                        }
+
+                        input = {
+                            base: baseEdge ? nodeOutputs.get(baseEdge.source) : null,
+                            overlay: overlayEdge ? nodeOutputs.get(overlayEdge.source) : null,
+                        };
+                    } else if (node.type === 'compositor') {
+                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
+                        const handleInputs: Record<string, any> = {};
+                        for (const edge of incomingEdges) {
+                            const handleId = (edge as any).targetHandle || 'default';
+                            handleInputs[handleId] = nodeOutputs.get(edge.source);
+                        }
+                        input = handleInputs;
+                    } else if (parentIds.length === 1) {
+                        input = nodeOutputs.get(parentIds[0]);
+                    } else if (parentIds.length > 1) {
+                        const allInputs = parentIds.map(pid => nodeOutputs.get(pid)).filter(Boolean);
+                        if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
+                            input = allInputs.flat();
+                        } else {
+                            input = allInputs[0];
+                        }
+                    }
+
+                    const result: NodeExecutionResult = await executor(node.data.config, input, context);
+                    if (!result.success) {
+                        throw new Error(result.error || 'Node execution failed');
+                    }
+
+                    return { nodeId: node.id, success: true, output: result.data };
+                } catch (error) {
+                    return {
+                        nodeId: node.id,
+                        success: false,
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                    };
+                }
+            });
+
+            const waveResults = await Promise.allSettled(waveExecutions);
+            const nextReadyNodes: WorkflowNode[] = [];
+
+            waveResults.forEach((result, index) => {
+                const node = readyNodes[index];
+
+                if (result.status === 'fulfilled' && result.value.success) {
+                    completedNodes.add(node.id);
+                    nodeOutputs.set(node.id, result.value.output);
+                    onStatusUpdate?.(node.id, 'success');
+                    onNodeOutput?.(node.id, result.value.output);
+
+                    const childIds = children.get(node.id) || [];
+                    childIds.forEach(childId => {
+                        if (!blockedNodes.has(childId) && downstreamSet.has(childId)) {
+                            const newDegree = (currentInDegree.get(childId) || 0) - 1;
+                            currentInDegree.set(childId, newDegree);
+                            if (newDegree === 0) {
+                                const childNode = workflow.nodes.find(n => n.id === childId);
+                                if (childNode) nextReadyNodes.push(childNode);
+                            }
+                        }
+                    });
+                } else {
+                    const errorMsg = result.status === 'fulfilled' ? result.value.error : 'Promise rejected';
+                    if (!firstError) firstError = `${node.type} failed: ${errorMsg}`;
+                    failedNodes.add(node.id);
+                    onStatusUpdate?.(node.id, 'error');
+
+                    const blockDownstream = (nodeId: string) => {
+                        const childIds = children.get(nodeId) || [];
+                        childIds.forEach(childId => {
+                            if (!blockedNodes.has(childId)) {
+                                blockedNodes.add(childId);
+                                blockDownstream(childId);
+                            }
+                        });
+                    };
+                    blockDownstream(node.id);
+                }
+            });
+
+            readyNodes = nextReadyNodes;
+            waveNumber++;
+            if (waveNumber > 100) {
+                throw new Error('Execution exceeded maximum wave limit (possible cycle)');
+            }
+        }
+
+        // Find final output from downstream completed nodes with no children (or no downstream children)
+        const finalNodes = Array.from(completedNodes).filter(nodeId => {
+            if (!downstreamSet.has(nodeId)) return false; // skip pre-seeded upstream
+            const childIds = children.get(nodeId) || [];
+            return childIds.length === 0 || childIds.every(c => !downstreamSet.has(c));
+        });
+
+        let finalResult;
+        if (finalNodes.length === 1) {
+            finalResult = nodeOutputs.get(finalNodes[0]);
+        } else if (finalNodes.length > 1) {
+            const outputs = finalNodes.map(nid => nodeOutputs.get(nid)).filter(Boolean);
+            finalResult = outputs.every(o => Array.isArray(o)) ? outputs.flat() : outputs;
+        } else {
+            finalResult = null;
+        }
+
+        return {
+            success: completedNodes.size > 0,
+            result: finalResult,
+            error: failedNodes.size > 0 ? (firstError || `${failedNodes.size} node(s) failed`) : undefined,
+        };
+
+    } catch (error) {
+        console.error('💥 Workflow partial execution error:', error);
+        return {
+            success: false,
+            result: null,
+            error: error instanceof Error ? error.message : 'Unknown execution error',
+        };
+    }
+}
+
+/**
  * Validate workflow structure
  */
 export function validateWorkflow(workflow: Workflow): {

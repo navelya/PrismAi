@@ -236,7 +236,10 @@ const filterSortExecutor: NodeExecutor = async (
 
 /**
  * AI Generate Image Node
- * Generates images using Pollinations.ai (free, unlimited)
+ * Generates images using configurable model providers:
+ * - gemini (default): Gemini 2.5 Flash Image via Google AI API
+ * - pollinations: Pollinations.ai (free, unlimited, sometimes unreliable)
+ * - huggingface: Stable Diffusion XL via Hugging Face Inference API
  */
 const aiGenerateImageExecutor: NodeExecutor = async (
     config: NodeConfig,
@@ -244,45 +247,73 @@ const aiGenerateImageExecutor: NodeExecutor = async (
     context: ExecutionContext
 ): Promise<NodeExecutionResult> => {
     try {
-        const { prompt, aspectRatio = '1:1' } = config as AIGenerateImageConfig;
+        const { prompt, model = 'gemini', aspectRatio = '1:1' } = config as AIGenerateImageConfig;
 
-        // Determine dimensions based on aspect ratio
+        // Determine dimensions based on aspect ratio (used by Pollinations)
         const [width, height] = aspectRatio === '16:9' ? [1920, 1080] :
             aspectRatio === '4:3' ? [1600, 1200] : [1024, 1024];
 
-        // Use proxy API route to avoid 403 errors from Pollinations.ai
-        // Build full URL (works both client-side and server-side)
+        // Build base URL (works both client-side and server-side)
         const baseUrl = typeof window !== 'undefined'
             ? window.location.origin
             : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 
-        const proxyUrl = `${baseUrl}/api/image/generate?prompt=${encodeURIComponent(prompt)}&width=${width}&height=${height}`;
+        // Route to correct proxy based on model
+        let proxyUrl: string;
+        let sourceName: string;
+
+        switch (model) {
+            case 'pollinations':
+                proxyUrl = `${baseUrl}/api/image/generate?prompt=${encodeURIComponent(prompt)}&width=${width}&height=${height}`;
+                sourceName = 'Pollinations.ai';
+                break;
+            case 'huggingface':
+                proxyUrl = `${baseUrl}/api/image/generate-hf?prompt=${encodeURIComponent(prompt)}`;
+                sourceName = 'Stable Diffusion XL (Hugging Face)';
+                break;
+            default:
+                // Gemini models (gemini-2.5-flash-image, gemini-3-pro-image-preview, or legacy 'gemini')
+                const geminiModel = model === 'gemini' ? 'gemini-2.5-flash-image' : model;
+                proxyUrl = `${baseUrl}/api/image/generate-gemini?prompt=${encodeURIComponent(prompt)}&aspectRatio=${aspectRatio}&model=${geminiModel}`;
+
+                if (model === 'gemini-3-pro-image-preview') sourceName = 'Gemini 3 Pro';
+                else if (model === 'gemini-2.5-flash-image') sourceName = 'Nano Banana';
+                else sourceName = 'Gemini Imagen';
+                break;
+        }
 
         // Fetch the generated image through our proxy
         const response = await fetch(proxyUrl);
         if (!response.ok) {
-            throw new Error(`Image generation failed: ${response.status}`);
+            const errorBody = await response.text();
+            let errorMsg = `Image generation failed (${sourceName}): ${response.status}`;
+            try {
+                const parsed = JSON.parse(errorBody);
+                if (parsed.error) errorMsg = `${sourceName}: ${parsed.error}`;
+            } catch { /* use default error */ }
+            throw new Error(errorMsg);
         }
 
         const blob = await response.blob();
 
         if (blob.size === 0) {
-            throw new Error('Received empty image from Pollinations.ai');
+            throw new Error(`Received empty image from ${sourceName}`);
         }
 
-        // Convert to base64 for display (server-side)
+        // Convert to base64 for display
         const arrayBuffer = await blob.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        const base64 = `data:image/png;base64,${buffer.toString('base64')}`;
+        const mimeType = blob.type || 'image/png';
+        const base64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
 
         const generatedImage: ImageObject = {
-            url: base64, // Base64 data URL for display
-            resolution: { width, height },
+            url: base64,
+            resolution: { width: model === 'gemini' ? 1024 : width, height: model === 'gemini' ? 1024 : height },
             metadata: {
                 title: `AI Generated: ${prompt}`,
-                source: 'Pollinations.ai',
-                format: 'png',
-                generatedBy: 'Pollinations.ai (AI)',
+                source: sourceName,
+                format: mimeType.split('/')[1] || 'png',
+                generatedBy: `${sourceName} (AI)`,
                 prompt,
             },
         };

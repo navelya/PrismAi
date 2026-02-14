@@ -191,6 +191,19 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 return (
                     <>
                         <div>
+                            <label className={labelClass}>Model</label>
+                            <select
+                                value={aiConfig.model || 'gemini'}
+                                onChange={(e) => onUpdate({ ...aiConfig, model: e.target.value as any })}
+                                className={inputClass}
+                            >
+                                <option value="gemini-2.5-flash-image">Gemini 2.5 Flash (Nano Banana)</option>
+                                <option value="gemini-3-pro-image-preview">Gemini 3 Pro (Nano Banana Pro)</option>
+                                <option value="pollinations">Pollinations.ai</option>
+                                <option value="huggingface">Stable Diffusion XL (Hugging Face)</option>
+                            </select>
+                        </div>
+                        <div>
                             <label className={labelClass}>Prompt</label>
                             <textarea
                                 value={aiConfig.prompt}

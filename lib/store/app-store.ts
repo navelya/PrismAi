@@ -80,6 +80,11 @@ interface AppState {
     setNodeOutput: (nodeId: string, output: any) => void;
     clearNodeOutputs: () => void;
 
+    // Run From Node (partial execution trigger)
+    runFromNodeId: string | null;
+    triggerRunFromNode: (nodeId: string) => void;
+    clearRunFromNode: () => void;
+
     // Layout Engine Preference
     layoutEngine: LayoutEngine;
     setLayoutEngine: (engine: LayoutEngine) => void;
@@ -108,6 +113,7 @@ export const useAppStore = create<AppState>()(
             nodeStatuses: {}, // Initialize empty status map
             nodeOutputs: {}, // Initialize empty outputs map
             copiedNode: null, // Initialize copied node as null
+            runFromNodeId: null, // No partial execution pending
             layoutEngine: 'elk', // Default layout engine
 
             // Session Context Actions
@@ -346,6 +352,10 @@ export const useAppStore = create<AppState>()(
                 })),
 
             clearNodeOutputs: () => set({ nodeOutputs: {} }),
+
+            // Run From Node Actions
+            triggerRunFromNode: (nodeId) => set({ runFromNodeId: nodeId }),
+            clearRunFromNode: () => set({ runFromNodeId: null }),
 
             // Layout Engine Actions
             setLayoutEngine: (engine) => set({ layoutEngine: engine }),

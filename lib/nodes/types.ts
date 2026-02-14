@@ -54,6 +54,7 @@ export interface FilterSortConfig {
 
 export interface AIGenerateImageConfig {
     prompt: string;
+    model?: 'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview' | 'pollinations' | 'huggingface' | 'gemini';
     aspectRatio?: '1:1' | '16:9' | '4:3';
 }
 

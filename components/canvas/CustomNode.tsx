@@ -24,6 +24,7 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
+    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
 
     // Subscribe to specific output for this node
@@ -58,6 +59,11 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
         }
     };
 
+    const handleRunFromHere = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        triggerRunFromNode(id);
+    };
+
     // Use node metadata color or fallback to accent
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
 
@@ -75,6 +81,17 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
         >
             {/* Node Action Buttons - appear on hover */}
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
+                {/* Run from here */}
+                <button
+                    onClick={handleRunFromHere}
+                    className="w-6 h-6 rounded-full
+                               bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
+                               flex items-center justify-center
+                               shadow-lg hover:scale-110 transition-all duration-200"
+                    title="Run from here"
+                >
+                    <Icons.Play className="w-3 h-3 text-content-inverted fill-current" />
+                </button>
                 {/* Duplicate Button */}
                 <button
                     onClick={handleDuplicate}

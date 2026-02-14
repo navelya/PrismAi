@@ -8,7 +8,7 @@ import PropertyPanel from './PropertyPanel';
 import ResultsPanel from './ResultsPanel';
 import { useWorkflowEditor } from '@/hooks/useWorkflowEditor';
 import { NodeType, Workflow } from '@/lib/nodes/types';
-import { executeWorkflow } from '@/lib/workflow-engine';
+import { executeWorkflow, executeWorkflowFromNode } from '@/lib/workflow-engine';
 import { saveWorkflow } from '@/lib/db/workflows';
 import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -224,6 +224,52 @@ export default function SharedWorkflowEditor({
 
         abortControllerRef.current = null;
     };
+
+    // Listen for "Run From Node" triggers
+    const runFromNodeId = useAppStore((state) => state.runFromNodeId);
+
+    useEffect(() => {
+        if (!runFromNodeId || isExecuting) return;
+
+        const clearRunFromNode = useAppStore.getState().clearRunFromNode;
+        clearRunFromNode();
+
+        const runPartial = async () => {
+            setIsExecuting(true);
+            setExecutionError(null);
+            setShowResults(true);
+
+            const setNodeStatus = useAppStore.getState().setNodeStatus;
+            const setNodeOutput = useAppStore.getState().setNodeOutput;
+            const cachedOutputs = useAppStore.getState().nodeOutputs;
+
+            const workflow = getCurrentWorkflow();
+            const executionId = generateNodeId();
+
+            const result = await executeWorkflowFromNode(
+                workflow,
+                executionId,
+                runFromNodeId,
+                cachedOutputs,
+                (nodeId, status) => setNodeStatus(nodeId, status),
+                (nodeId, output) => setNodeOutput(nodeId, output)
+            );
+
+            setIsExecuting(false);
+
+            if (result.success) {
+                setExecutionResult(result.result);
+                setExecutionError(null);
+                if (onExecutionComplete) onExecutionComplete(result.result);
+            } else {
+                setExecutionError(result.error || 'Partial execution failed');
+                setExecutionResult(null);
+            }
+        };
+
+        runPartial();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [runFromNodeId]);
 
     const handleStop = () => {
         if (abortControllerRef.current) {

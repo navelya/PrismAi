@@ -4,7 +4,7 @@ import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from '
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/registry';
-import { Layers2, Plus, X, Edit3, Eye, EyeOff } from 'lucide-react';
+import { Layers2, Plus, X, Edit3, Eye, EyeOff, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
@@ -134,6 +134,7 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     const [previewSize, setPreviewSize] = useState({ width: 200, height: 150 });
 
     const deleteNode = useAppStore((state) => state.deleteNode);
+    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const nodeOutputs = useAppStore((state) => state.nodeOutputs);
 
@@ -235,10 +236,14 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         deleteNode(id);
     };
 
-    // Open editor modal
     const openEditor = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsEditorOpen(true);
+    };
+
+    const handleRunFromHere = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        triggerRunFromNode(id);
     };
 
     // Input handles derived from layers
@@ -266,6 +271,14 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         >
             {/* Node Action Buttons - appear on hover */}
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
+                <button
+                    onClick={handleRunFromHere}
+                    className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
+                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                    title="Run from here"
+                >
+                    <Play className="w-3 h-3 text-content-inverted fill-current" />
+                </button>
                 <button
                     onClick={openEditor}
                     className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm

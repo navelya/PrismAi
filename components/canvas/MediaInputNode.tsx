@@ -3,7 +3,7 @@
 import React, { memo, useCallback, useRef, useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/registry';
-import { ImagePlus, X, Upload, Image as ImageIcon } from 'lucide-react';
+import { ImagePlus, X, Upload, Image as ImageIcon, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -20,6 +20,7 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const deleteNode = useAppStore((state) => state.deleteNode);
+    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
 
     const images = data.config?.images || [];
@@ -115,6 +116,11 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
         deleteNode(id);
     };
 
+    const handleRunFromHere = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        triggerRunFromNode(id);
+    };
+
     return (
         <div
             className={cn(
@@ -131,8 +137,16 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            {/* Delete Button */}
+            {/* Action Buttons */}
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
+                <button
+                    onClick={handleRunFromHere}
+                    className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
+                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                    title="Run from here"
+                >
+                    <Play className="w-3 h-3 text-content-inverted fill-current" />
+                </button>
                 <button
                     onClick={handleDelete}
                     className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm

@@ -24,7 +24,7 @@ Use "chat" for questions, clarifications, or general conversation.
 AVAILABLE NODES for workflow content:
 - media_input: {images:[]} - user uploaded images
 - scrape_images: {searchTerm, limit, imageSize?, imageType?, colorType?, safeSearch?}
-- ai_generate_image: {prompt, aspectRatio:"1:1"|"16:9"|"4:3"}
+- ai_generate_image: {prompt, model:"gemini-2.5-flash-image"|"gemini-3-pro-image-preview"|"pollinations"|"huggingface", aspectRatio:"1:1"|"16:9"|"4:3"} - model defaults to "gemini-2.5-flash-image"
 - remove_background: {format:"png"|"webp"}
 - merge_image: {mode, overlayScale?, overlayPosition?} - needs TWO inputs with targetHandle:"base"/"overlay"
 - filter_sort: {criteria:"resolution"|"size"|"format", order:"asc"|"desc"}

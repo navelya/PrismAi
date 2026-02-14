@@ -29,6 +29,7 @@ export function createNodeFromType(
         },
         ai_generate_image: {
             prompt: 'A beautiful image',
+            model: 'gemini-2.5-flash-image' as const,
             aspectRatio: '1:1' as const,
         },
         upscale_image: {
