@@ -43,33 +43,7 @@ interface CompositorNodeData {
     config: CompositorConfig;
 }
 
-// Calculate bounding box of all visible layers
-function calculateBoundingBox(layers: CompositorLayer[]): { x: number; y: number; width: number; height: number } {
-    const visibleLayers = layers.filter(l => l.visible);
-    if (visibleLayers.length === 0) {
-        return { x: 0, y: 0, width: 400, height: 300 };
-    }
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-    visibleLayers.forEach(layer => {
-        const t = layer.transform;
-        // Simple bounding box (ignoring rotation for now)
-        minX = Math.min(minX, t.x);
-        minY = Math.min(minY, t.y);
-        maxX = Math.max(maxX, t.x + t.width);
-        maxY = Math.max(maxY, t.y + t.height);
-    });
-
-    return {
-        x: minX,
-        y: minY,
-        width: maxX - minX,
-        height: maxY - minY,
-    };
-}
-
-// Live preview component using same bounding-box scaling as editor
+// Live preview component using canvas-absolute coordinates (matching editor)
 function LivePreview({
     config,
     connectedInputs,
@@ -94,17 +68,10 @@ function LivePreview({
         canvas.width = containerWidth;
         canvas.height = containerHeight;
 
-        // Calculate bounding box (same as editor - no margin)
-        const bbox = calculateBoundingBox(config.layers);
-
-        // Scale to fit bounding box exactly (no margin)
-        const scaleX = containerWidth / bbox.width;
-        const scaleY = containerHeight / bbox.height;
-        const scale = Math.min(scaleX, scaleY);
-
-        // Center offset (same formula as editor)
-        const offsetX = (containerWidth - bbox.width * scale) / 2 - bbox.x * scale;
-        const offsetY = (containerHeight - bbox.height * scale) / 2 - bbox.y * scale;
+        // Fixed scale: preview pixels → canvas-absolute pixels
+        const canvasWidth = config.canvasWidth || 1920;
+        const canvasHeight = config.canvasHeight || 1080;
+        const scale = containerWidth / canvasWidth;
 
         // Clear canvas
         ctx.clearRect(0, 0, containerWidth, containerHeight);
@@ -139,9 +106,9 @@ function LivePreview({
                 ctx.save();
                 ctx.globalAlpha = layer.transform.opacity;
 
-                // Use same coordinate conversion as editor
-                const x = offsetX + layer.transform.x * scale;
-                const y = offsetY + layer.transform.y * scale;
+                // Canvas-absolute coords → preview coords
+                const x = layer.transform.x * scale;
+                const y = layer.transform.y * scale;
                 const w = layer.transform.width * scale;
                 const h = layer.transform.height * scale;
 
@@ -201,9 +168,8 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
 
     const nodeColor = metadata?.color || '#8b5cf6';
 
-    // Use bounding box aspect ratio for preview
-    const bbox = useMemo(() => calculateBoundingBox(config.layers), [config.layers]);
-    const aspectRatio = bbox.width / bbox.height;
+    // Use canvas aspect ratio for preview (stable, based on config, not layers)
+    const aspectRatio = (config.canvasWidth || 1920) / (config.canvasHeight || 1080);
 
     // Observe preview container size
     useEffect(() => {
@@ -214,7 +180,7 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
             for (const entry of entries) {
                 const { width } = entry.contentRect;
                 if (width > 0) {
-                    // Calculate height based on bounding box aspect ratio
+                    // Calculate height based on canvas aspect ratio
                     const height = width / aspectRatio;
                     setPreviewSize({ width: Math.floor(width), height: Math.floor(height) });
                 }

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
 
 // Force dynamic rendering - this route uses request.url
 export const dynamic = 'force-dynamic';
@@ -8,12 +7,13 @@ export const dynamic = 'force-dynamic';
  * Proxy for Pollinations.ai image generation
  * This route exists because Pollinations.ai blocks server-side requests (403)
  * but works fine from browser/client
+ * 
+ * NOTE: No auth check here — this is called server-side by registry.ts
+ * during workflow execution, where the user's cookies aren't available.
+ * Auth is enforced at the workflow execution level.
  */
 export async function GET(request: NextRequest) {
     try {
-        // Authenticate the request
-        const auth = await getAuthenticatedUser();
-        if (auth.error) return auth.error;
 
         const { searchParams } = new URL(request.url);
         const prompt = searchParams.get('prompt');

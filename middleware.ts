@@ -4,19 +4,31 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
     const path = request.nextUrl.pathname;
 
-    // Define protected routes
-    const protectedRoutes = ['/chat', '/editor', '/library', '/settings'];
-    const isProtectedRoute = protectedRoutes.some(route => path.startsWith(route));
+    // Define protected page routes
+    const protectedPageRoutes = ['/chat', '/editor', '/library', '/settings'];
+    const isProtectedPage = protectedPageRoutes.some(route => path.startsWith(route));
+
+    // Define protected API routes (all /api/* except public ones)
+    const publicApiRoutes = ['/api/auth', '/api/image/generate'];
+    const isApiRoute = path.startsWith('/api/');
+    const isPublicApi = publicApiRoutes.some(route => path.startsWith(route));
+    const isProtectedApi = isApiRoute && !isPublicApi;
 
     // Check for auth cookie
-    // We use the same name defined in our callback and storage adapter
     const authCookie = request.cookies.get('supabase-auth-token');
 
-    if (isProtectedRoute && !authCookie) {
-        // Redirect to login if accessing protected route without session
+    // Protect pages — redirect to login
+    if (isProtectedPage && !authCookie) {
         const loginUrl = new URL('/login', request.url);
-        // loginUrl.searchParams.set('from', path); // Optional: remember where they came from
         return NextResponse.redirect(loginUrl);
+    }
+
+    // Protect API routes — return 401 JSON
+    if (isProtectedApi && !authCookie) {
+        return NextResponse.json(
+            { error: 'Authentication required' },
+            { status: 401 }
+        );
     }
 
     // If logged in and at login page, redirect to chat
@@ -34,5 +46,6 @@ export const config = {
         '/library/:path*',
         '/settings/:path*',
         '/login',
+        '/api/:path*',
     ],
 };

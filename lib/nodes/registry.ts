@@ -17,6 +17,8 @@ import {
 
 // Backend URL - uses environment variable in production, localhost in development
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+// Internal API key for authenticating with the Python backend (server-side only)
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 /**
  * Scrape Images Node
@@ -122,6 +124,7 @@ const removeBackgroundExecutor: NodeExecutor = async (
                     const bgRemovalResponse = await fetch(`${BACKEND_URL}/remove-background`, {
                         method: 'POST',
                         body: formData,
+                        headers: INTERNAL_API_KEY ? { 'Authorization': `Bearer ${INTERNAL_API_KEY}` } : {},
                     });
 
                     if (!bgRemovalResponse.ok) {
@@ -359,6 +362,7 @@ const upscaleImageExecutor: NodeExecutor = async (
                     const upscaleResponse = await fetch(`${BACKEND_URL}/upscale`, {
                         method: 'POST',
                         body: formData,
+                        headers: INTERNAL_API_KEY ? { 'Authorization': `Bearer ${INTERNAL_API_KEY}` } : {},
                     });
 
                     if (!upscaleResponse.ok) {
@@ -521,6 +525,7 @@ const mergeImageExecutor: NodeExecutor = async (
                 const mergeResponse = await fetch(`${BACKEND_URL}/merge-images`, {
                     method: 'POST',
                     body: formData,
+                    headers: INTERNAL_API_KEY ? { 'Authorization': `Bearer ${INTERNAL_API_KEY}` } : {},
                 });
 
                 if (!mergeResponse.ok) {
@@ -711,6 +716,7 @@ const compositorExecutor: NodeExecutor = async (
         }
 
         // Render each visible layer (bottom to top)
+        // Layer transforms are in canvas-absolute coordinates — use directly
         for (const layer of layers) {
             if (!layer.visible) continue;
 
@@ -729,7 +735,7 @@ const compositorExecutor: NodeExecutor = async (
             // Load image
             const img = await loadImage(imageData.url);
 
-            // Apply transform
+            // Apply transform directly (canvas-absolute coordinates)
             ctx.save();
             const { x, y, width, height, rotation, opacity, flipX, flipY } = layer.transform;
 

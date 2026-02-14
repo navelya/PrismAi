@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { Canvas, FabricImage, Rect } from 'fabric';
 import {
     X, Eye, EyeOff, Lock, Unlock, Trash2, Layers2, ChevronUp, ChevronDown,
-    RotateCcw, FlipHorizontal, FlipVertical, ChevronLeft, ChevronRight, Plus, Crop
+    RotateCcw, FlipHorizontal, FlipVertical, ChevronLeft, ChevronRight, Plus, Crop,
+    Monitor, Smartphone, Square
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -28,30 +29,16 @@ const DEFAULT_TRANSFORM: LayerTransform = {
 
 const IMAGES_PER_PAGE = 6;
 
-// Calculate bounding box of all visible layers
-function calculateBoundingBox(layers: CompositorLayer[]): { x: number; y: number; width: number; height: number } {
-    const visibleLayers = layers.filter(l => l.visible);
-    if (visibleLayers.length === 0) {
-        return { x: 0, y: 0, width: 800, height: 450 };
-    }
+// Canvas size presets
+const CANVAS_PRESETS = [
+    { label: 'Full HD', width: 1920, height: 1080, icon: Monitor },
+    { label: 'HD', width: 1280, height: 720, icon: Monitor },
+    { label: 'SVGA', width: 800, height: 600, icon: Smartphone },
+    { label: 'Square', width: 1080, height: 1080, icon: Square },
+];
 
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-    visibleLayers.forEach(layer => {
-        const t = layer.transform;
-        minX = Math.min(minX, t.x);
-        minY = Math.min(minY, t.y);
-        maxX = Math.max(maxX, t.x + t.width);
-        maxY = Math.max(maxY, t.y + t.height);
-    });
-
-    return {
-        x: minX,
-        y: minY,
-        width: Math.max(1, maxX - minX),
-        height: Math.max(1, maxY - minY),
-    };
-}
+// Fixed Fabric canvas size for the editor viewport
+const FABRIC_WIDTH = 800;
 
 interface CompositorEditorModalProps {
     nodeId: string;
@@ -70,11 +57,19 @@ export default function CompositorEditorModal({
     const fabricRef = useRef<Canvas | null>(null);
     const [selectedLayerIndex, setSelectedLayerIndex] = useState<number | null>(null);
     const [localLayers, setLocalLayers] = useState<CompositorLayer[]>(config.layers);
+    const [localCanvasWidth, setLocalCanvasWidth] = useState(config.canvasWidth || 1920);
+    const [localCanvasHeight, setLocalCanvasHeight] = useState(config.canvasHeight || 1080);
     const [imagePageIndex, setImagePageIndex] = useState(0);
     const [canvasReady, setCanvasReady] = useState(false);
+    const [showCanvasPresets, setShowCanvasPresets] = useState(false);
     const isLoadingRef = useRef(false);
-    const scaleRef = useRef(1);
-    const offsetRef = useRef({ x: 0, y: 0 });
+
+    // Fixed scale: Fabric pixels → canvas-absolute pixels
+    // This NEVER changes based on layer positions, only on canvas dimensions.
+    const scale = FABRIC_WIDTH / localCanvasWidth;
+    const fabricHeight = Math.round(localCanvasHeight * scale);
+    const scaleRef = useRef(scale);
+    scaleRef.current = scale;
 
     // Get connected inputs
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
@@ -96,27 +91,21 @@ export default function CompositorEditorModal({
         return inputs;
     }, [currentWorkflow, nodeId, nodeOutputs]);
 
-    // Full canvas load function
+    // Full canvas load function — uses fixed scale (no bounding box)
     const loadLayersToCanvas = useCallback(async (layers: CompositorLayer[]) => {
         const canvas = fabricRef.current;
         if (!canvas || isLoadingRef.current) return;
 
         isLoadingRef.current = true;
         const prevSelected = selectedLayerIndex;
+        const s = scaleRef.current;
 
         canvas.clear();
         canvas.backgroundColor = '#1a1a1a';
 
-        // Calculate bounding box and scale
-        const bbox = calculateBoundingBox(layers);
-        const scaleX = 800 / bbox.width;
-        const scaleY = 450 / bbox.height;
-        const scale = Math.min(scaleX, scaleY);
-        const offsetX = (800 - bbox.width * scale) / 2 - bbox.x * scale;
-        const offsetY = (450 - bbox.height * scale) / 2 - bbox.y * scale;
-
-        scaleRef.current = scale;
-        offsetRef.current = { x: offsetX, y: offsetY };
+        // Resize Fabric canvas to match aspect ratio
+        const fh = Math.round(localCanvasHeight * s);
+        canvas.setDimensions({ width: FABRIC_WIDTH, height: fh });
 
         for (let i = 0; i < layers.length; i++) {
             const layer = layers[i];
@@ -125,11 +114,12 @@ export default function CompositorEditorModal({
             const sourceImages = connectedInputs[layer.sourceHandleId];
 
             if (!sourceImages || sourceImages.length === 0) {
+                // Placeholder rectangle for unconnected layers
                 const rect = new Rect({
-                    left: offsetX + layer.transform.x * scale,
-                    top: offsetY + layer.transform.y * scale,
-                    width: layer.transform.width * scale,
-                    height: layer.transform.height * scale,
+                    left: layer.transform.x * s,
+                    top: layer.transform.y * s,
+                    width: layer.transform.width * s,
+                    height: layer.transform.height * s,
                     fill: LAYER_COLORS[i % LAYER_COLORS.length] + '40',
                     stroke: LAYER_COLORS[i % LAYER_COLORS.length],
                     strokeWidth: 2,
@@ -151,12 +141,13 @@ export default function CompositorEditorModal({
                 const img = await FabricImage.fromURL(imageData.url, { crossOrigin: 'anonymous' });
                 if (!img) continue;
 
-                const imgScaleX = (layer.transform.width * scale) / (img.width || 1);
-                const imgScaleY = (layer.transform.height * scale) / (img.height || 1);
+                // Scale: canvas-absolute → Fabric pixels
+                const imgScaleX = (layer.transform.width * s) / (img.width || 1);
+                const imgScaleY = (layer.transform.height * s) / (img.height || 1);
 
                 img.set({
-                    left: offsetX + layer.transform.x * scale,
-                    top: offsetY + layer.transform.y * scale,
+                    left: layer.transform.x * s,
+                    top: layer.transform.y * s,
                     scaleX: imgScaleX,
                     scaleY: imgScaleY,
                     flipX: layer.transform.flipX,
@@ -188,15 +179,17 @@ export default function CompositorEditorModal({
         }
 
         isLoadingRef.current = false;
-    }, [connectedInputs, selectedLayerIndex]);
+    }, [connectedInputs, selectedLayerIndex, localCanvasHeight]);
 
     // Initialize canvas once
     useEffect(() => {
         if (!canvasRef.current || fabricRef.current) return;
 
+        const fh = Math.round(localCanvasHeight * scale);
+
         const canvas = new Canvas(canvasRef.current, {
-            width: 800,
-            height: 450,
+            width: FABRIC_WIDTH,
+            height: fh,
             backgroundColor: '#1a1a1a',
             selection: true,
             preserveObjectStacking: true,
@@ -232,24 +225,23 @@ export default function CompositorEditorModal({
         });
 
         // Update local layer state on object modification
-        canvas.on('object:modified', (e) => {
-            const obj = e.target;
+        // Convert Fabric coords → canvas-absolute coords using fixed scale
+        // Sync layer transforms on any object change (move, resize, rotate)
+        const syncObjectToState = (obj: any) => {
             if (!obj) return;
 
-            const idx = (obj as any).layerIndex;
+            const idx = obj.layerIndex;
             if (idx === undefined) return;
 
-            const scale = scaleRef.current;
-            const offset = offsetRef.current;
+            const s = scaleRef.current;
 
             setLocalLayers(prev => {
                 const newLayers = [...prev];
                 if (newLayers[idx]) {
-                    const width = (obj.width || 100) * Math.abs(obj.scaleX || 1) / scale;
-                    const height = (obj.height || 100) * Math.abs(obj.scaleY || 1) / scale;
-
-                    const x = ((obj.left || 0) - offset.x) / scale;
-                    const y = ((obj.top || 0) - offset.y) / scale;
+                    const width = (obj.width || 100) * Math.abs(obj.scaleX || 1) / s;
+                    const height = (obj.height || 100) * Math.abs(obj.scaleY || 1) / s;
+                    const x = (obj.left || 0) / s;
+                    const y = (obj.top || 0) / s;
 
                     newLayers[idx] = {
                         ...newLayers[idx],
@@ -265,9 +257,18 @@ export default function CompositorEditorModal({
                 }
                 return newLayers;
             });
+        };
+
+        canvas.on('object:modified', (e) => {
+            syncObjectToState(e.target);
         });
 
-        // Mark canvas as ready - this will trigger the initial load
+        // Also sync during scaling for live property panel updates
+        canvas.on('object:scaling', (e) => {
+            syncObjectToState(e.target);
+        });
+
+        // Mark canvas as ready
         setCanvasReady(true);
 
         return () => {
@@ -276,7 +277,7 @@ export default function CompositorEditorModal({
         };
     }, []);
 
-    // Reload canvas when structure changes (id, visible, locked) or connectedInputs change, or canvas becomes ready
+    // Reload canvas when structure changes or connectedInputs change or canvas becomes ready
     const structureKey = localLayers.map(l => `${l.id}-${l.visible}-${l.locked}`).join('|');
     const inputsKey = JSON.stringify(Object.keys(connectedInputs));
 
@@ -284,13 +285,24 @@ export default function CompositorEditorModal({
         if (!fabricRef.current || !canvasReady) return;
         loadLayersToCanvas(localLayers);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [structureKey, inputsKey, canvasReady]);
+    }, [structureKey, inputsKey, canvasReady, localCanvasWidth, localCanvasHeight]);
 
     // Save to config on Done
     const handleDone = useCallback(() => {
-        onConfigChange({ layers: localLayers });
+        onConfigChange({
+            layers: localLayers,
+            canvasWidth: localCanvasWidth,
+            canvasHeight: localCanvasHeight,
+        });
         onClose();
-    }, [localLayers, onConfigChange, onClose]);
+    }, [localLayers, localCanvasWidth, localCanvasHeight, onConfigChange, onClose]);
+
+    // Canvas size change
+    const changeCanvasSize = useCallback((width: number, height: number) => {
+        setLocalCanvasWidth(width);
+        setLocalCanvasHeight(height);
+        setShowCanvasPresets(false);
+    }, []);
 
     // ============ LAYER OPERATIONS ============
 
@@ -347,7 +359,7 @@ export default function CompositorEditorModal({
         });
     }, []);
 
-    // Update selected image index - incrementally swap the image without full reload
+    // Update selected image index
     const updateSelectedIndex = useCallback(async (layerIndex: number, newIdx: number) => {
         const canvas = fabricRef.current;
         if (!canvas) return;
@@ -363,7 +375,6 @@ export default function CompositorEditorModal({
         const newImage = sourceImages[clampedIdx];
         if (!newImage?.url) return;
 
-        // Find existing object on canvas
         const oldObj = canvas.getObjects().find((o) => (o as any).layerIndex === layerIndex);
         if (!oldObj) return;
 
@@ -371,14 +382,13 @@ export default function CompositorEditorModal({
             const img = await FabricImage.fromURL(newImage.url, { crossOrigin: 'anonymous' });
             if (!img) return;
 
-            const scale = scaleRef.current;
-            const offset = offsetRef.current;
-            const imgScaleX = (layer.transform.width * scale) / (img.width || 1);
-            const imgScaleY = (layer.transform.height * scale) / (img.height || 1);
+            const s = scaleRef.current;
+            const imgScaleX = (layer.transform.width * s) / (img.width || 1);
+            const imgScaleY = (layer.transform.height * s) / (img.height || 1);
 
             img.set({
-                left: offset.x + layer.transform.x * scale,
-                top: offset.y + layer.transform.y * scale,
+                left: layer.transform.x * s,
+                top: layer.transform.y * s,
                 scaleX: imgScaleX,
                 scaleY: imgScaleY,
                 flipX: layer.transform.flipX,
@@ -393,7 +403,6 @@ export default function CompositorEditorModal({
 
             (img as any).layerIndex = layerIndex;
 
-            // Replace on canvas at same z position, preserving selection
             const objIndex = canvas.getObjects().indexOf(oldObj);
             const wasSelected = canvas.getActiveObject() === oldObj;
             canvas.remove(oldObj);
@@ -405,7 +414,6 @@ export default function CompositorEditorModal({
 
             canvas.renderAll();
 
-            // Update state
             setLocalLayers(prev => {
                 const newLayers = [...prev];
                 newLayers[layerIndex] = {
@@ -424,32 +432,27 @@ export default function CompositorEditorModal({
         const canvas = fabricRef.current;
         if (!canvas) return;
 
-        // Find the object on canvas
         const obj = canvas.getObjects().find((o) => (o as any).layerIndex === layerIndex);
         if (!obj) return;
 
-        const scale = scaleRef.current;
-        const offset = offsetRef.current;
-
-        // Get current layer for fallback values
+        const s = scaleRef.current;
         const layer = localLayers[layerIndex];
         if (!layer) return;
 
-        // Apply position updates LIVE on canvas
-        if (updates.x !== undefined) obj.set('left', offset.x + updates.x * scale);
-        if (updates.y !== undefined) obj.set('top', offset.y + updates.y * scale);
+        // Apply position updates LIVE on canvas (canvas-absolute → Fabric)
+        if (updates.x !== undefined) obj.set('left', updates.x * s);
+        if (updates.y !== undefined) obj.set('top', updates.y * s);
         if (updates.rotation !== undefined) obj.set('angle', updates.rotation);
         if (updates.opacity !== undefined) obj.set('opacity', updates.opacity);
 
-        // Apply size/flip updates
         if (updates.width !== undefined || updates.height !== undefined || updates.flipX !== undefined || updates.flipY !== undefined) {
             const newWidth = updates.width ?? layer.transform.width;
             const newHeight = updates.height ?? layer.transform.height;
             const newFlipX = updates.flipX ?? layer.transform.flipX;
             const newFlipY = updates.flipY ?? layer.transform.flipY;
 
-            const baseScaleX = (newWidth * scale) / (obj.width || 1);
-            const baseScaleY = (newHeight * scale) / (obj.height || 1);
+            const baseScaleX = (newWidth * s) / (obj.width || 1);
+            const baseScaleY = (newHeight * s) / (obj.height || 1);
 
             obj.set('scaleX', newFlipX ? -baseScaleX : baseScaleX);
             obj.set('scaleY', newFlipY ? -baseScaleY : baseScaleY);
@@ -457,7 +460,6 @@ export default function CompositorEditorModal({
 
         canvas.renderAll();
 
-        // Update state
         setLocalLayers(prev => {
             const newLayers = [...prev];
             newLayers[layerIndex] = {
@@ -468,38 +470,25 @@ export default function CompositorEditorModal({
         });
     }, [localLayers]);
 
-    // Toggle flip with functional update to avoid stale state
+    // Toggle flip
     const toggleFlip = useCallback((layerIndex: number, axis: 'flipX' | 'flipY') => {
-        console.log('toggleFlip called!', layerIndex, axis);
-
         const canvas = fabricRef.current;
-        if (!canvas) {
-            console.log('No canvas!');
-            return;
-        }
+        if (!canvas) return;
 
         const obj = canvas.getObjects().find((o) => (o as any).layerIndex === layerIndex);
-        if (!obj) {
-            console.log('Object not found for layer', layerIndex);
-            return;
-        }
+        if (!obj) return;
 
-        // Use functional update to get current state
         setLocalLayers(prev => {
             const layer = prev[layerIndex];
             if (!layer) return prev;
 
-            const currentFlipX = layer.transform.flipX;
-            const currentFlipY = layer.transform.flipY;
-            const newFlipX = axis === 'flipX' ? !currentFlipX : currentFlipX;
-            const newFlipY = axis === 'flipY' ? !currentFlipY : currentFlipY;
+            const newFlipX = axis === 'flipX' ? !layer.transform.flipX : layer.transform.flipX;
+            const newFlipY = axis === 'flipY' ? !layer.transform.flipY : layer.transform.flipY;
 
-            // Use Fabric's built-in flipX/flipY properties!
             obj.set('flipX', newFlipX);
             obj.set('flipY', newFlipY);
             canvas.renderAll();
 
-            // Return new state
             const newLayers = [...prev];
             newLayers[layerIndex] = {
                 ...layer,
@@ -529,7 +518,6 @@ export default function CompositorEditorModal({
     const selectedLayer = selectedLayerIndex !== null ? localLayers[selectedLayerIndex] : null;
     const selectedSourceImages = selectedLayer ? connectedInputs[selectedLayer.sourceHandleId] || [] : [];
 
-    // Pagination for image selector
     const totalPages = Math.ceil(selectedSourceImages.length / IMAGES_PER_PAGE);
     const showPagination = selectedSourceImages.length > IMAGES_PER_PAGE;
     const visibleImages = selectedSourceImages.slice(
@@ -545,9 +533,65 @@ export default function CompositorEditorModal({
                     <div className="flex items-center gap-2">
                         <Layers2 className="w-5 h-5 text-accent-primary" />
                         <span className="font-semibold text-content-primary">Compositor Editor</span>
-                        <span className="text-xs text-content-tertiary ml-2">
-                            {config.canvasWidth} × {config.canvasHeight}
-                        </span>
+
+                        {/* Canvas size selector */}
+                        <div className="relative ml-2">
+                            <button
+                                onClick={() => setShowCanvasPresets(!showCanvasPresets)}
+                                className="text-xs text-content-tertiary hover:text-content-secondary px-2 py-1 rounded border border-stroke-subtle hover:border-stroke-default transition-colors"
+                            >
+                                {localCanvasWidth} × {localCanvasHeight}
+                            </button>
+
+                            {showCanvasPresets && (
+                                <div className="absolute top-full left-0 mt-1 bg-surface-elevated border border-stroke-subtle rounded-lg shadow-xl z-10 py-1 min-w-[180px]">
+                                    {CANVAS_PRESETS.map((preset) => {
+                                        const Icon = preset.icon;
+                                        const isActive = localCanvasWidth === preset.width && localCanvasHeight === preset.height;
+                                        return (
+                                            <button
+                                                key={preset.label}
+                                                onClick={() => changeCanvasSize(preset.width, preset.height)}
+                                                className={cn(
+                                                    "w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 hover:bg-surface-tertiary",
+                                                    isActive && "text-accent-primary font-medium"
+                                                )}
+                                            >
+                                                <Icon className="w-3.5 h-3.5" />
+                                                <span>{preset.label}</span>
+                                                <span className="ml-auto text-content-tertiary">{preset.width}×{preset.height}</span>
+                                            </button>
+                                        );
+                                    })}
+                                    <div className="border-t border-stroke-subtle mt-1 pt-1 px-3 py-1.5">
+                                        <div className="text-[10px] text-content-tertiary mb-1">Custom</div>
+                                        <div className="flex items-center gap-1">
+                                            <input
+                                                type="number"
+                                                value={localCanvasWidth}
+                                                onChange={(e) => setLocalCanvasWidth(Math.max(100, Number(e.target.value)))}
+                                                className="w-16 px-1.5 py-0.5 text-xs bg-surface-tertiary border border-stroke-subtle rounded"
+                                                min={100}
+                                            />
+                                            <span className="text-xs text-content-tertiary">×</span>
+                                            <input
+                                                type="number"
+                                                value={localCanvasHeight}
+                                                onChange={(e) => setLocalCanvasHeight(Math.max(100, Number(e.target.value)))}
+                                                className="w-16 px-1.5 py-0.5 text-xs bg-surface-tertiary border border-stroke-subtle rounded"
+                                                min={100}
+                                            />
+                                            <button
+                                                onClick={() => setShowCanvasPresets(false)}
+                                                className="px-2 py-0.5 text-xs bg-accent-primary text-content-inverted rounded"
+                                            >
+                                                Set
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-tertiary">
                         <X className="w-5 h-5" />
@@ -613,8 +657,28 @@ export default function CompositorEditorModal({
                     </div>
 
                     {/* Center - Canvas */}
-                    <div className="flex-1 flex items-center justify-center bg-neutral-900 p-4">
-                        <div className="shadow-2xl border border-stroke-subtle rounded-lg overflow-hidden">
+                    <div
+                        className="flex-1 flex items-center justify-center bg-neutral-900 p-4"
+                        onMouseDown={(e) => {
+                            // Click on dark background = deselect
+                            if (e.target === e.currentTarget) {
+                                fabricRef.current?.discardActiveObject();
+                                fabricRef.current?.renderAll();
+                                setSelectedLayerIndex(null);
+                            }
+                        }}
+                    >
+                        <div
+                            className="shadow-2xl border border-stroke-subtle rounded-lg overflow-hidden"
+                            onMouseDown={(e) => {
+                                // Click on the border wrapper (not canvas) = also deselect
+                                if (e.target === e.currentTarget) {
+                                    fabricRef.current?.discardActiveObject();
+                                    fabricRef.current?.renderAll();
+                                    setSelectedLayerIndex(null);
+                                }
+                            }}
+                        >
                             <canvas ref={canvasRef} />
                         </div>
                     </div>

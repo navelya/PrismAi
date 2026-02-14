@@ -67,8 +67,55 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
         [images]
     );
 
+    // Single image: render as a clean, full-width preview (ideal for compositor output)
+    if (images.length === 1) {
+        const img = images[0];
+        return (
+            <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-content-secondary">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>{img.resolution.width} × {img.resolution.height}</span>
+                </div>
+
+                <div
+                    className="relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 cursor-pointer border border-stroke-subtle inline-block"
+                    style={{ maxWidth: '100%' }}
+                    onClick={() => setSelectedIndex(0)}
+                >
+                    <img
+                        src={thumbnails.get(0) || img.url}
+                        alt={img.metadata?.title || 'Image'}
+                        style={{
+                            display: 'block',
+                            maxWidth: '100%',
+                            maxHeight: '320px',
+                            width: 'auto',
+                            height: 'auto',
+                            objectFit: 'contain',
+                        }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity">
+                        <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
+                            <div className="text-xs font-medium">{img.metadata?.title || 'Image'}</div>
+                            <div className="text-xs text-accent-primary mt-1 font-medium">Click to view full size</div>
+                        </div>
+                    </div>
+                </div>
+
+                {selectedIndex !== null && (
+                    <ImageLightbox
+                        images={lightboxImages}
+                        initialIndex={selectedIndex}
+                        onClose={() => setSelectedIndex(null)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // Multi-image: standard grid gallery
     return (
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-hidden">
             <div className="flex items-center gap-2 text-sm text-content-secondary">
                 <ImageIcon className="w-4 h-4" />
                 <span>{images.length} images</span>

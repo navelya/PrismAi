@@ -1090,7 +1090,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({ message }: { messa
             )}
 
             <div
-                className={`max-w-[80%] space-y-3 ${message.type === 'user'
+                className={`max-w-[80%] space-y-3 overflow-hidden ${message.type === 'user'
                     ? 'bg-gradient-premium text-white px-6 py-3 rounded-2xl rounded-tr-sm'
                     : ''
                     }`}
