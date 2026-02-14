@@ -29,6 +29,24 @@ AVAILABLE NODES for workflow content:
 - merge_image: {mode, overlayScale?, overlayPosition?} - needs TWO inputs with targetHandle:"base"/"overlay"
 - filter_sort: {criteria:"resolution"|"size"|"format", order:"asc"|"desc"}
 - upscale_image: {scale:2|3|4|8}
+- compositor: {
+    canvasWidth: number,        // default 1920
+    canvasHeight: number,       // default 1080
+    backgroundColor: string,    // hex color, default #00000000
+    layers: [{
+        id: string,             // e.g. "layer_0"
+        name: string,           // e.g. "Background"
+        sourceHandleId: string, // CRITICAL: This MUST match an edge's "targetHandle" connecting to this node!
+        selectedIndex: number,  // 0-based index for picking specific image from multi-image input
+        transform: {
+            x: number, y: number, 
+            width: number, height: number, 
+            rotation: number, opacity: number, // 0-1
+            flipX: boolean, flipY: boolean
+        },
+        visible: boolean, locked: boolean
+    }]
+}
 
 WORKFLOW STRUCTURE:
 {"name":"...","nodes":[{"id":"node_0","type":"...","position":{"x":0,"y":100},"data":{"label":"...","config":{...}}}],"edges":[{"id":"edge_0_1","source":"node_0","target":"node_1"}]}
