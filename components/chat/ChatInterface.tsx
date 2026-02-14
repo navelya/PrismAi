@@ -413,7 +413,12 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             const executeData = await executeWorkflow(
                 workflow,
                 generateNodeId(),
-                (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status)
+                (nodeId: string, status: NodeStatus, resultData?: any) => {
+                    setNodeStatus(nodeId, status);
+                    if (resultData) {
+                        useAppStore.getState().setNodeOutput(nodeId, resultData);
+                    }
+                }
             );
 
             if (!executeData.success) {
