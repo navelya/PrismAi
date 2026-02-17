@@ -18,12 +18,45 @@ type PositionMap = Map<string, { x: number; y: number }>;
 // =============================================================================
 
 /** Default node dimensions for layout calculation */
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 80;
+const NODE_WIDTH = 250;
+const NODE_HEIGHT = 120;
 
 /** Spacing between nodes */
-const SPACING_HORIZONTAL = 150;
-const SPACING_VERTICAL = 100;
+/** Spacing between nodes */
+const SPACING_HORIZONTAL = 100;
+const SPACING_VERTICAL = 20;
+
+// =============================================================================
+// UTILS
+// =============================================================================
+
+/**
+ * Get dimensions for a specific node type
+ */
+function getNodeDimensions(node: WorkflowNode): { width: number, height: number } {
+    if (node.type === 'compositor') {
+        const config = node.data.config as any;
+        const width = 280; // Fixed width from CompositorNode.tsx
+
+        // Calculate dynamic height based on aspect ratio
+        // Preview width is ~264px (280 - 16px padding)
+        const previewWidth = 264;
+        const canvasW = config?.canvasWidth || 1920;
+        const canvasH = config?.canvasHeight || 1080;
+        const aspectRatio = canvasW / canvasH;
+
+        const previewHeight = previewWidth / aspectRatio;
+
+        // Add UI overhead (Header: ~40px, Controls/Layers: ~80-120px)
+        // Ensure minimum height
+        // increased width to 450 to give more breathing room in layout
+        return {
+            width: 600,
+            height: Math.max(300, Math.ceil(previewHeight + 160))
+        };
+    }
+    return { width: NODE_WIDTH, height: NODE_HEIGHT };
+}
 
 // =============================================================================
 // ELK LAYOUT ENGINE
@@ -34,10 +67,10 @@ const elk = new ELK();
 const elkOptions = {
     'elk.algorithm': 'layered',
     'elk.direction': 'RIGHT',
-    'elk.spacing.nodeNode': '100',
-    'elk.layered.spacing.nodeNodeBetweenLayers': '150',
+    'elk.spacing.nodeNode': '20', // Vertical spacing
+    'elk.layered.spacing.nodeNodeBetweenLayers': '150', // Horizontal spacing
     'elk.layered.spacing.edgeNodeBetweenLayers': '50',
-    'elk.spacing.componentComponent': '100',
+    'elk.spacing.componentComponent': '20',
     'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
     'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
@@ -73,10 +106,13 @@ async function layoutWithELK(
             }))
         ];
 
+        // Dynamic sizing
+        const { width, height } = getNodeDimensions(node);
+
         return {
             id: node.id,
-            width: NODE_WIDTH,
-            height: NODE_HEIGHT,
+            width,
+            height,
             ports: ports,
             properties: { 'portConstraints': 'FIXED_ORDER' }
         };
@@ -140,9 +176,10 @@ function layoutWithDagre(
 
     g.setDefaultEdgeLabel(() => ({}));
 
-    // Add nodes
+    // Add nodes with dynamic sizes
     nodes.forEach((node) => {
-        g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+        const { width, height } = getNodeDimensions(node);
+        g.setNode(node.id, { width, height });
     });
 
     // Add edges
@@ -158,10 +195,11 @@ function layoutWithDagre(
     nodes.forEach((node) => {
         const nodeWithPosition = g.node(node.id);
         if (nodeWithPosition) {
+            const { width, height } = getNodeDimensions(node);
             // Dagre returns center positions, so adjust to top-left
             positions.set(node.id, {
-                x: nodeWithPosition.x - NODE_WIDTH / 2,
-                y: nodeWithPosition.y - NODE_HEIGHT / 2,
+                x: nodeWithPosition.x - width / 2,
+                y: nodeWithPosition.y - height / 2,
             });
         }
     });
@@ -185,6 +223,16 @@ function layoutWithD3Hierarchy(
     const positions: PositionMap = new Map();
 
     if (nodes.length === 0) return positions;
+
+    // 1. Calculate max dimensions in this specific graph to set grid size
+    let maxW = NODE_WIDTH;
+    let maxH = NODE_HEIGHT;
+
+    nodes.forEach(node => {
+        const dim = getNodeDimensions(node);
+        maxW = Math.max(maxW, dim.width);
+        maxH = Math.max(maxH, dim.height);
+    });
 
     // Build adjacency list
     const childrenMap = new Map<string, string[]>();
@@ -229,8 +277,9 @@ function layoutWithD3Hierarchy(
     const hierarchy = d3.hierarchy(virtualRoot);
 
     // Create tree layout (horizontal - swap x and y for left-to-right)
+    // Use dynamic max dimensions + spacing
     const treeLayout = d3.tree<TreeNode>()
-        .nodeSize([NODE_HEIGHT + SPACING_VERTICAL, NODE_WIDTH + SPACING_HORIZONTAL]);
+        .nodeSize([maxH + SPACING_VERTICAL, maxW + SPACING_HORIZONTAL]);
 
     const treeData = treeLayout(hierarchy);
 
@@ -250,7 +299,7 @@ function layoutWithD3Hierarchy(
     nodes.forEach(node => {
         if (!positions.has(node.id)) {
             positions.set(node.id, { x: 50, y: yOffset });
-            yOffset += NODE_HEIGHT + SPACING_VERTICAL;
+            yOffset += maxH + SPACING_VERTICAL;
         }
     });
 

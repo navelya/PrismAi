@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/api/auth';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/sessions — List all sessions for the authenticated user
  */

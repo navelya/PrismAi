@@ -48,6 +48,10 @@ AVAILABLE NODES for workflow content:
     }]
 }
 
+WORKFLOW PATTERNS:
+- "Distribute" / "For Each" / "Separately": If the user wants to process multiple items individually (e.g. "find 3 images and put a logo on each separately"), you MUST create multiple downstream nodes (e.g. 3 compositors), one for each item.
+- "Select Specific Item": When connecting a multi-item source (like scrape_images) to multiple downstream nodes, use the 'selectedIndex' property in the receiving node's layer config (0 for 1st image, 1 for 2nd, etc.) to distribute the items.
+
 WORKFLOW STRUCTURE:
 {"name":"...","nodes":[{"id":"node_0","type":"...","position":{"x":0,"y":100},"data":{"label":"...","config":{...}}}],"edges":[{"id":"edge_0_1","source":"node_0","target":"node_1"}]}
 

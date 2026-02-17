@@ -367,16 +367,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 if (!sessionId && createdSessionIdRef.current) {
                     window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
 
+                    console.log('[DEBUG] Requesting title generation for new session:', createdSessionIdRef.current);
+
                     // Generate smart title
-                    fetch('/api/session/generate-title', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            sessionId: createdSessionIdRef.current,
-                            message: trimmedInput,
-                            assistantResponse: generateData.message
-                        })
-                    }).then(() => {
+                    sessionsApi.generateTitle({
+                        sessionId: createdSessionIdRef.current,
+                        message: trimmedInput,
+                        assistantResponse: generateData.message
+                    }).then(data => {
+                        console.log('[DEBUG] Title generation result:', data);
                         window.dispatchEvent(new Event('session-updated'));
                     }).catch(console.error);
                 }
@@ -413,12 +412,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             const executeData = await executeWorkflow(
                 workflow,
                 generateNodeId(),
-                (nodeId: string, status: NodeStatus, resultData?: any) => {
-                    setNodeStatus(nodeId, status);
-                    if (resultData) {
-                        useAppStore.getState().setNodeOutput(nodeId, resultData);
-                    }
-                }
+                (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status),
+                (nodeId: string, output: any) => useAppStore.getState().setNodeOutput(nodeId, output)
             );
 
             if (!executeData.success) {
@@ -444,13 +439,20 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     if (Array.isArray(results)) {
                         for (let i = 0; i < results.length; i++) {
                             const item = results[i];
-                            if (item?.url && item.url.startsWith('data:')) {
+                            const isDataUri = item.url?.startsWith('data:');
+                            // Upload external images (e.g., scraped) to our storage to persist them
+                            // Check if it's a URL but NOT our own storage (approximate check using origin or common keywords)
+                            const isExternalUrl = item.url?.startsWith('http') &&
+                                !item.url.includes(window.location.hostname) &&
+                                !item.url.includes('.supabase.co'); // Standard Supabase domain
+
+                            if (item?.url && (isDataUri || isExternalUrl)) {
                                 try {
                                     const response = await fetch(item.url);
                                     const blob = await response.blob();
                                     const uploaded = await uploadApi.upload(blob);
                                     resultImagePaths.push(uploaded.path);
-                                    // Replace base64 with public URL
+                                    // Replace base64/external URL with our persistent storage URL
                                     results[i] = { ...item, url: uploaded.publicUrl };
                                 } catch (e) {
                                     console.error('[DEBUG] Failed to upload result image:', e);
@@ -477,16 +479,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
             // Generate smart title for Workflow
             if (!sessionId && createdSessionIdRef.current) {
-                fetch('/api/session/generate-title', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        sessionId: createdSessionIdRef.current,
-                        message: trimmedInput,
-                        workflowName: workflow.name, // Use generated workflow name
-                        assistantResponse: responseContent
-                    })
-                }).then(() => {
+                console.log('[DEBUG] Requesting title generation for new workflow session:', createdSessionIdRef.current);
+
+                sessionsApi.generateTitle({
+                    sessionId: createdSessionIdRef.current,
+                    message: trimmedInput,
+                    workflowName: workflow.name, // Use generated workflow name
+                    assistantResponse: responseContent
+                }).then(data => {
+                    console.log('[DEBUG] Title generation result:', data);
                     window.dispatchEvent(new Event('session-updated'));
                 }).catch(console.error);
             }
@@ -571,7 +572,12 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     if (Array.isArray(result)) {
                         for (let i = 0; i < result.length; i++) {
                             const item = result[i];
-                            if (item?.url && item.url.startsWith('data:')) {
+                            const isDataUri = item.url?.startsWith('data:');
+                            const isExternalUrl = item.url?.startsWith('http') &&
+                                !item.url.includes(window.location.hostname) &&
+                                !item.url.includes('.supabase.co');
+
+                            if (item?.url && (isDataUri || isExternalUrl)) {
                                 try {
                                     const response = await fetch(item.url);
                                     const blob = await response.blob();

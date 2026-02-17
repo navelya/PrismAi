@@ -29,7 +29,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 export const sessionsApi = {
     /** List all sessions for the current user */
     list: () =>
-        apiFetch<{ sessions: any[] }>('/api/sessions'),
+        apiFetch<{ sessions: any[] }>('/api/sessions', { cache: 'no-store' }),
 
     /** Create a new session */
     create: (title?: string) =>
@@ -53,6 +53,12 @@ export const sessionsApi = {
     delete: (id: string) =>
         apiFetch<{ success: boolean }>(`/api/sessions/${id}`, {
             method: 'DELETE',
+        }),
+    /** Update session title (Auto-Generate) */
+    generateTitle: (data: { sessionId: string; message: string; assistantResponse?: string; workflowName?: string }) =>
+        apiFetch<{ success: boolean; title: string }>('/api/session/generate-title', {
+            method: 'POST',
+            body: JSON.stringify(data),
         }),
 };
 

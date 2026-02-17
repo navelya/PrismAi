@@ -65,10 +65,15 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         if (user) {
             const fetchSessions = async () => {
                 try {
+                    // Force fresh fetch
+                    console.log('[Sidebar] Fetching sessions...');
                     const { sessions: data } = await sessionsApi.list();
-                    if (data) setSessions(data);
+                    if (data) {
+                        console.log('[Sidebar] Sessions fetched:', data.length);
+                        setSessions(data);
+                    }
                 } catch (error) {
-                    console.error("Sidebar: Fetch failed", error);
+                    console.error("[Sidebar] Fetch failed", error);
                 }
             };
 
@@ -89,8 +94,9 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
             // Listen for custom local events (Immediate UI update fallback)
             const handleLocalUpdate = () => {
-
-                fetchSessions();
+                console.log('[Sidebar] session-updated event received, refreshing...');
+                // Small delay to allow DB propagation
+                setTimeout(fetchSessions, 500);
             };
             window.addEventListener('session-updated', handleLocalUpdate);
 

@@ -103,3 +103,6 @@ venv.bak/
 gemini_error.txt
 test_results.txt
 full_models_list.json
+
+rate-limit-tracker.json
+debug_routes.txt
