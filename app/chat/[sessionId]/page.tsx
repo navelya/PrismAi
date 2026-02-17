@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, notFound } from 'next/navigation';
 import ChatClientPage from '../ChatClientPage';
 import { useSession } from '@/lib/hooks/use-session';
 import { useAppStore } from '@/lib/store/app-store';
@@ -10,8 +10,16 @@ import { Loader2 } from 'lucide-react';
 export default function SessionPage() {
     const params = useParams();
     const sessionId = params.sessionId as string;
-    const { loadSession, isLoading } = useSession();
+    const { loadSession, isLoading, error } = useSession();
     const activeSessionId = useAppStore((state) => state.activeSessionId);
+
+    console.log('[DEBUG] SessionPage Render:', { sessionId, isLoading, error, activeSessionId });
+
+    // If session load failed, trigger 404
+    if (error) {
+        console.error('[DEBUG] Triggering notFound() due to error:', error);
+        notFound();
+    }
 
     // Track if we've triggered loading for this specific sessionId
     const loadingSessionIdRef = useRef<string | null>(null);

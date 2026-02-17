@@ -25,6 +25,7 @@ export function useSession() {
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+    const [error, setError] = useState<Error | null>(null);
 
     // Create a new session and redirect
     const createNewSession = useCallback(async () => {
@@ -123,9 +124,11 @@ export function useSession() {
             formattedMessages.forEach((msg: any) => store.addMessage(msg));
 
             setCurrentSessionId(sessionId);
+            setError(null);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to load session:', error);
+            setError(error);
         } finally {
             setIsLoading(false);
         }
@@ -154,6 +157,7 @@ export function useSession() {
         loadSession,
         deleteSession,
         isLoading,
-        currentSessionId
+        currentSessionId,
+        error // Export error state
     };
 }
