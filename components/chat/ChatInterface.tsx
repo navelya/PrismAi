@@ -834,47 +834,62 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, []); // Run once on mount
 
-    // Auto-resize textarea and detect multi-line
-    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newValue = e.target.value;
+    // Reusable height-recalculation logic (used by both typing and resize)
+    const adjustTextareaHeight = useCallback(() => {
         const textarea = textareaRef.current;
         const ghost = ghostRef.current;
-        setInput(newValue);
+        if (!textarea) return;
 
-        if (textarea) {
-            const hasNewlines = newValue.includes('\n');
+        const currentInput = textarea.value;
+        const hasNewlines = currentInput.includes('\n');
 
-            // Optimize: Avoid layout thrashing in single-line mode
-            if (!isMultiLine && !hasNewlines) {
-                if (textarea.scrollHeight > 40) {
-                    setIsMultiLine(true);
-                }
-            } else {
-                // Multi-line mode: needs robust measurement to handle shrinking
-                textarea.style.height = 'auto';
-                const contentHeight = textarea.scrollHeight;
+        if (!isMultiLine && !hasNewlines) {
+            if (textarea.scrollHeight > 40) {
+                setIsMultiLine(true);
+            }
+        } else {
+            textarea.style.height = 'auto';
+            const contentHeight = textarea.scrollHeight;
 
-                if (!hasNewlines && contentHeight < 60 && ghost) {
-                    // Configure ghost to mimic single-line state
-                    ghost.textContent = newValue;
-                    const singleLineAvailableWidth = textarea.clientWidth - 144;
-                    ghost.style.width = `${singleLineAvailableWidth}px`;
+            if (!hasNewlines && contentHeight < 60 && ghost) {
+                ghost.textContent = currentInput;
+                const singleLineAvailableWidth = textarea.clientWidth - 144;
+                ghost.style.width = `${singleLineAvailableWidth}px`;
 
-                    // Check if it fits in 1 line (~40px)
-                    if (ghost.scrollHeight < 50) {
-                        setIsMultiLine(false);
-                    }
-                } else if (!hasNewlines && contentHeight < 60) {
+                if (ghost.scrollHeight < 50) {
                     setIsMultiLine(false);
-                } else {
-                    setIsMultiLine(hasNewlines || contentHeight > 40);
-
-                    const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
-                    const newHeight = Math.min(contentHeight, maxHeight);
-                    textarea.style.height = `${newHeight}px`;
                 }
+            } else if (!hasNewlines && contentHeight < 60) {
+                setIsMultiLine(false);
+            } else {
+                setIsMultiLine(hasNewlines || contentHeight > 40);
+
+                const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
+                const newHeight = Math.min(contentHeight, maxHeight);
+                textarea.style.height = `${newHeight}px`;
             }
         }
+    }, [isMultiLine, isMobile, isExpanded]);
+
+    // ResizeObserver: retrigger height calc when container dimensions change
+    useEffect(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+
+        const ro = new ResizeObserver(() => {
+            adjustTextareaHeight();
+        });
+        ro.observe(textarea);
+
+        return () => ro.disconnect();
+    }, [adjustTextareaHeight]);
+
+    // Auto-resize textarea and detect multi-line
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setInput(e.target.value);
+        // Immediately recalculate after React updates the DOM value
+        // (the ref's .value is already updated by the controlled input at this point)
+        adjustTextareaHeight();
     };
 
     // Check if textarea exceeds 3 lines (for mobile expand button)

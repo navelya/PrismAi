@@ -131,7 +131,6 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     const metadata = nodeMetadata['compositor'];
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const previewRef = useRef<HTMLDivElement>(null);
-    const [previewSize, setPreviewSize] = useState({ width: 200, height: 150 });
 
     const deleteNode = useAppStore((state) => state.deleteNode);
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
@@ -169,28 +168,16 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
 
     const nodeColor = metadata?.color || '#8b5cf6';
 
-    // Use canvas aspect ratio for preview (stable, based on config, not layers)
-    const aspectRatio = (config.canvasWidth || 1920) / (config.canvasHeight || 1080);
+    // Dynamic constraint configuration for the live preview
+    const canvasW = config.canvasWidth || 1920;
+    const canvasH = config.canvasHeight || 1080;
+    const MAX_PREVIEW_H = 300;
 
-    // Observe preview container size
-    useEffect(() => {
-        const container = previewRef.current;
-        if (!container) return;
-
-        const resizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                const { width } = entry.contentRect;
-                if (width > 0) {
-                    // Calculate height based on canvas aspect ratio
-                    const height = width / aspectRatio;
-                    setPreviewSize({ width: Math.floor(width), height: Math.floor(height) });
-                }
-            }
-        });
-
-        resizeObserver.observe(container);
-        return () => resizeObserver.disconnect();
-    }, [aspectRatio]);
+    // Use a reasonable internal buffer resolution for the preview canvas
+    const PREVIEW_RENDER_SIZE = 512;
+    const renderScale = Math.min(PREVIEW_RENDER_SIZE / canvasW, PREVIEW_RENDER_SIZE / canvasH);
+    const renderWidth = Math.max(1, Math.floor(canvasW * renderScale));
+    const renderHeight = Math.max(1, Math.floor(canvasH * renderScale));
 
     // Use React Flow hook for direct graph manipulation
     const { setNodes, deleteElements } = useReactFlow();
@@ -363,27 +350,38 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                     </button>
                 ) : (
                     <div className="space-y-1">
-                        {/* Live Preview - fits to bounding box aspect ratio */}
+                        {/* Live Preview Container Wrapper */}
                         <div
-                            ref={previewRef}
-                            className="w-full rounded-lg overflow-hidden border border-stroke-subtle"
-                            style={{
-                                height: Math.min(previewSize.height, 200),
-                                backgroundColor: '#1a1a1a',
-                            }}
+                            className="w-full flex items-center justify-center p-2 pt-0"
                         >
-                            {hasConnectedInputs ? (
-                                <LivePreview
-                                    config={config}
-                                    connectedInputs={connectedInputs}
-                                    containerWidth={previewSize.width}
-                                    containerHeight={Math.min(previewSize.height, 200)}
-                                />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center text-xs text-content-tertiary">
-                                    Connect inputs
-                                </div>
-                            )}
+                            <div
+                                ref={previewRef}
+                                className="relative flex-shrink-0 rounded-lg border border-stroke-subtle overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.5)] bg-[#1a1a1a]"
+                                style={{
+                                    width: '100%',
+                                    maxWidth: `calc(${MAX_PREVIEW_H}px * (${canvasW} / ${canvasH}))`,
+                                    maxHeight: `${MAX_PREVIEW_H}px`,
+                                    aspectRatio: `${canvasW} / ${canvasH}`,
+                                    backgroundImage: 'repeating-conic-gradient(#262626 0% 25%, #1a1a1a 0% 50%)',
+                                    backgroundSize: '16px 16px',
+                                    backgroundPosition: '0 0',
+                                }}
+                            >
+                                {hasConnectedInputs ? (
+                                    <LivePreview
+                                        config={config}
+                                        connectedInputs={connectedInputs}
+                                        containerWidth={renderWidth}
+                                        containerHeight={renderHeight}
+                                    />
+                                ) : (
+                                    <div className="absolute inset-0 flex items-center justify-center text-xs text-content-tertiary">
+                                        <div className="bg-surface-primary/80 px-2 py-1 rounded backdrop-blur-sm shadow-sm font-medium">
+                                            Connect inputs
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {/* Layer list */}

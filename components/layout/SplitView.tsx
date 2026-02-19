@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
-import { Workflow, MessageSquare, GripVertical } from 'lucide-react';
+import { Workflow, MessageSquare, GripVertical, Loader2 } from 'lucide-react';
 import { Workflow as WorkflowType } from '@/lib/nodes/types';
 import SharedWorkflowEditor from '../editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
@@ -175,6 +175,21 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
                                 }
                             }}
                         />
+                    </div>
+                </div>
+            )}
+
+            {/* Loading State - Show when editor IS open but workflow is loading */}
+            {isCanvasOpen && !workflow && (
+                <div
+                    className="h-full border-l border-stroke-subtle bg-surface-primary relative overflow-hidden flex items-center justify-center transition-[width] duration-150 ease-out"
+                    style={{
+                        width: `${100 - splitRatio}%`,
+                    }}
+                >
+                    <div className="flex flex-col items-center gap-3 text-content-tertiary animate-pulse">
+                        <Loader2 className="w-8 h-8 animate-spin" />
+                        <span className="text-sm font-medium">Loading Workspace...</span>
                     </div>
                 </div>
             )}

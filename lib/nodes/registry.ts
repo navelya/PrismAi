@@ -740,11 +740,9 @@ const compositorExecutor: NodeExecutor = async (
             };
         }
 
-        // Set background color
-        if (backgroundColor && backgroundColor !== '#00000000') {
-            ctx.fillStyle = backgroundColor;
-            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-        }
+        // Ensure the canvas is completely transparent (user requested no solid backgrounds)
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
 
         // Render each visible layer (bottom to top)
         // Layer transforms are in canvas-absolute coordinates — use directly
@@ -779,9 +777,9 @@ const compositorExecutor: NodeExecutor = async (
         }
 
         // Generate output data URL
-        const mimeType = outputFormat === 'jpeg' ? 'image/jpeg' :
-            outputFormat === 'webp' ? 'image/webp' : 'image/png';
-        const dataUrl = canvas.toDataURL(mimeType, outputQuality);
+        // Force PNG output to preserve transparency as requested
+        const mimeType = 'image/png';
+        const dataUrl = canvas.toDataURL(mimeType, 1.0);
 
         return {
             success: true,

@@ -5,7 +5,7 @@ import { Canvas, FabricImage, Rect } from 'fabric';
 import {
     X, Eye, EyeOff, Lock, Unlock, Trash2, Layers2, ChevronUp, ChevronDown,
     RotateCcw, FlipHorizontal, FlipVertical, ChevronLeft, ChevronRight, Plus, Crop,
-    Monitor, Smartphone, Square
+    Monitor, Smartphone, Square, ZoomIn, ZoomOut, Maximize2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -63,6 +63,14 @@ export default function CompositorEditorModal({
     const [canvasReady, setCanvasReady] = useState(false);
     const [showCanvasPresets, setShowCanvasPresets] = useState(false);
     const isLoadingRef = useRef(false);
+
+    // Infinite Stage: pan/zoom state
+    const [stageZoom, setStageZoom] = useState(1);
+    const [stagePan, setStagePan] = useState({ x: 0, y: 0 });
+    const [isPanning, setIsPanning] = useState(false);
+    const [spaceHeld, setSpaceHeld] = useState(false);
+    const panStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+    const stageContainerRef = useRef<HTMLDivElement>(null);
 
     // Fixed scale: Fabric pixels → canvas-absolute pixels
     // This NEVER changes based on layer positions, only on canvas dimensions.
@@ -303,6 +311,100 @@ export default function CompositorEditorModal({
         setLocalCanvasHeight(height);
         setShowCanvasPresets(false);
     }, []);
+
+    // ============ INFINITE STAGE: PAN / ZOOM ============
+
+    // Fit canvas to viewport
+    const fitToView = useCallback(() => {
+        const container = stageContainerRef.current;
+        if (!container) return;
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        const padding = 40;
+        const zoomX = (cw - padding * 2) / FABRIC_WIDTH;
+        const zoomY = (ch - padding * 2) / fabricHeight;
+        const zoom = Math.min(zoomX, zoomY, 1); // don't exceed 1x
+        const panX = (cw - FABRIC_WIDTH * zoom) / 2;
+        const panY = (ch - fabricHeight * zoom) / 2;
+        setStageZoom(zoom);
+        setStagePan({ x: panX, y: panY });
+    }, [fabricHeight]);
+
+    // Auto-fit when canvas becomes ready or canvas size changes
+    useEffect(() => {
+        if (canvasReady) fitToView();
+    }, [canvasReady, fitToView]);
+
+    // Scroll-to-zoom toward cursor
+    const handleStageWheel = useCallback((e: React.WheelEvent) => {
+        e.preventDefault();
+        const container = stageContainerRef.current;
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+        const newZoom = Math.min(Math.max(stageZoom * zoomFactor, 0.1), 5);
+
+        // Adjust pan so the point under the cursor stays fixed
+        const scale = newZoom / stageZoom;
+        const newPanX = mouseX - scale * (mouseX - stagePan.x);
+        const newPanY = mouseY - scale * (mouseY - stagePan.y);
+
+        setStageZoom(newZoom);
+        setStagePan({ x: newPanX, y: newPanY });
+    }, [stageZoom, stagePan]);
+
+    // Spacebar panning
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.code === 'Space' && !e.repeat) {
+                e.preventDefault();
+                setSpaceHeld(true);
+            }
+        };
+        const onKeyUp = (e: KeyboardEvent) => {
+            if (e.code === 'Space') {
+                setSpaceHeld(false);
+                setIsPanning(false);
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+        };
+    }, []);
+
+    const handleStageMouseDown = useCallback((e: React.MouseEvent) => {
+        if (spaceHeld || e.button === 1) { // space+click or middle-click
+            e.preventDefault();
+            setIsPanning(true);
+            panStartRef.current = { x: e.clientX, y: e.clientY, panX: stagePan.x, panY: stagePan.y };
+        }
+    }, [spaceHeld, stagePan]);
+
+    const handleStageMouseMove = useCallback((e: React.MouseEvent) => {
+        if (!isPanning) return;
+        const dx = e.clientX - panStartRef.current.x;
+        const dy = e.clientY - panStartRef.current.y;
+        setStagePan({ x: panStartRef.current.panX + dx, y: panStartRef.current.panY + dy });
+    }, [isPanning]);
+
+    const handleStageMouseUp = useCallback(() => {
+        setIsPanning(false);
+    }, []);
+
+    // Disable Fabric interaction while panning
+    useEffect(() => {
+        const canvas = fabricRef.current;
+        if (!canvas) return;
+        canvas.selection = !spaceHeld;
+        canvas.forEachObject(obj => { obj.evented = !spaceHeld; });
+    }, [spaceHeld]);
 
     // ============ LAYER OPERATIONS ============
 
@@ -656,30 +758,112 @@ export default function CompositorEditorModal({
                         </div>
                     </div>
 
-                    {/* Center - Canvas */}
+                    {/* Center - Infinite Stage */}
                     <div
-                        className="flex-1 flex items-center justify-center bg-neutral-900 p-4"
+                        ref={stageContainerRef}
+                        className="flex-1 relative bg-neutral-900 select-none"
+                        style={{ overflow: 'hidden', cursor: spaceHeld ? (isPanning ? 'grabbing' : 'grab') : 'default' }}
+                        onWheel={handleStageWheel}
                         onMouseDown={(e) => {
-                            // Click on dark background = deselect
-                            if (e.target === e.currentTarget) {
+                            handleStageMouseDown(e);
+                            // Click on dark background = deselect (only if not panning)
+                            if (!spaceHeld && e.target === e.currentTarget) {
                                 fabricRef.current?.discardActiveObject();
                                 fabricRef.current?.renderAll();
                                 setSelectedLayerIndex(null);
                             }
                         }}
+                        onMouseMove={handleStageMouseMove}
+                        onMouseUp={handleStageMouseUp}
+                        onMouseLeave={handleStageMouseUp}
                     >
+                        {/* Transform wrapper — applies pan & zoom */}
                         <div
-                            className="shadow-2xl border border-stroke-subtle rounded-lg overflow-hidden"
-                            onMouseDown={(e) => {
-                                // Click on the border wrapper (not canvas) = also deselect
-                                if (e.target === e.currentTarget) {
-                                    fabricRef.current?.discardActiveObject();
-                                    fabricRef.current?.renderAll();
-                                    setSelectedLayerIndex(null);
-                                }
+                            style={{
+                                transform: `translate(${stagePan.x}px, ${stagePan.y}px) scale(${stageZoom})`,
+                                transformOrigin: '0 0',
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                pointerEvents: spaceHeld ? 'none' : 'auto',
                             }}
                         >
-                            <canvas ref={canvasRef} />
+                            {/* Checkerboard background behind canvas to show transparency */}
+                            <div
+                                className="shadow-2xl border border-white/10 rounded-lg"
+                                style={{
+                                    width: FABRIC_WIDTH,
+                                    height: fabricHeight,
+                                    backgroundImage: `
+                                        linear-gradient(45deg, #2a2a2a 25%, transparent 25%),
+                                        linear-gradient(-45deg, #2a2a2a 25%, transparent 25%),
+                                        linear-gradient(45deg, transparent 75%, #2a2a2a 75%),
+                                        linear-gradient(-45deg, transparent 75%, #2a2a2a 75%)
+                                    `,
+                                    backgroundSize: '20px 20px',
+                                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                                    backgroundColor: '#222',
+                                }}
+                                onMouseDown={(e) => {
+                                    if (!spaceHeld && e.target === e.currentTarget) {
+                                        fabricRef.current?.discardActiveObject();
+                                        fabricRef.current?.renderAll();
+                                        setSelectedLayerIndex(null);
+                                    }
+                                }}
+                            >
+                                <canvas ref={canvasRef} />
+                            </div>
+                        </div>
+
+                        {/* Zoom Controls — floating top-right */}
+                        <div className="absolute top-3 right-3 flex items-center gap-1 bg-surface-primary/80 backdrop-blur-sm rounded-lg border border-stroke-subtle px-1 py-0.5 z-10">
+                            <button
+                                onClick={() => {
+                                    const newZoom = Math.max(stageZoom * 0.8, 0.1);
+                                    // Zoom toward center
+                                    const container = stageContainerRef.current;
+                                    if (container) {
+                                        const cx = container.clientWidth / 2;
+                                        const cy = container.clientHeight / 2;
+                                        const s = newZoom / stageZoom;
+                                        setStagePan({ x: cx - s * (cx - stagePan.x), y: cy - s * (cy - stagePan.y) });
+                                    }
+                                    setStageZoom(newZoom);
+                                }}
+                                className="p-1 rounded hover:bg-surface-tertiary transition-colors"
+                                title="Zoom out"
+                            >
+                                <ZoomOut className="w-3.5 h-3.5 text-content-secondary" />
+                            </button>
+                            <span className="text-[10px] font-medium text-content-secondary min-w-[36px] text-center">
+                                {Math.round(stageZoom * 100)}%
+                            </span>
+                            <button
+                                onClick={() => {
+                                    const newZoom = Math.min(stageZoom * 1.25, 5);
+                                    const container = stageContainerRef.current;
+                                    if (container) {
+                                        const cx = container.clientWidth / 2;
+                                        const cy = container.clientHeight / 2;
+                                        const s = newZoom / stageZoom;
+                                        setStagePan({ x: cx - s * (cx - stagePan.x), y: cy - s * (cy - stagePan.y) });
+                                    }
+                                    setStageZoom(newZoom);
+                                }}
+                                className="p-1 rounded hover:bg-surface-tertiary transition-colors"
+                                title="Zoom in"
+                            >
+                                <ZoomIn className="w-3.5 h-3.5 text-content-secondary" />
+                            </button>
+                            <div className="w-px h-4 bg-stroke-subtle mx-0.5" />
+                            <button
+                                onClick={fitToView}
+                                className="p-1 rounded hover:bg-surface-tertiary transition-colors"
+                                title="Fit to view"
+                            >
+                                <Maximize2 className="w-3.5 h-3.5 text-content-secondary" />
+                            </button>
                         </div>
                     </div>
 

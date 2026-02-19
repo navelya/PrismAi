@@ -81,15 +81,26 @@ async function layoutWithELK(
     nodes: WorkflowNode[],
     edges: WorkflowEdge[]
 ): Promise<PositionMap> {
+    // 1. Filter edges to ensure they connect to existing nodes (Prevent ELK crash)
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const validEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+
+    if (nodes.length !== nodeIds.size) {
+        console.warn('Layout: Duplicate node IDs detected! deduplicating for layout calculation.');
+    }
+
+    // 2. Deduplicate nodes for ELK calculation to prevent crash
+    const uniqueNodes = Array.from(new Map(nodes.map(node => [node.id, node])).values());
+
     // Convert to ELK format with explicit Ports
-    const elkNodes = nodes.map((node) => {
-        const inputHandles = edges
+    const elkNodes = uniqueNodes.map((node) => {
+        const inputHandles = validEdges
             .filter(e => e.target === node.id && e.targetHandle)
             .map(e => e.targetHandle!)
             .filter((value, index, self) => self.indexOf(value) === index)
             .sort();
 
-        const outputHandles = edges
+        const outputHandles = validEdges
             .filter(e => e.source === node.id && e.sourceHandle)
             .map(e => e.sourceHandle!)
             .filter((value, index, self) => self.indexOf(value) === index)
@@ -118,7 +129,7 @@ async function layoutWithELK(
         };
     });
 
-    const elkEdges = edges.map((edge) => {
+    const elkEdges = validEdges.map((edge) => {
         const edgeObj: any = {
             id: edge.id,
             sources: [edge.source],

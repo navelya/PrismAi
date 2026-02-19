@@ -223,7 +223,16 @@ export async function parseRequestToWorkflow(
 
             // Ensure node has a valid ID (ELK requires string IDs)
             if (!node.id || typeof node.id !== 'string') {
-                node.id = `node_${index}`;
+                // Generate a unique ID that doesn't conflict with any existing IDs
+                let idAttempt = 0;
+                let newId = `node_${idAttempt}`;
+                const allIds = new Set(workflow.nodes.map(n => n.id).filter(id => id && typeof id === 'string'));
+
+                while (allIds.has(newId)) {
+                    idAttempt++;
+                    newId = `node_${idAttempt}`;
+                }
+                node.id = newId;
             }
 
             // Ensure node has proper data.config structure
@@ -246,6 +255,23 @@ export async function parseRequestToWorkflow(
             }
 
             return node;
+        });
+
+        // Final duplicate check - if AI explicitly returned duplicate IDs, fix them
+        const seenIds = new Map<string, number>();
+        workflow.nodes.forEach(node => {
+            if (seenIds.has(node.id)) {
+                // Collision detected - rename
+                const count = seenIds.get(node.id)! + 1;
+                seenIds.set(node.id, count);
+                const oldId = node.id;
+                node.id = `${oldId}_copy_${count}`;
+
+                // Note: Edges pointing to this specific duplicate are ambiguous
+                // We leave them pointing to the original ID (first occurrence)
+            } else {
+                seenIds.set(node.id, 0);
+            }
         });
 
         // AUTO-LAYOUT: Always apply ELK layout for consistent positioning
