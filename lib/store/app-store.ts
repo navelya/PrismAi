@@ -72,6 +72,9 @@ interface AppState {
     triggerRunFromNode: (nodeId: string) => void;
     clearRunFromNode: () => void;
 
+    // Invalidates nodes and their descendants (Partial Execution Helper)
+    invalidateNodes: (nodeIds: string[]) => void;
+
     // Layout Engine Preference
     layoutEngine: LayoutEngine;
     setLayoutEngine: (engine: LayoutEngine) => void;
@@ -239,6 +242,36 @@ export const useAppStore = create<AppState>()(
             // Run From Node Actions
             triggerRunFromNode: (nodeId) => set({ runFromNodeId: nodeId }),
             clearRunFromNode: () => set({ runFromNodeId: null }),
+
+            // Invalidates nodes and their descendants (Partial Execution Helper)
+            invalidateNodes: (nodeIds) => {
+                const state = get();
+                if (!state.currentWorkflow) return;
+
+                // 1. Identify all descendants (recursive)
+                const { getDescendants } = require('../utils/graph-traversal');
+                const allDirtyNodes = new Set<string>();
+
+                nodeIds.forEach(id => {
+                    const descendants = getDescendants(id, state.currentWorkflow!.edges);
+                    descendants.forEach((d: string) => allDirtyNodes.add(d));
+                });
+
+                // 2. Clear status and output for these nodes ONLY
+                const newStatuses = { ...state.nodeStatuses };
+                const newOutputs = { ...state.nodeOutputs };
+
+                allDirtyNodes.forEach((id) => {
+                    delete newStatuses[id];
+                    delete newOutputs[id];
+                });
+
+                set({
+                    nodeStatuses: newStatuses,
+                    nodeOutputs: newOutputs,
+                    // Do NOT trigger runFromNodeId automatically
+                });
+            },
 
             // Layout Engine Actions
             setLayoutEngine: (engine) => set({ layoutEngine: engine }),

@@ -38,7 +38,8 @@ export async function executeWorkflow(
     workflow: Workflow,
     executionId: string,
     onStatusUpdate?: (nodeId: string, status: NodeStatus) => void,
-    onNodeOutput?: (nodeId: string, output: any) => void
+    onNodeOutput?: (nodeId: string, output: any) => void,
+    cachedOutputs?: Record<string, any> // New optional param
 ): Promise<{
     success: boolean;
     result: any;
@@ -48,7 +49,6 @@ export async function executeWorkflow(
         if (!workflow.nodes || workflow.nodes.length === 0) {
             throw new Error('Workflow has no nodes');
         }
-
 
         // Build dependency graph
         const { parents, children, inDegree } = buildDependencyGraph(workflow.nodes, workflow.edges);
@@ -68,9 +68,29 @@ export async function executeWorkflow(
         const currentInDegree = new Map(inDegree); // Mutable copy
         let firstError: string | undefined;
 
-        // Find initial ready nodes (no dependencies)
-        let readyNodes = workflow.nodes.filter(node => currentInDegree.get(node.id) === 0);
+        // Pre-seed from cache
+        if (cachedOutputs) {
+            Object.entries(cachedOutputs).forEach(([nodeId, output]) => {
+                if (output !== undefined) {
+                    nodeOutputs.set(nodeId, output);
+                    completedNodes.add(nodeId);
+                    onStatusUpdate?.(nodeId, 'success');
+                    // onNodeOutput?.(nodeId, output); // Optional: re-emit cached output if needed
 
+                    // Decrement in-degree for children
+                    const childIds = children.get(nodeId) || [];
+                    childIds.forEach(childId => {
+                        const newDegree = (currentInDegree.get(childId) || 0) - 1;
+                        currentInDegree.set(childId, newDegree);
+                    });
+                }
+            });
+        }
+
+        // Find initial ready nodes (no dependencies AND not completed)
+        let readyNodes = workflow.nodes.filter(node =>
+            (currentInDegree.get(node.id) || 0) <= 0 && !completedNodes.has(node.id)
+        );
 
         let waveNumber = 1;
 
@@ -185,7 +205,6 @@ export async function executeWorkflow(
                 const node = readyNodes[index];
 
                 if (result.status === 'fulfilled' && result.value.success) {
-                    // ... (keep existing success logic)
                     // Node succeeded
                     completedNodes.add(node.id);
                     nodeOutputs.set(node.id, result.value.output);
@@ -202,7 +221,7 @@ export async function executeWorkflow(
                             currentInDegree.set(childId, newDegree);
 
                             // If child is now ready, add to next wave
-                            if (newDegree === 0) {
+                            if (newDegree <= 0 && !completedNodes.has(childId)) {
                                 const childNode = workflow.nodes.find(n => n.id === childId);
                                 if (childNode) {
                                     nextReadyNodes.push(childNode);

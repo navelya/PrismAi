@@ -402,19 +402,86 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             const clearExecutionResults = useAppStore.getState().clearExecutionResults;
             const clearNodeOutputs = useAppStore.getState().clearNodeOutputs;
             const setNodeStatus = useAppStore.getState().setNodeStatus;
+            const invalidateNodes = useAppStore.getState().invalidateNodes;
 
-            resetNodeStatuses();
-            clearExecutionResults();
-            clearNodeOutputs();
+            // Smart Execution Logic (Partial Runs)
+            // We compare the new workflow with the previous one to find what changed
+            const changedNodeIds = new Set<string>();
+            const currentWorkflowProp = currentWorkflow; // Context passed to AI
+            let forceFullRun = !currentWorkflowProp || currentWorkflowProp.nodes.length === 0;
 
-            workflow.nodes.forEach((node: any) => setNodeStatus(node.id, 'pending'));
+            if (!forceFullRun && currentWorkflowProp) {
+                // 1. Detect Node Changes (Config)
+                workflow.nodes.forEach((newNode: any) => {
+                    const oldNode = currentWorkflowProp.nodes.find(n => n.id === newNode.id);
+                    if (!oldNode) {
+                        changedNodeIds.add(newNode.id); // New node
+                    } else {
+                        // Compare config
+                        if (JSON.stringify(newNode.data.config) !== JSON.stringify(oldNode.data.config)) {
+                            changedNodeIds.add(newNode.id);
+                        }
+                    }
+                });
 
-            const executeData = await executeWorkflow(
-                workflow,
-                generateNodeId(),
-                (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status),
-                (nodeId: string, output: any) => useAppStore.getState().setNodeOutput(nodeId, output)
-            );
+                // 2. Detect Edge Changes (Topology)
+                const getEdgeSig = (e: any) => `${e.source}->${e.target}${e.targetHandle ? ':' + e.targetHandle : ''}`;
+                const oldEdgeSigs = new Set(currentWorkflowProp.edges.map(getEdgeSig));
+                const newEdgeSigs = new Set(workflow.edges.map(getEdgeSig));
+
+                workflow.edges.forEach((e: any) => {
+                    if (!oldEdgeSigs.has(getEdgeSig(e))) changedNodeIds.add(e.target);
+                });
+
+                currentWorkflowProp.edges.forEach((e: any) => {
+                    if (!newEdgeSigs.has(getEdgeSig(e))) {
+                        // If target still exists in new workflow, it needs update
+                        if (workflow.nodes.find((n: any) => n.id === e.target)) {
+                            changedNodeIds.add(e.target);
+                        }
+                    }
+                });
+            }
+
+            let executeData;
+            const changedIdsArr = Array.from(changedNodeIds);
+            const isPartial = !forceFullRun && changedIdsArr.length > 0;
+
+            if (isPartial) {
+                console.log('[Partial Run] Invalidating nodes:', changedIdsArr);
+                invalidateNodes(changedIdsArr);
+
+                // Get valid cache (dirty nodes were removed by invalidateNodes)
+                const cachedOutputs = useAppStore.getState().nodeOutputs;
+
+                // Mark dirty nodes as pending visual
+                // Note: We don't know the full descendant list here easily without re-calculating,
+                // but executeWorkflow will set them to 'running' soon.
+                // We'll trust the engine status updates.
+
+                executeData = await executeWorkflow(
+                    workflow,
+                    generateNodeId(),
+                    (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status),
+                    (nodeId: string, output: any) => useAppStore.getState().setNodeOutput(nodeId, output),
+                    cachedOutputs // Pass cache for smart skipping
+                );
+            } else {
+                // FALLBACK: FULL RUN
+                console.log('[Full Run] Clearing all status');
+                resetNodeStatuses();
+                clearExecutionResults();
+                clearNodeOutputs();
+
+                workflow.nodes.forEach((node: any) => setNodeStatus(node.id, 'pending'));
+
+                executeData = await executeWorkflow(
+                    workflow,
+                    generateNodeId(),
+                    (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status),
+                    (nodeId: string, output: any) => useAppStore.getState().setNodeOutput(nodeId, output)
+                );
+            }
 
             if (!executeData.success) {
                 throw new Error(executeData.error || 'Failed to execute workflow');
