@@ -12,7 +12,7 @@ export async function parseRequestToWorkflow(
     userImages?: string[]
 ): Promise<{
     success: boolean;
-    type?: 'workflow' | 'chat';
+    type?: 'workflow' | 'chat' | 'undo';
     workflow?: Workflow;
     message?: string;
     error?: string;
@@ -66,7 +66,7 @@ export async function parseRequestToWorkflow(
         let envelope: any = null;
 
         // Strategy 1: Find all potential JSON objects starting with {"type"
-        const typePattern = /\{"type"\s*:\s*"(workflow|chat)"/g;
+        const typePattern = /\{"type"\s*:\s*"(workflow|chat|undo)"/g;
         let match;
         const candidates: string[] = [];
 
@@ -179,6 +179,15 @@ export async function parseRequestToWorkflow(
                 success: true,
                 type: 'chat',
                 message: typeof envelope.content === 'string' ? envelope.content : JSON.stringify(envelope.content)
+            };
+        }
+
+        // HANDLE UNDO RESPONSE
+        if (envelope.type === 'undo') {
+            return {
+                success: true,
+                type: 'undo',
+                message: typeof envelope.content === 'string' ? envelope.content : "Undoing changes..."
             };
         }
 

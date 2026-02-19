@@ -49,4 +49,21 @@ export interface Database {
         created_at: string;
         completed_at?: string;
     };
+    sessions: {
+        id: string;
+        user_id: string;
+        title: string;
+        canvas_state: any;
+        created_at: string;
+        updated_at: string;
+    };
+    messages: {
+        id: string;
+        session_id: string;
+        role: 'user' | 'assistant';
+        content: string;
+        images?: string[];
+        canvas_state?: any; // Snapshot of the workflow
+        created_at: string;
+    };
 }

@@ -2,12 +2,12 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen } from 'lucide-react';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen, AlertTriangle } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { generateNodeId, generateEdgeId } from '@/lib/utils';
+import { generateNodeId, generateEdgeId, formatRelativeTime } from '@/lib/utils';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { executeWorkflow } from '@/lib/workflow-engine';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
@@ -77,13 +77,27 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         const imagesToSave = imagePaths || [];
 
         // Insert message via API (also updates session timestamp)
-        await messagesApi.create(activeSessionId, {
-            role,
-            content: msg.content || '',
-            images: imagesToSave,
-            created_at: msg.timestamp.toISOString(),
-            canvas_state: msg.workflow || undefined, // Update canvas_state if workflow present
-        }).catch((err: any) => console.error('Failed to save message:', err));
+        try {
+            const { message } = await messagesApi.create(activeSessionId, {
+                role,
+                content: msg.content || '',
+                images: imagesToSave,
+                created_at: msg.timestamp.toISOString(),
+                canvas_state: msg.workflow || undefined, // Update canvas_state if workflow present
+            });
+
+            // CRITICAL FIX: Update the local message with the REAL DB ID
+            // otherwise subsequent operations (like revert) will fail with 404 because they use the temp ID
+            if (message && message.id) {
+                // We need to update the message in the store
+                // efficiently find and update
+                useAppStore.getState().updateMessage(msg.id, { id: message.id });
+                // Also update the msg object reference if it's being used immediately after this call (unlikely but safe)
+                msg.id = message.id;
+            }
+        } catch (err: any) {
+            console.error('Failed to save message:', err);
+        }
     };
 
     const isMobile = useIsMobile();
@@ -96,6 +110,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+
+    // State for Edit Mode
+    const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
     const [isListening, setIsListening] = useState(false);
     const [attachedImages, setAttachedImages] = useState<string[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -274,9 +292,54 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         attachedBlobsRef.current = attachedBlobsRef.current.filter((_, i) => i !== index);
     }, []);
 
+    const handleEdit = (message: Message) => {
+        setEditingMessageId(message.id);
+        setInput(message.content);
+        // Focus input
+        setTimeout(() => {
+            textareaRef.current?.focus();
+            // Adjust height
+            if (textareaRef.current) {
+                textareaRef.current.style.height = 'auto';
+                textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+            }
+        }, 100);
+    };
+
+    const cancelEdit = () => {
+        setEditingMessageId(null);
+        setInput('');
+    };
+
     const handleSend = async () => {
         const trimmedInput = input.trim();
         if (!trimmedInput || isLoading) return;
+
+        // EDIT MODE LOGIC: Revert before sending
+        if (editingMessageId) {
+            // Find the message being edited
+            const msgIndex = messages.findIndex(m => m.id === editingMessageId);
+            if (msgIndex !== -1) {
+                // Find the snapshot to revert to (the one BEFORE this message)
+                let undoSnapshotId = 'initial';
+
+                // Look backwards from the message being edited
+                for (let i = msgIndex - 1; i >= 0; i--) {
+                    const m = messages[i];
+                    if (m.type === 'assistant' && m.workflow) {
+                        undoSnapshotId = m.id;
+                        break;
+                    }
+                }
+
+                // Perform the revert (silently, no confirmation needed as user clicked "Save & Replace")
+                await handleRevert(undoSnapshotId, true);
+
+                // Clear edit mode state
+                setEditingMessageId(null);
+                // Proceed to standard send logic below...
+            }
+        }
 
         // Capture state
         const blobsToSend = [...attachedBlobsRef.current];
@@ -349,6 +412,41 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
             if (!generateData.success) {
                 throw new Error(generateData.error || 'Failed to generate workflow');
+            }
+
+            // HANDLE UNDO RESPONSE
+            if (generateData.type === 'undo') {
+                const storeMessages = useAppStore.getState().chatMessages;
+                // Filter for assistant messages that have a workflow snapshot
+                const snapshots = storeMessages
+                    .filter(m => m.type === 'assistant' && m.workflow)
+                    .sort((a, b) => Number(b.id) - Number(a.id));
+
+                if (snapshots.length >= 2) {
+                    const targetSnapshot = snapshots[1]; // The one before current
+                    const assistantMessage: Message = {
+                        id: Date.now().toString(),
+                        type: 'assistant',
+                        content: generateData.message || `Undoing changes...`,
+                        timestamp: new Date(),
+                    };
+                    addMessage(assistantMessage);
+                    saveMessageToDb(assistantMessage);
+
+                    // Perform revert (skip confirmation)
+                    await handleRevert(targetSnapshot.id, true);
+                } else {
+                    const assistantMessage: Message = {
+                        id: Date.now().toString(),
+                        type: 'assistant',
+                        content: "I can't undo any further. This is the oldest version I have.",
+                        timestamp: new Date(),
+                    };
+                    addMessage(assistantMessage);
+                    saveMessageToDb(assistantMessage);
+                }
+                setIsLoading(false);
+                return;
             }
 
             // HANDLE CONVERSATIONAL RESPONSE
@@ -581,6 +679,65 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             // Actually, accessing 'workflow' variable from here is tricky if it's outside scope. 
             // Ideally this call should be inside the try block after workflow generation.
             // Moving it up to line 494 area.
+        }
+    };
+
+    const handleRevert = async (messageId: string, skipConfirmation = false) => {
+        const isInitial = messageId === 'initial';
+        const confirmMsg = isInitial
+            ? 'This will clear the current session and restart. Are you sure?'
+            : 'Are you sure you want to rewind to this state? Future messages will be lost.';
+
+        if (!skipConfirmation && !confirm(confirmMsg)) return;
+
+        try {
+            setIsLoading(true);
+
+            if (isInitial) {
+                // RESET SESSION LOGIC (PERSISTENT)
+                const activeSessionId = createdSessionIdRef.current || sessionId;
+                if (activeSessionId) {
+                    await sessionsApi.reset(activeSessionId);
+                }
+
+                // Clear local store
+                useAppStore.getState().setCurrentWorkflow(null);
+                useAppStore.getState().clearMessages();
+
+                // Force a hard navigation/refresh if we are in a specific session URL to ensure clean state
+                // Or just rely on local state clearing.
+                // Since we deleted messages on server, a refresh will now show empty chat.
+                // We'll dispatch the event to update sidebar.
+                window.dispatchEvent(new Event('session-updated'));
+            } else {
+                const { success, workflow } = await messagesApi.revert(messageId);
+
+                if (success && workflow) {
+                    // 1. Update Workflow
+                    useAppStore.getState().setCurrentWorkflow(workflow);
+
+                    // 2. Truncate Messages locally
+                    // Find index of target message
+                    const targetIndex = messages.findIndex(m => m.id === messageId);
+                    if (targetIndex !== -1) {
+                        const newMessages = messages.slice(0, targetIndex + 1);
+
+                        // Clear store and re-add to ensure sync
+                        useAppStore.getState().clearMessages();
+                        newMessages.forEach(msg => {
+                            addMessage(msg);
+                        });
+                    }
+
+                    // 3. Notify Sidebar
+                    window.dispatchEvent(new Event('session-updated'));
+                }
+            }
+        } catch (error) {
+            console.error('Revert failed:', error);
+            alert('Failed to rewind workflow.');
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -1082,9 +1239,43 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
             <div className="flex-1 overflow-y-auto p-6">
                 <div className="max-w-3xl mx-auto space-y-6">
-                    {messages.map((message) => (
-                        <MemoizedMessage key={message.id} message={message} />
-                    ))}
+                    {messages.map((message, index) => {
+                        // Calculate undo target for User messages
+                        let undoSnapshotId: string | undefined;
+                        if (message.type === 'user') {
+                            // Find closest preceding snapshot
+                            let found = false;
+                            for (let i = index - 1; i >= 0; i--) {
+                                const m = messages[i];
+                                if (m.type === 'assistant' && m.workflow) {
+                                    undoSnapshotId = m.id;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            // If no preceding snapshot found, allow reverting to INITIAL (empty) state
+                            if (!found) {
+                                undoSnapshotId = 'initial';
+                            }
+                        }
+
+                        // Calculate disabled state for Edit Mode
+                        const editingIndex = editingMessageId ? messages.findIndex(m => m.id === editingMessageId) : -1;
+                        const isDisabled = editingIndex !== -1 && index > editingIndex;
+                        const isEditing = message.id === editingMessageId;
+
+                        return (
+                            <MemoizedMessage
+                                key={message.id}
+                                message={message}
+                                onRevert={handleRevert}
+                                onEdit={handleEdit}
+                                undoSnapshotId={undoSnapshotId}
+                                isDisabled={isDisabled}
+                                isEditing={isEditing}
+                            />
+                        );
+                    })}
 
                     {isLoading && (
                         <div className="flex gap-4 animate-fade-in">
@@ -1103,6 +1294,25 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             </div>
 
             <div className="sticky bottom-0 border-t border-stroke-subtle p-4 bg-surface-primary/80 backdrop-blur-sm">
+                {editingMessageId && (
+                    <div className="flex items-center justify-between p-3 mb-3 bg-surface-secondary border border-stroke-subtle rounded-xl animate-in slide-in-from-bottom-2 shadow-lg">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-accent-primary/10 rounded-lg text-accent-primary">
+                                <Pen className="w-4 h-4" />
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-sm font-medium text-content-primary">Edit this message and revert later changes</span>
+                                <span className="text-xs text-content-secondary">Changes made after this message will be reverted.</span>
+                            </div>
+                        </div>
+                        <button
+                            onClick={cancelEdit}
+                            className="p-2 hover:bg-surface-tertiary rounded-lg transition-colors text-content-secondary hover:text-content-primary"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
                 {InputField}
             </div>
         </div>
@@ -1154,48 +1364,156 @@ function ExecutionUserFeedback() {
     );
 }
 
+
+
+// ... MemoizedMessage definition ...
+
 // Memoized message component
-const MemoizedMessage = React.memo(function MemoizedMessage({ message }: { message: Message }) {
+const MemoizedMessage = React.memo(function MemoizedMessage({
+    message,
+    onRevert,
+    onEdit,
+    undoSnapshotId,
+    isDisabled,
+    isEditing
+}: {
+    message: Message;
+    onRevert?: (id: string, skipConfirmation?: boolean) => void;
+    onEdit?: (message: Message) => void;
+    undoSnapshotId?: string;
+    isDisabled?: boolean;
+    isEditing?: boolean;
+}) {
+    // State for local relative time
+    const [timeString, setTimeString] = React.useState('');
+
+    // Update relative time every minute
+    React.useEffect(() => {
+        const updateTime = () => {
+            setTimeString(formatRelativeTime(message.timestamp));
+        };
+        updateTime();
+        const interval = setInterval(updateTime, 60000);
+        return () => clearInterval(interval);
+    }, [message.timestamp]);
+
+    // Handler for Revert button click
+    const handleRevertClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent bubble click events
+        if (onRevert && undoSnapshotId) {
+            onRevert(undoSnapshotId);
+        }
+    };
+
     return (
         <div
-            className={`flex gap-4 animate-fade-in ${message.type === 'user' ? 'justify-end' : 'justify-start'
-                }`}
+            className={`flex gap-4 animate-fade-in ${message.type === 'user' ? 'justify-end' : 'justify-start'} 
+                ${isDisabled ? 'opacity-40 grayscale pointer-events-none select-none filter blur-[1px]' : ''}
+                ${isEditing ? 'z-10 relative' : ''}`}
         >
             {message.type === 'assistant' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center mt-1">
                     <Bot className="w-5 h-5 text-white" />
                 </div>
             )}
 
-            <div
-                className={`max-w-[80%] space-y-3 overflow-hidden ${message.type === 'user'
-                    ? 'bg-gradient-premium text-white px-6 py-3 rounded-2xl rounded-tr-sm'
-                    : ''
-                    }`}
-            >
-                {message.type === 'user' && message.images && message.images.length > 0 && (
-                    <div className="flex gap-2 flex-wrap mb-2">
-                        {message.images.map((img, index) => (
-                            <div key={index} className="w-16 h-16 rounded-lg overflow-hidden bg-white/20">
-                                <img src={img} alt={`Attachment ${index + 1}`} className="w-full h-full object-cover" />
+            <div className={`relative max-w-[85%] ${message.type === 'user' ? 'min-w-[200px]' : ''}`}>
+                <div
+                    className={`flex flex-col space-y-2 overflow-hidden transition-all duration-200 ${message.type === 'user'
+                        ? 'bg-gradient-premium text-white px-5 py-4 rounded-2xl rounded-tr-sm relative shadow-lg shadow-accent-primary/10'
+                        : ''
+                        }`}
+                >
+                    {/* Image Attachments */}
+                    {message.type === 'user' && message.images && message.images.length > 0 && (
+                        <div className="flex gap-2 flex-wrap mb-1">
+                            {message.images.map((img, index) => (
+                                <div key={index} className="w-20 h-20 rounded-lg overflow-hidden bg-black/20 border border-white/10 shadow-sm">
+                                    <img src={img} alt={`Attachment ${index + 1}`} className="w-full h-full object-cover" />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Message Content */}
+                    {message.content && (
+                        <p className={`text-[15px] leading-relaxed ${message.type === 'user' ? 'text-white/95 font-medium' : 'text-content-primary'}`}>
+                            {message.content}
+                        </p>
+                    )}
+
+                    {/* Result (Assistant) */}
+                    {message.result && (
+                        <div className="mt-2">
+                            <MessageRenderer data={message.result} />
+                        </div>
+                    )}
+
+                    {/* Footer: Timestamp (Left) & Revert Button (Right) */}
+                    {message.type === 'user' && (
+                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
+                            {/* Timestamp - Bottom Left */}
+                            <span className="text-[11px] text-white/60 font-medium tracking-wide">
+                                {timeString}
+                            </span>
+
+                            {/* Revert Button - Bottom Right */}
+                            <div className="flex items-center gap-2">
+                                {onEdit && (
+                                    <Tooltip content="Edit">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onEdit(message);
+                                            }}
+                                            className={`flex items-center justify-center p-1.5 rounded-lg 
+                                                     transition-all duration-200 backdrop-blur-sm
+                                                     border border-white/10 group
+                                                     ${isEditing
+                                                    ? 'bg-white/30 text-white ring-2 ring-white/50'
+                                                    : 'bg-white/10 hover:bg-white/20 text-white/90 hover:text-white'}`}
+                                        >
+                                            <Pen className="w-3.5 h-3.5" />
+                                        </button>
+                                    </Tooltip>
+                                )}
+
+                                {undoSnapshotId && (
+                                    <button
+                                        onClick={handleRevertClick}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg 
+                                                 bg-white/10 hover:bg-white/20 active:bg-white/30 
+                                                 text-white/90 hover:text-white 
+                                                 transition-all duration-200 backdrop-blur-sm
+                                                 border border-white/10 group
+                                                 cursor-pointer"
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2.5"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            className="mb-[1px] group-hover:-rotate-90 transition-transform duration-300"
+                                        >
+                                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                                            <path d="M3 3v5h5" />
+                                        </svg>
+                                        <span className="text-xs font-semibold">Revert</span>
+                                    </button>
+                                )}
                             </div>
-                        ))}
-                    </div>
-                )}
-
-                {message.content && (
-                    <p className={message.type === 'user' ? 'text-white' : 'text-content-primary'}>
-                        {message.content}
-                    </p>
-                )}
-
-                {message.result && (
-                    <MessageRenderer data={message.result} />
-                )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {message.type === 'user' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface-tertiary flex items-center justify-center">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface-tertiary flex items-center justify-center mt-1">
                     <User className="w-5 h-5 text-content-primary" />
                 </div>
             )}

@@ -35,3 +35,19 @@ export function formatDate(date: Date | string): string {
         minute: '2-digit',
     });
 }
+
+/**
+ * Format relative time (e.g. "30 sec ago", "5 mins ago")
+ */
+export function formatRelativeTime(date: Date | string): string {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - d.getTime()) / 1000);
+
+    if (diffInSeconds < 60) {
+        return `${diffInSeconds} sec ago`;
+    }
+
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    return `${diffInMinutes} min${diffInMinutes > 1 ? 's' : ''} ago`;
+}

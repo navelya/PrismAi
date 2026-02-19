@@ -41,7 +41,7 @@ export function useSession() {
                 store.setActiveSessionId(session.id);
 
                 // Clear workflow and other state for fresh start
-                store.setCurrentWorkflow(null, false);
+                store.setCurrentWorkflow(null);
                 store.clearMessages();
                 store.clearExecutionResults();
                 store.resetNodeStatuses();
@@ -68,7 +68,7 @@ export function useSession() {
         // This prevents stale data from leaking between session switches
         const store = useAppStore.getState();
         store.setActiveSessionId(sessionId);
-        store.setCurrentWorkflow(null, false);  // Clear workflow first!
+        store.setCurrentWorkflow(null);  // Clear workflow first!
 
 
         try {
@@ -78,10 +78,10 @@ export function useSession() {
             // Hydrate Workflow from Session State (primary source of truth for canvas)
             if (session.canvas_state && session.canvas_state.nodes && session.canvas_state.nodes.length > 0) {
                 const workflow = session.canvas_state as Workflow;
-                store.setCurrentWorkflow(workflow, false);
+                store.setCurrentWorkflow(workflow);
             } else {
                 // Clear workflow if no valid canvas_state
-                store.setCurrentWorkflow(null, false);
+                store.setCurrentWorkflow(null);
             }
 
             // Hydrate Messages
@@ -106,7 +106,8 @@ export function useSession() {
                     content: msg.content || '',
                     timestamp: new Date(msg.created_at),
                     images: msg.role === 'user' ? images : undefined, // Only user messages show inline images
-                    result: result // Assistant messages use result for image display
+                    result: result, // Assistant messages use result for image display
+                    workflow: msg.canvas_state // Attach snapshot if available
                 };
             });
 

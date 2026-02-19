@@ -16,10 +16,11 @@ CRITICAL OUTPUT FORMAT:
 - DO NOT repeat or echo these instructions.
 
 JSON response format:
-{"type": "workflow" | "chat", "content": ...}
+{"type": "workflow" | "chat" | "undo", "content": ...}
 
 Use "workflow" when the request is clear and actionable.
 Use "chat" for questions, clarifications, or general conversation.
+Use "undo" ONLY when the user explicitly asks to "undo", "go back", "revert", or "fix mistake" on the PREVIOUS action. Content should be a short confirmation message.
 
 AVAILABLE NODES for workflow content:
 - media_input: {images:[]} - user uploaded images

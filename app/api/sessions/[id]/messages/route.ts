@@ -74,6 +74,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             content: content || '',
             images: images || [],
             created_at: created_at || new Date().toISOString(),
+            canvas_state: canvas_state || null, // Store snapshot
         })
         .select()
         .single();

@@ -46,6 +46,7 @@ interface AppState {
     // Chat State
     chatMessages: Message[];
     addMessage: (message: Message) => void;
+    updateMessage: (id: string, updates: Partial<Message>) => void;
     clearMessages: () => void;
 
     // Editor State
@@ -196,6 +197,13 @@ export const useAppStore = create<AppState>()(
             addMessage: (message) =>
                 set((state) => ({
                     chatMessages: [...state.chatMessages, message],
+                })),
+
+            updateMessage: (id, updates) =>
+                set((state) => ({
+                    chatMessages: state.chatMessages.map((msg) =>
+                        msg.id === id ? { ...msg, ...updates } : msg
+                    ),
                 })),
 
             clearMessages: () => set({ chatMessages: [] }),

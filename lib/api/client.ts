@@ -40,7 +40,7 @@ export const sessionsApi = {
 
     /** Load a session with its messages */
     load: (id: string) =>
-        apiFetch<{ session: any; messages: any[] }>(`/api/sessions/${id}`),
+        apiFetch<{ session: any; messages: any[] }>(`/api/sessions/${id}`, { cache: 'no-store' }),
 
     /** Update session fields (title, canvas_state) */
     update: (id: string, data: { title?: string; canvas_state?: any }) =>
@@ -59,6 +59,12 @@ export const sessionsApi = {
         apiFetch<{ success: boolean; title: string }>('/api/session/generate-title', {
             method: 'POST',
             body: JSON.stringify(data),
+        }),
+
+    /** Reset session (clear all messages) */
+    reset: (id: string) =>
+        apiFetch<{ success: boolean; message: string }>(`/api/sessions/${id}/reset`, {
+            method: 'POST',
         }),
 };
 
@@ -80,6 +86,12 @@ export const messagesApi = {
         apiFetch<{ message: any }>(`/api/sessions/${sessionId}/messages`, {
             method: 'POST',
             body: JSON.stringify(data),
+        }),
+
+    /** Revert session to a specific message's state */
+    revert: (messageId: string) =>
+        apiFetch<{ success: boolean; workflow: any }>(`/api/messages/${messageId}/revert`, {
+            method: 'POST',
         }),
 };
 
