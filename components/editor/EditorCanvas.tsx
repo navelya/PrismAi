@@ -133,7 +133,7 @@ function EditorCanvasInner({
             if (ctrlKey && event.key.toLowerCase() === 'z' && !event.shiftKey) {
                 event.preventDefault();
                 if (canUndo) {
-                    undo();
+                    undo?.();
                 }
                 return;
             }
@@ -142,7 +142,7 @@ function EditorCanvasInner({
             if ((ctrlKey && event.key.toLowerCase() === 'y') || (ctrlKey && event.shiftKey && event.key.toLowerCase() === 'z')) {
                 event.preventDefault();
                 if (canRedo) {
-                    redo();
+                    redo?.();
                 }
                 return;
             }
