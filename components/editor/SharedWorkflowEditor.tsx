@@ -45,16 +45,23 @@ export default function SharedWorkflowEditor({
         onNodesChange,
         onEdgesChange,
         onConnect,
+        onNodeDragStart, // New prop
         selectedNode,
         setSelectedNode,
         workflowName,
         setWorkflowName,
         addNode,
         deleteNode,
+        deleteNodes, // New prop
+        duplicateNodes, // New prop
         updateNodeConfig,
         updatePositions,
         getWorkflow: getCurrentWorkflow,
         clearWorkflow,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
     } = useWorkflowEditor(initialWorkflow);
 
     const [showPropertyPanel, setShowPropertyPanel] = useState(false);
@@ -80,11 +87,9 @@ export default function SharedWorkflowEditor({
         const storeState = useAppStore.getState();
         const hasActiveSession = !!storeState.activeSessionId;
 
-
-
         if (initialWorkflow && nodes.length > 0) {
             if (hasActiveSession) {
-                setCurrentWorkflow(initialWorkflow, true);
+                setCurrentWorkflow(initialWorkflow);
             } else {
                 console.warn('[SharedWorkflowEditor] 🛑 Aborted reviving workflow: No active session!');
                 // Optional: Force clear if we shouldn't be here with data
@@ -131,7 +136,7 @@ export default function SharedWorkflowEditor({
                         const currentActiveId = useAppStore.getState().activeSessionId;
 
                         if (isMountedRef.current && currentActiveId) {
-                            setCurrentWorkflow(workflow, true);
+                            setCurrentWorkflow(workflow);
                         } else {
                             // Session changed or cleared
 
@@ -337,6 +342,29 @@ export default function SharedWorkflowEditor({
                             updatePositions={updatePositions}
                             selectionMode={selectionMode}
                             onSelectionToggle={() => setSelectionMode(!selectionMode)}
+                            // New Undo/Redo & Action Props
+                            undo={undo}
+                            redo={redo}
+                            canUndo={canUndo}
+                            canRedo={canRedo}
+                            onNodeDragStart={onNodeDragStart}
+                            onDuplicate={duplicateNodes}
+                            onDelete={deleteNodes}
+                            onCopy={(id) => useAppStore.getState().copyNode(id)}
+                            onPaste={() => {
+                                const copiedNode = useAppStore.getState().copiedNode;
+                                if (copiedNode) {
+                                    const newNode = {
+                                        ...JSON.parse(JSON.stringify(copiedNode)),
+                                        id: `node_${Date.now()}`,
+                                        position: {
+                                            x: copiedNode.position.x + 50,
+                                            y: copiedNode.position.y + 50
+                                        },
+                                    };
+                                    duplicateNodes([newNode], []);
+                                }
+                            }}
                         />
                     </div>
 

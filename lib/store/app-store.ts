@@ -21,12 +21,6 @@ interface EditorState {
     viewport: { x: number; y: number };
 }
 
-// History snapshot interface
-interface HistorySnapshot {
-    workflow: Workflow | null;
-    timestamp: number;
-}
-
 // App state interface
 interface AppState {
     // Session Context (which chat is active)
@@ -35,17 +29,10 @@ interface AppState {
 
     // Workflow State (belongs to active session)
     currentWorkflow: Workflow | null;
-    setCurrentWorkflow: (workflow: Workflow | null, saveToHistory?: boolean) => void;
+    setCurrentWorkflow: (workflow: Workflow | null) => void;
 
-    // History State (Undo/Redo)
-    history: HistorySnapshot[];
-    historyIndex: number;
+    // History State (Undo/Redo) - MOVED TO LOCAL HOOK useUndoRedo
     isDragging: boolean;
-    saveSnapshot: () => void;
-    undo: () => void;
-    redo: () => void;
-    canUndo: () => boolean;
-    canRedo: () => boolean;
     setIsDragging: (isDragging: boolean) => void;
 
     // Node Management
@@ -99,8 +86,6 @@ export const useAppStore = create<AppState>()(
             // Initial State
             activeSessionId: null, // No active session initially
             currentWorkflow: null,
-            history: [],
-            historyIndex: -1,
             isDragging: false,
             chatMessages: [],
             editorState: {
@@ -118,104 +103,10 @@ export const useAppStore = create<AppState>()(
 
             // Session Context Actions
             setActiveSessionId: (sessionId) => {
-
                 set({ activeSessionId: sessionId });
             },
-            setCurrentWorkflow: (workflow, saveToHistory = true) => {
-                const isClearing = !workflow;
-                const nodeCount = workflow?.nodes?.length ?? 0;
-
-
+            setCurrentWorkflow: (workflow) => {
                 set((state) => ({ currentWorkflow: workflow }));
-                if (saveToHistory && !get().isDragging) {
-                    get().saveSnapshot();
-                }
-            },
-
-            // History Actions
-            saveSnapshot: () => {
-                const state = get();
-                if (state.isDragging) return; // Don't save during drag
-
-                // Create snapshot but strip large data (base64 images) to avoid localStorage quota
-                let workflowForSnapshot = null;
-                if (state.currentWorkflow) {
-                    const strippedWorkflow = {
-                        ...state.currentWorkflow,
-                        nodes: state.currentWorkflow.nodes.map(node => {
-                            // Strip base64 images from media_input nodes (they're too large for localStorage)
-                            if (node.type === 'media_input' && (node.data?.config as any)?.images) {
-                                return {
-                                    ...node,
-                                    data: {
-                                        ...node.data,
-                                        config: {
-                                            ...node.data.config,
-                                            images: [], // Empty the images array in snapshot
-                                        },
-                                    },
-                                };
-                            }
-                            return node;
-                        }),
-                    };
-                    workflowForSnapshot = JSON.parse(JSON.stringify(strippedWorkflow));
-                }
-
-                const snapshot: HistorySnapshot = {
-                    workflow: workflowForSnapshot,
-                    timestamp: Date.now(),
-                };
-
-                // Remove any "future" history if we've undone and are making a new change
-                const newHistory = state.history.slice(0, state.historyIndex + 1);
-
-                // Add new snapshot
-                newHistory.push(snapshot);
-
-                // Keep only last MAX_HISTORY snapshots (circular buffer)
-                const trimmedHistory = newHistory.slice(-MAX_HISTORY);
-
-                set({
-                    history: trimmedHistory,
-                    historyIndex: trimmedHistory.length - 1,
-                });
-            },
-
-            undo: () => {
-                const state = get();
-                if (!state.canUndo()) return;
-
-                const newIndex = state.historyIndex - 1;
-                const snapshot = state.history[newIndex];
-
-                set({
-                    currentWorkflow: snapshot.workflow ? JSON.parse(JSON.stringify(snapshot.workflow)) : null,
-                    historyIndex: newIndex,
-                });
-            },
-
-            redo: () => {
-                const state = get();
-                if (!state.canRedo()) return;
-
-                const newIndex = state.historyIndex + 1;
-                const snapshot = state.history[newIndex];
-
-                set({
-                    currentWorkflow: snapshot.workflow ? JSON.parse(JSON.stringify(snapshot.workflow)) : null,
-                    historyIndex: newIndex,
-                });
-            },
-
-            canUndo: () => {
-                const state = get();
-                return state.historyIndex > 0;
-            },
-
-            canRedo: () => {
-                const state = get();
-                return state.historyIndex < state.history.length - 1;
             },
 
             setIsDragging: (isDragging) => set({ isDragging }),
@@ -234,7 +125,6 @@ export const useAppStore = create<AppState>()(
                 };
 
                 set({ currentWorkflow: updatedWorkflow });
-                get().saveSnapshot();
             },
 
             copyNode: (nodeId) => {
@@ -268,7 +158,6 @@ export const useAppStore = create<AppState>()(
                 };
 
                 set({ currentWorkflow: updatedWorkflow });
-                get().saveSnapshot();
             },
 
             updateNodePosition: (nodeId, position) => {
@@ -283,27 +172,21 @@ export const useAppStore = create<AppState>()(
                 };
 
                 set({ currentWorkflow: updatedWorkflow });
-                // Snapshot will be saved after drag ends
             },
 
             updateNodePositions: (positions) => {
-
                 const state = get();
                 if (!state.currentWorkflow) return;
-
 
                 const updatedWorkflow: Workflow = {
                     ...state.currentWorkflow,
                     nodes: state.currentWorkflow.nodes.map((node) => {
                         const newPosition = positions.get(node.id);
-                        if (newPosition) {
-
-                        }
                         return newPosition ? { ...node, position: newPosition } : node;
                     }),
                 };
 
-                // Save snapshot after batch update
+                set({ currentWorkflow: updatedWorkflow });
             },
 
             // Chat Actions
@@ -381,8 +264,6 @@ export const useAppStore = create<AppState>()(
 
                     // Clear workflow - will be loaded from DB based on activeSessionId
                     state.currentWorkflow = null;
-                    state.history = [];
-                    state.historyIndex = -1;
                     state.nodeStatuses = {};
                     state.nodeOutputs = {};
                     state.executionResults = {};
@@ -391,17 +272,12 @@ export const useAppStore = create<AppState>()(
                     if (state.editorState) {
                         state.editorState.isCanvasOpen = false;
                     }
-
-
                 }
             },
         }
     )
 );
 
-// Selector hooks for better performance
 export const useCurrentWorkflow = () => useAppStore((state) => state.currentWorkflow);
 export const useChatMessages = () => useAppStore((state) => state.chatMessages);
 export const useEditorState = () => useAppStore((state) => state.editorState);
-export const useCanUndo = () => useAppStore((state) => state.canUndo());
-export const useCanRedo = () => useAppStore((state) => state.canRedo());

@@ -2,7 +2,7 @@
 
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/registry';
 import { Layers2, Plus, X, Edit3, Eye, EyeOff, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -192,27 +192,26 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         return () => resizeObserver.disconnect();
     }, [aspectRatio]);
 
+    // Use React Flow hook for direct graph manipulation
+    const { setNodes, deleteElements } = useReactFlow();
+
     // Update node config
     const updateConfig = useCallback((newConfig: Partial<CompositorConfig>) => {
-        const { currentWorkflow, setCurrentWorkflow, saveSnapshot } = useAppStore.getState();
-        if (!currentWorkflow) return;
-
-        const updatedNodes = currentWorkflow.nodes.map((node) => {
-            if (node.id === id) {
-                return {
-                    ...node,
-                    data: {
-                        ...node.data,
-                        config: { ...config, ...newConfig },
-                    },
-                };
-            }
-            return node;
-        });
-
-        setCurrentWorkflow({ ...currentWorkflow, nodes: updatedNodes });
-        saveSnapshot();
-    }, [id, config]);
+        setNodes((nds) =>
+            nds.map((node) => {
+                if (node.id === id) {
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            config: { ...config, ...newConfig },
+                        },
+                    };
+                }
+                return node;
+            })
+        );
+    }, [id, config, setNodes]);
 
     // Add a new layer
     const addLayer = useCallback((e: React.MouseEvent) => {
@@ -233,7 +232,7 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     // Delete node
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
-        deleteNode(id);
+        deleteElements({ nodes: [{ id }] });
     };
 
     const openEditor = (e: React.MouseEvent) => {

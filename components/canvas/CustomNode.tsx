@@ -2,7 +2,7 @@
 
 import React, { memo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/registry';
 import * as Icons from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,12 +20,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
         ? (Icons[metadata.icon as keyof typeof Icons] as React.ComponentType<any>)
         : Icons.Box;
 
-    const deleteNode = useAppStore((state) => state.deleteNode);
-    const copyNode = useAppStore((state) => state.copyNode);
-    const pasteNode = useAppStore((state) => state.pasteNode);
-    const currentWorkflow = useAppStore((state) => state.currentWorkflow);
+    const deleteNode = useAppStore((state) => state.deleteNode); // Potentially unused now
+    const currentWorkflow = useAppStore((state) => state.currentWorkflow); // Potentially unused now
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
+
+    // Use React Flow hook for direct graph manipulation (bypassing global store split-brain)
+    const { deleteElements, addNodes, getNode } = useReactFlow();
 
     // Subscribe to specific output for this node
     const output = useAppStore((state) => state.nodeOutputs[id]);
@@ -41,21 +42,30 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
 
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
-        deleteNode(id);
+        deleteElements({ nodes: [{ id }] });
     };
 
     // Duplicate node immediately (copy + paste in one action)
     const handleDuplicate = (e: React.MouseEvent) => {
         e.stopPropagation();
-        // Get current node position
-        const currentNode = currentWorkflow?.nodes.find((n) => n.id === id);
+        const currentNode = getNode(id); // Get from React Flow internal state
+
         if (currentNode) {
-            copyNode(id);
-            // Paste immediately with offset position
-            pasteNode({
-                x: currentNode.position.x + 50,
-                y: currentNode.position.y + 50,
-            });
+            const newNode = {
+                ...JSON.parse(JSON.stringify(currentNode)),
+                id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                position: {
+                    x: currentNode.position.x + 50,
+                    y: currentNode.position.y + 50,
+                },
+                selected: false, // Ensure copy isn't immediately selected if that causes issues
+                data: {
+                    ...currentNode.data,
+                    label: `${currentNode.data.label} (Copy)`,
+                }
+            };
+
+            addNodes(newNode);
         }
     };
 

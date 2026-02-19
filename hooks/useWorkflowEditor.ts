@@ -1,26 +1,35 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useLayoutEffect } from 'react';
-import { useNodesState, useEdgesState, addEdge, Connection, Edge } from 'reactflow';
+import { applyNodeChanges, applyEdgeChanges, addEdge, Connection, Edge, NodeChange, EdgeChange, NodeDragHandler } from 'reactflow';
 import type { Node } from 'reactflow';
 import { WorkflowNode, WorkflowEdge, Workflow, NodeType } from '@/lib/nodes/types';
 import { createNodeFromType } from '@/lib/editor/node-factory';
 import { generateEdgeId } from '@/lib/utils';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { stableStringify } from '@/lib/utils/stable-stringify';
+import { useUndoRedo } from '@/lib/hooks/use-undo-redo';
+
+// Types for the internal state of the hook
+interface EditorState {
+    nodes: any[];
+    edges: any[];
+    name: string;
+}
 
 export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
     // Create a stable identity for the workflow to detect changes
     const getWorkflowIdentity = (wf: Workflow | null | undefined) => {
-        if (!wf || !wf.nodes) return 'empty';
-        return `${wf.name}-${wf.nodes.length}-${wf.edges.length}`;
+        if (!wf) return 'empty';
+        // ⚠️ CRITICAL: Do NOT use node/edge counts here. 
+        // Local state updates (add/delete) change counts, which would trigger a history RESET if we included them.
+        // We only want to reset history if we truly switched to a DIFFERENT workflow document.
+        if (wf.id) return `id:${wf.id}`;
+        return `name:${wf.name}`; // Fallback for unsaved/new workflows
     };
 
     const currentIdentity = getWorkflowIdentity(initialWorkflow);
     const prevIdentityRef = useRef<string | null>(null);
-
-    // Debug logging
-
 
     // Compute initial values
     const getInitialNodes = (wf: Workflow | null | undefined) => {
@@ -30,6 +39,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             type: n.type,
             position: n.position,
             data: n.data,
+            // selected: false, // Ensure selected state is not initially set from legacy data if possible? ReactFlow handles selection internally on nodes.
         }));
     };
 
@@ -41,19 +51,38 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             target: e.target,
             type: 'smoothstep',
             animated: true,
+            sourceHandle: e.sourceHandle,
+            targetHandle: e.targetHandle,
         }));
     };
 
-    const [nodes, setNodes, onNodesChange] = useNodesState<any>(getInitialNodes(initialWorkflow));
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(getInitialEdges(initialWorkflow));
+    const initialEditorState: EditorState = {
+        nodes: getInitialNodes(initialWorkflow),
+        edges: getInitialEdges(initialWorkflow),
+        name: initialWorkflow?.name || 'Untitled Workflow',
+    };
+
+    // Initialize Undo/Redo Hook
+    const {
+        state: editorState,
+        set: setEditorState,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
+        reset: resetEditorState,
+        history: debugHistory // For debugging if needed
+    } = useUndoRedo<EditorState>(initialEditorState, { limit: 50, enableShortcuts: false }); // Shortcuts handled by EditorCanvas listeners or global?
+    // Handling shortcuts in EditorCanvas or a global listener is better. EditorCanvas has a listener.
+    // So we don't enable shortcuts here to avoid conflict if not focused?
+    // Actually EditorCanvas listener calls these undo/redo methods.
+
     const [selectedNode, setSelectedNode] = useState<string | null>(null);
-    const [workflowName, setWorkflowName] = useState(initialWorkflow?.name || 'Untitled Workflow');
 
     // Track the last workflow we loaded to avoid re-rendering during drag
     const lastLoadedWorkflowRef = useRef<string | null>(null);
 
     // ⭐ CRITICAL FIX: Use useLayoutEffect for SYNCHRONOUS state reset before paint
-    // This ensures state is updated BEFORE React renders, avoiding stale UI
     useLayoutEffect(() => {
         // Skip the first render (when prevIdentityRef is null)
         if (prevIdentityRef.current === null) {
@@ -66,31 +95,28 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             prevIdentityRef.current = currentIdentity;
             lastLoadedWorkflowRef.current = null;
 
-            // SYNCHRONOUSLY reset all state to match the new workflow
-            const newNodes = getInitialNodes(initialWorkflow);
-            const newEdges = getInitialEdges(initialWorkflow);
-            const newName = initialWorkflow?.name || 'Untitled Workflow';
+            const newState: EditorState = {
+                nodes: getInitialNodes(initialWorkflow),
+                edges: getInitialEdges(initialWorkflow),
+                name: initialWorkflow?.name || 'Untitled Workflow',
+            };
 
-            setNodes(newNodes);
-            setEdges(newEdges);
+            resetEditorState(newState);
             setSelectedNode(null);
-            setWorkflowName(newName);
         }
-    }, [currentIdentity, initialWorkflow, setNodes, setEdges]);
+    }, [currentIdentity, initialWorkflow, resetEditorState]);
 
-    // ⭐ Main effect to update state when workflow changes
+    // ⭐ Main effect to update state when workflow changes from outside (e.g. loaded from DB)
     useEffect(() => {
         if (initialWorkflow && initialWorkflow.nodes && initialWorkflow.nodes.length > 0) {
-            // Create a stable ID based on workflow structure and CONFIGURATION
             const sortedNodes = [...initialWorkflow.nodes].sort((a, b) => a.id.localeCompare(b.id));
             const configHash = stableStringify(sortedNodes.map(n => ({ id: n.id, data: n.data })));
             const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}-${configHash}`;
 
-            // Only update if this is a different workflow (not just position changes)
             if (lastLoadedWorkflowRef.current !== workflowId) {
                 lastLoadedWorkflowRef.current = workflowId;
 
-                // Deduplicate nodes
+                // Process Nodes (Dedupe & Layout)
                 const uniqueNodes = new Map();
                 initialWorkflow.nodes.forEach(n => {
                     if (!uniqueNodes.has(n.id)) {
@@ -104,7 +130,6 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 });
                 const newNodes = Array.from(uniqueNodes.values());
 
-                // Deduplicate edges
                 const uniqueEdges = new Map();
                 initialWorkflow.edges.forEach(e => {
                     const edgeId = e.id || `e-${e.source}-${e.target}`;
@@ -122,7 +147,6 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 });
                 const newEdges = Array.from(uniqueEdges.values());
 
-                // Check if layout is needed
                 const needsLayout = newNodes.length > 0 && newNodes.every(n => n.position.x === 0 && n.position.y === 0 || (n.position.x === 0 && n.position.y === 100));
 
                 if (needsLayout) {
@@ -131,69 +155,118 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                             const pos = layoutedPositions.get(n.id);
                             return pos ? { ...n, position: pos } : n;
                         });
-                        setNodes(layoutedNodes);
-                        setEdges(newEdges);
+                        setEditorState({ nodes: layoutedNodes, edges: newEdges, name: initialWorkflow.name }, { history: 'replace' });
                     });
                 } else {
-                    setNodes(newNodes);
-                    setEdges(newEdges);
+                    setEditorState({ nodes: newNodes, edges: newEdges, name: initialWorkflow.name }, { history: 'replace' });
                 }
-
-                // Update workflow name
-                setWorkflowName(initialWorkflow.name);
             }
-        } else {
-            // ⭐ Clear the canvas when workflow becomes null/empty
+        } else if (initialWorkflow === null && editorState.nodes.length > 0) {
+            // Check checks for explicit null to clear? Or just if empty?
+            // Existing logic cleared if initialWorkflow.nodes was missing.
             lastLoadedWorkflowRef.current = null;
-            setNodes([]);
-            setEdges([]);
+            resetEditorState({ nodes: [], edges: [], name: 'Untitled Workflow' });
             setSelectedNode(null);
-            setWorkflowName('Untitled Workflow');
         }
-    }, [initialWorkflow, setNodes, setEdges]); // Include setters in deps
+    }, [initialWorkflow, setEditorState, resetEditorState, editorState.nodes.length]);
+
+    // Handle Node Changes
+    const onNodesChange = useCallback((changes: NodeChange[]) => {
+        const nextNodes = applyNodeChanges(changes, editorState.nodes);
+
+        // Determine history mode
+        // If specific user interaction (Drag Start) happened, we pushed already.
+        // So subsequent updates during drag should be 'replace'.
+        // Selection changes should also be 'replace'.
+        setEditorState({ ...editorState, nodes: nextNodes }, { history: 'replace' });
+    }, [editorState, setEditorState]);
+
+    // Handle Edge Changes
+    const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+        const nextEdges = applyEdgeChanges(changes, editorState.edges);
+        setEditorState({ ...editorState, edges: nextEdges }, { history: 'replace' });
+    }, [editorState, setEditorState]);
+
+    // Handle Drag Start (Snapshot)
+    const onNodeDragStart: NodeDragHandler = useCallback(() => {
+        // Push current state to history before modifications begin
+        setEditorState(editorState, { history: 'push' });
+    }, [editorState, setEditorState]);
+    // NOTE: Does 'push' current state work if object ref is same? 
+    // Yes, useUndoRedo copies `present` to `past`.
 
     // Method to directly update node positions (used by auto-layout)
     const updatePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
-        setNodes((currentNodes) =>
-            currentNodes.map((node) => {
-                const newPosition = positions.get(node.id);
-                if (newPosition) {
-                    return { ...node, position: newPosition };
-                }
-                return node;
-            })
-        );
-    }, [setNodes]);
+        const newNodes = editorState.nodes.map((node) => {
+            const newPosition = positions.get(node.id);
+            return newPosition ? { ...node, position: newPosition } : node;
+        });
+        setEditorState({ ...editorState, nodes: newNodes }, { history: 'push' });
+    }, [editorState, setEditorState]);
 
-    // Add a new node to the canvas
+    // Add a new node
     const addNode = useCallback((type: NodeType, position: { x: number; y: number }) => {
         const newNode = createNodeFromType(type, position);
-        setNodes((nds) => [...nds, newNode as any]);
-    }, [setNodes]);
+        setEditorState({
+            ...editorState,
+            nodes: [...editorState.nodes, newNode]
+        }, { history: 'push' });
+    }, [editorState, setEditorState]);
 
     // Delete a node
     const deleteNode = useCallback((nodeId: string) => {
-        setNodes((nds) => nds.filter((n) => n.id !== nodeId));
-        setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+        // If array is passed? logic used by deletedNode in store was single ID.
+        // EditorCanvas passes single ID usually?
+        // Wait, SharedWorkflowEditor calls deleteNode with IDs.
+        // Let's support single ID for now as per signature.
+        setEditorState((prev) => ({
+            ...prev,
+            nodes: prev.nodes.filter((n) => n.id !== nodeId),
+            edges: prev.edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
+        }), { history: 'push' });
+
         if (selectedNode === nodeId) {
             setSelectedNode(null);
         }
-    }, [setNodes, setEdges, selectedNode]);
+    }, [selectedNode, setEditorState]);
+
+    // Bulk Delete
+    const deleteNodes = useCallback((nodeIds: string[]) => {
+        const ids = new Set(nodeIds);
+        setEditorState((prev) => ({
+            ...prev,
+            nodes: prev.nodes.filter((n) => !ids.has(n.id)),
+            edges: prev.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target))
+        }), { history: 'push' });
+
+        if (selectedNode && ids.has(selectedNode)) {
+            setSelectedNode(null);
+        }
+    }, [selectedNode, setEditorState]);
+
+    // Duplicate Nodes
+    const duplicateNodes = useCallback((newNodes: any[], newEdges: any[]) => {
+        setEditorState((prev) => ({
+            ...prev,
+            nodes: [...prev.nodes, ...newNodes],
+            edges: [...prev.edges, ...newEdges]
+        }), { history: 'push' });
+    }, [setEditorState]);
 
     // Update node configuration
     const updateNodeConfig = useCallback((nodeId: string, config: any) => {
-        setNodes((nds) =>
-            nds.map((n) =>
+        setEditorState((prev) => ({
+            ...prev,
+            nodes: prev.nodes.map((n) =>
                 n.id === nodeId
                     ? { ...n, data: { ...n.data, config } }
                     : n
             )
-        );
-    }, [setNodes]);
+        }), { history: 'push' }); // Updates in property panel should likely be undoable steps
+    }, [setEditorState]);
 
     // Handle connection creation
     const onConnect = useCallback((connection: Connection) => {
-        // Include targetHandle in edge ID to allow multiple connections to different handles on same node
         const handleSuffix = connection.targetHandle ? `-${connection.targetHandle}` : '';
         const id = generateEdgeId(connection.source!, connection.target!) + handleSuffix;
         const newEdge: Edge = {
@@ -205,20 +278,24 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             type: 'smoothstep',
             animated: true,
         };
-        setEdges((eds) => addEdge(newEdge, eds));
-    }, [setEdges]);
 
-    // Get current workflow
+        setEditorState((prev) => ({
+            ...prev,
+            edges: addEdge(newEdge, prev.edges)
+        }), { history: 'push' });
+    }, [setEditorState]);
+
+    // Get current workflow (snapshot)
     const getWorkflow = useCallback((): Workflow => {
         return {
-            name: workflowName,
-            nodes: nodes.map(n => ({
+            name: editorState.name,
+            nodes: editorState.nodes.map(n => ({
                 id: n.id,
                 type: n.type as NodeType,
                 position: n.position,
                 data: n.data,
             })),
-            edges: edges.map(e => ({
+            edges: editorState.edges.map(e => ({
                 id: e.id,
                 source: e.source,
                 target: e.target,
@@ -226,31 +303,40 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 targetHandle: e.targetHandle || null,
             })),
         };
-    }, [nodes, edges, workflowName]);
+    }, [editorState]);
 
-    // Clear canvas
+    const setWorkflowName = useCallback((name: string) => {
+        setEditorState(prev => ({ ...prev, name }), { history: 'replace' }); // Name change usually typing? replace. 
+    }, [setEditorState]);
+
     const clearWorkflow = useCallback(() => {
-        setNodes([]);
-        setEdges([]);
+        resetEditorState({ nodes: [], edges: [], name: 'Untitled Workflow' });
         setSelectedNode(null);
-        setWorkflowName('Untitled Workflow');
-    }, [setNodes, setEdges]);
+    }, [resetEditorState]);
 
     return {
-        nodes,
-        edges,
+        nodes: editorState.nodes,
+        edges: editorState.edges,
         onNodesChange,
         onEdgesChange,
         onConnect,
+        onNodeDragStart, // New prop
         selectedNode,
         setSelectedNode,
-        workflowName,
+        workflowName: editorState.name,
         setWorkflowName,
         addNode,
         deleteNode,
+        deleteNodes, // New prop
+        duplicateNodes, // New prop
         updateNodeConfig,
         updatePositions,
         getWorkflow,
         clearWorkflow,
+        // Undo/Redo exports
+        undo,
+        redo,
+        canUndo,
+        canRedo
     };
 }

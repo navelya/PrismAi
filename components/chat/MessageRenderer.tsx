@@ -67,51 +67,7 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
         [images]
     );
 
-    // Single image: render as a clean, full-width preview (ideal for compositor output)
-    if (images.length === 1) {
-        const img = images[0];
-        return (
-            <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-content-secondary">
-                    <ImageIcon className="w-4 h-4" />
-                    <span>{img.resolution.width} × {img.resolution.height}</span>
-                </div>
 
-                <div
-                    className="relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 cursor-pointer border border-stroke-subtle inline-block"
-                    style={{ maxWidth: '100%' }}
-                    onClick={() => setSelectedIndex(0)}
-                >
-                    <img
-                        src={thumbnails.get(0) || img.url}
-                        alt={img.metadata?.title || 'Image'}
-                        style={{
-                            display: 'block',
-                            maxWidth: '100%',
-                            maxHeight: '320px',
-                            width: 'auto',
-                            height: 'auto',
-                            objectFit: 'contain',
-                        }}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 hover:opacity-100 transition-opacity">
-                        <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
-                            <div className="text-xs font-medium">{img.metadata?.title || 'Image'}</div>
-                            <div className="text-xs text-accent-primary mt-1 font-medium">Click to view full size</div>
-                        </div>
-                    </div>
-                </div>
-
-                {selectedIndex !== null && (
-                    <ImageLightbox
-                        images={lightboxImages}
-                        initialIndex={selectedIndex}
-                        onClose={() => setSelectedIndex(null)}
-                    />
-                )}
-            </div>
-        );
-    }
 
     // Multi-image: standard grid gallery
     return (
@@ -121,36 +77,46 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                 <span>{images.length} images</span>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {images.map((img, idx) => (
-                    <div
-                        key={idx}
-                        className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow duration-300 cursor-pointer border border-stroke-subtle"
-                        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 192px' }}
-                        onClick={() => setSelectedIndex(idx)}
-                    >
-                        <img
-                            src={thumbnails.get(idx) || img.url}
-                            alt={img.metadata?.title || `Image ${idx + 1}`}
-                            className="w-full h-48 object-cover bg-surface-tertiary"
-                            loading="lazy"
-                            decoding="async"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
-                                <div className="text-xs font-medium truncate">
-                                    {img.metadata?.title || 'Image'}
-                                </div>
-                                <div className="text-xs text-gray-300">
-                                    {img.resolution.width} x {img.resolution.height}
-                                </div>
-                                <div className="text-xs text-accent-primary mt-1 font-medium">
-                                    Click to view full size
+            {/* Lightroom Style Layout - Nuclear Fix */}
+            <div className="flex flex-row flex-wrap justify-start items-start gap-2 w-full">
+                {images.map((img, idx) => {
+                    // Calculate aspect ratio
+                    const width = img.resolution?.width || 1024;
+                    const height = img.resolution?.height || 1024;
+                    const aspectRatio = width / height;
+
+                    return (
+                        <div
+                            key={idx}
+                            className="relative cursor-pointer group rounded-lg overflow-hidden shadow-sm border border-stroke-subtle bg-surface-tertiary flex-none"
+                            style={{
+                                height: '180px', // Fixed height
+                                width: 'auto',   // Auto width based on image
+                                flexGrow: 0,     // Do NOT stretch
+                                maxWidth: '100%', // Safety for mobile
+                            }}
+                            onClick={() => setSelectedIndex(idx)}
+                        >
+                            <img
+                                src={thumbnails.get(idx) || img.url}
+                                alt={img.metadata?.title}
+                                className="h-full w-auto max-w-none object-cover transition-transform duration-300 group-hover:scale-105"
+                                style={{
+                                    width: 'auto',
+                                    height: '100%'
+                                }}
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200" />
+
+                            {/* Hover Info Overlay */}
+                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="text-[10px] text-white/90 font-medium truncate">
+                                    {width} x {height}
                                 </div>
                             </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {selectedIndex !== null && (
@@ -163,6 +129,9 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
         </div>
     );
 });
+
+
+
 
 function createThumbnail(base64Url: string, maxWidth: number): Promise<string> {
     return new Promise((resolve, reject) => {

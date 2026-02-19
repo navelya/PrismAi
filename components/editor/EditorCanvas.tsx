@@ -38,6 +38,19 @@ interface EditorCanvasProps {
     updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
     selectionMode?: boolean;
     onSelectionToggle?: () => void;
+    // Undo/Redo Props
+    undo?: () => void;
+    redo?: () => void;
+    canUndo?: boolean;
+    canRedo?: boolean;
+    // Drag Handlers
+    onNodeDragStart?: NodeDragHandler;
+    onNodeDragStop?: NodeDragHandler;
+    // Action Handlers
+    onDuplicate?: (nodes: any[], edges: any[]) => void;
+    onDelete?: (nodeIds: string[]) => void;
+    onCopy?: (nodeId: string) => void;
+    onPaste?: () => void;
 }
 
 const nodeTypes = {
@@ -62,6 +75,17 @@ function EditorCanvasInner({
     updatePositions,
     selectionMode = false,
     onSelectionToggle,
+    // Undo/Redo & Props
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    onNodeDragStart,
+    onNodeDragStop,
+    onDuplicate,
+    onDelete,
+    onCopy,
+    onPaste,
 }: EditorCanvasProps) {
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
@@ -71,14 +95,12 @@ function EditorCanvasInner({
     // Theme context for dynamic updates
     const { resolvedTheme } = useTheme();
 
-    // Get store actions for undo/redo and copy/paste
+    // Store Actions needed for Copy/Paste/Delete (can these be lifted too? yes but for now keep them or lift them)
+    // The user instruction was "keep the buttons as they are and just replace the logic behind them".
+    // The Toolbar buttons use handleUndo/handleRedo.
+    // The keyboard shortcuts use undo/redo.
     const setIsDragging = useAppStore((state) => state.setIsDragging);
-    const updateNodePosition = useAppStore((state) => state.updateNodePosition);
-    const saveSnapshot = useAppStore((state) => state.saveSnapshot);
-    const undo = useAppStore((state) => state.undo);
-    const redo = useAppStore((state) => state.redo);
-    const canUndo = useAppStore((state) => state.canUndo());
-    const canRedo = useAppStore((state) => state.canRedo());
+    // Removed old history actions
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
     const deleteNode = useAppStore((state) => state.deleteNode);
@@ -149,27 +171,27 @@ function EditorCanvasInner({
     }, [undo, redo, canUndo, canRedo, nodes, copyNode, pasteNode]);
 
     // Handle node drag start
-    const handleNodeDragStart: NodeDragHandler = useCallback(() => {
+    const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
         setIsDragging(true);
-    }, [setIsDragging]);
+        if (onNodeDragStart) onNodeDragStart(event, node, nodes);
+    }, [setIsDragging, onNodeDragStart]);
 
-    // Handle node drag stop - save snapshot with new position
-    const handleNodeDragStop: NodeDragHandler = useCallback((event, node) => {
+    // Handle node drag stop
+    const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         setIsDragging(false);
-        updateNodePosition(node.id, node.position);
-        saveSnapshot();
-    }, [setIsDragging, updateNodePosition, saveSnapshot]);
+        if (onNodeDragStop) onNodeDragStop(event, node, nodes);
+    }, [setIsDragging, onNodeDragStop]);
 
     // Handle undo button click
     const handleUndo = () => {
-        if (canUndo) {
+        if (canUndo && undo) {
             undo();
         }
     };
 
     // Handle redo button click
     const handleRedo = () => {
-        if (canRedo) {
+        if (canRedo && redo) {
             redo();
         }
     };
@@ -493,18 +515,8 @@ function EditorCanvasInner({
                                                 }
                                             });
 
-                                            const state = useAppStore.getState();
-                                            if (state.currentWorkflow) {
-                                                // Just add new nodes - don't touch existing nodes
-                                                // This preserves ReactFlow's internal selection state
-                                                useAppStore.setState({
-                                                    currentWorkflow: {
-                                                        ...state.currentWorkflow,
-                                                        nodes: [...state.currentWorkflow.nodes, ...newNodes],
-                                                        edges: [...(state.currentWorkflow.edges || []), ...newEdges],
-                                                    }
-                                                });
-                                                saveSnapshot();
+                                            if (onDuplicate) {
+                                                onDuplicate(newNodes, newEdges);
                                             }
                                         }
                                     }}
@@ -517,7 +529,10 @@ function EditorCanvasInner({
                                     onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        selectedNodes.forEach((node: any) => deleteNode(node.id));
+                                        if (onDelete) {
+                                            const ids = selectedNodes.map((n: any) => n.id);
+                                            onDelete(ids);
+                                        }
                                     }}
                                     className="p-1.5 rounded bg-surface-elevated/95 border border-stroke-subtle text-accent-error hover:bg-accent-error/10 hover:border-accent-error/30 transition-colors shadow-md"
                                     title="Delete selected nodes"

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useState } from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/registry';
 import { ImagePlus, X, Upload, Image as ImageIcon, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -28,32 +28,29 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
     // Node color with fallback to accent
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
 
-    // Update node config with new images - use getState to avoid stale closure
+    // Use React Flow hook for direct graph manipulation
+    const { setNodes, deleteElements } = useReactFlow();
+
+    // Update node config with new images
     const updateImages = useCallback((newImages: string[]) => {
-        const { currentWorkflow, setCurrentWorkflow } = useAppStore.getState();
-        if (!currentWorkflow) return;
-
-        const updatedNodes = currentWorkflow.nodes.map((node) => {
-            if (node.id === id) {
-                return {
-                    ...node,
-                    data: {
-                        ...node.data,
-                        config: {
-                            ...node.data.config,
-                            images: newImages,
+        setNodes((nds) =>
+            nds.map((node) => {
+                if (node.id === id) {
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            config: {
+                                ...node.data.config,
+                                images: newImages,
+                            },
                         },
-                    },
-                };
-            }
-            return node;
-        });
-
-        setCurrentWorkflow({
-            ...currentWorkflow,
-            nodes: updatedNodes,
-        });
-    }, [id]);
+                    };
+                }
+                return node;
+            })
+        );
+    }, [id, setNodes]);
 
     // Handle file upload
     const handleFiles = useCallback((files: FileList | null) => {
@@ -113,7 +110,7 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
     // Delete node
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
-        deleteNode(id);
+        deleteElements({ nodes: [{ id }] });
     };
 
     const handleRunFromHere = (e: React.MouseEvent) => {
