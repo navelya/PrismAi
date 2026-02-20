@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { Suspense, useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store/app-store';
 import { useTheme } from '@/components/theme/ThemeProvider';
@@ -642,7 +642,7 @@ const comingSoonDescriptions: Record<string, { title: string; description: strin
 // MAIN SETTINGS PAGE
 // =============================================================================
 
-export default function SettingsPage() {
+function SettingsContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
@@ -788,5 +788,17 @@ export default function SettingsPage() {
                 </div>
             </main>
         </div>
+    );
+}
+
+export default function SettingsPage() {
+    return (
+        <Suspense fallback={
+            <div className="w-full h-full flex items-center justify-center bg-surface-secondary">
+                <div className="w-8 h-8 border-4 border-accent-primary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        }>
+            <SettingsContent />
+        </Suspense>
     );
 }
