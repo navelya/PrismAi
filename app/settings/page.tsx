@@ -319,7 +319,24 @@ function AccountProfileView({ user, onProfileUpdated }: { user: any, onProfileUp
 
             if (updateError) throw updateError;
 
-            // Refresh user data globally
+            // 4. Delete old custom avatar if it existed to save S3 space
+            const oldAvatarUrl = user.profile?.avatar_url;
+            if (oldAvatarUrl && oldAvatarUrl.includes('/storage/v1/object/public/avatars/')) {
+                // Extract just the "user_id/filename.jpg" portion from the full URL
+                const urlParts = oldAvatarUrl.split('/avatars/');
+                if (urlParts.length === 2) {
+                    const oldFilePath = urlParts[1];
+                    const { error: removeError } = await supabase.storage
+                        .from('avatars')
+                        .remove([oldFilePath]);
+
+                    if (removeError) {
+                        console.warn('Failed to delete old avatar:', removeError);
+                    }
+                }
+            }
+
+            // 5. Refresh user data globally
             onProfileUpdated();
             // Dispatch a global event so the Sidebar (and other components) know to re-fetch the user
             window.dispatchEvent(new Event('profile-updated'));

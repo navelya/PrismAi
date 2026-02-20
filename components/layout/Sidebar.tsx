@@ -61,8 +61,15 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
     const confirmDelete = async () => {
         if (deleteConfirmation.sessionId) {
+            const isDeletingActiveSession = pathname === `/chat/${deleteConfirmation.sessionId}`;
+
             setSessions(prev => prev.filter(s => s.id !== deleteConfirmation.sessionId));
             await deleteSession(deleteConfirmation.sessionId);
+            setDeleteConfirmation({ isOpen: false, sessionId: null });
+
+            if (isDeletingActiveSession) {
+                handleNewChat();
+            }
         }
     };
 
