@@ -13,6 +13,7 @@ import { LogOut, User as UserIcon, Plus } from 'lucide-react';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { useLongPress } from '@/lib/hooks/use-long-press';
 import { MobileActionSheet, ActionItem } from '@/components/ui/MobileActionSheet';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
@@ -45,6 +46,10 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             }
         };
         getUser();
+
+        // Listen for profile updates from the Settings page
+        window.addEventListener('profile-updated', getUser);
+        return () => window.removeEventListener('profile-updated', getUser);
     }, []);
 
     // ...
@@ -294,22 +299,11 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
                                     <div className="relative group">
-                                        <div className={`
-                                            w-10 h-10 rounded-full bg-gradient-premium flex items-center justify-center text-white text-sm font-medium
-                                            shadow-md ring-2 ring-white/10
-                                        `}>
-                                            {user.user_metadata?.avatar_url ? (
-                                                <img
-                                                    src={user.user_metadata.avatar_url}
-                                                    alt={user.email}
-                                                    className="w-full h-full rounded-full object-cover"
-                                                />
-                                            ) : (
-                                                <span>{user.email?.[0].toUpperCase()}</span>
-                                            )}
-                                        </div>
-                                        {/* Status Indicator */}
-                                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-surface-secondary rounded-full"></div>
+                                        <UserAvatar
+                                            user={user}
+                                            className="w-10 h-10"
+                                            showStatus={Object.keys(user).length > 0}
+                                        />
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm font-semibold text-content-primary truncate max-w-[120px]">
@@ -478,24 +472,11 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         <div className={`flex items-center gap-3 ${!isExpanded && 'justify-center'}`}>
                             {/* Avatar */}
                             <div className="relative group">
-                                <div className={`
-                                    rounded-full bg-gradient-premium flex items-center justify-center text-white font-medium
-                                    shadow-md ring-2 ring-white/10
-                                    ${isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}
-                                `}>
-                                    {user.user_metadata?.avatar_url ? (
-                                        <img
-                                            src={user.user_metadata.avatar_url}
-                                            alt={user.email}
-                                            className="w-full h-full rounded-full object-cover"
-                                        />
-                                    ) : (
-                                        <span>{user.email?.[0].toUpperCase()}</span>
-                                    )}
-                                </div>
-
-                                {/* Status Indicator */}
-                                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-surface-secondary rounded-full"></div>
+                                <UserAvatar
+                                    user={user}
+                                    className={isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}
+                                    showStatus={Object.keys(user).length > 0}
+                                />
                             </div>
 
                             <div

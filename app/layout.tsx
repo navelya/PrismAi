@@ -11,7 +11,6 @@ export const metadata: Metadata = {
     description: 'Transform natural language commands into powerful automation workflows for graphic design',
     keywords: ['automation', 'AI', 'workflow', 'graphic design', 'no-code'],
     manifest: '/manifest.json',
-    themeColor: '#7c3aed',
     appleWebApp: {
         capable: true,
         statusBarStyle: 'default',
@@ -20,12 +19,14 @@ export const metadata: Metadata = {
     other: {
         'mobile-web-app-capable': 'yes',
     },
-    viewport: {
-        width: 'device-width',
-        initialScale: 1,
-        maximumScale: 1,
-        userScalable: false,
-    },
+};
+
+export const viewport = {
+    themeColor: '#7c3aed',
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
 };
 
 // Anti-flash script - runs before React hydration to prevent theme flash
