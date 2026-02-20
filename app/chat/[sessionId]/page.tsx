@@ -15,10 +15,13 @@ export default function SessionPage() {
 
     console.log('[DEBUG] SessionPage Render:', { sessionId, isLoading, error, activeSessionId });
 
-    // If session load failed, trigger 404
+    // If session load failed, redirect gracefully instead of 404
     if (error) {
-        console.error('[DEBUG] Triggering notFound() due to error:', error);
-        notFound();
+        console.error('[DEBUG] Redirecting to /chat due to session error:', error);
+        // Avoid infinite loops, just throw standard JS error to Error Boundary 
+        // OR better yet, let's gracefully route them back to a safe empty chat
+        window.location.href = '/chat';
+        return null;
     }
 
     // Track if we've triggered loading for this specific sessionId

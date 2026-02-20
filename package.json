@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.39.3",
     "@types/d3-hierarchy": "^3.1.7",
     "@types/dagre": "^0.7.53",

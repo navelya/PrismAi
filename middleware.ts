@@ -1,7 +1,39 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
+    let supabaseResponse = NextResponse.next({
+        request,
+    });
+
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                getAll() {
+                    return request.cookies.getAll();
+                },
+                setAll(cookiesToSet) {
+                    cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
+                    supabaseResponse = NextResponse.next({
+                        request,
+                    });
+                    cookiesToSet.forEach(({ name, value, options }) =>
+                        supabaseResponse.cookies.set(name, value, options)
+                    );
+                },
+            },
+        }
+    );
+
+    // IMPORTANT: Avoid writing any logic between createServerClient and
+    // supabase.auth.getUser(). A simple mistake could make it very hard to debug
+    // issues with cross-browser quirks, CORS, and native next.js routing.
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
     const path = request.nextUrl.pathname;
 
     // Define protected page routes
@@ -14,17 +46,14 @@ export function middleware(request: NextRequest) {
     const isPublicApi = publicApiRoutes.some(route => path.startsWith(route));
     const isProtectedApi = isApiRoute && !isPublicApi;
 
-    // Check for auth cookie
-    const authCookie = request.cookies.get('supabase-auth-token');
-
     // Protect pages — redirect to login
-    if (isProtectedPage && !authCookie) {
+    if (isProtectedPage && !user) {
         const loginUrl = new URL('/login', request.url);
         return NextResponse.redirect(loginUrl);
     }
 
     // Protect API routes — return 401 JSON
-    if (isProtectedApi && !authCookie) {
+    if (isProtectedApi && !user) {
         return NextResponse.json(
             { error: 'Authentication required' },
             { status: 401 }
@@ -32,11 +61,11 @@ export function middleware(request: NextRequest) {
     }
 
     // If logged in and at login page, redirect to chat
-    if (path === '/login' && authCookie) {
+    if (path === '/login' && user) {
         return NextResponse.redirect(new URL('/chat', request.url));
     }
 
-    return NextResponse.next();
+    return supabaseResponse;
 }
 
 export const config = {

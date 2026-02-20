@@ -79,18 +79,26 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
             fetchSessions();
 
-            // Subscribe to session changes (Realtime)
-            const channel = supabase
-                .channel('sidebar-sessions')
-                .on(
-                    'postgres_changes',
-                    { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
-                    (payload: any) => {
+            fetchSessions();
 
-                        fetchSessions();
-                    }
-                )
-                .subscribe();
+            // Subscribe to session changes (Realtime)
+            let channel: ReturnType<typeof supabase.channel> | null = null;
+
+            // Only try to subscribe if we have a valid initialized client and authenticated user
+            if (supabase && user?.id) {
+                channel = supabase
+                    .channel('sidebar-sessions')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
+                        (payload: any) => {
+                            fetchSessions();
+                        }
+                    )
+                    .subscribe((status: string, err?: Error) => {
+                        if (err) console.error('[Sidebar] Realtime subscription error:', err);
+                    });
+            }
 
             // Listen for custom local events (Immediate UI update fallback)
             const handleLocalUpdate = () => {
@@ -101,7 +109,9 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             window.addEventListener('session-updated', handleLocalUpdate);
 
             return () => {
-                supabase.removeChannel(channel);
+                if (channel) {
+                    supabase.removeChannel(channel);
+                }
                 window.removeEventListener('session-updated', handleLocalUpdate);
             };
         }
