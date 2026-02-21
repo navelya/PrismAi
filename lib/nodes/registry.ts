@@ -240,6 +240,10 @@ const filterSortExecutor: NodeExecutor = async (
  * - gemini (default): Gemini 2.5 Flash Image via Google AI API
  * - pollinations: Pollinations.ai (free, unlimited, sometimes unreliable)
  * - huggingface: Stable Diffusion XL via Hugging Face Inference API
+ * 
+ * DUAL-MODE:
+ * - Client-side: Proxies through /api/image/* routes
+ * - Server-side: Calls external APIs directly (no localhost on Vercel)
  */
 const aiGenerateImageExecutor: NodeExecutor = async (
     config: NodeConfig,
@@ -249,79 +253,159 @@ const aiGenerateImageExecutor: NodeExecutor = async (
     try {
         const { prompt, model = 'gemini', aspectRatio = '1:1' } = config as AIGenerateImageConfig;
 
-        // Determine dimensions based on aspect ratio (used by Pollinations)
+        // Determine dimensions based on aspect ratio
         const [width, height] = aspectRatio === '16:9' ? [1920, 1080] :
             aspectRatio === '4:3' ? [1600, 1200] : [1024, 1024];
 
-        // Build base URL (works both client-side and server-side)
-        const baseUrl = typeof window !== 'undefined'
-            ? window.location.origin
-            : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        const isBrowser = typeof window !== 'undefined';
 
-        // Route to correct proxy based on model
-        let proxyUrl: string;
-        let sourceName: string;
+        if (isBrowser) {
+            // ═══════════════════════════════════════════════════════
+            // CLIENT-SIDE: Proxy through Next.js API routes
+            // ═══════════════════════════════════════════════════════
+            const baseUrl = window.location.origin;
 
-        switch (model) {
-            case 'pollinations':
-                proxyUrl = `${baseUrl}/api/image/generate?prompt=${encodeURIComponent(prompt)}&width=${width}&height=${height}`;
-                sourceName = 'Pollinations.ai';
-                break;
-            case 'huggingface':
-                proxyUrl = `${baseUrl}/api/image/generate-hf?prompt=${encodeURIComponent(prompt)}`;
-                sourceName = 'Stable Diffusion XL (Hugging Face)';
-                break;
-            default:
-                // Gemini models (gemini-2.5-flash-image, gemini-3-pro-image-preview, or legacy 'gemini')
-                const geminiModel = model === 'gemini' ? 'gemini-2.5-flash-image' : model;
-                proxyUrl = `${baseUrl}/api/image/generate-gemini?prompt=${encodeURIComponent(prompt)}&aspectRatio=${aspectRatio}&model=${geminiModel}`;
+            let proxyUrl: string;
+            let sourceName: string;
 
-                if (model === 'gemini-3-pro-image-preview') sourceName = 'Gemini 3 Pro';
-                else if (model === 'gemini-2.5-flash-image') sourceName = 'Nano Banana';
-                else sourceName = 'Gemini Imagen';
-                break;
+            switch (model) {
+                case 'pollinations':
+                    proxyUrl = `${baseUrl}/api/image/generate?prompt=${encodeURIComponent(prompt)}&width=${width}&height=${height}`;
+                    sourceName = 'Pollinations.ai';
+                    break;
+                case 'huggingface':
+                    proxyUrl = `${baseUrl}/api/image/generate-hf?prompt=${encodeURIComponent(prompt)}`;
+                    sourceName = 'Stable Diffusion XL (Hugging Face)';
+                    break;
+                default:
+                    const geminiModel = model === 'gemini' ? 'gemini-2.5-flash-image' : model;
+                    proxyUrl = `${baseUrl}/api/image/generate-gemini?prompt=${encodeURIComponent(prompt)}&aspectRatio=${aspectRatio}&model=${geminiModel}`;
+                    if (model === 'gemini-3-pro-image-preview') sourceName = 'Gemini 3 Pro';
+                    else if (model === 'gemini-2.5-flash-image') sourceName = 'Nano Banana';
+                    else sourceName = 'Gemini Imagen';
+                    break;
+            }
+
+            const response = await fetch(proxyUrl);
+            if (!response.ok) {
+                const errorBody = await response.text();
+                let errorMsg = `Image generation failed (${sourceName}): ${response.status}`;
+                try {
+                    const parsed = JSON.parse(errorBody);
+                    if (parsed.error) errorMsg = `${sourceName}: ${parsed.error}`;
+                } catch { /* use default error */ }
+                throw new Error(errorMsg);
+            }
+
+            const blob = await response.blob();
+            if (blob.size === 0) throw new Error(`Received empty image from ${sourceName}`);
+
+            const arrayBuffer = await blob.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const mimeType = blob.type || 'image/png';
+            const base64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
+
+            return {
+                success: true,
+                data: [{
+                    url: base64,
+                    resolution: { width: model === 'gemini' ? 1024 : width, height: model === 'gemini' ? 1024 : height },
+                    metadata: {
+                        title: `AI Generated: ${prompt}`,
+                        source: sourceName,
+                        format: mimeType.split('/')[1] || 'png',
+                        generatedBy: `${sourceName} (AI)`,
+                        prompt,
+                    },
+                }],
+            };
+        } else {
+            // ═══════════════════════════════════════════════════════
+            // SERVER-SIDE: Call Gemini API directly (no localhost)
+            // ═══════════════════════════════════════════════════════
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) throw new Error('GEMINI_API_KEY not configured on server');
+
+            const geminiModel = (model === 'gemini' || !model) ? 'gemini-2.5-flash-image' : model;
+            const sourceName = geminiModel === 'gemini-3-pro-image-preview' ? 'Gemini 3 Pro' : 'Nano Banana';
+
+            // Gemini Image Generation models to try
+            const modelsToTry = [geminiModel, 'gemini-2.5-flash-image', 'imagen-3.0-generate-001'].filter(
+                (v, i, arr) => arr.indexOf(v) === i // deduplicate
+            );
+
+            const body: any = {
+                contents: [{ parts: [{ text: prompt }] }],
+            };
+            if (aspectRatio !== '1:1') {
+                body.generationConfig = { imageConfig: { aspectRatio } };
+            }
+            const bodyStr = JSON.stringify(body);
+
+            let lastError = '';
+            for (const tryModel of modelsToTry) {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${tryModel}:generateContent`;
+                console.log(`🎨 [Server] Trying Gemini image model: ${tryModel}`);
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-goog-api-key': apiKey,
+                        },
+                        body: bodyStr,
+                    });
+
+                    if (response.status === 429 || response.status === 404) {
+                        lastError = `${tryModel}: ${response.status === 429 ? 'Rate limited' : 'Not found'}`;
+                        console.warn(`⚠️ ${lastError}, trying next...`);
+                        continue;
+                    }
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        lastError = `${tryModel}: HTTP ${response.status}`;
+                        console.error(`${tryModel} error:`, errorText.substring(0, 300));
+                        continue;
+                    }
+
+                    const data = await response.json();
+                    const candidates = data.candidates || [];
+                    if (candidates.length === 0) { lastError = `${tryModel}: No candidates`; continue; }
+
+                    const parts = candidates[0].content?.parts || [];
+                    const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
+                    if (!imagePart) { lastError = `${tryModel}: No image in response`; continue; }
+
+                    const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
+                    const mimeType = imagePart.inlineData.mimeType || 'image/png';
+                    const base64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+                    console.log(`✅ [Server] Image generated with ${tryModel} (${imageBuffer.length} bytes)`);
+
+                    return {
+                        success: true,
+                        data: [{
+                            url: base64,
+                            resolution: { width: 1024, height: 1024 },
+                            metadata: {
+                                title: `AI Generated: ${prompt}`,
+                                source: sourceName,
+                                format: mimeType.split('/')[1] || 'png',
+                                generatedBy: `${sourceName} (AI)`,
+                                prompt,
+                            },
+                        }],
+                    };
+                } catch (fetchError) {
+                    lastError = `${tryModel}: ${fetchError instanceof Error ? fetchError.message : 'Network error'}`;
+                    console.error(`${tryModel} fetch error:`, fetchError);
+                    continue;
+                }
+            }
+
+            throw new Error(lastError || 'All Gemini image models failed on server');
         }
-
-        // Fetch the generated image through our proxy
-        const response = await fetch(proxyUrl);
-        if (!response.ok) {
-            const errorBody = await response.text();
-            let errorMsg = `Image generation failed (${sourceName}): ${response.status}`;
-            try {
-                const parsed = JSON.parse(errorBody);
-                if (parsed.error) errorMsg = `${sourceName}: ${parsed.error}`;
-            } catch { /* use default error */ }
-            throw new Error(errorMsg);
-        }
-
-        const blob = await response.blob();
-
-        if (blob.size === 0) {
-            throw new Error(`Received empty image from ${sourceName}`);
-        }
-
-        // Convert to base64 for display
-        const arrayBuffer = await blob.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const mimeType = blob.type || 'image/png';
-        const base64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
-
-        const generatedImage: ImageObject = {
-            url: base64,
-            resolution: { width: model === 'gemini' ? 1024 : width, height: model === 'gemini' ? 1024 : height },
-            metadata: {
-                title: `AI Generated: ${prompt}`,
-                source: sourceName,
-                format: mimeType.split('/')[1] || 'png',
-                generatedBy: `${sourceName} (AI)`,
-                prompt,
-            },
-        };
-
-        return {
-            success: true,
-            data: [generatedImage],
-        };
     } catch (error) {
         console.error('❌ AI Image Generation Error:', error);
         return {
