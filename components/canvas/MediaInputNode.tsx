@@ -2,7 +2,7 @@
 
 import React, { memo, useCallback, useRef, useState } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { nodeMetadata } from '@/lib/nodes/registry';
+import { nodeMetadata } from '@/lib/nodes/metadata';
 import { ImagePlus, X, Upload, Image as ImageIcon, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';

@@ -3,7 +3,7 @@
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { nodeMetadata } from '@/lib/nodes/registry';
+import { nodeMetadata } from '@/lib/nodes/metadata';
 import { Layers2, Plus, X, Edit3, Eye, EyeOff, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -26,6 +26,7 @@ const defaultTransform: LayerTransform = {
     opacity: 1,
     flipX: false,
     flipY: false,
+    crop: null,
 };
 
 // Default compositor config

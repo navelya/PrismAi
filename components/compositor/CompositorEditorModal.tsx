@@ -25,6 +25,7 @@ const DEFAULT_TRANSFORM: LayerTransform = {
     opacity: 1,
     flipX: false,
     flipY: false,
+    crop: null,
 };
 
 const IMAGES_PER_PAGE = 6;

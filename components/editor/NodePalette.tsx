@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { NodeType } from '@/lib/nodes/types';
-import { nodeMetadata } from '@/lib/nodes/registry';
+import { nodeMetadata } from '@/lib/nodes/metadata';
 import * as Icons from 'lucide-react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';

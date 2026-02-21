@@ -3,7 +3,7 @@
 import React, { memo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { nodeMetadata } from '@/lib/nodes/registry';
+import { nodeMetadata } from '@/lib/nodes/metadata';
 import * as Icons from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';

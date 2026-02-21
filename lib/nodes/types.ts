@@ -94,6 +94,12 @@ export interface LayerTransform {
     opacity: number;        // 0.0 - 1.0
     flipX: boolean;         // Horizontal flip
     flipY: boolean;         // Vertical flip
+    crop: {                 // Source Crop Box
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    } | null;
 }
 
 /**

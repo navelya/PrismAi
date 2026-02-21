@@ -717,85 +717,170 @@ const compositorExecutor: NodeExecutor = async (
             };
         }
 
-        // Check if we're in browser environment (client-side rendering)
-        if (typeof window === 'undefined' || typeof document === 'undefined') {
+        const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+        if (isBrowser) {
+            // ═══════════════════════════════════════════════════════
+            // CLIENT-SIDE: Canvas-based rendering (live preview / local run)
+            // ═══════════════════════════════════════════════════════
+            const canvas = document.createElement('canvas');
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            const ctx = canvas.getContext('2d');
+
+            if (!ctx) {
+                return { success: false, data: null, error: 'Failed to create canvas context.' };
+            }
+
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+            for (const layer of layers) {
+                if (!layer.visible) continue;
+
+                const handleInputs = input as Record<string, ImageObject[] | ImageObject>;
+                const sourceData = handleInputs[layer.sourceHandleId];
+                if (!sourceData) continue;
+
+                const sourceArray = Array.isArray(sourceData) ? sourceData : [sourceData];
+                const imageData = sourceArray[layer.selectedIndex] || sourceArray[0];
+                if (!imageData?.url) continue;
+
+                const img = await loadImage(imageData.url);
+
+                ctx.save();
+                const { x, y, width, height, rotation, opacity, flipX, flipY } = layer.transform;
+
+                ctx.globalAlpha = opacity;
+                ctx.translate(x + width / 2, y + height / 2);
+                ctx.rotate((rotation * Math.PI) / 180);
+                ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+                ctx.drawImage(img, -width / 2, -height / 2, width, height);
+                ctx.restore();
+            }
+
+            const mimeType = 'image/png';
+            const dataUrl = canvas.toDataURL(mimeType, 1.0);
+
             return {
-                success: false,
-                data: null,
-                error: 'Compositor requires browser environment for rendering.',
+                success: true,
+                data: [{
+                    url: dataUrl,
+                    resolution: { width: canvasWidth, height: canvasHeight },
+                    metadata: { title: 'Compositor Output', source: 'Compositor (Canvas)', format: outputFormat },
+                }],
+            };
+        } else {
+            // ═══════════════════════════════════════════════════════
+            // SERVER-SIDE: Sharp-based rendering (final execution)
+            // ═══════════════════════════════════════════════════════
+            // webpackIgnore prevents Webpack from trying to bundle sharp for the client
+            const sharp = (await import(/* webpackIgnore: true */ 'sharp')).default;
+
+            let baseImage = sharp({
+                create: {
+                    width: Math.round(canvasWidth),
+                    height: Math.round(canvasHeight),
+                    channels: 4,
+                    background: (backgroundColor && backgroundColor !== 'transparent')
+                        ? backgroundColor
+                        : { r: 0, g: 0, b: 0, alpha: 0 }
+                }
+            });
+
+            const composites: any[] = [];
+
+            for (const layer of layers) {
+                if (!layer.visible) continue;
+
+                const handleInputs = input as Record<string, ImageObject[] | ImageObject>;
+                const sourceData = handleInputs[layer.sourceHandleId];
+                if (!sourceData) continue;
+
+                const sourceArray = Array.isArray(sourceData) ? sourceData : [sourceData];
+                const imageData = sourceArray[layer.selectedIndex] || sourceArray[0];
+                if (!imageData?.url) continue;
+
+                try {
+                    const response = await fetch(imageData.url);
+                    let imgBuffer: any = Buffer.from(await response.arrayBuffer());
+
+                    // 1. Crop
+                    if (layer.transform.crop) {
+                        const { x, y, width: cw, height: ch } = layer.transform.crop;
+                        imgBuffer = await sharp(imgBuffer)
+                            .extract({
+                                left: Math.max(0, Math.round(x)),
+                                top: Math.max(0, Math.round(y)),
+                                width: Math.max(1, Math.round(cw)),
+                                height: Math.max(1, Math.round(ch)),
+                            })
+                            .toBuffer();
+                    }
+
+                    const { width, height, flipX, flipY, opacity, rotation, x, y } = layer.transform;
+
+                    // 2. Scale & Flip
+                    let pipeline = sharp(imgBuffer)
+                        .resize(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)), { fit: 'fill' });
+                    if (flipX) pipeline = pipeline.flop();
+                    if (flipY) pipeline = pipeline.flip();
+
+                    // 3. Opacity
+                    if (opacity < 1.0) {
+                        pipeline = pipeline.ensureAlpha().linear([1, 1, 1, opacity], [0, 0, 0, 0]);
+                    }
+
+                    imgBuffer = await pipeline.toBuffer();
+
+                    // 4. Rotation
+                    imgBuffer = await sharp(imgBuffer).rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } }).toBuffer();
+
+                    // 5. Re-center after rotation bounding box expansion
+                    const rotatedMeta = await sharp(imgBuffer).metadata();
+                    const rotW = rotatedMeta.width || width;
+                    const rotH = rotatedMeta.height || height;
+                    const centerX = x + width / 2;
+                    const centerY = y + height / 2;
+
+                    composites.push({
+                        input: imgBuffer,
+                        top: Math.round(centerY - rotH / 2),
+                        left: Math.round(centerX - rotW / 2),
+                        blend: 'over'
+                    });
+                } catch (layerErr) {
+                    console.error(`Failed to process compositor layer ${layer.name}:`, layerErr);
+                }
+            }
+
+            if (composites.length > 0) {
+                baseImage = baseImage.composite(composites);
+            }
+
+            let finalPipeline = baseImage;
+            const outQual = Math.round((outputQuality || 1.0) * 100);
+
+            if (outputFormat === 'jpeg') {
+                finalPipeline = finalPipeline.jpeg({ quality: outQual });
+            } else if (outputFormat === 'webp') {
+                finalPipeline = finalPipeline.webp({ quality: outQual });
+            } else {
+                finalPipeline = finalPipeline.png({ force: true });
+            }
+
+            const finalBuffer = await finalPipeline.toBuffer();
+            const base64 = finalBuffer.toString('base64');
+            const dataUrl = `data:image/${outputFormat === 'jpeg' ? 'jpeg' : outputFormat};base64,${base64}`;
+
+            return {
+                success: true,
+                data: [{
+                    url: dataUrl,
+                    resolution: { width: canvasWidth, height: canvasHeight },
+                    metadata: { title: 'Compositor Output', source: 'Compositor Engine (Sharp)', format: outputFormat },
+                }],
             };
         }
-
-        // Create offscreen canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = canvasWidth;
-        canvas.height = canvasHeight;
-        const ctx = canvas.getContext('2d');
-
-        if (!ctx) {
-            return {
-                success: false,
-                data: null,
-                error: 'Failed to create canvas context.',
-            };
-        }
-
-        // Ensure the canvas is completely transparent (user requested no solid backgrounds)
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-
-        // Render each visible layer (bottom to top)
-        // Layer transforms are in canvas-absolute coordinates — use directly
-        for (const layer of layers) {
-            if (!layer.visible) continue;
-
-            // Get source images from input (keyed by handle ID)
-            const handleInputs = input as Record<string, ImageObject[] | ImageObject>;
-            const sourceData = handleInputs[layer.sourceHandleId];
-
-            if (!sourceData) continue;
-
-            // Handle array or single image
-            const sourceArray = Array.isArray(sourceData) ? sourceData : [sourceData];
-            const imageData = sourceArray[layer.selectedIndex] || sourceArray[0];
-
-            if (!imageData?.url) continue;
-
-            // Load image
-            const img = await loadImage(imageData.url);
-
-            // Apply transform directly (canvas-absolute coordinates)
-            ctx.save();
-            const { x, y, width, height, rotation, opacity, flipX, flipY } = layer.transform;
-
-            ctx.globalAlpha = opacity;
-            ctx.translate(x + width / 2, y + height / 2);
-            ctx.rotate((rotation * Math.PI) / 180);
-            ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
-            ctx.drawImage(img, -width / 2, -height / 2, width, height);
-            ctx.restore();
-        }
-
-        // Generate output data URL
-        // Force PNG output to preserve transparency as requested
-        const mimeType = 'image/png';
-        const dataUrl = canvas.toDataURL(mimeType, 1.0);
-
-        return {
-            success: true,
-            data: [{
-                url: dataUrl,
-                resolution: {
-                    width: canvasWidth,
-                    height: canvasHeight,
-                },
-                metadata: {
-                    title: 'Compositor Output',
-                    source: 'Compositor Cube',
-                    format: outputFormat,
-                },
-            }],
-        };
     } catch (error) {
         return {
             success: false,
@@ -805,7 +890,7 @@ const compositorExecutor: NodeExecutor = async (
     }
 };
 
-// Helper function to load an image from URL/base64
+// Helper function to load an image from URL/base64 (client-side only)
 function loadImage(src: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -815,6 +900,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
         img.src = src;
     });
 }
+
 
 /**
  * Node Registry
@@ -838,79 +924,4 @@ export function getNodeExecutor(nodeType: string): NodeExecutor | null {
     return nodeRegistry[nodeType] || null;
 }
 
-/**
- * Node metadata for UI display
- * 
- * GENERIC INPUT HANDLES:
- * - `inputs` array defines all input handles for the node
- * - If not specified, defaults to single input handle
- * - Each input has: id (handle ID), label (display name), color (handle color)
- */
-export const nodeMetadata: Record<string, {
-    label: string;
-    description: string;
-    color: string;
-    icon: string;
-    inputs?: Array<{ id: string; label: string; color: string }>;
-    dynamicInputs?: boolean;
-}> = {
-    scrape_images: {
-        label: 'Scrape Images',
-        description: 'Search and fetch images from the web',
-        color: '#667eea',
-        icon: 'Search',
-        // No inputs - this is a source node
-    },
-    remove_background: {
-        label: 'Remove Background',
-        description: 'Remove backgrounds from images',
-        color: '#f093fb',
-        icon: 'Scissors',
-        // Single default input (handled by CustomNode)
-    },
-    filter_sort: {
-        label: 'Filter & Sort',
-        description: 'Filter and sort image arrays',
-        color: '#4ade80',
-        icon: 'ArrowUpDown',
-    },
-    ai_generate_image: {
-        label: 'AI Generate',
-        description: 'Generate images with AI',
-        color: '#fbbf24',
-        icon: 'Sparkles',
-        // No inputs - this is a source node (prompt-based)
-    },
-    upscale_image: {
-        label: 'Upscale Image',
-        description: 'AI-powered image super-resolution (2x/4x)',
-        color: '#ec4899',
-        icon: 'Maximize2',
-    },
-    merge_image: {
-        label: 'Merge Image',
-        description: 'Composite overlay onto base image',
-        color: '#14b8a6',
-        icon: 'Layers',
-        // TWO input handles for base and overlay
-        inputs: [
-            { id: 'base', label: 'BASE', color: '#22c55e' },
-            { id: 'overlay', label: 'OVER', color: '#f59e0b' },
-        ],
-    },
-    media_input: {
-        label: 'Media Input',
-        description: 'Upload images manually',
-        color: '#3b82f6',
-        icon: 'ImagePlus',
-        // No inputs - this is a source node (manual upload)
-    },
-    compositor: {
-        label: 'Compositor',
-        description: 'Layer-based image compositing',
-        color: '#8b5cf6',
-        icon: 'Layers2',
-        // Dynamic inputs - handled by CompositorNode
-        dynamicInputs: true,
-    },
-};
+
