@@ -3,13 +3,13 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, Sparkles, X, Trash2 } from 'lucide-react';
+import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, Sparkles, X, Trash2, Loader2, LogOut, User as UserIcon, Plus } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
 import { createClient } from '@/lib/supabase/client';
 import { sessionsApi, userApi } from '@/lib/api/client';
 import { useSession } from '@/lib/hooks/use-session';
-import { LogOut, User as UserIcon, Plus } from 'lucide-react';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { useLongPress } from '@/lib/hooks/use-long-press';
 import { MobileActionSheet, ActionItem } from '@/components/ui/MobileActionSheet';
@@ -562,6 +562,42 @@ function SidebarSessionItem({
     onLongPress: (id: string) => void;
 }) {
     const router = useRouter();
+    const [isExecuting, setIsExecuting] = React.useState(false);
+    const supabase = React.useMemo(() => createClient(), []);
+
+    const sessionTitle = session.title || 'Untitled Session';
+    const isGeneratingName = sessionTitle === 'New Workflow' || sessionTitle === 'Untitled Session';
+
+    React.useEffect(() => {
+        let channel: ReturnType<typeof supabase.channel> | null = null;
+        let isMounted = true;
+
+        const checkExecutionStatus = async () => {
+            const { data } = await supabase.from('messages')
+                .select('id')
+                .eq('session_id', session.id)
+                .eq('status', 'processing')
+                .limit(1);
+            if (isMounted) {
+                setIsExecuting(!!data?.length);
+            }
+        };
+
+        checkExecutionStatus();
+
+        channel = supabase.channel(`sidebar-session-${session.id}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `session_id=eq.${session.id}` }, (payload) => {
+                if (payload.new && 'status' in payload.new) {
+                    if (payload.new.status === 'processing') setIsExecuting(true);
+                    else if (payload.new.status === 'completed' || payload.new.status === 'failed') setIsExecuting(false);
+                }
+            }).subscribe();
+
+        return () => {
+            isMounted = false;
+            if (channel) supabase.removeChannel(channel);
+        }
+    }, [session.id, supabase]);
 
     const longPressProps = useLongPress(
         // On Long Press
@@ -597,9 +633,25 @@ function SidebarSessionItem({
                 `}
             >
                 <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent-primary' : 'opacity-50'}`} />
-                <span className="text-sm truncate flex-1">
-                    {session.title || 'Untitled Session'}
-                </span>
+                <div className="flex-1 overflow-hidden relative flex items-center h-5">
+                    <AnimatePresence mode="popLayout">
+                        <motion.span
+                            key={sessionTitle}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -10 }}
+                            transition={{ duration: 0.2 }}
+                            className={`absolute left-0 w-full truncate text-sm text-left ${isGeneratingName ? 'animate-pulse text-content-tertiary' : ''}`}
+                        >
+                            {sessionTitle}
+                        </motion.span>
+                    </AnimatePresence>
+                </div>
+                {isExecuting && (
+                    <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-primary flex-shrink-0" />
+                    </motion.div>
+                )}
             </div>
         );
     }
@@ -618,16 +670,35 @@ function SidebarSessionItem({
                 `}
         >
             <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent-primary' : 'opacity-50'}`} />
-            <span className="text-sm truncate flex-1 text-left whitespace-nowrap">
-                {session.title || 'Untitled Session'}
-            </span>
+
+            <div className="flex-1 overflow-hidden relative flex items-center h-5">
+                <AnimatePresence mode="popLayout">
+                    <motion.span
+                        key={sessionTitle}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className={`absolute left-0 w-full truncate text-sm text-left ${isGeneratingName ? 'animate-pulse text-content-tertiary' : ''}`}
+                    >
+                        {sessionTitle}
+                    </motion.span>
+                </AnimatePresence>
+            </div>
+
+            {isExecuting && (
+                <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className="flex-shrink-0 mr-1">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-primary" />
+                </motion.div>
+            )}
+
             <button
                 onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     onDeleteClick(session.id);
                 }}
-                className="p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md opacity-0 group-hover:opacity-100 transition-all z-10"
+                className={`p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all z-10 ${isExecuting ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-0 group-hover:opacity-100 scale-100'}`}
                 title="Delete session"
             >
                 <Trash2 className="w-4 h-4" />

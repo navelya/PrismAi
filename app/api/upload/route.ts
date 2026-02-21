@@ -18,36 +18,53 @@ export async function POST(request: NextRequest) {
     try {
         const formData = await request.formData();
         const file = formData.get('file') as Blob | null;
+        const urlToFetch = formData.get('url') as string | null;
         const customFilename = formData.get('filename') as string | null;
 
-        if (!file) {
-            return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+        if (!file && !urlToFetch) {
+            return NextResponse.json({ error: 'No file or url provided' }, { status: 400 });
         }
 
-        // Validate file type
-        if (!file.type.startsWith('image/')) {
-            return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 });
-        }
+        let buffer: Buffer;
+        let mimeType: string = 'image/jpeg';
+        let ext = 'jpg';
 
-        // Validate file size (10MB max)
-        const MAX_SIZE = 10 * 1024 * 1024;
-        if (file.size > MAX_SIZE) {
-            return NextResponse.json({ error: 'File too large (max 10MB)' }, { status: 400 });
+        if (file) {
+            if (!file.type.startsWith('image/')) {
+                return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 });
+            }
+            const MAX_SIZE = 10 * 1024 * 1024;
+            if (file.size > MAX_SIZE) {
+                return NextResponse.json({ error: 'File too large (max 10MB)' }, { status: 400 });
+            }
+            mimeType = file.type;
+            ext = mimeType.split('/')[1] || 'webp';
+            const arrayBuffer = await file.arrayBuffer();
+            buffer = Buffer.from(arrayBuffer);
+        } else if (urlToFetch) {
+            try {
+                // Fetch external URL server-side to avoid browser CORS
+                const resp = await fetch(urlToFetch);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                mimeType = resp.headers.get('content-type') || 'image/jpeg';
+                ext = mimeType.split('/')[1] || 'jpg';
+                const arrayBuffer = await resp.arrayBuffer();
+                buffer = Buffer.from(arrayBuffer);
+            } catch (err) {
+                return NextResponse.json({ error: 'Failed to download external image URL' }, { status: 400 });
+            }
+        } else {
+            throw new Error('Unreachable');
         }
 
         // Generate scoped path under user directory
-        const ext = file.type.split('/')[1] || 'webp';
         const filename = customFilename || `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
         const storagePath = `${user.id}/${filename}`;
-
-        // Convert to buffer for upload
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
 
         const { data, error } = await supabase.storage
             .from('chat-assets')
             .upload(storagePath, buffer, {
-                contentType: file.type,
+                contentType: mimeType,
                 upsert: false,
             });
 

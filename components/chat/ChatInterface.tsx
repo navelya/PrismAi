@@ -13,7 +13,8 @@ import { executeWorkflow } from '@/lib/workflow-engine';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { NodeStatus } from '@/lib/nodes/types';
-import { sessionsApi, messagesApi, uploadApi, userApi } from '@/lib/api/client';
+import { sessionsApi, messagesApi, uploadApi, userApi, chatApi } from '@/lib/api/client';
+import { createClient } from '@/lib/supabase/client';
 import { useDebounce } from '@/lib/hooks/use-debounce';
 import { convertImageToWebP } from '@/lib/utils/image-processing';
 
@@ -40,6 +41,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const router = useRouter();
     const sessionId = params?.sessionId as string;
     const createdSessionIdRef = useRef<string | null>(null); // Handle lazy creation
+    const [realtimeSessionId, setRealtimeSessionId] = useState<string | null>(null); // Reactive — triggers Realtime subscription
 
     // Reset lazy session on new chat navigation (Fix for "Always New Chat")
     useEffect(() => {
@@ -64,6 +66,162 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             });
         }
     }, [debouncedWorkflow, sessionId]);
+
+    // =========================================================================
+    // SUPABASE REALTIME: Listen for completed AI responses from background worker
+    // =========================================================================
+    useEffect(() => {
+        const activeSessionId = sessionId || realtimeSessionId;
+        if (!activeSessionId) return;
+
+        const supabase = createClient();
+
+        const channel = supabase
+            .channel(`chat-messages-${activeSessionId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `session_id=eq.${activeSessionId}`,
+                },
+                async (payload: any) => {
+                    const updatedMessage = payload.new;
+
+                    // Only process assistant messages that just completed or failed
+                    if (updatedMessage.role !== 'assistant') return;
+                    if (updatedMessage.status !== 'completed' && updatedMessage.status !== 'failed') return;
+
+                    console.log('[Realtime] Assistant message update received:', updatedMessage.id, updatedMessage.status);
+
+                    const responseType = updatedMessage.metadata?.type;
+
+                    // Handle FAILED responses
+                    if (updatedMessage.status === 'failed') {
+                        useAppStore.getState().updateMessage(updatedMessage.id, {
+                            content: updatedMessage.content || 'Sorry, an error occurred.',
+                        });
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Handle UNDO responses
+                    if (responseType === 'undo') {
+                        useAppStore.getState().updateMessage(updatedMessage.id, {
+                            content: updatedMessage.content,
+                        });
+
+                        // Find the previous workflow snapshot to revert to
+                        const storeMessages = useAppStore.getState().chatMessages;
+                        const snapshots = storeMessages
+                            .filter(m => m.type === 'assistant' && m.workflow)
+                            .sort((a, b) => Number(b.id) - Number(a.id));
+
+                        if (snapshots.length >= 2) {
+                            await handleRevert(snapshots[1].id, true);
+                        }
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Handle CHAT (conversational) responses
+                    if (responseType === 'chat') {
+                        useAppStore.getState().updateMessage(updatedMessage.id, {
+                            content: updatedMessage.content,
+                        });
+
+                        // Generate title if first message
+                        if (createdSessionIdRef.current) {
+                            sessionsApi.generateTitle({
+                                sessionId: createdSessionIdRef.current,
+                                message: '', // We don't have the original prompt here; title gen uses session history
+                                assistantResponse: updatedMessage.content,
+                            }).then(() => {
+                                window.dispatchEvent(new Event('session-updated'));
+                            }).catch(console.error);
+                        }
+
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Handle WORKFLOW responses
+                    if (responseType === 'workflow' && updatedMessage.workflow) {
+                        let workflow = updatedMessage.workflow;
+
+                        // Apply auto-layout
+                        if (workflow.nodes?.length > 0) {
+                            try {
+                                const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
+                                workflow.nodes = workflow.nodes.map((n: any) => {
+                                    const pos = positions.get(n.id);
+                                    return pos ? { ...n, position: pos } : n;
+                                });
+                            } catch (e) {
+                                console.error('[Realtime] Auto-layout failed:', e);
+                            }
+                        }
+
+                        onWorkflowGenerated(workflow);
+
+                        // Extract results directly from the server-executed DB update!
+                        const processedResult = updatedMessage.metadata?.execution_result || null;
+                        const executionError = updatedMessage.metadata?.execution_error || null;
+
+                        // Update the placeholder message with the final content
+                        useAppStore.getState().updateMessage(updatedMessage.id, {
+                            content: updatedMessage.content || '',
+                            result: processedResult,
+                            workflow,
+                        });
+
+                        // Set nodes to success/failed state visually based on server execution
+                        const store = useAppStore.getState();
+                        store.resetNodeStatuses();
+                        store.clearExecutionResults();
+                        store.clearNodeOutputs();
+
+                        if (executionError && !processedResult) {
+                            // Failed execution
+                            workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
+                        } else {
+                            // Success or partial success execution
+                            workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
+                        }
+
+                        // Generate title for new workflow sessions
+                        if (createdSessionIdRef.current) {
+                            sessionsApi.generateTitle({
+                                sessionId: createdSessionIdRef.current,
+                                message: '',
+                                workflowName: workflow.name,
+                                assistantResponse: updatedMessage.content || '',
+                            }).then(() => {
+                                window.dispatchEvent(new Event('session-updated'));
+                            }).catch(console.error);
+                        }
+
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Fallback: just update the message content
+                    useAppStore.getState().updateMessage(updatedMessage.id, {
+                        content: updatedMessage.content || 'Response received.',
+                    });
+                    setIsLoading(false);
+                },
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+        // realtimeSessionId is a STATE variable (not ref) so it triggers re-render
+        // and causes this useEffect to fire when a new session is lazily created.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionId, realtimeSessionId]);
 
     // Helper to save messages via BFF API
     const saveMessageToDb = async (msg: Message, imagePaths?: string[]) => {
@@ -317,13 +475,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
         // EDIT MODE LOGIC: Revert before sending
         if (editingMessageId) {
-            // Find the message being edited
             const msgIndex = messages.findIndex(m => m.id === editingMessageId);
             if (msgIndex !== -1) {
-                // Find the snapshot to revert to (the one BEFORE this message)
                 let undoSnapshotId = 'initial';
-
-                // Look backwards from the message being edited
                 for (let i = msgIndex - 1; i >= 0; i--) {
                     const m = messages[i];
                     if (m.type === 'assistant' && m.workflow) {
@@ -331,13 +485,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         break;
                     }
                 }
-
-                // Perform the revert (silently, no confirmation needed as user clicked "Save & Replace")
                 await handleRevert(undoSnapshotId, true);
-
-                // Clear edit mode state
                 setEditingMessageId(null);
-                // Proceed to standard send logic below...
             }
         }
 
@@ -350,7 +499,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         attachedBlobsRef.current = [];
         setInput('');
 
-        // Optimistic UI Update
+        // Optimistic UI Update — add user message locally
         const userMessage: Message = {
             id: Date.now().toString(),
             type: 'user',
@@ -369,11 +518,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 if (session) {
                     activeSessionId = session.id;
                     createdSessionIdRef.current = session.id;
-                    // ⚠️ CRITICAL: Instantly update active session in store
+                    setRealtimeSessionId(session.id); // Triggers Realtime subscription
                     useAppStore.getState().setActiveSessionId(session.id);
                 }
             } catch (err) {
                 console.error('Failed to create session:', err);
+                setIsLoading(false);
+                return;
             }
         }
 
@@ -386,299 +537,65 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 );
                 uploadedPaths = results.map(r => r.path);
             } catch (e) {
-                console.error("[DEBUG] Image upload failed", e);
+                console.error('[DEBUG] Image upload failed', e);
             }
         }
 
-        // Save to DB
-        saveMessageToDb(userMessage, uploadedPaths);
-
-        // Create abort controller for this request
-        abortControllerRef.current = new AbortController();
-
         try {
-            // Generate workflow from user input (with current workflow as context)
-            const generateResponse = await fetch('/api/workflow/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt: trimmedInput,
-                    previousWorkflow: currentWorkflow,
-                    attachedImages: imagesToSend.length > 0 ? imagesToSend : undefined,
-                }),
+            // === ASYNC FIRE-AND-FORGET ===
+            // This returns immediately after inserting messages and triggering the background worker.
+            // The actual AI response will arrive via the Supabase Realtime subscription below.
+            const response = await chatApi.send({
+                sessionId: activeSessionId!,
+                prompt: trimmedInput,
+                previousWorkflow: currentWorkflow,
+                attachedImages: imagesToSend.length > 0 ? imagesToSend : undefined,
+                imagePaths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
             });
 
-            const generateData = await generateResponse.json();
-
-            if (!generateData.success) {
-                throw new Error(generateData.error || 'Failed to generate workflow');
+            // Update local user message with real DB ID
+            if (response.userMessage?.id) {
+                useAppStore.getState().updateMessage(userMessage.id, { id: response.userMessage.id });
             }
 
-            // HANDLE UNDO RESPONSE
-            if (generateData.type === 'undo') {
-                const storeMessages = useAppStore.getState().chatMessages;
-                // Filter for assistant messages that have a workflow snapshot
-                const snapshots = storeMessages
-                    .filter(m => m.type === 'assistant' && m.workflow)
-                    .sort((a, b) => Number(b.id) - Number(a.id));
-
-                if (snapshots.length >= 2) {
-                    const targetSnapshot = snapshots[1]; // The one before current
-                    const assistantMessage: Message = {
-                        id: Date.now().toString(),
-                        type: 'assistant',
-                        content: generateData.message || `Undoing changes...`,
-                        timestamp: new Date(),
-                    };
-                    addMessage(assistantMessage);
-                    saveMessageToDb(assistantMessage);
-
-                    // Perform revert (skip confirmation)
-                    await handleRevert(targetSnapshot.id, true);
-                } else {
-                    const assistantMessage: Message = {
-                        id: Date.now().toString(),
-                        type: 'assistant',
-                        content: "I can't undo any further. This is the oldest version I have.",
-                        timestamp: new Date(),
-                    };
-                    addMessage(assistantMessage);
-                    saveMessageToDb(assistantMessage);
-                }
-                setIsLoading(false);
-                return;
-            }
-
-            // HANDLE CONVERSATIONAL RESPONSE
-            if (generateData.type === 'chat') {
-                const assistantMessage: Message = {
-                    id: Date.now().toString(),
-                    type: 'assistant',
-                    content: generateData.message || "I'm not sure how to respond to that.",
-                    timestamp: new Date(),
-                };
-                addMessage(assistantMessage);
-                saveMessageToDb(assistantMessage);
-                setIsLoading(false);
-
-                // Seamlessly update URL if this was the first message (no reload)
-                if (!sessionId && createdSessionIdRef.current) {
-                    window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
-
-                    console.log('[DEBUG] Requesting title generation for new session:', createdSessionIdRef.current);
-
-                    // Generate smart title
-                    sessionsApi.generateTitle({
-                        sessionId: createdSessionIdRef.current,
-                        message: trimmedInput,
-                        assistantResponse: generateData.message
-                    }).then(data => {
-                        console.log('[DEBUG] Title generation result:', data);
-                        window.dispatchEvent(new Event('session-updated'));
-                    }).catch(console.error);
-                }
-                return;
-            }
-
-            let workflow = generateData.workflow;
-
-            // Apply auto-layout if needed (e.g. if generic linear layout from AI)
-            // This ensures the editor shows a nice graph and the execution engine (if it uses positions later) is synced.
-            // More importantly, it ensures the `currentWorkflow` we set in the store is fully "baked".
-            if (workflow.nodes.length > 0) {
-                const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
-                workflow.nodes = workflow.nodes.map((n: any) => {
-                    const pos = positions.get(n.id);
-                    return pos ? { ...n, position: pos } : n;
-                });
-            }
-
-            onWorkflowGenerated(workflow);
-
-            // Execute workflow CLIENT-SIDE with live status updates
-            const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
-            const clearExecutionResults = useAppStore.getState().clearExecutionResults;
-            const clearNodeOutputs = useAppStore.getState().clearNodeOutputs;
-            const setNodeStatus = useAppStore.getState().setNodeStatus;
-            const invalidateNodes = useAppStore.getState().invalidateNodes;
-
-            // Smart Execution Logic (Partial Runs)
-            // We compare the new workflow with the previous one to find what changed
-            const changedNodeIds = new Set<string>();
-            const currentWorkflowProp = currentWorkflow; // Context passed to AI
-            let forceFullRun = !currentWorkflowProp || currentWorkflowProp.nodes.length === 0;
-
-            if (!forceFullRun && currentWorkflowProp) {
-                // 1. Detect Node Changes (Config)
-                workflow.nodes.forEach((newNode: any) => {
-                    const oldNode = currentWorkflowProp.nodes.find(n => n.id === newNode.id);
-                    if (!oldNode) {
-                        changedNodeIds.add(newNode.id); // New node
-                    } else {
-                        // Compare config
-                        if (JSON.stringify(newNode.data.config) !== JSON.stringify(oldNode.data.config)) {
-                            changedNodeIds.add(newNode.id);
-                        }
-                    }
-                });
-
-                // 2. Detect Edge Changes (Topology)
-                const getEdgeSig = (e: any) => `${e.source}->${e.target}${e.targetHandle ? ':' + e.targetHandle : ''}`;
-                const oldEdgeSigs = new Set(currentWorkflowProp.edges.map(getEdgeSig));
-                const newEdgeSigs = new Set(workflow.edges.map(getEdgeSig));
-
-                workflow.edges.forEach((e: any) => {
-                    if (!oldEdgeSigs.has(getEdgeSig(e))) changedNodeIds.add(e.target);
-                });
-
-                currentWorkflowProp.edges.forEach((e: any) => {
-                    if (!newEdgeSigs.has(getEdgeSig(e))) {
-                        // If target still exists in new workflow, it needs update
-                        if (workflow.nodes.find((n: any) => n.id === e.target)) {
-                            changedNodeIds.add(e.target);
-                        }
-                    }
-                });
-            }
-
-            let executeData;
-            const changedIdsArr = Array.from(changedNodeIds);
-            const isPartial = !forceFullRun && changedIdsArr.length > 0;
-
-            if (isPartial) {
-                console.log('[Partial Run] Invalidating nodes:', changedIdsArr);
-                invalidateNodes(changedIdsArr);
-
-                // Get valid cache (dirty nodes were removed by invalidateNodes)
-                const cachedOutputs = useAppStore.getState().nodeOutputs;
-
-                // Mark dirty nodes as pending visual
-                // Note: We don't know the full descendant list here easily without re-calculating,
-                // but executeWorkflow will set them to 'running' soon.
-                // We'll trust the engine status updates.
-
-                executeData = await executeWorkflow(
-                    workflow,
-                    generateNodeId(),
-                    (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status),
-                    (nodeId: string, output: any) => useAppStore.getState().setNodeOutput(nodeId, output),
-                    cachedOutputs // Pass cache for smart skipping
-                );
-            } else {
-                // FALLBACK: FULL RUN
-                console.log('[Full Run] Clearing all status');
-                resetNodeStatuses();
-                clearExecutionResults();
-                clearNodeOutputs();
-
-                workflow.nodes.forEach((node: any) => setNodeStatus(node.id, 'pending'));
-
-                executeData = await executeWorkflow(
-                    workflow,
-                    generateNodeId(),
-                    (nodeId: string, status: NodeStatus) => setNodeStatus(nodeId, status),
-                    (nodeId: string, output: any) => useAppStore.getState().setNodeOutput(nodeId, output)
-                );
-            }
-
-            if (!executeData.success) {
-                throw new Error(executeData.error || 'Failed to execute workflow');
-            }
-
-            // Construct success/partial execution message
-            let responseContent = '';
-            if (executeData.error) {
-                responseContent = `⚠️ Workflow executed partially.\n${executeData.error}`;
-            } else if (!executeData.result && workflow.nodes.length > 0) {
-                responseContent = `✅ Workflow finished, but produced no output.`;
-            }
-
-            // Process result images - upload base64 to storage via BFF API
-            let processedResult = executeData.result;
-            let resultImagePaths: string[] = [];
-
-            if (executeData.result) {
-                try {
-                    // Extract base64 images from result and upload them
-                    const results = executeData.result;
-                    if (Array.isArray(results)) {
-                        for (let i = 0; i < results.length; i++) {
-                            const item = results[i];
-                            const isDataUri = item.url?.startsWith('data:');
-                            // Upload external images (e.g., scraped) to our storage to persist them
-                            // Check if it's a URL but NOT our own storage (approximate check using origin or common keywords)
-                            const isExternalUrl = item.url?.startsWith('http') &&
-                                !item.url.includes(window.location.hostname) &&
-                                !item.url.includes('.supabase.co'); // Standard Supabase domain
-
-                            if (item?.url && (isDataUri || isExternalUrl)) {
-                                try {
-                                    const response = await fetch(item.url);
-                                    const blob = await response.blob();
-                                    const uploaded = await uploadApi.upload(blob);
-                                    resultImagePaths.push(uploaded.path);
-                                    // Replace base64/external URL with our persistent storage URL
-                                    results[i] = { ...item, url: uploaded.publicUrl };
-                                } catch (e) {
-                                    console.error('[DEBUG] Failed to upload result image:', e);
-                                }
-                            }
-                        }
-                        processedResult = results;
-                    }
-                } catch (e) {
-                    console.error('[DEBUG] Failed to process result images:', e);
-                }
-            }
-
-            const assistantMessage: Message = {
-                id: (Date.now() + 1).toString(),
+            // Add assistant placeholder (thinking indicator)
+            const assistantPlaceholder: Message = {
+                id: response.assistantMessage.id,
                 type: 'assistant',
-                content: responseContent,
+                content: '', // Empty — will be filled by Realtime
                 timestamp: new Date(),
-                result: processedResult,
-                workflow,
             };
-            addMessage(assistantMessage);
-            saveMessageToDb(assistantMessage, resultImagePaths);
+            addMessage(assistantPlaceholder);
 
-            // Generate smart title for Workflow
+            // Seamlessly update URL if this was the first message
             if (!sessionId && createdSessionIdRef.current) {
-                console.log('[DEBUG] Requesting title generation for new workflow session:', createdSessionIdRef.current);
+                // Only replace state if the user is still on the chat page!
+                const currentPath = window.location.pathname;
+                if (currentPath === '/chat' || currentPath === '/') {
+                    window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
+                }
+                window.dispatchEvent(new Event('session-updated'));
 
+                // Generate smart title in the background
                 sessionsApi.generateTitle({
                     sessionId: createdSessionIdRef.current,
                     message: trimmedInput,
-                    workflowName: workflow.name, // Use generated workflow name
-                    assistantResponse: responseContent
-                }).then(data => {
-                    console.log('[DEBUG] Title generation result:', data);
-                    window.dispatchEvent(new Event('session-updated'));
                 }).catch(console.error);
             }
+
+            // NOTE: isLoading stays true — it will be cleared by the Realtime handler
+            // when the assistant message status changes to 'completed' or 'failed'.
+
         } catch (error) {
+            console.error('Failed to send message:', error);
             const errorMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 type: 'assistant',
-                content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                content: `Sorry, I failed to send the message: ${error instanceof Error ? error.message : 'Unknown error'}`,
                 timestamp: new Date(),
             };
             addMessage(errorMessage);
-            saveMessageToDb(errorMessage);
-        } finally {
             setIsLoading(false);
-            abortControllerRef.current = null;
-
-            if (!sessionId && createdSessionIdRef.current) {
-                window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
-                // Notify sidebar to refresh
-                window.dispatchEvent(new Event('session-updated'));
-            }
-
-            // Get most recent assistant message for context if needed (it was added to local state 'messages' but better to just use the data we have)
-            // Actually, accessing 'workflow' variable from here is tricky if it's outside scope. 
-            // Ideally this call should be inside the try block after workflow generation.
-            // Moving it up to line 494 area.
         }
     };
 
@@ -779,8 +696,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             createdSessionIdRef.current = session.id;
                             useAppStore.getState().setActiveSessionId(session.id);
 
-                            // Update URL silently
-                            window.history.replaceState({}, '', `/chat/${session.id}`);
+                            // Update URL silently only if still on chat
+                            const currentPath = window.location.pathname;
+                            if (currentPath === '/chat' || currentPath === '/') {
+                                window.history.replaceState({}, '', `/chat/${session.id}`);
+                            }
                         }
                     } catch (err) {
                         console.error("Failed to create session for editor result:", err);

@@ -85,31 +85,38 @@ export function useSession() {
             }
 
             // Hydrate Messages
-            const formattedMessages: any[] = messages.map((msg: any) => {
-                // Restore image paths to URLs
-                const images = msg.images?.map((path: string) => getStoragePublicUrl(path));
+            const formattedMessages: any[] = messages
+                // Filter out 'processing' placeholder messages (empty, no content)
+                .filter((msg: any) => !(msg.status === 'processing' && !msg.content))
+                .map((msg: any) => {
+                    // Restore image paths to URLs
+                    const images = msg.images?.map((path: string) => getStoragePublicUrl(path));
 
-                // For assistant messages, if we have images from the result, convert to ImageObject format
-                let result = undefined;
-                if (msg.role === 'assistant' && images && images.length > 0) {
-                    // Convert URL strings to ImageObject format for MessageRenderer
-                    result = images.map((url: string, idx: number) => ({
-                        url,
-                        resolution: { width: 800, height: 600 }, // Placeholder dimensions
-                        metadata: { title: `Image ${idx + 1}` }
-                    }));
-                }
+                    // For assistant messages, if we have images from the result, convert to ImageObject format
+                    let result = undefined;
+                    if (msg.role === 'assistant' && images && images.length > 0) {
+                        // Convert URL strings to ImageObject format for MessageRenderer
+                        result = images.map((url: string, idx: number) => ({
+                            url,
+                            resolution: { width: 800, height: 600 }, // Placeholder dimensions
+                            metadata: { title: `Image ${idx + 1}` }
+                        }));
+                    }
 
-                return {
-                    id: msg.id,
-                    type: msg.role, // 'user' | 'assistant'
-                    content: msg.content || '',
-                    timestamp: new Date(msg.created_at),
-                    images: msg.role === 'user' ? images : undefined, // Only user messages show inline images
-                    result: result, // Assistant messages use result for image display
-                    workflow: msg.canvas_state // Attach snapshot if available
-                };
-            });
+                    // Read from `workflow` column (written by background worker)
+                    // Fall back to `canvas_state` for backwards compat with old messages
+                    const messageWorkflow = msg.workflow || msg.canvas_state || undefined;
+
+                    return {
+                        id: msg.id,
+                        type: msg.role, // 'user' | 'assistant'
+                        content: msg.content || '',
+                        timestamp: new Date(msg.created_at),
+                        images: msg.role === 'user' ? images : undefined, // Only user messages show inline images
+                        result: result, // Assistant messages use result for image display
+                        workflow: messageWorkflow // Attach snapshot if available
+                    };
+                });
 
             // Clear existing and add new
             store.clearMessages();
