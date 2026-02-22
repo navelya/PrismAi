@@ -15,22 +15,34 @@ export default function SessionPage() {
 
     console.log('[DEBUG] SessionPage Render:', { sessionId, isLoading, error, activeSessionId });
 
-    // If session load failed, redirect gracefully instead of 404
-    if (error) {
-        console.error('[DEBUG] Redirecting to /chat due to session error:', error);
-        // Avoid infinite loops, just throw standard JS error to Error Boundary 
-        // OR better yet, let's gracefully route them back to a safe empty chat
-        window.location.href = '/chat';
-        return null;
-    }
-
     // Track if we've triggered loading for this specific sessionId
     const loadingSessionIdRef = useRef<string | null>(null);
     const [isSessionReady, setIsSessionReady] = useState(false);
 
+    // If session load failed, redirect gracefully instead of 404
+    useEffect(() => {
+        if (error) {
+            console.error('[DEBUG] Redirecting to /chat due to session error:', error);
+            window.location.href = '/chat';
+        }
+    }, [error]);
+
     useEffect(() => {
         if (sessionId && loadingSessionIdRef.current !== sessionId) {
             loadingSessionIdRef.current = sessionId;
+
+            // ⚠️ OPTIMISTIC UI PRESERVATION
+            // If the store ALREADY has this session active with messages, it means 
+            // Next.js just did a soft client-side route transition from 'New Chat' -> '[id]'.
+            // In this case, DO NOT run loadSession! 
+            // loadSession clears the store and would destroy the live generation UI.
+            const store = useAppStore.getState();
+            if (store.activeSessionId === sessionId && store.chatMessages.length > 0) {
+                console.log('[DEBUG] SessionPage: Optimistically bypassing loadSession for seamlessly created chat.');
+                setIsSessionReady(true);
+                return;
+            }
+
             setIsSessionReady(false);  // Reset ready state for new session
 
             loadSession(sessionId).then(() => {
@@ -43,7 +55,8 @@ export default function SessionPage() {
     // - We're still loading
     // - OR the active session doesn't match the URL (race condition protection)
     // - OR the session isn't ready yet
-    const shouldShowLoader = isLoading || activeSessionId !== sessionId || !isSessionReady;
+    // - OR there is a redirecting error
+    const shouldShowLoader = isLoading || activeSessionId !== sessionId || !isSessionReady || !!error;
 
     if (shouldShowLoader) {
         return (

@@ -48,7 +48,7 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
             const newThumbnails = new Map<number, string>();
             for (let i = 0; i < images.length; i++) {
                 const img = images[i];
-                if (img.url.startsWith('data:')) {
+                if (img?.url?.startsWith('data:')) {
                     try {
                         const thumbnail = await createThumbnail(img.url, 300);
                         newThumbnails.set(i, thumbnail);

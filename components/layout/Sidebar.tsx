@@ -35,6 +35,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const [user, setUser] = React.useState<any>(null);
     const supabase = createClient();
     const router = useRouter();
+    const activeSessionId = useAppStore((state) => state.activeSessionId);
 
     React.useEffect(() => {
         const getUser = async () => {
@@ -77,11 +78,9 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         if (user) {
             const fetchSessions = async () => {
                 try {
-                    // Force fresh fetch
                     console.log('[Sidebar] Fetching sessions...');
                     const { sessions: data } = await sessionsApi.list();
                     if (data) {
-                        console.log('[Sidebar] Sessions fetched:', data.length);
                         setSessions(data);
                     }
                 } catch (error) {
@@ -91,20 +90,43 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
             fetchSessions();
 
-            fetchSessions();
-
-            // Subscribe to session changes (Realtime)
+            // Subscribe to session changes (Realtime) with GRANULAR handlers
+            // This avoids re-fetching the entire list on every change, eliminating blinks
             let channel: ReturnType<typeof supabase.channel> | null = null;
 
-            // Only try to subscribe if we have a valid initialized client and authenticated user
             if (supabase && user?.id) {
                 channel = supabase
                     .channel('sidebar-sessions')
                     .on(
                         'postgres_changes',
-                        { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
+                        { event: 'INSERT', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
                         (payload: any) => {
-                            fetchSessions();
+                            const newSession = payload.new;
+                            setSessions(prev => {
+                                // Don't add duplicates (optimistic UI may have already added it)
+                                if (prev.some(s => s.id === newSession.id)) return prev;
+                                return [newSession, ...prev];
+                            });
+                        }
+                    )
+                    .on(
+                        'postgres_changes',
+                        { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
+                        (payload: any) => {
+                            const updated = payload.new;
+                            setSessions(prev =>
+                                prev.map(s => s.id === updated.id ? { ...s, ...updated } : s)
+                            );
+                        }
+                    )
+                    .on(
+                        'postgres_changes',
+                        { event: 'DELETE', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
+                        (payload: any) => {
+                            const deletedId = payload.old?.id;
+                            if (deletedId) {
+                                setSessions(prev => prev.filter(s => s.id !== deletedId));
+                            }
                         }
                     )
                     .subscribe((status: string, err?: Error) => {
@@ -112,19 +134,10 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     });
             }
 
-            // Listen for custom local events (Immediate UI update fallback)
-            const handleLocalUpdate = () => {
-                console.log('[Sidebar] session-updated event received, refreshing...');
-                // Small delay to allow DB propagation
-                setTimeout(fetchSessions, 500);
-            };
-            window.addEventListener('session-updated', handleLocalUpdate);
-
             return () => {
                 if (channel) {
                     supabase.removeChannel(channel);
                 }
-                window.removeEventListener('session-updated', handleLocalUpdate);
             };
         }
     }, [user, supabase]);
@@ -266,7 +279,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                         >
                                             <SidebarSessionItem
                                                 session={session}
-                                                isActive={pathname === `/chat/${session.id}`}
+                                                isActive={pathname === `/chat/${session.id}` || activeSessionId === session.id}
                                                 isMobile={isMobile}
                                                 onClose={onClose}
                                                 onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
@@ -460,7 +473,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                 >
                                     <SidebarSessionItem
                                         session={session}
-                                        isActive={pathname === `/chat/${session.id}`}
+                                        isActive={pathname === `/chat/${session.id}` || activeSessionId === session.id}
                                         isMobile={isMobile}
                                         onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
                                         onLongPress={() => { }} // No op on desktop

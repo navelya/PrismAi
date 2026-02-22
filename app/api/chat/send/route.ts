@@ -130,16 +130,84 @@ export async function POST(request: Request) {
                     // User explicitly requested NO AI text bubble for workflows, only the results.
                     updatePayload.content = result.message || '';
                     updatePayload.workflow = result.workflow;
+                    updatePayload.metadata = { type: 'workflow' }; // FIX: Explicitly mark as workflow to survive Postges TOAST truncation
+
+                    // 1. INSTANT UX FIX: Instantly broadcast the initial workflow JSON to Realtime
+                    // This allows the frontend to show the Editor button IMMEDIATELY before execution starts.
+                    try {
+                        console.log('[Worker] Broadcast initial workflow blueprint to Realtime UI...');
+                        await adminSupabase
+                            .from('messages')
+                            .update({ workflow: result.workflow })
+                            .eq('id', assistantMessage.id);
+
+                        // ALSO explicitly update canvas_state in the active session so refreshing/navigating back hydrates instantly
+                        await adminSupabase
+                            .from('sessions')
+                            .update({ canvas_state: result.workflow })
+                            .eq('id', sessionId);
+
+                    } catch (broadcastErr) {
+                        console.error('[Worker] Failed to broadcast initial blueprint:', broadcastErr);
+                    }
 
                     try {
                         console.log('[Worker] Executing workflow server-side...');
                         // Import dynamically to avoid edge runtime issues if any
                         const { executeWorkflow } = await import('@/lib/workflow-engine');
 
-                        // Execute the full graph
+                        // Node type → human-readable action descriptions
+                        const actionDescriptions: Record<string, string> = {
+                            scrape_images: 'Searching for images',
+                            remove_background: 'Removing background',
+                            filter_sort: 'Filtering results',
+                            ai_generate_image: 'Generating AI image',
+                            upscale_image: 'Upscaling image',
+                            merge_image: 'Merging images',
+                            media_input: 'Processing upload',
+                            compositor: 'Compositing layers',
+                        };
+
+                        const totalNodes = result.workflow!.nodes.length;
+                        let completedNodes = 0;
+
+                        // Broadcast progress: update sessions.status_message on each node start
+                        const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
+                            if (status === 'running') {
+                                const node = result.workflow!.nodes.find((n: any) => n.id === nodeId);
+                                const action = node ? (actionDescriptions[node.type] || 'Processing') : 'Processing';
+                                const stepMsg = `${action} (${completedNodes + 1}/${totalNodes})`;
+
+                                // Payload for Realtime sync
+                                const payload: Record<string, any> = { status_message: stepMsg };
+                                if (currentWorkflow) payload.canvas_state = currentWorkflow;
+
+                                // Fire-and-forget — MUST resolve as Promise to actually execute
+                                Promise.resolve(
+                                    adminSupabase
+                                        .from('sessions')
+                                        .update(payload)
+                                        .eq('id', sessionId)
+                                ).catch((e) => console.warn('[Worker] Status broadcast failed:', e));
+                            } else if (status === 'success' || status === 'error') {
+                                completedNodes++;
+                                // Also blast the workflow state on completion so thumbnails show up immediately
+                                if (currentWorkflow) {
+                                    Promise.resolve(
+                                        adminSupabase
+                                            .from('sessions')
+                                            .update({ canvas_state: currentWorkflow })
+                                            .eq('id', sessionId)
+                                    ).catch((e) => console.warn('[Worker] Success/Error broadcast failed:', e));
+                                }
+                            }
+                        };
+
+                        // Execute the full graph with progress callback
                         const executeData = await executeWorkflow(
                             result.workflow!,
-                            'server-' + Date.now().toString()
+                            'server-' + Date.now().toString(),
+                            onStatusUpdate,
                         );
 
                         let uploadedPaths: string[] = [];
@@ -155,9 +223,15 @@ export async function POST(request: Request) {
 
                         // If execution succeeded and we have array of images
                         if (executeData.result && Array.isArray(executeData.result)) {
-                            console.log('[Worker] Processing execution results for upload...');
-                            for (let i = 0; i < executeData.result.length; i++) {
-                                const item = executeData.result[i];
+                            console.log('[Worker] Processing execution results for parallel upload...');
+
+                            // Let the UI know we are in the final save state
+                            await adminSupabase
+                                .from('sessions')
+                                .update({ status_message: 'Finalizing results...' })
+                                .eq('id', sessionId);
+
+                            await Promise.all(executeData.result.map(async (item: any, i: number) => {
                                 const isDataUri = item.url?.startsWith('data:');
                                 const isExternalUrl = item.url?.startsWith('http') &&
                                     !item.url.includes(process.env.NEXT_PUBLIC_SUPABASE_URL || '.supabase.co');
@@ -204,7 +278,7 @@ export async function POST(request: Request) {
                                         }
                                     } catch (e) { }
                                 }
-                            }
+                            }));
                             processedResult = executeData.result;
                         }
 
@@ -252,6 +326,7 @@ export async function POST(request: Request) {
                 // Update session: timestamp + canvas_state for workflow responses
                 const sessionUpdate: Record<string, any> = {
                     updated_at: new Date().toISOString(),
+                    status_message: null, // Clear progress indicator
                 };
                 if (result.type === 'workflow' && result.workflow) {
                     sessionUpdate.canvas_state = result.workflow;

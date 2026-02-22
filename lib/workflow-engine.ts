@@ -37,7 +37,7 @@ function buildDependencyGraph(nodes: WorkflowNode[], edges: { source: string; ta
 export async function executeWorkflow(
     workflow: Workflow,
     executionId: string,
-    onStatusUpdate?: (nodeId: string, status: NodeStatus) => void,
+    onStatusUpdate?: (nodeId: string, status: NodeStatus, workflow?: any) => void,
     onNodeOutput?: (nodeId: string, output: any) => void,
     cachedOutputs?: Record<string, any> // New optional param
 ): Promise<{
@@ -74,7 +74,22 @@ export async function executeWorkflow(
                 if (output !== undefined) {
                     nodeOutputs.set(nodeId, output);
                     completedNodes.add(nodeId);
-                    onStatusUpdate?.(nodeId, 'success');
+
+                    // Mutate workflow for cache hits
+                    const cachedNode = workflow.nodes.find(n => n.id === nodeId);
+                    if (cachedNode) {
+                        if (!cachedNode.data) cachedNode.data = { label: cachedNode.type, config: {} as any };
+                        (cachedNode.data as any).status = 'success';
+
+                        // Try to extract images for thumbnails
+                        if (Array.isArray(output) && output.length > 0 && output[0].url) {
+                            (cachedNode.data as any).outputMetadata = { preview_urls: output.slice(0, 4).map(o => o.url) };
+                        } else if (output && typeof output === 'object' && output.url) {
+                            (cachedNode.data as any).outputMetadata = { preview_urls: [output.url] };
+                        }
+                    }
+
+                    onStatusUpdate?.(nodeId, 'success', workflow);
                     // onNodeOutput?.(nodeId, output); // Optional: re-emit cached output if needed
 
                     // Decrement in-degree for children
@@ -100,7 +115,10 @@ export async function executeWorkflow(
             // Execute all ready nodes in parallel
             const waveExecutions = readyNodes.map(async (node) => {
                 // Mark as running
-                onStatusUpdate?.(node.id, 'running');
+                if (!node.data) node.data = { label: node.type, config: {} as any };
+                (node.data as any).status = 'running';
+                delete (node.data as any).error; // Clear old errors
+                if (onStatusUpdate) await onStatusUpdate(node.id, 'running', workflow);
 
                 try {
                     const executor = getNodeExecutor(node.type);
@@ -201,14 +219,25 @@ export async function executeWorkflow(
             // Process results
             const nextReadyNodes: WorkflowNode[] = [];
 
-            waveResults.forEach((result, index) => {
+            for (let index = 0; index < waveResults.length; index++) {
+                const result = waveResults[index];
                 const node = readyNodes[index];
 
                 if (result.status === 'fulfilled' && result.value.success) {
                     // Node succeeded
                     completedNodes.add(node.id);
                     nodeOutputs.set(node.id, result.value.output);
-                    onStatusUpdate?.(node.id, 'success');
+
+                    // Mutate workflow with success state and thumbnails
+                    (node.data as any).status = 'success';
+                    const outputStr = result.value.output;
+                    if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
+                        (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map(o => o.url) };
+                    } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
+                        (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
+                    }
+
+                    if (onStatusUpdate) await onStatusUpdate(node.id, 'success', workflow);
 
                     // Emit the output for live streaming results
                     onNodeOutput?.(node.id, result.value.output);
@@ -232,11 +261,15 @@ export async function executeWorkflow(
 
                 } else {
                     // Node failed
-                    const errorMsg = result.status === 'fulfilled' ? result.value.error : 'Promise rejected';
-                    if (!firstError) firstError = `${node.type} failed: ${errorMsg}`;
-
                     failedNodes.add(node.id);
-                    onStatusUpdate?.(node.id, 'error');
+                    const errorMsg = result.status === 'rejected' ? result.reason : (result as any).value.error;
+                    if (!firstError) firstError = errorMsg;
+
+                    // Mutate workflow with error state
+                    (node.data as any).status = 'error';
+                    (node.data as any).error = errorMsg;
+
+                    if (onStatusUpdate) await onStatusUpdate(node.id, 'error', workflow);
 
                     // Block all downstream nodes in this branch
                     const blockDownstream = (nodeId: string) => {
@@ -244,7 +277,11 @@ export async function executeWorkflow(
                         childIds.forEach(childId => {
                             if (!blockedNodes.has(childId)) {
                                 blockedNodes.add(childId);
-                                // Recursively block descendants
+                                const childNode = workflow.nodes.find(n => n.id === childId);
+                                if (childNode) {
+                                    (childNode.data as any).status = 'error';
+                                    (childNode.data as any).error = 'Blocked by upstream error';
+                                }
                                 blockDownstream(childId);
                             }
                         });
@@ -252,8 +289,7 @@ export async function executeWorkflow(
 
                     blockDownstream(node.id);
                 }
-            });
-
+            }
             // Move to next wave
             readyNodes = nextReadyNodes;
             waveNumber++;

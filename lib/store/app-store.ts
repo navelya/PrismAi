@@ -68,6 +68,15 @@ interface AppState {
     setNodeOutput: (nodeId: string, output: any) => void;
     clearNodeOutputs: () => void;
 
+    // Global Reset
+    clearAllState: () => void;
+
+    // Global UI Loading State
+    isLoading: boolean;
+    setIsLoading: (isLoading: boolean) => void;
+    statusMessage: string | null;
+    setStatusMessage: (message: string | null) => void;
+
     // Run From Node (partial execution trigger)
     runFromNodeId: string | null;
     triggerRunFromNode: (nodeId: string) => void;
@@ -104,6 +113,30 @@ export const useAppStore = create<AppState>()(
             copiedNode: null, // Initialize copied node as null
             runFromNodeId: null, // No partial execution pending
             layoutEngine: 'elk', // Default layout engine
+            isLoading: false,
+            statusMessage: null,
+
+            // Global Reset
+            clearAllState: () => {
+                set({
+                    activeSessionId: null,
+                    currentWorkflow: null,
+                    chatMessages: [],
+                    editorState: {
+                        isCanvasOpen: false,
+                        splitRatio: 50,
+                        zoom: 1,
+                        viewport: { x: 0, y: 0 },
+                    },
+                    executionResults: {},
+                    nodeStatuses: {},
+                    nodeOutputs: {},
+                    copiedNode: null,
+                    runFromNodeId: null,
+                    isLoading: false,
+                    statusMessage: null,
+                });
+            },
 
             // Session Context Actions
             setActiveSessionId: (sessionId) => {
@@ -279,23 +312,31 @@ export const useAppStore = create<AppState>()(
                     nodeOutputs: newOutputs,
                     // Do NOT trigger runFromNodeId automatically
                 });
+                // Add your cache clearing logic here if applicable
             },
 
             // Layout Engine Actions
             setLayoutEngine: (engine) => set({ layoutEngine: engine }),
+
+            setIsLoading: (isLoading) => set({ isLoading }),
+            setStatusMessage: (statusMessage) => set({ statusMessage }),
         }),
         {
             name: 'prism-ai-storage',
             storage: createJSONStorage(() => localStorage),
-            // Only persist minimal state - workflows load on-demand from DB
-            partialize: (state) => ({
-                // Session context - persist so Editor knows which chat was last active
-                activeSessionId: state.activeSessionId,
-                // Don't persist currentWorkflow - it loads from DB per-session
-                // Don't persist chatMessages or executionResults - too large
-                editorState: state.editorState,
-                layoutEngine: state.layoutEngine, // Persist layout preference
-            }),
+            // Partially serialize state - strictly block all massive ephemeral objects (workflows, messages, images) from hitting the 5MB localStorage limit.
+            partialize: (state) => Object.fromEntries(
+                Object.entries(state).filter(([key]) => ![
+                    'currentWorkflow',
+                    'chatMessages',
+                    'executionResults',
+                    'nodeStatuses',
+                    'nodeOutputs',
+                    'copiedNode',
+                    'isLoading',
+                    'statusMessage'
+                ].includes(key))
+            ),
             // Clean slate on page refresh - session loading will restore state
             onRehydrateStorage: () => (state) => {
                 if (state) {

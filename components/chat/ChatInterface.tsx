@@ -42,6 +42,17 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const sessionId = params?.sessionId as string;
     const createdSessionIdRef = useRef<string | null>(null); // Handle lazy creation
     const [realtimeSessionId, setRealtimeSessionId] = useState<string | null>(null); // Reactive — triggers Realtime subscription
+    // State for Edit Mode // Server-provided execution progress
+    const realtimeHandledRef = useRef(false); // Tracks whether Realtime already processed the current message
+    const activePollsRef = useRef<Set<NodeJS.Timeout>>(new Set()); // Tracks active polling intervals to prevent zombies
+
+    // Cleanup all polling intervals on unmount
+    useEffect(() => {
+        return () => {
+            activePollsRef.current.forEach(interval => clearInterval(interval));
+            activePollsRef.current.clear();
+        };
+    }, []);
 
     // Reset lazy session on new chat navigation (Fix for "Always New Chat")
     useEffect(() => {
@@ -89,13 +100,26 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 async (payload: any) => {
                     const updatedMessage = payload.new;
 
-                    // Only process assistant messages that just completed or failed
+                    // Only process assistant messages
                     if (updatedMessage.role !== 'assistant') return;
-                    if (updatedMessage.status !== 'completed' && updatedMessage.status !== 'failed') return;
+
+                    // Allow 'processing' to let the initial workflow blueprint render instantly
+                    if (updatedMessage.status !== 'completed' && updatedMessage.status !== 'failed' && updatedMessage.status !== 'processing') return;
 
                     console.log('[Realtime] Assistant message update received:', updatedMessage.id, updatedMessage.status);
 
-                    const responseType = updatedMessage.metadata?.type;
+                    if (updatedMessage.status === 'completed' || updatedMessage.status === 'failed') {
+                        realtimeHandledRef.current = true; // Signal polling to skip
+                    }
+
+                    // Metadata might not exist yet on initial processing update, infer from workflow
+                    let responseType = updatedMessage.metadata?.type || (updatedMessage.workflow ? 'workflow' : undefined);
+                    const store = useAppStore.getState();
+
+                    if (!responseType && store.currentWorkflow && (updatedMessage.status === 'completed' || updatedMessage.status === 'failed')) {
+                        // The UI expects a workflow, so assume Realtime stripped the large JSON columns
+                        responseType = 'workflow';
+                    }
 
                     // Handle FAILED responses
                     if (updatedMessage.status === 'failed') {
@@ -103,6 +127,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             content: updatedMessage.content || 'Sorry, an error occurred.',
                         });
                         setIsLoading(false);
+                        setStatusMessage(null);
                         return;
                     }
 
@@ -122,6 +147,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             await handleRevert(snapshots[1].id, true);
                         }
                         setIsLoading(false);
+                        setStatusMessage(null);
                         return;
                     }
 
@@ -131,78 +157,108 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             content: updatedMessage.content,
                         });
 
-                        // Generate title if first message
-                        if (createdSessionIdRef.current) {
-                            sessionsApi.generateTitle({
-                                sessionId: createdSessionIdRef.current,
-                                message: '', // We don't have the original prompt here; title gen uses session history
-                                assistantResponse: updatedMessage.content,
-                            }).then(() => {
-                                window.dispatchEvent(new Event('session-updated'));
-                            }).catch(console.error);
-                        }
-
                         setIsLoading(false);
+                        setStatusMessage(null);
                         return;
                     }
 
                     // Handle WORKFLOW responses
-                    if (responseType === 'workflow' && updatedMessage.workflow) {
+                    if (responseType === 'workflow') {
                         let workflow = updatedMessage.workflow;
+                        let processedResult = updatedMessage.metadata?.execution_result || null;
+                        let executionError = updatedMessage.metadata?.execution_error || null;
+                        let contentToRender = updatedMessage.content;
+
+                        // CRITICAL FIX: If Realtime stripped the payload (TOAST truncation), explicitly fetch the full row!
+                        if (!workflow && !updatedMessage.metadata && (updatedMessage.status === 'completed' || updatedMessage.status === 'failed')) {
+                            console.log('[Realtime] Payload likely truncated by Postgres. Fetching full row directly...');
+                            try {
+                                const { data: fullMsg } = await supabase.from('messages').select('*').eq('id', updatedMessage.id).single();
+                                if (fullMsg) {
+                                    workflow = fullMsg.workflow;
+                                    processedResult = fullMsg.metadata?.execution_result || null;
+                                    executionError = fullMsg.metadata?.execution_error || null;
+                                    contentToRender = fullMsg.content;
+                                }
+                            } catch (e) {
+                                console.error('[Realtime] Backup block-fetch failed', e);
+                            }
+                        }
+
+                        workflow = workflow || store.currentWorkflow;
+
+                        if (!workflow) {
+                            console.error('[Realtime] FATAL: Received workflow update but neither payload nor store had workflow data.', updatedMessage);
+                            return; // Cannot process without workflow definition
+                        }
+
+                        const existingWorkflow = store.currentWorkflow;
 
                         // Apply auto-layout
                         if (workflow.nodes?.length > 0) {
-                            try {
-                                const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
+                            let needsLayout = true;
+
+                            // Preserve existing UI positions if they exist to prevent snapping to 0,0
+                            if (existingWorkflow && existingWorkflow.nodes) {
+                                let hasReusedPosition = false;
                                 workflow.nodes = workflow.nodes.map((n: any) => {
-                                    const pos = positions.get(n.id);
-                                    return pos ? { ...n, position: pos } : n;
+                                    const existingNode = existingWorkflow.nodes.find((en: any) => en.id === n.id);
+                                    if (existingNode && existingNode.position && (existingNode.position.x !== 0 || existingNode.position.y !== 0)) {
+                                        hasReusedPosition = true;
+                                        return { ...n, position: existingNode.position };
+                                    }
+                                    return n;
                                 });
-                            } catch (e) {
-                                console.error('[Realtime] Auto-layout failed:', e);
+                                if (hasReusedPosition) needsLayout = false;
+                            }
+
+                            if (needsLayout) {
+                                try {
+                                    const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
+                                    workflow.nodes = workflow.nodes.map((n: any) => {
+                                        const pos = positions.get(n.id);
+                                        return pos ? { ...n, position: pos } : n;
+                                    });
+                                } catch (e) {
+                                    console.error('[Realtime] Auto-layout failed:', e);
+                                }
                             }
                         }
 
                         onWorkflowGenerated(workflow);
 
-                        // Extract results directly from the server-executed DB update!
-                        const processedResult = updatedMessage.metadata?.execution_result || null;
-                        const executionError = updatedMessage.metadata?.execution_error || null;
+                        const isCompleted = updatedMessage.status === 'completed' || updatedMessage.status === 'failed';
 
-                        // Update the placeholder message with the final content
-                        useAppStore.getState().updateMessage(updatedMessage.id, {
-                            content: updatedMessage.content || '',
-                            result: processedResult,
-                            workflow,
-                        });
+                        if (isCompleted) {
+                            // Extract results directly from the server-executed DB update!
+                            // Update the placeholder message with the final content
+                            store.updateMessage(updatedMessage.id, {
+                                content: contentToRender || '',
+                                result: processedResult,
+                                workflow,
+                            });
 
-                        // Set nodes to success/failed state visually based on server execution
-                        const store = useAppStore.getState();
-                        store.resetNodeStatuses();
-                        store.clearExecutionResults();
-                        store.clearNodeOutputs();
+                            // Set nodes to success/failed state visually based on server execution
+                            store.resetNodeStatuses();
+                            store.clearExecutionResults();
+                            store.clearNodeOutputs();
 
-                        if (executionError && !processedResult) {
-                            // Failed execution
-                            workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
+                            if (executionError && !processedResult) {
+                                // Failed execution
+                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
+                            } else {
+                                // Success or partial success execution
+                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
+                            }
+
+                            setIsLoading(false);
+                            setStatusMessage(null);
                         } else {
-                            // Success or partial success execution
-                            workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
+                            // Intermediate Processing phase
+                            store.updateMessage(updatedMessage.id, {
+                                workflow,
+                            });
                         }
-
-                        // Generate title for new workflow sessions
-                        if (createdSessionIdRef.current) {
-                            sessionsApi.generateTitle({
-                                sessionId: createdSessionIdRef.current,
-                                message: '',
-                                workflowName: workflow.name,
-                                assistantResponse: updatedMessage.content || '',
-                            }).then(() => {
-                                window.dispatchEvent(new Event('session-updated'));
-                            }).catch(console.error);
-                        }
-
-                        setIsLoading(false);
                         return;
                     }
 
@@ -211,6 +267,105 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         content: updatedMessage.content || 'Response received.',
                     });
                     setIsLoading(false);
+                    setStatusMessage(null);
+                },
+            )
+            .subscribe();
+
+        // 2. Add second listener explicitly for live status from Worker
+        const sessionsChannel = supabase
+            .channel(`chat-sessions-${activeSessionId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'sessions',
+                    filter: `id=eq.${activeSessionId}`,
+                },
+                (payload: any) => {
+                    const store = useAppStore.getState();
+                    if (payload.new) {
+                        if (payload.new.status_message) {
+                            setStatusMessage(payload.new.status_message);
+                        }
+
+                        // Live Sync Node Statuses from Worker execution
+                        if (payload.new.canvas_state && payload.new.canvas_state.nodes) {
+                            payload.new.canvas_state.nodes.forEach((node: any) => {
+                                // Sync node execution borders (running, success, error)
+                                if (node.data?.status) {
+                                    const currentStatus = store.nodeStatuses[node.id];
+                                    // Prevent out-of-order race conditions from downgrading a terminal state!
+                                    if (currentStatus !== 'success' && currentStatus !== 'error') {
+                                        store.setNodeStatus(node.id, node.data.status);
+                                    }
+                                }
+
+                                // Sync node output thumbnails as they generate
+                                if (node.data?.output !== undefined) {
+                                    store.setNodeOutput(node.id, node.data.output);
+                                }
+                            });
+                        }
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+            supabase.removeChannel(sessionsChannel);
+        };
+        // realtimeSessionId is a STATE variable (not ref) so it triggers re-render
+        // and causes this useEffect to fire when a new session is lazily created.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionId, realtimeSessionId]);
+
+    // =========================================================================
+    // SUPABASE REALTIME: Listen for session status_message updates (progress)
+    // =========================================================================
+    useEffect(() => {
+        const activeSessionId = sessionId || realtimeSessionId;
+        if (!activeSessionId) return;
+
+        const supabase = createClient();
+        const channel = supabase
+            .channel(`session-status-${activeSessionId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'sessions',
+                    filter: `id=eq.${activeSessionId}`,
+                },
+                (payload: any) => {
+                    const updated = payload.new;
+                    // Update status message for progress tracking
+                    if ('status_message' in updated) {
+                        setStatusMessage(updated.status_message || null);
+                    }
+
+                    // Fast real-time node thumbnails and states
+                    if ('canvas_state' in updated && updated.canvas_state) {
+                        const store = useAppStore.getState();
+                        const existingWorkflow = store.currentWorkflow;
+                        let newWorkflow = updated.canvas_state;
+
+                        // Preserve UI positions to prevent nodes jumping to 0,0 during live execution
+                        if (existingWorkflow && existingWorkflow.nodes) {
+                            newWorkflow.nodes = newWorkflow.nodes.map((n: any) => {
+                                const existingNode = existingWorkflow.nodes.find((en: any) => en.id === n.id);
+                                if (existingNode && existingNode.position) {
+                                    return { ...n, position: existingNode.position };
+                                }
+                                return n;
+                            });
+                        }
+
+                        store.setCurrentWorkflow(newWorkflow);
+                    }
                 },
             )
             .subscribe();
@@ -218,9 +373,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         return () => {
             supabase.removeChannel(channel);
         };
-        // realtimeSessionId is a STATE variable (not ref) so it triggers re-render
-        // and causes this useEffect to fire when a new session is lazily created.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, realtimeSessionId]);
 
     // Helper to save messages via BFF API
@@ -267,7 +419,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const addMessage = useAppStore((state) => state.addMessage);
 
     const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+    const isLoading = useAppStore((state) => state.isLoading);
+    const setIsLoading = useAppStore((state) => state.setIsLoading);
+    const statusMessage = useAppStore((state) => state.statusMessage);
+    const setStatusMessage = useAppStore((state) => state.setStatusMessage);
 
     // State for Edit Mode
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -524,6 +679,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             } catch (err) {
                 console.error('Failed to create session:', err);
                 setIsLoading(false);
+                setStatusMessage(null);
                 return;
             }
         }
@@ -567,24 +723,149 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             };
             addMessage(assistantPlaceholder);
 
+            // Reset the Realtime-handled flag for this new message
+            realtimeHandledRef.current = false;
+
+            // ═══════════════════════════════════════════════════════════
+            // POLLING FALLBACK: If Supabase Realtime misses the UPDATE,
+            // poll the DB every 3 seconds to catch the completed message.
+            // ═══════════════════════════════════════════════════════════
+            const pollMessageId = response.assistantMessage.id;
+            const pollSupabase = createClient(); // Reuse single client for all polls
+            let pollCount = 0;
+            const maxPolls = 60; // 3s × 60 = 3 minutes max
+
+            const pollInterval = setInterval(async () => {
+                pollCount++;
+                if (pollCount > maxPolls) {
+                    clearInterval(pollInterval);
+                    activePollsRef.current.delete(pollInterval);
+                    useAppStore.getState().setIsLoading(false);
+                    useAppStore.getState().setStatusMessage(null);
+                    return;
+                }
+
+                // Skip if Realtime already handled it
+                if (realtimeHandledRef.current) {
+                    clearInterval(pollInterval);
+                    activePollsRef.current.delete(pollInterval);
+                    return;
+                }
+
+                try {
+                    const { data: msg } = await pollSupabase
+                        .from('messages')
+                        .select('*')
+                        .eq('id', pollMessageId)
+                        .single();
+
+                    if (!msg) return;
+                    if (msg.status !== 'completed' && msg.status !== 'failed') return;
+
+                    // Double-check Realtime didn't just handle it
+                    if (realtimeHandledRef.current) {
+                        clearInterval(pollInterval);
+                        activePollsRef.current.delete(pollInterval);
+                        return;
+                    }
+
+                    // Message is done — stop polling
+                    clearInterval(pollInterval);
+                    activePollsRef.current.delete(pollInterval);
+                    console.log('[Polling Fallback] Processing completed message:', pollMessageId, msg.status);
+
+                    let responseType = msg.metadata?.type || (msg.workflow ? 'workflow' : undefined);
+                    if (!responseType && useAppStore.getState().currentWorkflow) {
+                        responseType = 'workflow';
+                    }
+
+                    if (msg.status === 'failed') {
+                        useAppStore.getState().updateMessage(pollMessageId, {
+                            content: msg.content || 'Sorry, an error occurred.',
+                        });
+                        useAppStore.getState().setIsLoading(false);
+                        useAppStore.getState().setStatusMessage(null);
+                        return;
+                    }
+
+                    if (responseType === 'chat') {
+                        useAppStore.getState().updateMessage(pollMessageId, {
+                            content: msg.content,
+                        });
+                        setIsLoading(false);
+                        setStatusMessage(null);
+                        return;
+                    }
+
+                    if (responseType === 'workflow') {
+                        let workflow = msg.workflow || useAppStore.getState().currentWorkflow;
+
+                        // We must have the workflow from either DB or local store
+                        if (workflow) {
+                            if (workflow.nodes?.length > 0) {
+                                try {
+                                    const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
+                                    workflow.nodes = workflow.nodes.map((n: any) => {
+                                        const pos = positions.get(n.id);
+                                        return pos ? { ...n, position: pos } : n;
+                                    });
+                                } catch (e) {
+                                    console.error('[Polling] Auto-layout failed:', e);
+                                }
+                            }
+
+                            onWorkflowGenerated(workflow);
+
+                            const processedResult = msg.metadata?.execution_result || null;
+                            const executionError = msg.metadata?.execution_error || null;
+
+                            useAppStore.getState().updateMessage(pollMessageId, {
+                                content: msg.content ?? '',
+                                result: processedResult,
+                                workflow,
+                            });
+
+                            const store = useAppStore.getState();
+                            store.resetNodeStatuses();
+                            store.clearExecutionResults();
+                            store.clearNodeOutputs();
+
+                            if (executionError && !processedResult) {
+                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
+                            } else {
+                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
+                            }
+
+                            store.setIsLoading(false);
+                            store.setStatusMessage(null);
+                            return;
+                        }
+                    }
+
+                    // Fallback
+                    useAppStore.getState().updateMessage(pollMessageId, {
+                        content: msg.content ?? 'Response received.',
+                    });
+                    useAppStore.getState().setIsLoading(false);
+                    useAppStore.getState().setStatusMessage(null);
+                } catch (pollErr) {
+                    console.warn('[Polling] Check failed:', pollErr);
+                }
+            }, 3000);
+
             // Seamlessly update URL if this was the first message
             if (!sessionId && createdSessionIdRef.current) {
-                // Only replace state if the user is still on the chat page!
                 const currentPath = window.location.pathname;
                 if (currentPath === '/chat' || currentPath === '/') {
                     window.history.replaceState({}, '', `/chat/${createdSessionIdRef.current}`);
                 }
-                window.dispatchEvent(new Event('session-updated'));
-
-                // Generate smart title in the background
-                sessionsApi.generateTitle({
-                    sessionId: createdSessionIdRef.current,
-                    message: trimmedInput,
-                }).catch(console.error);
+                // NOTE: No session-updated event — sidebar's Realtime handler picks up the INSERT automatically
             }
 
             // NOTE: isLoading stays true — it will be cleared by the Realtime handler
-            // when the assistant message status changes to 'completed' or 'failed'.
+            // OR by the polling fallback above when the message status changes.
+
+            activePollsRef.current.add(pollInterval);
 
         } catch (error) {
             console.error('Failed to send message:', error);
@@ -596,6 +877,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             };
             addMessage(errorMessage);
             setIsLoading(false);
+            setStatusMessage(null);
         }
     };
 
@@ -621,11 +903,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 useAppStore.getState().setCurrentWorkflow(null);
                 useAppStore.getState().clearMessages();
 
-                // Force a hard navigation/refresh if we are in a specific session URL to ensure clean state
-                // Or just rely on local state clearing.
-                // Since we deleted messages on server, a refresh will now show empty chat.
-                // We'll dispatch the event to update sidebar.
-                window.dispatchEvent(new Event('session-updated'));
+
             } else {
                 const { success, workflow } = await messagesApi.revert(messageId);
 
@@ -646,8 +924,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         });
                     }
 
-                    // 3. Notify Sidebar
-                    window.dispatchEvent(new Event('session-updated'));
+
                 }
             }
         } catch (error) {
@@ -655,6 +932,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             alert('Failed to rewind workflow.');
         } finally {
             setIsLoading(false);
+            setStatusMessage(null);
         }
     };
 
@@ -664,6 +942,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             abortControllerRef.current = null;
         }
         setIsLoading(false);
+        setStatusMessage(null);
 
         // Add a message indicating the workflow was stopped
         const stopMessage: Message = {
@@ -1208,18 +1487,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 undoSnapshotId={undoSnapshotId}
                                 isDisabled={isDisabled}
                                 isEditing={isEditing}
+                                serverStatus={statusMessage}
                             />
                         );
                     })}
 
-                    {isLoading && (
-                        <div className="flex gap-4 animate-fade-in">
+                    {isLoading && !(messages.length > 0 && messages[messages.length - 1].type === 'assistant' && !messages[messages.length - 1].content) && (
+                        <div className="flex gap-4">
                             <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center">
                                 <Bot className="w-5 h-5 text-white" />
                             </div>
                             <div className="flex items-center gap-2 text-content-secondary">
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                <ExecutionUserFeedback />
+                                <ExecutionUserFeedback serverStatus={statusMessage} />
                             </div>
                         </div>
                     )}
@@ -1255,26 +1535,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 }
 
 // Dynamic execution status component
-function ExecutionUserFeedback() {
-    const nodeStatuses = useAppStore((state) => state.nodeStatuses);
-    const workflow = useAppStore((state) => state.currentWorkflow);
-
-    // Map node types to present continuous action verbs
-    const actionDescriptions: Record<string, string> = {
-        scrape_images: 'Searching for images',
-        remove_background: 'Removing background',
-        filter_sort: 'Filtering results',
-        ai_generate_image: 'Generating AI image',
-        upscale_image: 'Upscaling image',
-        merge_image: 'Merging images',
-        media_input: 'Processing upload',
-    };
-
-    // Find currently running node
-    // We prioritize 'running' nodes. If none, we check if we are in a 'pending' state implying transition.
-    const runningNodeId = Object.entries(nodeStatuses).find(([_, status]) => status === 'running')?.[0];
-    const runningNode = workflow?.nodes.find(n => n.id === runningNodeId);
-
+export function ExecutionUserFeedback({ serverStatus }: { serverStatus?: string | null }) {
+    // Prefer server-provided status (from sessions.status_message via Realtime)
     const [dots, setDots] = useState('');
 
     useEffect(() => {
@@ -1284,13 +1546,7 @@ function ExecutionUserFeedback() {
         return () => clearInterval(interval);
     }, []);
 
-    let statusText = 'Creating workflow';
-    if (runningNode) {
-        statusText = actionDescriptions[runningNode.type] || 'Processing';
-    } else if (workflow && Object.keys(nodeStatuses).length > 0) {
-        // Workflow exists and execution started (statuses exist), but nothing currently 'running' (maybe between nodes)
-        statusText = 'Finalizing';
-    }
+    const statusText = serverStatus || 'Creating workflow';
 
     return (
         <span className="text-sm min-w-[120px]">
@@ -1299,18 +1555,16 @@ function ExecutionUserFeedback() {
     );
 }
 
-
-
 // ... MemoizedMessage definition ...
 
-// Memoized message component
 const MemoizedMessage = React.memo(function MemoizedMessage({
     message,
     onRevert,
     onEdit,
     undoSnapshotId,
     isDisabled,
-    isEditing
+    isEditing,
+    serverStatus
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -1318,6 +1572,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
     undoSnapshotId?: string;
     isDisabled?: boolean;
     isEditing?: boolean;
+    serverStatus?: string | null;
 }) {
     // State for local relative time
     const [timeString, setTimeString] = React.useState('');
@@ -1342,7 +1597,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
 
     return (
         <div
-            className={`flex gap-4 animate-fade-in ${message.type === 'user' ? 'justify-end' : 'justify-start'} 
+            className={`flex gap-4 ${message.type === 'user' ? 'justify-end animate-fade-in' : 'justify-start'} 
                 ${isDisabled ? 'opacity-40 grayscale pointer-events-none select-none filter blur-[1px]' : ''}
                 ${isEditing ? 'z-10 relative' : ''}`}
         >
@@ -1371,10 +1626,15 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                     )}
 
                     {/* Message Content */}
-                    {message.content && (
+                    {message.content ? (
                         <p className={`text-[15px] leading-relaxed ${message.type === 'user' ? 'text-white/95 font-medium' : 'text-content-primary'}`}>
                             {message.content}
                         </p>
+                    ) : message.type === 'assistant' && !message.result && (
+                        <div className="flex items-center gap-2 text-content-primary py-1">
+                            <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
+                            <ExecutionUserFeedback serverStatus={serverStatus} />
+                        </div>
                     )}
 
                     {/* Result (Assistant) */}

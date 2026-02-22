@@ -3,25 +3,18 @@ import ChatClientPage from './ChatClientPage';
 
 export default function ChatPage() {
     const cookieStore = cookies();
-    const tokenCookie = cookieStore.get('supabase-auth-token');
+    const tokenStr = cookieStore.get('auth_token')?.value;
 
-    let userName = '';
-
-    if (tokenCookie?.value) {
+    let initialUserName = undefined;
+    if (tokenStr) {
         try {
-            // The cookie might be URI encoded
-            const decodedValue = decodeURIComponent(tokenCookie.value);
-            const session = JSON.parse(decodedValue);
-
-            // Extract display name or full name from user metadata
-            userName = session.user?.user_metadata?.display_name ||
-                session.user?.user_metadata?.full_name ||
-                '';
-        } catch (error) {
-            console.error('Error parsing auth cookie:', error);
-            // Fallback to client-side fetching if parsing fails
+            const token = JSON.parse(tokenStr);
+            initialUserName = token.user?.user_metadata?.username;
+        } catch (e) {
+            console.error('Failed to parse auth_token cookie:', e);
         }
     }
 
-    return <ChatClientPage key="new-chat" initialUserName={userName} />;
+    // Pass undefined for sessionId to ensure ChatClientPage resets the state for a new chat
+    return <ChatClientPage key="new-chat" sessionId={undefined} initialUserName={initialUserName} />;
 }

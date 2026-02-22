@@ -48,9 +48,8 @@ export function useSession() {
                 store.clearNodeOutputs();
                 store.setEditorState({ isCanvasOpen: false, splitRatio: 50 });
 
-                router.push(`/chat/${session.id}`);
-                // Notify sidebar to refresh immediately
-                window.dispatchEvent(new Event('session-updated'));
+                // Use Native History API to avoid full DOM unmount (Zero-Blink Navigation)
+                window.history.pushState({}, '', `/chat/${session.id}`);
             }
         } catch (error) {
             console.error('Failed to create session:', error);
@@ -86,21 +85,24 @@ export function useSession() {
 
             // Hydrate Messages
             const formattedMessages: any[] = messages
-                // Filter out 'processing' placeholder messages (empty, no content)
-                .filter((msg: any) => !(msg.status === 'processing' && !msg.content))
+                // Filter out 'processing' placeholder messages ONLY IF they have absolutely no content and no workflow
+                .filter((msg: any) => !(msg.status === 'processing' && !msg.content && !msg.workflow && !msg.canvas_state))
                 .map((msg: any) => {
                     // Restore image paths to URLs
                     const images = msg.images?.map((path: string) => getStoragePublicUrl(path));
 
-                    // For assistant messages, if we have images from the result, convert to ImageObject format
                     let result = undefined;
-                    if (msg.role === 'assistant' && images && images.length > 0) {
-                        // Convert URL strings to ImageObject format for MessageRenderer
-                        result = images.map((url: string, idx: number) => ({
-                            url,
-                            resolution: { width: 800, height: 600 }, // Placeholder dimensions
-                            metadata: { title: `Image ${idx + 1}` }
-                        }));
+                    if (msg.role === 'assistant') {
+                        if (msg.metadata?.execution_result) {
+                            result = msg.metadata.execution_result;
+                        } else if (images && images.length > 0) {
+                            // Fallback to old behavior for legacy messages
+                            result = images.map((url: string, idx: number) => ({
+                                url,
+                                resolution: { width: 800, height: 600 },
+                                metadata: { title: `Image ${idx + 1}` }
+                            }));
+                        }
                     }
 
                     // Read from `workflow` column (written by background worker)
@@ -122,14 +124,45 @@ export function useSession() {
             store.clearMessages();
 
             // Attach workflow to last assistant message (for Editor button visibility)
-            if (formattedMessages.length > 0 && session.canvas_state?.nodes?.length > 0) {
+            let lastWorkflowMsgStatus: 'completed' | 'failed' | null = null;
+            let lastWorkflowMsgHasError = false;
+
+            if (formattedMessages.length > 0) {
                 const lastAssistantIndex = formattedMessages.map((m: any) => m.type).lastIndexOf('assistant');
-                if (lastAssistantIndex !== -1) {
+                if (lastAssistantIndex !== -1 && session.canvas_state?.nodes?.length > 0) {
                     formattedMessages[lastAssistantIndex].workflow = session.canvas_state;
+
+                    // Dig back into the raw DB message to check the actual execution status
+                    const lastMsgId = formattedMessages[lastAssistantIndex].id;
+                    const rawMsg = messages.find((m: any) => m.id === lastMsgId);
+                    if (rawMsg && (rawMsg.status === 'completed' || rawMsg.status === 'failed')) {
+                        lastWorkflowMsgStatus = rawMsg.status;
+                        lastWorkflowMsgHasError = !!rawMsg.metadata?.execution_error;
+                    }
                 }
             }
 
             formattedMessages.forEach((msg: any) => store.addMessage(msg));
+
+            // Hydrate Node Statuses and Live Outputs for the loaded Canvas State
+            if (session.canvas_state?.nodes?.length > 0) {
+                const isCompleted = lastWorkflowMsgStatus === 'completed' || lastWorkflowMsgStatus === 'failed';
+                const isFailed = lastWorkflowMsgStatus === 'failed' || lastWorkflowMsgHasError;
+
+                session.canvas_state.nodes.forEach((node: any) => {
+                    // Hydrate live thumbnails for nodes that have already finished
+                    if (node.data?.output !== undefined) {
+                        store.setNodeOutput(node.id, node.data.output);
+                    }
+
+                    // Hydrate execution borders
+                    if (isCompleted) {
+                        store.setNodeStatus(node.id, isFailed ? 'error' : 'success');
+                    } else if (node.data?.status) {
+                        store.setNodeStatus(node.id, node.data.status);
+                    }
+                });
+            }
 
             setCurrentSessionId(sessionId);
             setError(null);
@@ -142,22 +175,20 @@ export function useSession() {
         }
     }, []);
 
-    // Delete a session
+    // Delete a session — OPTIMISTIC: navigate + clear state immediately, DB delete async
     const deleteSession = useCallback(async (sessionId: string) => {
-        try {
-            // Delete via BFF API (server handles message & storage cleanup)
-            await sessionsApi.delete(sessionId);
-
-            // Update UI — if deleting current session, redirect home
-            if (currentSessionId === sessionId) {
-                router.push('/chat');
-                setCurrentSessionId(null);
-                useAppStore.getState().clearMessages();
-                useAppStore.getState().setCurrentWorkflow(null);
-            }
-        } catch (error) {
-            console.error("Failed to delete session", error);
+        // Immediately update UI (don't wait for DB)
+        if (currentSessionId === sessionId) {
+            router.push('/chat');
+            setCurrentSessionId(null);
+            useAppStore.getState().clearMessages();
+            useAppStore.getState().setCurrentWorkflow(null);
         }
+
+        // Fire-and-forget — delete from DB asynchronously
+        sessionsApi.delete(sessionId).catch((error) => {
+            console.error("Failed to delete session", error);
+        });
     }, [currentSessionId, router]);
 
     return {

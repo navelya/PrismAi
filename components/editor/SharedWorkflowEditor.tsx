@@ -186,48 +186,42 @@ export default function SharedWorkflowEditor({
         setExecutionError(null);
         setShowResults(true);
 
-        // Create abort controller
-        abortControllerRef.current = new AbortController();
-
         // Reset all node statuses and outputs for live streaming
-        const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
-        const clearNodeOutputs = useAppStore.getState().clearNodeOutputs;
-        const setNodeStatus = useAppStore.getState().setNodeStatus;
-        const setNodeOutput = useAppStore.getState().setNodeOutput;
-
-        resetNodeStatuses();
-        clearNodeOutputs();
+        const store = useAppStore.getState();
+        store.resetNodeStatuses();
+        store.clearNodeOutputs();
 
         // Mark all nodes as pending
-        nodes.forEach(node => setNodeStatus(node.id, 'pending'));
+        nodes.forEach(node => store.setNodeStatus(node.id, 'pending'));
 
         const workflow = getCurrentWorkflow();
-        const executionId = generateNodeId();
+        const activeSessionId = store.activeSessionId;
 
-        // Execute with real-time status and output callbacks
-        const result = await executeWorkflow(
-            workflow,
-            executionId,
-            (nodeId, status) => setNodeStatus(nodeId, status),
-            (nodeId, output) => setNodeOutput(nodeId, output)
-        );
+        try {
+            // POST to the background server execution API
+            const res = await fetch('/api/workflow/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workflow,
+                    sessionId: activeSessionId
+                })
+            });
 
-        setIsExecuting(false);
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Execution request failed');
+            }
 
-        if (result.success) {
-            setExecutionResult(result.result);
+            // Immediately clear execution state, UI is now fully driven by Realtime syncs!
+            setIsExecuting(false);
             setExecutionError(null);
 
-            // Callback for parent component (e.g., chat)
-            if (onExecutionComplete) {
-                onExecutionComplete(result.result);
-            }
-        } else {
-            setExecutionError(result.error || 'Execution failed');
+        } catch (err: any) {
+            setIsExecuting(false);
+            setExecutionError(err.message || 'Execution failed to start');
             setExecutionResult(null);
         }
-
-        abortControllerRef.current = null;
     };
 
     // Listen for "Run From Node" triggers
