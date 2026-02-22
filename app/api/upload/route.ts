@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
         const file = formData.get('file') as Blob | null;
         const urlToFetch = formData.get('url') as string | null;
         const customFilename = formData.get('filename') as string | null;
+        const sessionId = formData.get('sessionId') as string | null;
 
         if (!file && !urlToFetch) {
             return NextResponse.json({ error: 'No file or url provided' }, { status: 400 });
@@ -57,9 +58,11 @@ export async function POST(request: NextRequest) {
             throw new Error('Unreachable');
         }
 
-        // Generate scoped path under user directory
+        // Generate scoped path under user directory and optionally session directory
         const filename = customFilename || `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-        const storagePath = `${user.id}/${filename}`;
+        const storagePath = sessionId
+            ? `${user.id}/${sessionId}/${filename}`
+            : `${user.id}/${filename}`;
 
         const { data, error } = await supabase.storage
             .from('chat-assets')

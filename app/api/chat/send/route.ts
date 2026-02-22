@@ -249,7 +249,7 @@ export async function POST(request: Request) {
 
                                         // Save to session user's folder
                                         const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-                                        const storagePath = `${userId}/${filename}`;
+                                        const storagePath = `${userId}/${sessionId}/${filename}`;
 
                                         const { data, error } = await adminSupabase.storage
                                             .from('chat-assets')

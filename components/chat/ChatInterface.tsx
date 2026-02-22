@@ -54,14 +54,17 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         };
     }, []);
 
-    // Reset lazy session on new chat navigation (Fix for "Always New Chat")
+    const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
+
+    // Reset lazy session on new chat navigation when the Sidebar explicitly wipes the store
     useEffect(() => {
-        if (!sessionId) {
+        if (!sessionId && !storeActiveSessionId) {
+            console.log('[ChatInterface] Hard resetting local ref states due to New Chat trigger');
             createdSessionIdRef.current = null;
-            useAppStore.getState().clearMessages();
-            useAppStore.getState().setCurrentWorkflow(null);
+            setRealtimeSessionId(null);
+            // We don't need to manually clear messages here anymore as Sidebar handles that explicitly
         }
-    }, [sessionId]);
+    }, [sessionId, storeActiveSessionId]);
 
     // Use store workflow for auto-save as it's the source of truth
     const storeWorkflow = useAppStore((state) => state.currentWorkflow);
@@ -245,10 +248,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
                             if (executionError && !processedResult) {
                                 // Failed execution
-                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
+                                workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
                             } else {
                                 // Success or partial success execution
-                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
+                                workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
                             }
 
                             setIsLoading(false);
@@ -354,7 +357,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         let newWorkflow = updated.canvas_state;
 
                         // Preserve UI positions to prevent nodes jumping to 0,0 during live execution
-                        if (existingWorkflow && existingWorkflow.nodes) {
+                        if (existingWorkflow && existingWorkflow.nodes && newWorkflow && newWorkflow.nodes) {
                             newWorkflow.nodes = newWorkflow.nodes.map((n: any) => {
                                 const existingNode = existingWorkflow.nodes.find((en: any) => en.id === n.id);
                                 if (existingNode && existingNode.position) {
@@ -689,7 +692,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         if (blobsToSend.length > 0 && activeSessionId) {
             try {
                 const results = await Promise.all(
-                    blobsToSend.map(blob => uploadApi.upload(blob))
+                    blobsToSend.map(blob => uploadApi.upload(blob, undefined, activeSessionId || undefined))
                 );
                 uploadedPaths = results.map(r => r.path);
             } catch (e) {
@@ -831,9 +834,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             store.clearNodeOutputs();
 
                             if (executionError && !processedResult) {
-                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
+                                workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
                             } else {
-                                workflow.nodes.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
+                                workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
                             }
 
                             store.setIsLoading(false);
@@ -1004,7 +1007,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 try {
                                     const response = await fetch(item.url);
                                     const blob = await response.blob();
-                                    const uploaded = await uploadApi.upload(blob);
+                                    const uploaded = await uploadApi.upload(blob, undefined, activeSessionId || undefined);
                                     resultImagePaths.push(uploaded.path);
                                     result[i] = { ...item, url: uploaded.publicUrl };
                                 } catch (e) {

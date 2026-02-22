@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
                                 const buffer = Buffer.from(await response.arrayBuffer());
                                 const mimeType = response.headers.get('content-type') || (isDataUri ? item.url.split(';')[0].split(':')[1] : 'image/jpeg');
                                 const ext = mimeType.split('/')[1] || 'jpg';
-                                const storagePath = `${userId}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+                                const storagePath = `${userId}/${sessionId}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
 
                                 const { data, error } = await adminSupabase.storage.from('chat-assets').upload(storagePath, buffer, { contentType: mimeType, upsert: false });
                                 if (!error && data) item.url = data.path; // Write path back to the output payload

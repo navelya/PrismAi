@@ -106,10 +106,11 @@ export const messagesApi = {
 
 export const uploadApi = {
     /** Upload an image (pass a Blob) */
-    upload: async (file: Blob, filename?: string) => {
+    upload: async (file: Blob, filename?: string, sessionId?: string) => {
         const formData = new FormData();
         formData.append('file', file);
         if (filename) formData.append('filename', filename);
+        if (sessionId) formData.append('sessionId', sessionId);
 
         const res = await fetch('/api/upload', {
             method: 'POST',
@@ -123,10 +124,11 @@ export const uploadApi = {
     },
 
     /** Upload an external image URL server-side */
-    uploadUrl: async (url: string, filename?: string) => {
+    uploadUrl: async (url: string, filename?: string, sessionId?: string) => {
         const formData = new FormData();
         formData.append('url', url);
         if (filename) formData.append('filename', filename);
+        if (sessionId) formData.append('sessionId', sessionId);
 
         const res = await fetch('/api/upload', {
             method: 'POST',
