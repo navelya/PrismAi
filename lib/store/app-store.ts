@@ -4,12 +4,13 @@ import { Workflow, WorkflowNode, NodeStatus } from '../nodes/types';
 import { LayoutEngine } from '../utils/graph-layout';
 
 // Message interface
-interface Message {
+export interface Message {
     id: string;
     type: 'user' | 'assistant';
     content: string;
     result?: any;
     workflow?: Workflow;
+    images?: string[];
     timestamp: Date;
 }
 
@@ -23,10 +24,9 @@ interface EditorState {
 
 // App state interface
 interface AppState {
-    // Session Context (which chat is active)
+    // Session Context (Data Ownership Checksum)
     activeSessionId: string | null;
     setActiveSessionId: (sessionId: string | null) => void;
-
     // Workflow State (belongs to active session)
     currentWorkflow: Workflow | null;
     setCurrentWorkflow: (workflow: Workflow | null) => void;
@@ -97,7 +97,7 @@ export const useAppStore = create<AppState>()(
     persist(
         (set, get) => ({
             // Initial State
-            activeSessionId: null, // No active session initially
+            activeSessionId: null,
             currentWorkflow: null,
             isDragging: false,
             chatMessages: [],
@@ -327,6 +327,7 @@ export const useAppStore = create<AppState>()(
             // Partially serialize state - strictly block all massive ephemeral objects (workflows, messages, images) from hitting the 5MB localStorage limit.
             partialize: (state) => Object.fromEntries(
                 Object.entries(state).filter(([key]) => ![
+                    'activeSessionId',
                     'currentWorkflow',
                     'chatMessages',
                     'executionResults',
@@ -341,6 +342,7 @@ export const useAppStore = create<AppState>()(
             onRehydrateStorage: () => (state) => {
                 if (state) {
                     // Clear transient state on page reload
+                    state.activeSessionId = null;
                     state.chatMessages = [];
                     state.isDragging = false;
 

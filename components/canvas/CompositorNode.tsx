@@ -148,7 +148,7 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     // Get connected inputs for live preview
     const connectedInputs = useMemo(() => {
         if (!currentWorkflow) return {};
-        const edges = currentWorkflow.edges.filter(e => e.target === id);
+        const edges = currentWorkflow.edges?.filter(e => e.target === id) || [];
         const inputs: Record<string, ImageObject[]> = {};
 
         edges.forEach(edge => {

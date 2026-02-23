@@ -31,11 +31,12 @@ interface SidebarProps {
 export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const [isExpanded, setIsExpanded] = React.useState(false);
     const pathname = usePathname();
+    const match = pathname?.match(/^\/chat\/([a-zA-Z0-9_-]+)/);
+    const urlSessionId = match ? match[1] : null;
     const isMobile = useIsMobile();
     const [user, setUser] = React.useState<any>(null);
     const supabase = createClient();
     const router = useRouter();
-    const activeSessionId = useAppStore((state) => state.activeSessionId);
 
     React.useEffect(() => {
         const getUser = async () => {
@@ -143,29 +144,8 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     }, [user, supabase]);
 
     const handleNewChat = () => {
-        // Reset ALL state immediately (synchronously before navigation)
-        const store = useAppStore.getState();
-
-
-
-        // Clear workflow and close canvas FIRST
-        store.setCurrentWorkflow(null);
-        store.setEditorState({ isCanvasOpen: false, splitRatio: 50 });
-
-        // Clear chat messages and execution state
-        store.clearMessages();
-        store.clearExecutionResults();
-        store.resetNodeStatuses();
-        store.clearNodeOutputs();
-
-        // Clear active session ID - this is key for fresh state
-        store.setActiveSessionId(null);
-
-
-
-
-        // Navigate to fresh chat (session will be created lazily on first message)
-        router.push('/chat');
+        // Instantly transition local UI safely before the native Next router shifts pages
+        useAppStore.getState().setActiveSessionId(null);
 
         if (isMobile && onClose) onClose();
     };
@@ -229,7 +209,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                             href={item.path}
                                             onClick={(e) => {
                                                 if (item.path === '/chat') {
-                                                    e.preventDefault();
+                                                    // DO NOT e.preventDefault() here! We WANT the native pre-fetched Next.js <Link> transition for zero latency!
                                                     handleNewChat();
                                                 } else {
                                                     onClose?.();
@@ -279,7 +259,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                         >
                                             <SidebarSessionItem
                                                 session={session}
-                                                isActive={pathname === `/chat/${session.id}` || activeSessionId === session.id}
+                                                isActive={pathname === `/chat/${session.id}`}
                                                 isMobile={isMobile}
                                                 onClose={onClose}
                                                 onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
@@ -396,15 +376,25 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     <ul className="space-y-1 mb-2">
                         {navItems.map((item) => {
                             const Icon = item.icon;
-                            const isActive = pathname === item.path;
+                            let targetPath = item.path;
+                            let isActive = pathname === item.path;
+
+                            if (item.name === 'Editor') {
+                                if (urlSessionId) {
+                                    targetPath = `/editor?sessionId=${urlSessionId}`;
+                                }
+                                if (pathname.startsWith('/editor')) {
+                                    isActive = true;
+                                }
+                            }
 
                             return (
-                                <li key={item.path}>
+                                <li key={item.name}>
                                     <Link
-                                        href={item.path}
+                                        href={targetPath}
                                         onClick={(e) => {
                                             if (item.path === '/chat') {
-                                                e.preventDefault();
+                                                // DO NOT e.preventDefault() here! Native pre-fetched link transition for zero latency!
                                                 handleNewChat();
                                             }
                                         }}
@@ -473,7 +463,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                 >
                                     <SidebarSessionItem
                                         session={session}
-                                        isActive={pathname === `/chat/${session.id}` || activeSessionId === session.id}
+                                        isActive={pathname === `/chat/${session.id}`}
                                         isMobile={isMobile}
                                         onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
                                         onLongPress={() => { }} // No op on desktop

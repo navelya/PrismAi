@@ -12,9 +12,10 @@ interface SplitViewProps {
     chatPanel: React.ReactNode;
     workflow: WorkflowType | null;
     onExecutionResult?: (result: any) => void;
+    sessionId?: string;
 }
 
-export default function SplitView({ chatPanel, workflow, onExecutionResult }: SplitViewProps) {
+export default function SplitView({ chatPanel, workflow, onExecutionResult, sessionId }: SplitViewProps) {
     const isMobile = useIsMobile();
 
     // Use global store for editor state
@@ -22,7 +23,6 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
     const setEditorState = useAppStore((state) => state.setEditorState);
     const chatMessages = useAppStore((state) => state.chatMessages);
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
-    const activeSessionId = useAppStore((state) => state.activeSessionId);
 
     // Check if chat has any messages (for showing Editor button)
     const hasMessages = chatMessages.length > 0;
@@ -164,7 +164,7 @@ export default function SplitView({ chatPanel, workflow, onExecutionResult }: Sp
                 >
                     <div className="w-full h-full">
                         <SharedWorkflowEditor
-                            key={activeSessionId} // Force remount when session changes
+                            key={sessionId} // Force remount when session changes
                             workflow={workflow}
                             showToolbar={true}
                             showResultsPanel={false}

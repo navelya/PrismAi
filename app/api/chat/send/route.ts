@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { parseRequestToWorkflow } from '@/lib/ai/parse-workflow';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { waitUntil } from '@vercel/functions';
+import { stripHeavyNodeData } from '@/lib/workflow-engine';
 
 export const maxDuration = 300; // Allow up to 5 minutes for generation
 
@@ -154,7 +155,7 @@ export async function POST(request: Request) {
                     try {
                         console.log('[Worker] Executing workflow server-side...');
                         // Import dynamically to avoid edge runtime issues if any
-                        const { executeWorkflow } = await import('@/lib/workflow-engine');
+                        const { executeWorkflow, stripHeavyNodeData } = await import('@/lib/workflow-engine');
 
                         // Node type → human-readable action descriptions
                         const actionDescriptions: Record<string, string> = {
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
 
                                 // Payload for Realtime sync
                                 const payload: Record<string, any> = { status_message: stepMsg };
-                                if (currentWorkflow) payload.canvas_state = currentWorkflow;
+                                if (currentWorkflow) payload.canvas_state = stripHeavyNodeData(currentWorkflow);
 
                                 // Fire-and-forget — MUST resolve as Promise to actually execute
                                 Promise.resolve(
@@ -196,7 +197,7 @@ export async function POST(request: Request) {
                                     Promise.resolve(
                                         adminSupabase
                                             .from('sessions')
-                                            .update({ canvas_state: currentWorkflow })
+                                            .update({ canvas_state: stripHeavyNodeData(currentWorkflow) })
                                             .eq('id', sessionId)
                                     ).catch((e) => console.warn('[Worker] Success/Error broadcast failed:', e));
                                 }
@@ -310,6 +311,11 @@ export async function POST(request: Request) {
                     }
                 }
 
+                // Strip heavy base64 strings so they don't break the Supabase timeout limit
+                if (result.type === 'workflow') {
+                    updatePayload.workflow = stripHeavyNodeData(result.workflow!);
+                }
+
                 // Write the completed response to the database -> triggers Realtime UI updates
                 const { error: updateError } = await adminSupabase
                     .from('messages')
@@ -329,7 +335,7 @@ export async function POST(request: Request) {
                     status_message: null, // Clear progress indicator
                 };
                 if (result.type === 'workflow' && result.workflow) {
-                    sessionUpdate.canvas_state = result.workflow;
+                    sessionUpdate.canvas_state = stripHeavyNodeData(result.workflow);
                 }
                 await adminSupabase
                     .from('sessions')

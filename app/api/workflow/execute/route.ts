@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeWorkflow, validateWorkflow } from '@/lib/workflow-engine';
+import { executeWorkflow, validateWorkflow, stripHeavyNodeData } from '@/lib/workflow-engine';
 import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
 import { generateNodeId } from '@/lib/utils';
 import { getAuthenticatedUser } from '@/lib/api/auth';
 import { createClient } from '@supabase/supabase-js';
+import { waitUntil } from '@vercel/functions';
 
 export const maxDuration = 120; // 2 minutes max
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
         const executionId = generateNodeId();
 
         // Run execution in the background to prevent client timeouts and stream UI naturally via DB
-        const workerPromise = (async () => {
+        waitUntil((async () => {
             try {
                 const totalNodes = workflow.nodes.length;
                 let completedNodes = 0;
@@ -61,14 +62,14 @@ export async function POST(request: NextRequest) {
                         const stepMsg = `${action} (${completedNodes + 1}/${totalNodes})`;
 
                         const payload: Record<string, any> = { status_message: stepMsg };
-                        if (currentWorkflow) payload.canvas_state = currentWorkflow;
+                        if (currentWorkflow) payload.canvas_state = stripHeavyNodeData(currentWorkflow);
 
                         Promise.resolve(adminSupabase.from('sessions').update(payload).eq('id', sessionId))
                             .catch((e) => console.warn('[API/Execute] Status broadcast failed:', e));
                     } else if (status === 'success' || status === 'error') {
                         completedNodes++;
                         if (currentWorkflow) {
-                            Promise.resolve(adminSupabase.from('sessions').update({ canvas_state: currentWorkflow }).eq('id', sessionId))
+                            Promise.resolve(adminSupabase.from('sessions').update({ canvas_state: stripHeavyNodeData(currentWorkflow) }).eq('id', sessionId))
                                 .catch((e) => console.warn('[API/Execute] Success/Error broadcast failed:', e));
                         }
                     }
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
                 if (sessionId) {
                     await adminSupabase.from('sessions').update({
                         status_message: result.success ? 'Execution complete' : 'Execution failed',
-                        canvas_state: workflow
+                        canvas_state: stripHeavyNodeData(workflow)
                     }).eq('id', sessionId);
                 }
 
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
                 console.error('[API/Execute] Background execution crashed:', err);
                 if (sessionId) await adminSupabase.from('sessions').update({ status_message: 'Execution crashed' }).eq('id', sessionId);
             }
-        })();
+        })());
 
         // Immediately return 200 Accepted allowing realtime streams to hydrate the UI
         return NextResponse.json({

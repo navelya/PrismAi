@@ -14,26 +14,7 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
     // Use global store instead of local state
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
-    const activeSessionId = useAppStore((state) => state.activeSessionId);
     const setEditorState = useAppStore((state) => state.setEditorState);
-
-    // ⚠️ CRITICAL UX FIX: Strict React State Isolation
-    // When navigating between chats, we MUST completely reset the global store 
-    // to prevent cross-chat state contamination (loading states leaking over).
-    useLayoutEffect(() => {
-        const store = useAppStore.getState();
-
-        // Scenario 1: Navigating to a 'New Chat' (null sessionId)
-        if (!sessionId) {
-            store.clearAllState();
-        }
-        // Scenario 2: Navigating to a different existing chat
-        else if (sessionId !== store.activeSessionId) {
-            store.clearAllState();
-            store.setActiveSessionId(sessionId);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionId]); // ONLY run when Next.js Route (URL prop) changes!
 
     const addResultRef = useRef<((result: any) => void) | null>(null);
 
@@ -56,10 +37,12 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
                         currentWorkflow={currentWorkflow}
                         onReady={handleChatReady}
                         userName={initialUserName}
+                        sessionId={sessionId}
                     />
                 }
                 workflow={currentWorkflow}
                 onExecutionResult={handleExecutionResult}
+                sessionId={sessionId}
             />
         </div>
     );

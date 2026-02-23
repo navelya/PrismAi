@@ -48,8 +48,8 @@ export function useSession() {
                 store.clearNodeOutputs();
                 store.setEditorState({ isCanvasOpen: false, splitRatio: 50 });
 
-                // Use Native History API to avoid full DOM unmount (Zero-Blink Navigation)
-                window.history.pushState({}, '', `/chat/${session.id}`);
+                // Use native Next.js Router to soft-navigate without unmounting the layout
+                router.push(`/chat/${session.id}`);
             }
         } catch (error) {
             console.error('Failed to create session:', error);

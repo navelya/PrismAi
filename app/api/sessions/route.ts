@@ -33,9 +33,11 @@ export async function POST(request: NextRequest) {
     const { user, supabase } = auth;
 
     let title = 'New Workflow';
+    let id: string | undefined;
     try {
         const body = await request.json();
         if (body.title) title = body.title;
+        if (body.id) id = body.id;
     } catch {
         // No body is fine, use defaults
     }
@@ -43,6 +45,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
         .from('sessions')
         .insert({
+            ...(id ? { id } : {}),
             user_id: user.id,
             title,
         })

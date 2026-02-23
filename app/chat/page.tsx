@@ -1,20 +1,21 @@
-import { cookies } from 'next/headers';
+'use client';
+
+import React, { useEffect } from 'react';
 import ChatClientPage from './ChatClientPage';
+import { useAppStore } from '@/lib/store/app-store';
 
-export default function ChatPage() {
-    const cookieStore = cookies();
-    const tokenStr = cookieStore.get('auth_token')?.value;
+export default function NewChatPage() {
+    // Pure Creation Route: Ensure we start with a blank slate
+    useEffect(() => {
+        const store = useAppStore.getState();
+        store.setActiveSessionId(null);
+        store.clearAllState();
+    }, []);
 
-    let initialUserName = undefined;
-    if (tokenStr) {
-        try {
-            const token = JSON.parse(tokenStr);
-            initialUserName = token.user?.user_metadata?.username;
-        } catch (e) {
-            console.error('Failed to parse auth_token cookie:', e);
-        }
-    }
-
-    // Pass undefined for sessionId to ensure ChatClientPage resets the state for a new chat
-    return <ChatClientPage key="new-chat" sessionId={undefined} initialUserName={initialUserName} />;
+    // Renders the ChatClientPage with no sessionId, naturally triggering the "Welcome" UI
+    return (
+        <div className="w-full h-full relative">
+            <ChatClientPage key="chat-client-new" />
+        </div>
+    );
 }

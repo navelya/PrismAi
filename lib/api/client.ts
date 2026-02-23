@@ -32,10 +32,10 @@ export const sessionsApi = {
         apiFetch<{ sessions: any[] }>('/api/sessions', { cache: 'no-store' }),
 
     /** Create a new session */
-    create: (title?: string) =>
+    create: (title?: string, id?: string) =>
         apiFetch<{ session: any }>('/api/sessions', {
             method: 'POST',
-            body: JSON.stringify({ title }),
+            body: JSON.stringify({ title, id }),
         }),
 
     /** Load a session with its messages */

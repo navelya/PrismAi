@@ -107,8 +107,6 @@ export async function executeWorkflow(
             (currentInDegree.get(node.id) || 0) <= 0 && !completedNodes.has(node.id)
         );
 
-        let waveNumber = 1;
-
         // Execute in waves until no more progress
         while (readyNodes.length > 0) {
 
@@ -191,8 +189,15 @@ export async function executeWorkflow(
                         }
                     }
 
-                    // Execute node
-                    const result: NodeExecutionResult = await executor(node.data.config, input, context);
+                    // Execute node with strict 60s timeout to prevent indefinite engine hangs
+                    const timeoutPromise = new Promise<NodeExecutionResult>((_, reject) =>
+                        setTimeout(() => reject(new Error(`Timeout: Node ${node.type} failed to complete in 60s`)), 60000)
+                    );
+
+                    const result: NodeExecutionResult = await Promise.race([
+                        executor(node.data.config, input, context),
+                        timeoutPromise
+                    ]);
 
                     if (!result.success) {
                         throw new Error(result.error || 'Node execution failed');
@@ -292,12 +297,6 @@ export async function executeWorkflow(
             }
             // Move to next wave
             readyNodes = nextReadyNodes;
-            waveNumber++;
-
-            // Safety check to prevent infinite loops
-            if (waveNumber > 100) {
-                throw new Error('Execution exceeded maximum wave limit (possible cycle)');
-            }
         }
 
         // Find the final output node(s) - nodes with no children
@@ -479,7 +478,15 @@ export async function executeWorkflowFromNode(
                         }
                     }
 
-                    const result: NodeExecutionResult = await executor(node.data.config, input, context);
+                    // Execute node with strict 60s timeout to prevent indefinite engine hangs
+                    const timeoutPromise = new Promise<NodeExecutionResult>((_, reject) =>
+                        setTimeout(() => reject(new Error(`Timeout: Node ${node.type} failed to complete in 60s`)), 60000)
+                    );
+
+                    const result: NodeExecutionResult = await Promise.race([
+                        executor(node.data.config, input, context),
+                        timeoutPromise
+                    ]);
                     if (!result.success) {
                         throw new Error(result.error || 'Node execution failed');
                     }
@@ -537,10 +544,6 @@ export async function executeWorkflowFromNode(
             });
 
             readyNodes = nextReadyNodes;
-            waveNumber++;
-            if (waveNumber > 100) {
-                throw new Error('Execution exceeded maximum wave limit (possible cycle)');
-            }
         }
 
         // Find final output from downstream completed nodes with no children (or no downstream children)
@@ -610,8 +613,63 @@ export function validateWorkflow(workflow: Workflow): {
         }
     });
 
+    // Check for cycles (DAG validation) using DFS
+    const adj = new Map<string, string[]>();
+    workflow.nodes.forEach(n => adj.set(n.id, []));
+    workflow.edges.forEach(e => {
+        if (adj.has(e.source)) {
+            adj.get(e.source)!.push(e.target);
+        }
+    });
+
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+
+    const hasCycle = (nodeId: string): boolean => {
+        if (visiting.has(nodeId)) return true;
+        if (visited.has(nodeId)) return false;
+
+        visiting.add(nodeId);
+        const children = adj.get(nodeId) || [];
+        for (const child of children) {
+            if (hasCycle(child)) return true;
+        }
+        visiting.delete(nodeId);
+        visited.add(nodeId);
+        return false;
+    };
+
+    for (const node of workflow.nodes) {
+        if (!visited.has(node.id)) {
+            if (hasCycle(node.id)) {
+                errors.push('Workflow contains an invalid cycle (feedback loop). Execution rejected.');
+                break;
+            }
+        }
+    }
+
     return {
         valid: errors.length === 0,
         errors,
     };
+}
+
+/**
+ * Strip heavy base64 and output caches from a workflow before saving to the DB.
+ * This prevents the massive base64 payloads from causing a Postgres 57014 timeout.
+ */
+export function stripHeavyNodeData(workflow: Workflow): Workflow {
+    // Deep clone to avoid mutating the active execution state
+    const cleanWorkflow = JSON.parse(JSON.stringify(workflow)) as Workflow;
+    if (cleanWorkflow.nodes) {
+        cleanWorkflow.nodes.forEach(node => {
+            if (node.data) {
+                delete (node.data as any).output;
+                if ((node.data as any).outputMetadata) {
+                    delete (node.data as any).outputMetadata.preview_urls;
+                }
+            }
+        });
+    }
+    return cleanWorkflow;
 }
