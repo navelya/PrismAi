@@ -45,16 +45,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const router = useRouter();
     const sessionId = (propSessionId || params?.sessionId || params?.id) as string;
     // State for Edit Mode // Server-provided execution progress
-    const realtimeHandledRef = useRef(false); // Tracks whether Realtime already processed the current message
-    const activePollsRef = useRef<Set<NodeJS.Timeout>>(new Set()); // Tracks active polling intervals to prevent zombies
+    const [sidebarSessionId, setSidebarSessionId] = useState<string | null>(null); // Tracks active polling intervals to prevent zombies
 
-    // Cleanup all polling intervals on unmount
-    useEffect(() => {
-        return () => {
-            activePollsRef.current.forEach(interval => clearInterval(interval));
-            activePollsRef.current.clear();
-        };
-    }, []);
 
     const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
 
@@ -128,8 +120,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         handleSend: sendMessage
     } = useChatMessages({
         sessionId: effectiveSessionId || undefined,
-        realtimeHandledRef,
-        activePollsRef,
         onWorkflowGenerated,
         abortControllerRef
     });
@@ -140,7 +130,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     useChatRealtime({
         sessionId: effectiveSessionId || null,
-        realtimeHandledRef,
         onWorkflowGenerated,
         handleRevert
     });
@@ -788,7 +777,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
                         return (
                             <MemoizedMessage
-                                key={message.id}
+                                key={`${message.type}-${index}`}
                                 message={message}
                                 onRevert={handleRevert}
                                 onEdit={handleEdit}

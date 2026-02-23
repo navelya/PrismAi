@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, MutableRefObject, Dispatch, SetStateAction } from 'react';
+import { useState, useRef, useEffect, MutableRefObject, Dispatch, SetStateAction, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Workflow, NodeStatus } from '@/lib/nodes/types';
 import { Message } from '@/lib/store/app-store';
@@ -9,16 +9,12 @@ import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 
 export interface UseChatMessagesProps {
     sessionId?: string;
-    realtimeHandledRef: MutableRefObject<boolean>;
-    activePollsRef: MutableRefObject<Set<NodeJS.Timeout>>;
     onWorkflowGenerated: (workflow: Workflow) => void;
     abortControllerRef: MutableRefObject<AbortController | null>;
 }
 
 export function useChatMessages({
     sessionId,
-    realtimeHandledRef,
-    activePollsRef,
     onWorkflowGenerated,
     abortControllerRef
 }: UseChatMessagesProps) {
@@ -174,6 +170,13 @@ export function useChatMessages({
                 // We MUST await this so the row exists in Postgres before `chatApi.send` fires.
                 // Since `handleSend` is async, this await does NOT block the UI thread from painting.
                 await sessionsApi.create('New Workflow', activeSessionId);
+
+                // FIRE AND FORGET: Trigger title generation asynchronously so it does not block the interaction
+                sessionsApi.generateTitle({
+                    sessionId: activeSessionId,
+                    message: trimmedInput
+                }).catch(err => console.error('[TitleGen] Async title generation failed:', err));
+
             } catch (err) {
                 console.error('[Optimistic Navigation] Failed to quietly create DB session:', err);
                 // We don't abort here because the local optimistic state is already live.
@@ -202,135 +205,21 @@ export function useChatMessages({
                 imagePaths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
             });
 
-            if (response.userMessage?.id) {
-                useAppStore.getState().updateMessage(userMessage.id, { id: response.userMessage.id });
-            }
-
-            const assistantPlaceholder: Message = {
-                id: response.assistantMessage.id,
-                type: 'assistant',
-                content: '',
-                timestamp: new Date(),
-            };
-            addMessage(assistantPlaceholder);
-
-            realtimeHandledRef.current = false;
-
-            // Polling Fallback Implementation
-            const pollMessageId = response.assistantMessage.id;
-            const pollSupabase = createClient();
-            let pollCount = 0;
-            const maxPolls = 60; // 3 mins
-
-            const pollInterval = setInterval(async () => {
-                pollCount++;
-                if (pollCount > maxPolls || realtimeHandledRef.current) {
-                    clearInterval(pollInterval);
-                    activePollsRef.current.delete(pollInterval);
-                    if (pollCount > maxPolls) {
-                        useAppStore.getState().setIsLoading(false);
-                        useAppStore.getState().setStatusMessage(null);
-                    }
-                    return;
+            startTransition(() => {
+                if (response.userMessage?.id) {
+                    useAppStore.getState().updateMessage(userMessage.id, { id: response.userMessage.id });
                 }
 
-                try {
-                    const { data: msg } = await pollSupabase
-                        .from('messages')
-                        .select('*')
-                        .eq('id', pollMessageId)
-                        .single();
-
-                    if (!msg) return;
-                    if (msg.status !== 'completed' && msg.status !== 'failed') return;
-                    if (realtimeHandledRef.current) {
-                        clearInterval(pollInterval);
-                        activePollsRef.current.delete(pollInterval);
-                        return;
-                    }
-
-                    clearInterval(pollInterval);
-                    activePollsRef.current.delete(pollInterval);
-
-                    let responseType = msg.metadata?.type || (msg.workflow ? 'workflow' : undefined);
-                    if (!responseType && useAppStore.getState().currentWorkflow) {
-                        responseType = 'workflow';
-                    }
-
-                    if (msg.status === 'failed') {
-                        useAppStore.getState().updateMessage(pollMessageId, {
-                            content: msg.content || 'Sorry, an error occurred.',
-                        });
-                        useAppStore.getState().setIsLoading(false);
-                        useAppStore.getState().setStatusMessage(null);
-                        return;
-                    }
-
-                    if (responseType === 'chat') {
-                        useAppStore.getState().updateMessage(pollMessageId, {
-                            content: msg.content,
-                        });
-                        useAppStore.getState().setIsLoading(false);
-                        useAppStore.getState().setStatusMessage(null);
-                        return;
-                    }
-
-                    if (responseType === 'workflow') {
-                        let workflow = msg.workflow || useAppStore.getState().currentWorkflow;
-                        if (workflow) {
-                            if (workflow.nodes?.length > 0) {
-                                try {
-                                    const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
-                                    workflow.nodes = workflow.nodes.map((n: any) => {
-                                        const pos = positions.get(n.id);
-                                        return pos ? { ...n, position: pos } : n;
-                                    });
-                                } catch (e) {
-                                    console.error('[Polling] Auto-layout failed:', e);
-                                }
-                            }
-
-                            onWorkflowGenerated(workflow);
-
-                            const processedResult = msg.metadata?.execution_result || null;
-                            const executionError = msg.metadata?.execution_error || null;
-
-                            useAppStore.getState().updateMessage(pollMessageId, {
-                                content: msg.content ?? '',
-                                result: processedResult,
-                                workflow,
-                            });
-
-                            const store = useAppStore.getState();
-                            store.resetNodeStatuses();
-                            store.clearExecutionResults();
-                            store.clearNodeOutputs();
-
-                            if (executionError && !processedResult) {
-                                workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
-                            } else {
-                                workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
-                            }
-
-                            store.setIsLoading(false);
-                            store.setStatusMessage(null);
-                            return;
-                        }
-                    }
-
-                    useAppStore.getState().updateMessage(pollMessageId, {
-                        content: msg.content ?? 'Response received.',
-                    });
-                    useAppStore.getState().setIsLoading(false);
-                    useAppStore.getState().setStatusMessage(null);
-                } catch (pollErr) {
-                    console.warn('[Polling] Check failed:', pollErr);
-                }
-            }, 3000);
-
-
-
-            activePollsRef.current.add(pollInterval);
+                const assistantPlaceholder: Message = {
+                    id: response.assistantMessage.id,
+                    type: 'assistant',
+                    content: '',
+                    timestamp: new Date(),
+                };
+                addMessage(assistantPlaceholder);
+            });
+            // Realtime WebSocket handles the completion updates natively.
+            // (Legacy 1-second network spam polling has been permanently removed here).
 
         } catch (error) {
             console.error('Failed to send message:', error);

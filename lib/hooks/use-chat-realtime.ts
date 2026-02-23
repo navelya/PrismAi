@@ -6,14 +6,12 @@ import { Workflow } from '@/lib/nodes/types';
 
 export interface UseChatRealtimeProps {
     sessionId: string | null;
-    realtimeHandledRef: MutableRefObject<boolean>;
     onWorkflowGenerated: (workflow: Workflow) => void;
     handleRevert: (messageId: string, skipConfirmation?: boolean) => Promise<void>;
 }
 
 export function useChatRealtime({
     sessionId,
-    realtimeHandledRef,
     onWorkflowGenerated,
     handleRevert
 }: UseChatRealtimeProps) {
@@ -43,10 +41,6 @@ export function useChatRealtime({
                     if (updatedMessage.status !== 'completed' && updatedMessage.status !== 'failed' && updatedMessage.status !== 'processing') return;
 
                     console.log('[Realtime] Assistant message update received:', updatedMessage.id, updatedMessage.status);
-
-                    if (updatedMessage.status === 'completed' || updatedMessage.status === 'failed') {
-                        realtimeHandledRef.current = true; // Signal polling to skip
-                    }
 
                     const store = useAppStore.getState();
                     let responseType = updatedMessage.metadata?.type || (updatedMessage.workflow ? 'workflow' : undefined);

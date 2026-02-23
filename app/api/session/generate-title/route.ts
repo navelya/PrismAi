@@ -7,7 +7,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { sessionId, message, assistantResponse, workflowName } = body;
+        console.log('[TitleGen] RAW BODY RECEIVED:', body);
+
+        const { sessionId, message } = body;
 
         // Only sessionId is strictly required — message and workflowName are optional inputs
         if (!sessionId) {
@@ -21,31 +23,25 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        let title = '';
+        let title = 'New Session';
 
-        // PRIORITIZE provided workflow name if it's specific
-        if (workflowName &&
-            workflowName !== 'New Workflow' &&
-            workflowName !== 'Workflow' &&
-            workflowName.length > 2 &&
-            !workflowName.startsWith('Workflow: ')) {
-            title = workflowName;
-        } else if (workflowName && workflowName.startsWith('Workflow: ')) {
-            title = workflowName.replace('Workflow: ', '');
-        } else if (message || assistantResponse) {
-            // Generate title using Gemini only if we have some text to work with
+        if (message) {
             try {
-                const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-                const prompt = `Generate a short title (max 5 words) for a workflow chat session. User said: "${message || ''}". Assistant said: "${assistantResponse || ''}". No quotes, focus on intent. If gibberish, say "New Session".`;
+                const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+                const prompt = `Summarize this user request into a objective 2-4 word UI title for a graphic design tool. Focus strictly on the core action or subject. Do not use conversational filler, dramatic words, quotes, or punctuation. User prompt: "${message}"`;
                 const result = await model.generateContent(prompt);
                 title = result.response.text().trim();
-            } catch (geminiError) {
+            } catch (geminiError: any) {
                 console.error('[TitleGen] Gemini failed:', geminiError);
-                title = 'New Session';
+                return NextResponse.json({
+                    success: false,
+                    error: geminiError.message || 'Failed to generate title',
+                    title: 'New Session'
+                });
             }
         } else {
             // No useful text provided — skip title generation
-            return NextResponse.json({ success: true, title: 'New Workflow' });
+            return NextResponse.json({ success: true, title: 'New Session' });
         }
 
         // Cleanup

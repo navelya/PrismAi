@@ -143,9 +143,17 @@ export async function POST(request: Request) {
                             .eq('id', assistantMessage.id);
 
                         // ALSO explicitly update canvas_state in the active session so refreshing/navigating back hydrates instantly
+                        const initSessionUpdate: Record<string, any> = { canvas_state: result.workflow };
+
+                        // Progressive Title Generation: Override with official workflow title INSTANTLY before execution starts
+                        if (result.workflow!.name && result.workflow!.name !== 'New Workflow' && result.workflow!.name !== 'Workflow') {
+                            let officialTitle = result.workflow!.name.replace(/^Workflow:\s*/i, '');
+                            if (officialTitle.length > 2) initSessionUpdate.title = officialTitle;
+                        }
+
                         await adminSupabase
                             .from('sessions')
-                            .update({ canvas_state: result.workflow })
+                            .update(initSessionUpdate)
                             .eq('id', sessionId);
 
                     } catch (broadcastErr) {
@@ -336,19 +344,19 @@ export async function POST(request: Request) {
                 };
                 if (result.type === 'workflow' && result.workflow) {
                     sessionUpdate.canvas_state = stripHeavyNodeData(result.workflow);
+
+                    // Progressive Title Generation: Override with official workflow title
+                    if (result.workflow.name && result.workflow.name !== 'New Workflow' && result.workflow.name !== 'Workflow') {
+                        let officialTitle = result.workflow.name.replace(/^Workflow:\s*/i, '');
+                        if (officialTitle.length > 2) sessionUpdate.title = officialTitle;
+                    }
                 }
                 await adminSupabase
                     .from('sessions')
                     .update(sessionUpdate)
                     .eq('id', sessionId);
 
-                // Generate session title
-                try {
-                    await generateSessionTitle(adminSupabase, sessionId, prompt, result);
-                } catch (titleError) {
-                    console.error('[Worker] Title generation failed (non-critical):', titleError);
-                }
-
+                // Title generation is now handled separately by the frontend asynchronously
             } catch (error: any) {
                 console.error('==========================================');
                 console.error('[Worker] BACKGROUND AI ERROR:', error);
@@ -395,48 +403,3 @@ export async function POST(request: Request) {
     }
 }
 
-/**
- * Generate a smart session title using Gemini (server-side).
- */
-async function generateSessionTitle(
-    supabase: any,
-    sessionId: string,
-    userPrompt: string,
-    result: any,
-) {
-    const { data: session } = await supabase
-        .from('sessions')
-        .select('title')
-        .eq('id', sessionId)
-        .single();
-
-    if (!session) return;
-
-    const currentTitle = session.title || '';
-    if (currentTitle && currentTitle !== 'New Workflow' && currentTitle !== 'Untitled') return;
-
-    let title = '';
-
-    if (result.type === 'workflow' && result.workflow?.name) {
-        const workflowName = result.workflow.name;
-        if (workflowName !== 'New Workflow' && workflowName !== 'Workflow' && workflowName.length > 2) {
-            title = workflowName.replace(/^Workflow: /, '');
-        }
-    }
-
-    if (!title) {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) return;
-
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-        const titlePrompt = `Generate a short title (max 5 words) for this chat. User said: "${userPrompt}". No quotes, focus on intent.`;
-        const geminiResult = await model.generateContent(titlePrompt);
-        title = geminiResult.response.text().trim();
-    }
-
-    title = title.replace(/^["']|["']$/g, '');
-    if (title.length > 50) title = title.substring(0, 47) + '...';
-
-    await supabase.from('sessions').update({ title }).eq('id', sessionId);
-}

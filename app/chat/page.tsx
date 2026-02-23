@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import ChatClientPage from './ChatClientPage';
 import { useAppStore } from '@/lib/store/app-store';
 
 export default function NewChatPage() {
@@ -12,10 +11,6 @@ export default function NewChatPage() {
         store.clearAllState();
     }, []);
 
-    // Renders the ChatClientPage with no sessionId, naturally triggering the "Welcome" UI
-    return (
-        <div className="w-full h-full relative">
-            <ChatClientPage key="chat-client-new" />
-        </div>
-    );
+    // The layout handles the ChatClientPage rendering, this page is just a logic sink
+    return null;
 }

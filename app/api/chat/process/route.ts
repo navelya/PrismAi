@@ -77,25 +77,24 @@ export async function POST(request: NextRequest) {
 
             console.log('[Worker] AI generation completed:', result.type);
 
-            // 4. Update session: timestamp + canvas_state (for workflow responses)
             const sessionUpdate: Record<string, any> = {
                 updated_at: new Date().toISOString(),
             };
             if (result.type === 'workflow' && result.workflow) {
                 sessionUpdate.canvas_state = result.workflow;
+
+                // Progressive Title Generation: Override with official workflow title
+                if (result.workflow.name && result.workflow.name !== 'New Workflow' && result.workflow.name !== 'Workflow') {
+                    let officialTitle = result.workflow.name.replace(/^Workflow:\s*/i, '');
+                    if (officialTitle.length > 2) sessionUpdate.title = officialTitle;
+                }
             }
             await supabase
                 .from('sessions')
                 .update(sessionUpdate)
                 .eq('id', sessionId);
 
-            // 5. Generate session title (server-side, survives navigation)
-            try {
-                await generateSessionTitle(supabase, sessionId, prompt, result);
-            } catch (titleError) {
-                console.error('[Worker] Title generation failed (non-critical):', titleError);
-            }
-
+            // 5. Title generation is now handled separately by the frontend asynchronously
             return NextResponse.json({ success: true });
 
         } catch (error: any) {
@@ -120,58 +119,3 @@ export async function POST(request: NextRequest) {
     }
 }
 
-/**
- * Generate a smart session title using Gemini (server-side).
- * Only generates if the session still has the default title.
- */
-async function generateSessionTitle(
-    supabase: ReturnType<typeof createServiceClient>,
-    sessionId: string,
-    userPrompt: string,
-    result: any,
-) {
-    // Check if session still has generic title
-    const { data: session } = await supabase
-        .from('sessions')
-        .select('title')
-        .eq('id', sessionId)
-        .single();
-
-    if (!session) return;
-
-    // Only generate if still using default title
-    const currentTitle = session.title || '';
-    if (currentTitle && currentTitle !== 'New Workflow' && currentTitle !== 'Untitled') return;
-
-    let title = '';
-
-    // Use workflow name if available and specific
-    if (result.type === 'workflow' && result.workflow?.name) {
-        const workflowName = result.workflow.name;
-        if (workflowName !== 'New Workflow' && workflowName !== 'Workflow' && workflowName.length > 2) {
-            title = workflowName.replace(/^Workflow: /, '');
-        }
-    }
-
-    // Fall back to Gemini title generation
-    if (!title) {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) return;
-
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-
-        const titlePrompt = `Generate a short title (max 5 words) for this chat. User said: "${userPrompt}". No quotes, focus on intent.`;
-        const geminiResult = await model.generateContent(titlePrompt);
-        title = geminiResult.response.text().trim();
-    }
-
-    // Clean up
-    title = title.replace(/^["']|["']$/g, '');
-    if (title.length > 50) title = title.substring(0, 47) + '...';
-
-    await supabase
-        .from('sessions')
-        .update({ title })
-        .eq('id', sessionId);
-}
