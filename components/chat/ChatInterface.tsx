@@ -272,7 +272,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
                 if (!activeSessionId) {
                     try {
-                        const { session } = await sessionsApi.create('New Workflow');
+                        const { session } = await sessionsApi.create('');
                         if (session) {
                             activeSessionId = session.id;
                             useAppStore.getState().setActiveSessionId(session.id);

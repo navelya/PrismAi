@@ -568,10 +568,15 @@ function SidebarSessionItem({
     const [isExecuting, setIsExecuting] = React.useState(false);
     const supabase = React.useMemo(() => createClient(), []);
 
-    const sessionTitle = session.title || 'Untitled Session';
-    const isGeneratingName = sessionTitle === 'New Workflow' || sessionTitle === 'Untitled Session';
+    const isGeneratingName = !session.title;
+    const sessionTitle = session.title || '';
 
     React.useEffect(() => {
+        if (!isActive) {
+            setIsExecuting(false);
+            return;
+        }
+
         let channel: ReturnType<typeof supabase.channel> | null = null;
         let isMounted = true;
 
@@ -644,10 +649,23 @@ function SidebarSessionItem({
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: -10 }}
                             transition={{ duration: 0.2 }}
-                            className={`absolute left-0 w-full truncate text-sm text-left ${isGeneratingName ? 'animate-pulse text-content-tertiary' : ''}`}
+                            className={`absolute left-0 w-full truncate text-sm text-left ${isGeneratingName ? 'opacity-0' : ''}`}
                         >
                             {sessionTitle}
                         </motion.span>
+                        {isGeneratingName && (
+                            <motion.div
+                                key="skeleton"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="absolute left-0 w-full h-full flex items-center"
+                            >
+                                <div className="h-3 bg-stroke-strong/50 rounded-md w-24 relative overflow-hidden">
+                                    <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                                </div>
+                            </motion.div>
+                        )}
                     </AnimatePresence>
                 </div>
                 {isExecuting && (
@@ -682,10 +700,23 @@ function SidebarSessionItem({
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -10 }}
                         transition={{ duration: 0.2 }}
-                        className={`absolute left-0 w-full truncate text-sm text-left ${isGeneratingName ? 'animate-pulse text-content-tertiary' : ''}`}
+                        className={`absolute left-0 w-full truncate text-sm text-left ${isGeneratingName ? 'opacity-0' : ''}`}
                     >
                         {sessionTitle}
                     </motion.span>
+                    {isGeneratingName && (
+                        <motion.div
+                            key="skeleton"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute left-0 w-full h-full flex items-center"
+                        >
+                            <div className="h-3 bg-stroke-strong/50 rounded-md w-28 relative overflow-hidden">
+                                <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                            </div>
+                        </motion.div>
+                    )}
                 </AnimatePresence>
             </div>
 

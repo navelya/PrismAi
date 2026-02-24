@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     if (auth.error) return auth.error;
     const { user, supabase } = auth;
 
-    let title = 'New Workflow';
+    let title = '';
     let id: string | undefined;
     try {
         const body = await request.json();

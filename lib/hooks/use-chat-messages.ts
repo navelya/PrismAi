@@ -169,7 +169,7 @@ export function useChatMessages({
             try {
                 // We MUST await this so the row exists in Postgres before `chatApi.send` fires.
                 // Since `handleSend` is async, this await does NOT block the UI thread from painting.
-                await sessionsApi.create('New Workflow', activeSessionId);
+                await sessionsApi.create('', activeSessionId);
 
                 // FIRE AND FORGET: Trigger title generation asynchronously so it does not block the interaction
                 sessionsApi.generateTitle({

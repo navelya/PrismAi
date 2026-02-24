@@ -4,6 +4,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
@@ -27,7 +30,10 @@ export async function POST(req: NextRequest) {
 
         if (message) {
             try {
-                const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+                const model = genAI.getGenerativeModel({
+                    model: 'gemini-2.5-flash-lite',
+                    generationConfig: { maxOutputTokens: 15 }
+                });
                 const prompt = `Summarize this user request into a objective 2-4 word UI title for a graphic design tool. Focus strictly on the core action or subject. Do not use conversational filler, dramatic words, quotes, or punctuation. User prompt: "${message}"`;
                 const result = await model.generateContent(prompt);
                 title = result.response.text().trim();

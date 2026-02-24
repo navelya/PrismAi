@@ -26,10 +26,23 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 // ─── Session APIs ──────────────────────────────────────────────────────
 
+let listSessionsPromise: Promise<{ sessions: any[] }> | null = null;
+
 export const sessionsApi = {
     /** List all sessions for the current user */
-    list: () =>
-        apiFetch<{ sessions: any[] }>('/api/sessions', { cache: 'no-store' }),
+    list: () => {
+        if (!listSessionsPromise) {
+            listSessionsPromise = apiFetch<{ sessions: any[] }>('/api/sessions', { cache: 'no-store' }).catch(err => {
+                listSessionsPromise = null;
+                throw err;
+            });
+            // Clear the promise cache after 2 seconds to allow fresh refetches later while surviving the mount storm
+            setTimeout(() => {
+                listSessionsPromise = null;
+            }, 2000);
+        }
+        return listSessionsPromise;
+    },
 
     /** Create a new session */
     create: (title?: string, id?: string) =>
@@ -150,10 +163,23 @@ export const uploadApi = {
 
 // ─── User APIs ─────────────────────────────────────────────────────────
 
+let mePromise: Promise<{ user: any }> | null = null;
+
 export const userApi = {
     /** Get the current authenticated user */
-    me: () =>
-        apiFetch<{ user: any }>('/api/user/me'),
+    me: () => {
+        if (!mePromise) {
+            mePromise = apiFetch<{ user: any }>('/api/user/me').catch(err => {
+                mePromise = null;
+                throw err;
+            });
+            // Clear the promise cache after 2 seconds to allow fresh refetches later
+            setTimeout(() => {
+                mePromise = null;
+            }, 2000);
+        }
+        return mePromise;
+    },
 };
 
 // ─── Chat APIs (Async Fire-and-Forget) ─────────────────────────────────
