@@ -14,7 +14,7 @@ import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
 import { useChatMessages } from '@/lib/hooks/use-chat-messages';
-import { useChatRealtime } from '@/lib/hooks/use-chat-realtime';
+import { useChatRealtime, serverWorkflowHash, setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
 import { NodeStatus } from '@/lib/nodes/types';
 import { sessionsApi, messagesApi, uploadApi, userApi, chatApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
@@ -61,8 +61,18 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const debouncedWorkflow = useDebounce(storeWorkflow, 2000);
 
     // Auto-save Canvas via BFF API
+    // Guard: only write to DB when the workflow content has actually changed from what
+    // the server last wrote. This breaks the feedback loop:
+    //   server writes canvas_state → realtime fires → store update → debouncedWorkflow
+    //   → hash matches serverWorkflowHash → skip save → no DB write → no realtime echo ✅
+    // When the user manually edits nodes in the editor, the hash will differ → save fires.
     useEffect(() => {
-        if (sessionId && debouncedWorkflow) {
+        if (!sessionId || !debouncedWorkflow) return;
+        const currentHash = stableStringify(debouncedWorkflow);
+        if (currentHash && currentHash !== serverWorkflowHash) {
+            // Update the server hash before the async write so rapid re-renders
+            // don't all fire simultaneously (optimistic dedup)
+            setServerWorkflowHash(debouncedWorkflow);
             sessionsApi.update(sessionId, {
                 canvas_state: debouncedWorkflow,
             }).catch((error: any) => {

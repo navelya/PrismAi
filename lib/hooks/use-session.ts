@@ -3,6 +3,7 @@ import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store/app-store';
 import { Workflow } from '@/lib/nodes/types';
 import { sessionsApi } from '@/lib/api/client';
+import { setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
 
 export interface Session {
     id: string;
@@ -77,9 +78,12 @@ export function useSession() {
             // Hydrate Workflow from Session State (primary source of truth for canvas)
             if (session.canvas_state && session.canvas_state.nodes && session.canvas_state.nodes.length > 0) {
                 const workflow = session.canvas_state as Workflow;
+                // Stamp the server hash so auto-save skips the echo write after page load
+                setServerWorkflowHash(workflow);
                 store.setCurrentWorkflow(workflow);
             } else {
                 // Clear workflow if no valid canvas_state
+                setServerWorkflowHash(null);
                 store.setCurrentWorkflow(null);
             }
 
