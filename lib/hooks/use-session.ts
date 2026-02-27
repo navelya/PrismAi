@@ -47,7 +47,7 @@ export function useSession() {
                 store.clearExecutionResults();
                 store.resetNodeStatuses();
                 store.clearNodeOutputs();
-                store.setEditorState({ isCanvasOpen: false, splitRatio: 50 });
+                // Canvas mode is preserved across sessions (managed by isCanvasMode in store)
 
                 // Use native Next.js Router to soft-navigate without unmounting the layout
                 router.push(`/chat/${session.id}`);

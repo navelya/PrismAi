@@ -16,8 +16,6 @@ export interface Message {
 
 // Editor state interface
 interface EditorState {
-    isCanvasOpen: boolean;
-    splitRatio: number;
     zoom: number;
     viewport: { x: number; y: number };
 }
@@ -85,6 +83,12 @@ interface AppState {
     // Invalidates nodes and their descendants (Partial Execution Helper)
     invalidateNodes: (nodeIds: string[]) => void;
 
+    // Workspace view mode (canvas vs chat focus)
+    isCanvasMode: boolean;
+    setIsCanvasMode: (v: boolean) => void;
+    isCopilotMinimized: boolean;
+    setIsCopilotMinimized: (v: boolean) => void;
+
     // Layout Engine Preference
     layoutEngine: LayoutEngine;
     setLayoutEngine: (engine: LayoutEngine) => void;
@@ -101,9 +105,9 @@ export const useAppStore = create<AppState>()(
             currentWorkflow: null,
             isDragging: false,
             chatMessages: [],
+            isCanvasMode: false,
+            isCopilotMinimized: false,
             editorState: {
-                isCanvasOpen: false,
-                splitRatio: 50,
                 zoom: 0.8,
                 viewport: { x: 0, y: 0 },
             },
@@ -123,8 +127,6 @@ export const useAppStore = create<AppState>()(
                     currentWorkflow: null,
                     chatMessages: [],
                     editorState: {
-                        isCanvasOpen: false,
-                        splitRatio: 50,
                         zoom: 1,
                         viewport: { x: 0, y: 0 },
                     },
@@ -135,6 +137,8 @@ export const useAppStore = create<AppState>()(
                     runFromNodeId: null,
                     isLoading: false,
                     statusMessage: null,
+                    isCanvasMode: false,
+                    isCopilotMinimized: false,
                 });
             },
 
@@ -315,6 +319,10 @@ export const useAppStore = create<AppState>()(
                 // Add your cache clearing logic here if applicable
             },
 
+            // Workspace view mode
+            setIsCanvasMode: (v) => set({ isCanvasMode: v }),
+            setIsCopilotMinimized: (v) => set({ isCopilotMinimized: v }),
+
             // Layout Engine Actions
             setLayoutEngine: (engine) => set({ layoutEngine: engine }),
 
@@ -335,26 +343,23 @@ export const useAppStore = create<AppState>()(
                     'nodeOutputs',
                     'copiedNode',
                     'isLoading',
-                    'statusMessage'
+                    'statusMessage',
+                    'isCopilotMinimized', // ephemeral per-session, reset on reload
                 ].includes(key))
             ),
             // Clean slate on page refresh - session loading will restore state
             onRehydrateStorage: () => (state) => {
                 if (state) {
-                    // Clear transient state on page reload
                     state.activeSessionId = null;
                     state.chatMessages = [];
                     state.isDragging = false;
-
-                    // Clear workflow - will be loaded from DB based on activeSessionId
                     state.currentWorkflow = null;
                     state.nodeStatuses = {};
                     state.nodeOutputs = {};
                     state.executionResults = {};
-
-                    // Close editor on page reload (welcome screen default)
+                    state.isCopilotMinimized = false;
                     if (state.editorState) {
-                        state.editorState.isCanvasOpen = false;
+                        // editorState no longer has isCanvasOpen
                     }
                 }
             },

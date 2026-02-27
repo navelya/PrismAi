@@ -49,6 +49,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
 
     const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
+    const isCanvasMode = useAppStore((state) => state.isCanvasMode);
 
     // Strict Route-Based Rendering (Optimistic)
     // The Welcome screen MUST ONLY render if there is NO sessionId in the URL AND NO active session in the store.
@@ -470,7 +471,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             handleSend();
                         }
                     }}
-                    placeholder={isListening ? 'Listening...' : 'Message Prism AI...'}
+                    placeholder={isListening ? 'Listening...' : isCanvasMode ? 'Edit canvas' : 'Message Prism...'}
                     rows={1}
                     className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
                                 ${isMultiLine || attachedImages.length > 0
@@ -795,6 +796,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 isDisabled={isDisabled}
                                 isEditing={isEditing}
                                 serverStatus={statusMessage}
+                                isCanvasMode={isCanvasMode}
                             />
                         );
                     })}
@@ -871,7 +873,8 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
     undoSnapshotId,
     isDisabled,
     isEditing,
-    serverStatus
+    serverStatus,
+    isCanvasMode = false,
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -880,6 +883,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
     isDisabled?: boolean;
     isEditing?: boolean;
     serverStatus?: string | null;
+    isCanvasMode?: boolean;
 }) {
     // State for local relative time
     const [timeString, setTimeString] = React.useState('');
@@ -944,10 +948,10 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                         </div>
                     )}
 
-                    {/* Result (Assistant) */}
+                    {/* Result (Assistant) — suppressed in Canvas Mode, replaced by compact tag */}
                     {message.result && (
                         <div className="mt-2">
-                            <MessageRenderer data={message.result} />
+                            <MessageRenderer data={message.result} isCanvasMode={isCanvasMode} />
                         </div>
                     )}
 
@@ -1015,8 +1019,19 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
             </div>
 
             {message.type === 'user' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface-tertiary flex items-center justify-center mt-1">
-                    <User className="w-5 h-5 text-content-primary" />
+                <div
+                    className="flex-shrink-0 transition-all duration-300 ease-in-out"
+                    style={{
+                        opacity: isCanvasMode ? 0 : 1,
+                        transform: isCanvasMode ? 'scale(0.5)' : 'scale(1)',
+                        width: isCanvasMode ? 0 : undefined,
+                        overflow: 'hidden',
+                        transitionProperty: 'opacity, transform, width',
+                    }}
+                >
+                    <div className="w-8 h-8 rounded-full bg-surface-tertiary flex items-center justify-center mt-1">
+                        <User className="w-5 h-5 text-content-primary" />
+                    </div>
                 </div>
             )}
         </div>

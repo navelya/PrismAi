@@ -2,14 +2,16 @@
 
 import React from 'react';
 import { ImageObject } from '@/lib/nodes/types';
-import { FileText, ImageIcon } from 'lucide-react';
+import { FileText, ImageIcon, LayoutDashboard } from 'lucide-react';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 
 interface MessageRendererProps {
     data: any;
+    /** When true (Floating Copilot mode), suppress large image galleries. */
+    isCanvasMode?: boolean;
 }
 
-export default function MessageRenderer({ data }: MessageRendererProps) {
+export default function MessageRenderer({ data, isCanvasMode = false }: MessageRendererProps) {
     if (!data) return null;
 
     const actualData = data?.images || data;
@@ -18,6 +20,10 @@ export default function MessageRenderer({ data }: MessageRendererProps) {
     if (Array.isArray(actualData) && actualData.length > 0) {
         const firstItem = actualData[0];
         if (firstItem && typeof firstItem === 'object' && ('url' in firstItem)) {
+            // ── Canvas Mode: compact "view in canvas" tag instead of gallery ──
+            if (isCanvasMode) {
+                return <CanvasResultTag count={actualData.length} />;
+            }
             return <ImageGallery images={actualData} />;
         }
         if (typeof firstItem === 'object') {
@@ -39,6 +45,23 @@ export default function MessageRenderer({ data }: MessageRendererProps) {
     );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Canvas Mode: compact success tag (view-only hint)
+// ────────────────────────────────────────────────────────────────────────────
+function CanvasResultTag({ count }: { count: number }) {
+    return (
+        <div className="flex items-center gap-2 mt-1 px-2.5 py-1.5 bg-accent-primary/8 border border-accent-primary/20 rounded-lg w-fit max-w-full">
+            <LayoutDashboard className="w-3.5 h-3.5 text-accent-primary flex-shrink-0" />
+            <span className="text-xs font-medium text-accent-primary truncate">
+                {count === 1 ? 'Image' : `${count} images`} added to Canvas
+            </span>
+        </div>
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Full Chat Mode: full image gallery (unchanged)
+// ────────────────────────────────────────────────────────────────────────────
 const ImageGallery = React.memo(function ImageGallery({ images }: { images: ImageObject[] }) {
     const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
     const [thumbnails, setThumbnails] = React.useState<Map<number, string>>(new Map());
@@ -67,9 +90,6 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
         [images]
     );
 
-
-
-    // Multi-image: standard grid gallery
     return (
         <div className="space-y-3 overflow-hidden">
             <div className="flex items-center gap-2 text-sm text-content-secondary">
@@ -77,23 +97,20 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                 <span>{images.length} images</span>
             </div>
 
-            {/* Lightroom Style Layout - Nuclear Fix */}
             <div className="flex flex-row flex-wrap justify-start items-start gap-2 w-full">
                 {images.map((img, idx) => {
-                    // Calculate aspect ratio
                     const width = img.resolution?.width || 1024;
                     const height = img.resolution?.height || 1024;
-                    const aspectRatio = width / height;
 
                     return (
                         <div
                             key={idx}
                             className="relative cursor-pointer group rounded-lg overflow-hidden shadow-sm border border-stroke-subtle bg-surface-tertiary flex-none"
                             style={{
-                                height: '180px', // Fixed height
-                                width: 'auto',   // Auto width based on image
-                                flexGrow: 0,     // Do NOT stretch
-                                maxWidth: '100%', // Safety for mobile
+                                height: '180px',
+                                width: 'auto',
+                                flexGrow: 0,
+                                maxWidth: '100%',
                             }}
                             onClick={() => setSelectedIndex(idx)}
                         >
@@ -101,14 +118,9 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
                                 src={thumbnails.get(idx) || img.url}
                                 alt={img.metadata?.title}
                                 className="h-full w-auto max-w-none object-cover transition-transform duration-300 group-hover:scale-105"
-                                style={{
-                                    width: 'auto',
-                                    height: '100%'
-                                }}
+                                style={{ width: 'auto', height: '100%' }}
                             />
                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200" />
-
-                            {/* Hover Info Overlay */}
                             <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                                 <div className="text-[10px] text-white/90 font-medium truncate">
                                     {width} x {height}
@@ -129,9 +141,6 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
         </div>
     );
 });
-
-
-
 
 function createThumbnail(base64Url: string, maxWidth: number): Promise<string> {
     return new Promise((resolve, reject) => {

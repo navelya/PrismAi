@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+
 
 interface ImageLightboxProps {
     images: { url?: string; base64?: string }[];
@@ -11,6 +13,9 @@ interface ImageLightboxProps {
 
 export default function ImageLightbox({ images, initialIndex, onClose }: ImageLightboxProps) {
     const [currentIndex, setCurrentIndex] = React.useState(initialIndex);
+    // Portal mount guard — prevents SSR mismatch
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
 
     const currentImage = images[currentIndex];
     const imageSrc = currentImage?.url || currentImage?.base64 || '';
@@ -54,9 +59,9 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
         }
     };
 
-    return (
+    const lightbox = (
         <div
-            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
             onClick={onClose}
         >
             {/* Close button */}
@@ -117,8 +122,8 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
                             key={idx}
                             onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
                             className={`flex-shrink-0 w-12 h-12 rounded overflow-hidden border-2 transition-all ${idx === currentIndex
-                                    ? 'border-white scale-110'
-                                    : 'border-transparent opacity-60 hover:opacity-100'
+                                ? 'border-white scale-110'
+                                : 'border-transparent opacity-60 hover:opacity-100'
                                 }`}
                         >
                             <img
@@ -132,4 +137,7 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
             )}
         </div>
     );
+
+    if (!mounted) return null;
+    return createPortal(lightbox, document.body);
 }

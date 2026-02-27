@@ -1,20 +1,18 @@
 'use client';
 
-import { useRef, useLayoutEffect } from 'react';
+import { useRef } from 'react';
 import ChatInterface from '@/components/chat/ChatInterface';
-import SplitView from '@/components/layout/SplitView';
+import WorkspaceLayout from '@/components/layout/WorkspaceLayout';
 import { useAppStore } from '@/lib/store/app-store';
 
 interface ChatClientPageProps {
     initialUserName?: string;
-    sessionId?: string; // Optional - null for new chat
+    sessionId?: string;
 }
 
 export default function ChatClientPage({ initialUserName, sessionId }: ChatClientPageProps) {
-    // Use global store instead of local state
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
-    const setEditorState = useAppStore((state) => state.setEditorState);
 
     const addResultRef = useRef<((result: any) => void) | null>(null);
 
@@ -30,7 +28,7 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
 
     return (
         <div className="w-full h-full">
-            <SplitView
+            <WorkspaceLayout
                 chatPanel={
                     <ChatInterface
                         onWorkflowGenerated={setCurrentWorkflow}
@@ -47,4 +45,3 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
         </div>
     );
 }
-
