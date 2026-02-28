@@ -817,7 +817,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 </div>
             </div>
 
-            <div className="sticky bottom-0 border-t border-stroke-subtle p-4 bg-surface-primary/80 backdrop-blur-sm">
+            <div className="sticky bottom-0 p-3 bg-surface-primary/80 backdrop-blur-sm">
                 {editingMessageId && (
                     <div className="flex items-center justify-between p-3 mb-3 bg-surface-secondary border border-stroke-subtle rounded-xl animate-in slide-in-from-bottom-2 shadow-lg">
                         <div className="flex items-center gap-3">
@@ -920,9 +920,10 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
 
             <div className={`relative max-w-[85%] ${message.type === 'user' ? 'min-w-[200px]' : ''}`}>
                 <div
-                    className={`flex flex-col space-y-2 overflow-hidden transition-all duration-200 ${message.type === 'user'
-                        ? 'bg-gradient-premium text-white px-5 py-4 rounded-2xl rounded-tr-sm relative shadow-lg shadow-accent-primary/10'
-                        : ''
+                    className={`flex flex-col overflow-hidden transition-all duration-300 ${message.type === 'user'
+                        ? `bg-gradient-premium text-white rounded-2xl rounded-tr-sm relative shadow-lg shadow-accent-primary/10
+                           ${isCanvasMode ? 'px-3 py-2 space-y-1' : 'px-5 py-4 space-y-2'}`
+                        : 'space-y-2'
                         }`}
                 >
                     {/* Image Attachments */}
@@ -955,63 +956,64 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                         </div>
                     )}
 
-                    {/* Footer: Timestamp (Left) & Revert Button (Right) */}
+                    {/* Footer: Timestamp + Edit + Revert — hidden in canvas mode (micro-bubble) */}
                     {message.type === 'user' && (
-                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
-                            {/* Timestamp - Bottom Left */}
-                            <span className="text-[11px] text-white/60 font-medium tracking-wide">
-                                {timeString}
-                            </span>
-
-                            {/* Revert Button - Bottom Right */}
-                            <div className="flex items-center gap-2">
-                                {onEdit && (
-                                    <Tooltip content="Edit">
+                        <div
+                            className="overflow-hidden transition-all duration-300"
+                            style={{
+                                maxHeight: isCanvasMode ? 0 : 80,
+                                opacity: isCanvasMode ? 0 : 1,
+                                marginTop: isCanvasMode ? 0 : undefined,
+                            }}
+                        >
+                            <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
+                                <span className="text-[11px] text-white/60 font-medium tracking-wide">
+                                    {timeString}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    {onEdit && (
+                                        <Tooltip content="Edit">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onEdit(message);
+                                                }}
+                                                className={`flex items-center justify-center p-1.5 rounded-lg 
+                                                         transition-all duration-200 backdrop-blur-sm
+                                                         border border-white/10 group
+                                                         ${isEditing
+                                                        ? 'bg-white/30 text-white ring-2 ring-white/50'
+                                                        : 'bg-white/10 hover:bg-white/20 text-white/90 hover:text-white'}`}
+                                            >
+                                                <Pen className="w-3.5 h-3.5" />
+                                            </button>
+                                        </Tooltip>
+                                    )}
+                                    {undoSnapshotId && (
                                         <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onEdit(message);
-                                            }}
-                                            className={`flex items-center justify-center p-1.5 rounded-lg 
+                                            onClick={handleRevertClick}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg 
+                                                     bg-white/10 hover:bg-white/20 active:bg-white/30 
+                                                     text-white/90 hover:text-white 
                                                      transition-all duration-200 backdrop-blur-sm
                                                      border border-white/10 group
-                                                     ${isEditing
-                                                    ? 'bg-white/30 text-white ring-2 ring-white/50'
-                                                    : 'bg-white/10 hover:bg-white/20 text-white/90 hover:text-white'}`}
+                                                     cursor-pointer"
                                         >
-                                            <Pen className="w-3.5 h-3.5" />
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                width="14" height="14"
+                                                viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" strokeWidth="2.5"
+                                                strokeLinecap="round" strokeLinejoin="round"
+                                                className="mb-[1px] group-hover:-rotate-90 transition-transform duration-300"
+                                            >
+                                                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                                                <path d="M3 3v5h5" />
+                                            </svg>
+                                            <span className="text-xs font-semibold">Revert</span>
                                         </button>
-                                    </Tooltip>
-                                )}
-
-                                {undoSnapshotId && (
-                                    <button
-                                        onClick={handleRevertClick}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg 
-                                                 bg-white/10 hover:bg-white/20 active:bg-white/30 
-                                                 text-white/90 hover:text-white 
-                                                 transition-all duration-200 backdrop-blur-sm
-                                                 border border-white/10 group
-                                                 cursor-pointer"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            width="14"
-                                            height="14"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="2.5"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            className="mb-[1px] group-hover:-rotate-90 transition-transform duration-300"
-                                        >
-                                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                                            <path d="M3 3v5h5" />
-                                        </svg>
-                                        <span className="text-xs font-semibold">Revert</span>
-                                    </button>
-                                )}
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}

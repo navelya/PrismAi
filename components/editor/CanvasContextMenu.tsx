@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NodeType } from '@/lib/nodes/types';
 import { nodeMetadata } from '@/lib/nodes/metadata';
 import * as Icons from 'lucide-react';
@@ -37,6 +38,9 @@ export default function CanvasContextMenu({
 }: CanvasContextMenuProps) {
     const menuRef = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
+    // Portal guard — prevents SSR mismatch
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
 
     // Calculate edge-aware position
     const calculatePosition = () => {
@@ -101,10 +105,10 @@ export default function CanvasContextMenu({
         onClose();
     };
 
-    return (
+    const menu = (
         <div
             ref={menuRef}
-            className={`fixed z-[100] transition-all duration-150 ease-out ${isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+            className={`fixed z-[9999] transition-all duration-150 ease-out ${isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
                 }`}
             style={{
                 left: menuPosition.x,
@@ -168,4 +172,7 @@ export default function CanvasContextMenu({
             </div>
         </div>
     );
+
+    if (!mounted) return null;
+    return createPortal(menu, document.body);
 }
