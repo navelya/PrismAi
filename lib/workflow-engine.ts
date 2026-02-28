@@ -39,7 +39,27 @@ export async function executeWorkflow(
     executionId: string,
     onStatusUpdate?: (nodeId: string, status: NodeStatus, workflow?: any) => void,
     onNodeOutput?: (nodeId: string, output: any) => void,
-    cachedOutputs?: Record<string, any> // New optional param
+    cachedOutputs?: Record<string, any>,
+    /**
+     * Called after each node succeeds.
+     * - isLeafNode=true  → node has no outgoing edges → upload thumbnail + flat result
+     * - isLeafNode=false → intermediate node → upload thumbnail only
+     */
+    onNodePersist?: (
+        nodeId: string,
+        nodeType: string,
+        config: any,
+        inputUrls: string[],
+        output: any,
+        prevThumbnailPaths: string[],
+        isLeafNode: boolean,
+    ) => Promise<{
+        thumbnailPaths: string[];
+        thumbnailUrls: string[];
+        resultPaths: string[];
+        resultUrls: string[];
+        computedHash: string;
+    } | null>,
 ): Promise<{
     success: boolean;
     result: any;
@@ -237,9 +257,50 @@ export async function executeWorkflow(
                     (node.data as any).status = 'success';
                     const outputStr = result.value.output;
                     if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
-                        (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map(o => o.url) };
+                        (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
                     } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
                         (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
+                    }
+
+                    // Await persist BEFORE broadcasting — so canvas_state contains thumbnailUrls
+                    if (onNodePersist) {
+                        const previousMeta = (node.data as any).outputMetadata;
+                        // Only pass thumbnail paths for deletion (results are permanent)
+                        const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
+
+                        // Input URLs = parent nodes' thumbnailUrls (already-persisted)
+                        const parentIds = parents.get(node.id) || [];
+                        const inputUrls: string[] = parentIds.flatMap(pid => {
+                            const parentNode = workflow.nodes.find(n => n.id === pid);
+                            return (parentNode?.data as any)?.outputMetadata?.thumbnailUrls ?? [];
+                        });
+
+                        // Leaf node = no outgoing edges (children)
+                        const isLeaf = (children.get(node.id) || []).length === 0;
+
+                        try {
+                            const persistMeta = await onNodePersist(
+                                node.id,
+                                node.type,
+                                (node.data as any).config ?? {},
+                                inputUrls,
+                                result.value.output,
+                                prevThumbnailPaths,
+                                isLeaf,
+                            );
+                            if (persistMeta) {
+                                (node.data as any).outputMetadata = {
+                                    ...(node.data as any).outputMetadata,
+                                    thumbnailPaths: persistMeta.thumbnailPaths,
+                                    thumbnailUrls: persistMeta.thumbnailUrls,
+                                    resultPaths: persistMeta.resultPaths,
+                                    resultUrls: persistMeta.resultUrls,
+                                    computedHash: persistMeta.computedHash,
+                                };
+                            }
+                        } catch (persistErr) {
+                            console.warn(`[Persist] Node ${node.id} persist failed:`, persistErr);
+                        }
                     }
 
                     if (onStatusUpdate) await onStatusUpdate(node.id, 'success', workflow);
@@ -664,9 +725,12 @@ export function stripHeavyNodeData(workflow: Workflow): Workflow {
     if (cleanWorkflow.nodes) {
         cleanWorkflow.nodes.forEach(node => {
             if (node.data) {
+                // Strip ephemeral large data
                 delete (node.data as any).output;
                 if ((node.data as any).outputMetadata) {
+                    // Remove raw base64 preview_urls — keep persisted storage references
                     delete (node.data as any).outputMetadata.preview_urls;
+                    // thumbnailPaths, thumbnailUrls, resultPaths, resultUrls, computedHash are KEPT
                 }
             }
         });

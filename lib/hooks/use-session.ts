@@ -154,8 +154,17 @@ export function useSession() {
                 const isFailed = lastWorkflowMsgStatus === 'failed' || lastWorkflowMsgHasError;
 
                 session.canvas_state.nodes.forEach((node: any) => {
-                    // Hydrate live thumbnails for nodes that have already finished
-                    if (node.data?.output !== undefined) {
+                    // Priority 1: Hydrate from persisted thumbnail URLs (canvas node display)
+                    const meta = node.data?.outputMetadata;
+                    if (meta?.thumbnailUrls && Array.isArray(meta.thumbnailUrls) && meta.thumbnailUrls.length > 0) {
+                        const imageObjects = meta.thumbnailUrls.map((url: string, idx: number) => ({
+                            url,
+                            resolution: { width: 1024, height: 1024 },
+                            metadata: { title: `Output ${idx + 1}`, source: 'Persisted' },
+                        }));
+                        store.setNodeOutput(node.id, imageObjects);
+                    } else if (node.data?.output !== undefined) {
+                        // Priority 2: Fallback to inline output if present (legacy / non-image nodes)
                         store.setNodeOutput(node.id, node.data.output);
                     }
 

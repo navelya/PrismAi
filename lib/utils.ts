@@ -9,17 +9,18 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Generate a unique ID for nodes
+ * Generate a globally unique ID for nodes using crypto.randomUUID().
+ * Collision-free across sessions, imports, and exports.
  */
 export function generateNodeId(): string {
-    return `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return crypto.randomUUID();
 }
 
 /**
- * Generate a unique ID for edges
+ * Generate a unique ID for edges.
  */
 export function generateEdgeId(sourceId: string, targetId: string): string {
-    return `edge_${sourceId}_${targetId}`;
+    return `edge_${crypto.randomUUID()}`;
 }
 
 /**

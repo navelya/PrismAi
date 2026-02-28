@@ -97,14 +97,12 @@ export async function POST(request: Request) {
             .eq('id', sessionId);
 
         // 4. Trigger the background worker natively using waitUntil (Fire-and-Forget)
-        // This keeps the Vercel serverless function alive to complete the LLM generation
-        // even after the 200 OK is returned to the client immediately below.
         waitUntil((async () => {
             try {
                 const adminSupabase = createServiceClient();
                 console.log('[Worker] Starting AI generation for message:', assistantMessage.id);
 
-                // Call the LLM (this is the long-running part)
+                // Call the LLM
                 const result = await parseRequestToWorkflow(
                     prompt,
                     previousWorkflow || null,
@@ -127,14 +125,11 @@ export async function POST(request: Request) {
                     updatePayload.content = result.message || 'Undoing changes...';
                     updatePayload.metadata = { type: 'undo' };
                 } else if (result.type === 'workflow') {
-                    // For workflow responses, store the workflow JSON in the dedicated column
-                    // User explicitly requested NO AI text bubble for workflows, only the results.
                     updatePayload.content = result.message || '';
                     updatePayload.workflow = result.workflow;
-                    updatePayload.metadata = { type: 'workflow' }; // FIX: Explicitly mark as workflow to survive Postges TOAST truncation
+                    updatePayload.metadata = { type: 'workflow' };
 
-                    // 1. INSTANT UX FIX: Instantly broadcast the initial workflow JSON to Realtime
-                    // This allows the frontend to show the Editor button IMMEDIATELY before execution starts.
+                    // Instantly broadcast the initial workflow JSON to Realtime UI
                     try {
                         console.log('[Worker] Broadcast initial workflow blueprint to Realtime UI...');
                         await adminSupabase
@@ -142,10 +137,8 @@ export async function POST(request: Request) {
                             .update({ workflow: result.workflow })
                             .eq('id', assistantMessage.id);
 
-                        // ALSO explicitly update canvas_state in the active session so refreshing/navigating back hydrates instantly
                         const initSessionUpdate: Record<string, any> = { canvas_state: result.workflow };
 
-                        // Progressive Title Generation: Override with official workflow title INSTANTLY before execution starts
                         if (result.workflow!.name && result.workflow!.name !== 'New Workflow' && result.workflow!.name !== 'Workflow') {
                             let officialTitle = result.workflow!.name.replace(/^Workflow:\s*/i, '');
                             if (officialTitle.length > 2) initSessionUpdate.title = officialTitle;
@@ -160,10 +153,19 @@ export async function POST(request: Request) {
                         console.error('[Worker] Failed to broadcast initial blueprint:', broadcastErr);
                     }
 
+                    // ── Execute workflow with per-node Storage persist + hash deduplification ──
                     try {
                         console.log('[Worker] Executing workflow server-side...');
-                        // Import dynamically to avoid edge runtime issues if any
-                        const { executeWorkflow, stripHeavyNodeData } = await import('@/lib/workflow-engine');
+                        const { executeWorkflow, stripHeavyNodeData: stripHeavy } = await import('@/lib/workflow-engine');
+                        const { computeNodeHash } = await import('@/lib/nodes/hash-inputs');
+
+                        // Fetch userId for storage paths (needed inside closure)
+                        const { data: sessionData } = await adminSupabase
+                            .from('sessions')
+                            .select('user_id')
+                            .eq('id', sessionId)
+                            .single();
+                        const userId = sessionData?.user_id || 'unknown';
 
                         // Node type → human-readable action descriptions
                         const actionDescriptions: Record<string, string> = {
@@ -178,129 +180,114 @@ export async function POST(request: Request) {
                         };
 
                         const totalNodes = result.workflow!.nodes.length;
-                        let completedNodes = 0;
+                        let completedNodeCount = 0;
 
-                        // Broadcast progress: update sessions.status_message on each node start
                         const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
                             if (status === 'running') {
                                 const node = result.workflow!.nodes.find((n: any) => n.id === nodeId);
                                 const action = node ? (actionDescriptions[node.type] || 'Processing') : 'Processing';
-                                const stepMsg = `${action} (${completedNodes + 1}/${totalNodes})`;
-
-                                // Payload for Realtime sync
+                                const stepMsg = `${action} (${completedNodeCount + 1}/${totalNodes})`;
                                 const payload: Record<string, any> = { status_message: stepMsg };
-                                if (currentWorkflow) payload.canvas_state = stripHeavyNodeData(currentWorkflow);
-
-                                // Fire-and-forget — MUST resolve as Promise to actually execute
+                                if (currentWorkflow) payload.canvas_state = stripHeavy(currentWorkflow);
                                 Promise.resolve(
-                                    adminSupabase
-                                        .from('sessions')
-                                        .update(payload)
-                                        .eq('id', sessionId)
+                                    adminSupabase.from('sessions').update(payload).eq('id', sessionId)
                                 ).catch((e) => console.warn('[Worker] Status broadcast failed:', e));
                             } else if (status === 'success' || status === 'error') {
-                                completedNodes++;
-                                // Also blast the workflow state on completion so thumbnails show up immediately
+                                completedNodeCount++;
                                 if (currentWorkflow) {
                                     Promise.resolve(
-                                        adminSupabase
-                                            .from('sessions')
-                                            .update({ canvas_state: stripHeavyNodeData(currentWorkflow) })
+                                        adminSupabase.from('sessions')
+                                            .update({ canvas_state: stripHeavy(currentWorkflow) })
                                             .eq('id', sessionId)
                                     ).catch((e) => console.warn('[Worker] Success/Error broadcast failed:', e));
                                 }
                             }
                         };
 
-                        // Execute the full graph with progress callback
+                        /**
+                         * Per-node persist callback — delegates to shared dual-save helper.
+                         *   isLeafNode=true  → thumbnail + flat result (leaf nodes only)
+                         *   isLeafNode=false → thumbnail only (intermediate nodes)
+                         */
+                        const { persistNodeOutputs } = await import('@/lib/workflow/persist-node');
+
+                        const onNodePersist = async (
+                            nodeId: string,
+                            nodeType: string,
+                            config: any,
+                            inputUrls: string[],
+                            output: any,
+                            prevThumbnailPaths: string[] = [],
+                            isLeafNode: boolean = false,
+                        ) => persistNodeOutputs(
+                            adminSupabase,
+                            { userId, sessionId, nodeId, nodeType, config, inputUrls, output },
+                            prevThumbnailPaths,
+                            isLeafNode,
+                            computeNodeHash,
+                        );
+
+                        // Execute the full workflow graph
                         const executeData = await executeWorkflow(
                             result.workflow!,
                             'server-' + Date.now().toString(),
                             onStatusUpdate,
+                            undefined,    // onNodeOutput
+                            undefined,    // cachedOutputs
+                            onNodePersist,
                         );
 
+                        // ── Build processedResult from terminal nodes' RESULT URLs ──────────
+                        // Terminal nodes = nodes with no outgoing edges.
+                        // We use resultUrls (permanent) — not thumbnailUrls — for chat history.
                         let uploadedPaths: string[] = [];
                         let processedResult = executeData.result;
 
-                        // Get User ID for Storage PATH
-                        const { data: sessionData } = await adminSupabase
-                            .from('sessions')
-                            .select('user_id')
-                            .eq('id', sessionId)
-                            .single();
-                        const userId = sessionData?.user_id || 'unknown';
+                        if (result.workflow!.nodes && result.workflow!.edges) {
+                            // Collect all storage paths (thumbnail + result) from every node
+                            result.workflow!.nodes.forEach((node: any) => {
+                                const meta = node.data?.outputMetadata;
+                                if (Array.isArray(meta?.thumbnailPaths)) uploadedPaths.push(...meta.thumbnailPaths);
+                                if (Array.isArray(meta?.resultPaths)) uploadedPaths.push(...meta.resultPaths);
+                            });
 
-                        // If execution succeeded and we have array of images
-                        if (executeData.result && Array.isArray(executeData.result)) {
-                            console.log('[Worker] Processing execution results for parallel upload...');
+                            // Find terminal nodes (no outgoing edges)
+                            const edgeSources = new Set(
+                                (result.workflow!.edges as any[]).map((e: any) => e.source)
+                            );
+                            const terminalNodes = result.workflow!.nodes.filter(
+                                (n: any) => !edgeSources.has(n.id)
+                            );
 
-                            // Let the UI know we are in the final save state
-                            await adminSupabase
-                                .from('sessions')
-                                .update({ status_message: 'Finalizing results...' })
-                                .eq('id', sessionId);
-
-                            await Promise.all(executeData.result.map(async (item: any, i: number) => {
-                                const isDataUri = item.url?.startsWith('data:');
-                                const isExternalUrl = item.url?.startsWith('http') &&
-                                    !item.url.includes(process.env.NEXT_PUBLIC_SUPABASE_URL || '.supabase.co');
-
-                                if (item?.url && (isDataUri || isExternalUrl)) {
-                                    try {
-                                        // Fetch the image to buffer natively on server
-                                        const response = await fetch(item.url);
-                                        const arrayBuffer = await response.arrayBuffer();
-                                        const buffer = Buffer.from(arrayBuffer);
-
-                                        const mimeType = response.headers.get('content-type') ||
-                                            (isDataUri ? item.url.split(';')[0].split(':')[1] : 'image/jpeg');
-                                        const ext = mimeType.split('/')[1] || 'jpg';
-
-                                        // Save to session user's folder
-                                        const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-                                        const storagePath = `${userId}/${sessionId}/${filename}`;
-
-                                        const { data, error } = await adminSupabase.storage
-                                            .from('chat-assets')
-                                            .upload(storagePath, buffer, {
-                                                contentType: mimeType,
-                                                upsert: false
-                                            });
-
-                                        if (error) {
-                                            console.error('[Worker] Failed to upload executed image to storage:', error);
-                                        } else {
-                                            const { data: urlData } = adminSupabase.storage.from('chat-assets').getPublicUrl(storagePath);
-                                            executeData.result[i] = { ...item, url: urlData.publicUrl };
-                                            if (data?.path) uploadedPaths.push(data.path);
-                                        }
-                                    } catch (fetchErr) {
-                                        console.error('[Worker] Failed to fetch/upload generated image:', fetchErr);
-                                    }
-                                } else if (item?.url) {
-                                    // Track existing storage paths
-                                    try {
-                                        const urlObj = new URL(item.url);
-                                        const pathParts = urlObj.pathname.split('/storage/v1/object/public/chat-assets/');
-                                        if (pathParts.length > 1) {
-                                            uploadedPaths.push(pathParts[1]);
-                                        }
-                                    } catch (e) { }
+                            // Build chat result from resultUrls (permanent session history)
+                            const persistedItems: any[] = terminalNodes.flatMap((node: any) => {
+                                const resultUrls: string[] = (node.data as any)?.outputMetadata?.resultUrls ?? [];
+                                if (resultUrls.length > 0) {
+                                    const rawOutput: any[] = Array.isArray(executeData.result)
+                                        ? executeData.result : [];
+                                    return resultUrls.map((url: string, idx: number) => {
+                                        const rawItem = rawOutput[idx];
+                                        return rawItem
+                                            ? { ...rawItem, url }   // preserve metadata, swap to Storage URL
+                                            : { url, metadata: { title: `Output ${idx + 1}`, source: node.type } };
+                                    });
                                 }
-                            }));
-                            processedResult = executeData.result;
+                                return [];  // non-image terminal node — raw result used as fallback below
+                            });
+
+                            if (persistedItems.length > 0) {
+                                processedResult = persistedItems;
+                            }
                         }
 
-                        // Attach metadata with results and potential error
                         updatePayload.metadata = {
                             type: 'workflow',
                             execution_result: processedResult,
-                            execution_error: executeData.error
+                            execution_error: executeData.error,
                         };
                         if (uploadedPaths.length > 0) {
                             updatePayload.images = uploadedPaths;
                         }
-
                         if (executeData.error) {
                             updatePayload.content = `⚠️ Workflow executed partially.\n${executeData.error}`;
                         } else if (!executeData.result && result.workflow!.nodes.length > 0) {
@@ -313,7 +300,7 @@ export async function POST(request: Request) {
                         console.error('[Worker] FATAL execution engine crash:', execError);
                         updatePayload.metadata = {
                             type: 'workflow',
-                            execution_error: execError.message
+                            execution_error: execError.message,
                         };
                         updatePayload.content = `⚠️ Workflow engine crashed during execution.\n${execError.message}`;
                     }
@@ -340,12 +327,11 @@ export async function POST(request: Request) {
                 // Update session: timestamp + canvas_state for workflow responses
                 const sessionUpdate: Record<string, any> = {
                     updated_at: new Date().toISOString(),
-                    status_message: null, // Clear progress indicator
+                    status_message: null,
                 };
                 if (result.type === 'workflow' && result.workflow) {
                     sessionUpdate.canvas_state = stripHeavyNodeData(result.workflow);
 
-                    // Progressive Title Generation: Override with official workflow title
                     if (result.workflow.name && result.workflow.name !== 'New Workflow' && result.workflow.name !== 'Workflow') {
                         let officialTitle = result.workflow.name.replace(/^Workflow:\s*/i, '');
                         if (officialTitle.length > 2) sessionUpdate.title = officialTitle;
@@ -356,7 +342,6 @@ export async function POST(request: Request) {
                     .update(sessionUpdate)
                     .eq('id', sessionId);
 
-                // Title generation is now handled separately by the frontend asynchronously
             } catch (error: any) {
                 console.error('==========================================');
                 console.error('[Worker] BACKGROUND AI ERROR:', error);
@@ -364,7 +349,6 @@ export async function POST(request: Request) {
                 console.error('==========================================');
 
                 try {
-                    // Bypass RLS and strictly await the failure update
                     const fallbackSupabase = createServiceClient();
                     const { error: fallbackError } = await fallbackSupabase
                         .from('messages')
@@ -387,7 +371,6 @@ export async function POST(request: Request) {
         })());
 
         // 5. Return immediately with both message IDs
-        // The frontend will receive Realtime updates when the worker finishes
         return NextResponse.json({
             success: true,
             userMessage,
@@ -402,4 +385,3 @@ export async function POST(request: Request) {
         );
     }
 }
-

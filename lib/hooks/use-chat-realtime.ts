@@ -239,7 +239,18 @@ export function useChatRealtime({
                                 store.setNodeStatus(node.id, node.data.status);
                             }
                         }
-                        if (node.data?.output !== undefined) {
+
+                        // Priority 1: persisted Supabase Storage thumbnailUrls (shown in canvas node)
+                        const meta = node.data?.outputMetadata;
+                        if (meta?.thumbnailUrls && Array.isArray(meta.thumbnailUrls) && meta.thumbnailUrls.length > 0) {
+                            const imageObjects = meta.thumbnailUrls.map((url: string, idx: number) => ({
+                                url,
+                                resolution: { width: 1024, height: 1024 },
+                                metadata: { title: `Output ${idx + 1}`, source: 'Persisted' },
+                            }));
+                            store.setNodeOutput(node.id, imageObjects);
+                        } else if (node.data?.output !== undefined) {
+                            // Priority 2: inline output (non-image nodes or legacy)
                             store.setNodeOutput(node.id, node.data.output);
                         }
                     });
