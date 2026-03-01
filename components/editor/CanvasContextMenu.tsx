@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeType } from '@/lib/nodes/types';
-import { nodeMetadata } from '@/lib/nodes/metadata';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import * as Icons from 'lucide-react';
 import { Plus } from 'lucide-react';
 
@@ -14,17 +14,7 @@ interface CanvasContextMenuProps {
     onClose: () => void;
 }
 
-const nodeTypes: NodeType[] = [
-    'media_input',
-    'scrape_images',
-    'remove_background',
-    'filter_sort',
-    'ai_generate_image',
-    'upscale_image',
-    'merge_image',
-    'compositor',
-    'text_input',
-];
+const nodeTypes = Object.keys(sharedRegistry) as NodeType[];
 
 // Menu dimensions for positioning calculations
 const MENU_WIDTH = 220;
@@ -132,7 +122,7 @@ export default function CanvasContextMenu({
                 {/* Node List */}
                 <div className="py-1 max-h-[260px] overflow-y-auto">
                     {nodeTypes.map((type) => {
-                        const metadata = nodeMetadata[type];
+                        const metadata = sharedRegistry[type]?.meta;
                         const IconComponent = metadata?.icon
                             ? (Icons[metadata.icon as keyof typeof Icons] as React.ComponentType<any>)
                             : Icons.Box;

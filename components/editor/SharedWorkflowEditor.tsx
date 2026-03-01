@@ -13,6 +13,7 @@ import { executeWorkflow, executeWorkflowFromNode } from '@/lib/workflow-engine'
 import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { stableStringify } from '@/lib/utils/stable-stringify';
+import { clientRegistry } from '@/lib/nodes/core/client-registry';
 
 interface SharedWorkflowEditorProps {
     workflow?: Workflow | null;
@@ -163,7 +164,11 @@ export default function SharedWorkflowEditor({
     const handleNodeClick = (_event: any, node: any) => {
         if (readOnly) return;
         setSelectedNode(node.id);
-        setShowPropertyPanel(true);
+        if (clientRegistry[node.type]?.propertyPanel) {
+            setShowPropertyPanel(true);
+        } else {
+            setShowPropertyPanel(false);
+        }
     };
 
     const handleDrop = (type: NodeType, position: { x: number; y: number }) => {

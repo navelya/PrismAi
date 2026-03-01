@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { Workflow, WorkflowNode, NodeStatus } from '../nodes/types';
 import { LayoutEngine } from '../utils/graph-layout';
+import { sharedRegistry } from '../nodes/core/shared-registry';
 
 // Message interface
 export interface Message {
@@ -147,6 +148,18 @@ export const useAppStore = create<AppState>()(
                 set({ activeSessionId: sessionId });
             },
             setCurrentWorkflow: (workflow) => {
+                if (workflow && workflow.nodes) {
+                    workflow.nodes = workflow.nodes.map((node) => {
+                        const def = sharedRegistry[node.type];
+                        if (def && def.defaultConfig) {
+                            node.data = {
+                                ...node.data,
+                                config: { ...def.defaultConfig, ...(node.data?.config || {}) }
+                            };
+                        }
+                        return node;
+                    });
+                }
                 set((state) => ({ currentWorkflow: workflow }));
             },
 

@@ -22,6 +22,8 @@ import MediaInputNode from '../canvas/MediaInputNode';
 import CompositorNode from '../canvas/CompositorNode';
 import TextInputNode from '../canvas/TextInputNode';
 import { NodeType } from '@/lib/nodes/types';
+import { clientRegistry } from '@/lib/nodes/core/client-registry';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network, Trash2, Copy, Hand, Minus, Plus, Maximize2 } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
@@ -54,17 +56,10 @@ interface EditorCanvasProps {
     onPaste?: () => void;
 }
 
-const nodeTypes = {
-    scrape_images: CustomNode,
-    remove_background: CustomNode,
-    filter_sort: CustomNode,
-    ai_generate_image: CustomNode,
-    upscale_image: CustomNode,
-    merge_image: CustomNode,
-    media_input: MediaInputNode,
-    compositor: CompositorNode,
-    text_input: TextInputNode,
-};
+const nodeTypes = Object.entries(clientRegistry).reduce((acc, [type, def]) => {
+    acc[type] = def.component;
+    return acc;
+}, {} as Record<string, React.ComponentType<any>>);
 
 function EditorCanvasInner({
     nodes,
@@ -296,13 +291,24 @@ function EditorCanvasInner({
             const targetNode = nodes.find((node: any) => node.id === connection.target);
             if (!sourceNode || !targetNode) return false;
 
-            // Validate handle compatibility for text inputs
-            if (sourceNode.type === 'text_input') {
-                // Text input can ONLY connect to text input handles (prompt_in)
-                if (connection.targetHandle !== 'prompt_in') return false;
-            } else {
-                // Non-text inputs CANNOT connect to text input handles
-                if (connection.targetHandle === 'prompt_in') return false;
+            // Dynamic Validation using Shared Registry Mapping
+            const sourceDef = sharedRegistry[sourceNode.type];
+            const targetDef = sharedRegistry[targetNode.type];
+
+            if (sourceDef && targetDef) {
+                // Find specifics for Handles, else assume defaults
+                const sourceOutput = sourceDef.handles.outputs.find(h => h.id === connection.sourceHandle) || sourceDef.handles.outputs[0];
+                const targetInput = targetDef.handles.inputs.find(h => h.id === connection.targetHandle) || targetDef.handles.inputs[0];
+
+                if (sourceOutput && targetInput) {
+                    // Match Text Types
+                    const isSourceText = sourceOutput.dataType === 'text';
+                    const isTargetText = targetInput.expectedType === 'text';
+
+                    if (isSourceText !== isTargetText) {
+                        return false; // Mismatched specific handles (text into image, or image into text)
+                    }
+                }
             }
 
             // Check if this connection would create a cycle

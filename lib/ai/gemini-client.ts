@@ -1,4 +1,5 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, SchemaType, ResponseSchema } from '@google/generative-ai';
+import { sharedRegistry } from '../nodes/core/shared-registry';
 
 const apiKey = process.env.GEMINI_API_KEY!;
 
@@ -8,7 +9,13 @@ if (!apiKey) {
 
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
-const SYSTEM_INSTRUCTION = `You are Prism AI - a workflow builder. 
+export function buildAIPromptContext() {
+  let nodesStr = 'AVAILABLE NODES for workflow content:\n';
+  for (const [type, def] of Object.entries(sharedRegistry)) {
+    nodesStr += `- ${type}: ${JSON.stringify(def.aiSchema)} - ${def.meta.description}\n`;
+  }
+
+  return `You are Prism AI - a workflow builder. 
 
 CRITICAL OUTPUT FORMAT:
 - Return ONLY valid JSON. No other text before or after.
@@ -22,33 +29,7 @@ Use "workflow" when the request is clear and actionable.
 Use "chat" for questions, clarifications, or general conversation.
 Use "undo" ONLY when the user explicitly asks to "undo", "go back", "revert", or "fix mistake" on the PREVIOUS action. Content should be a short confirmation message.
 
-AVAILABLE NODES for workflow content:
-- media_input: {images:[]} - user uploaded images
-- text_input: {text: string} - REQUIRED for text prompts (search terms, image prompts)
-- scrape_images: {limit, imageSize?, imageType?, colorType?, safeSearch?} - MUST receive edge from text_input with targetHandle: "prompt_in"
-- ai_generate_image: {model:"gemini-2.5-flash-image"|"gemini-3-pro-image-preview"|"pollinations"|"huggingface", aspectRatio:"1:1"|"16:9"|"4:3"} - MUST receive edge from text_input with targetHandle: "prompt_in"
-- remove_background: {format:"png"|"webp"}
-- merge_image: {mode, overlayScale?, overlayPosition?} - needs TWO inputs with targetHandle:"base"/"overlay"
-- filter_sort: {criteria:"resolution"|"size"|"format", order:"asc"|"desc"}
-- upscale_image: {scale:2|3|4|8}
-- compositor: {
-    canvasWidth: number,        // default 1920
-    canvasHeight: number,       // default 1080
-    backgroundColor: string,    // hex color, default #00000000
-    layers: [{
-        id: string,             // e.g. "layer_0"
-        name: string,           // e.g. "Background"
-        sourceHandleId: string, // CRITICAL: This MUST match an edge's "targetHandle" connecting to this node!
-        selectedIndex: number,  // 0-based index for picking specific image from multi-image input
-        transform: {
-            x: number, y: number, 
-            width: number, height: number, 
-            rotation: number, opacity: number, // 0-1
-            flipX: boolean, flipY: boolean
-        },
-        visible: boolean, locked: boolean
-    }]
-}
+${nodesStr}
 
 WORKFLOW PATTERNS:
 - "Text Inputs": Processing nodes like scrape_images and ai_generate_image DO NOT accept text prompts directly in config. You MUST create a text_input node and connect it to them via an edge specifying "targetHandle": "prompt_in".
@@ -59,6 +40,8 @@ WORKFLOW STRUCTURE:
 {"name":"...","nodes":[{"id":"node_0","type":"text_input","position":{"x":0,"y":100},"data":{"label":"Prompt","config":{"text":"A sunset"}}},{"id":"node_1","type":"ai_generate_image","position":{"x":200,"y":100},"data":{"label":"Generate","config":{"model":"...","aspectRatio":"16:9"}}}],"edges":[{"id":"edge_0_1","source":"node_0","target":"node_1","targetHandle":"prompt_in"}]}
 
 REMEMBER: Output ONLY the JSON object, nothing else.`;
+}
+// Dynamic instructions are generated functionally
 
 /**
  * Detect if error is a rate limit error
@@ -138,12 +121,26 @@ export function getGeminiModel(modelName?: string) {
     throw new Error('Gemini API not initialized - check GEMINI_API_KEY');
   }
 
-  // Use provided model name or get from manager
   const model = modelName || 'gemini-2.5-flash-lite';
+  const systemInstruction = buildAIPromptContext();
+
+  // Basic native JSON schema for structure
+  const responseSchema: ResponseSchema = {
+    type: SchemaType.OBJECT,
+    properties: {
+      type: { type: SchemaType.STRING, enum: ["workflow", "chat", "undo"] },
+      content: { type: SchemaType.OBJECT }
+    },
+    required: ["type", "content"]
+  };
 
   return genAI.getGenerativeModel({
     model,
-    systemInstruction: SYSTEM_INSTRUCTION,
+    systemInstruction,
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: responseSchema
+    }
   });
 }
 

@@ -144,95 +144,51 @@ export async function executeWorkflow(
                         throw new Error(`No executor found for node type: ${node.type}`);
                     }
 
-                    // Gather inputs from all parents
+                    // Gather inputs from all parents structurally using edge targetHandle
+                    const incomingEdges = workflow.edges.filter(e => e.target === node.id);
                     const parentIds = parents.get(node.id) || [];
-                    let input = null;
+                    let input: any = null;
 
-                    // For merge_image node, separate inputs by targetHandle
-                    if (node.type === 'merge_image') {
-                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-                        let baseEdge = incomingEdges.find(e => (e as any).targetHandle === 'base');
-                        let overlayEdge = incomingEdges.find(e => (e as any).targetHandle === 'overlay');
+                    const inputObj: Record<string, any> = {};
+                    const defaultInputs: any[] = [];
 
-                        // Fallback: if no targetHandle, infer from source node type
-                        // - remove_background output goes to overlay (it's the subject)
-                        // - ai_generate_image output goes to base (it's the background)
-                        if (!baseEdge || !overlayEdge) {
-                            for (const edge of incomingEdges) {
-                                const sourceNode = workflow.nodes.find(n => n.id === edge.source);
-                                if (!sourceNode) continue;
+                    for (const edge of incomingEdges) {
+                        const handleId = (edge as any).targetHandle;
+                        const edgeOutput = nodeOutputs.get(edge.source);
 
-                                if (sourceNode.type === 'remove_background' && !overlayEdge) {
-                                    overlayEdge = edge;
-                                } else if ((sourceNode.type === 'ai_generate_image' || sourceNode.type === 'scrape_images') && !baseEdge) {
-                                    baseEdge = edge;
+                        if (handleId) {
+                            if (inputObj[handleId]) {
+                                // If multiple edges connect to the same handle, consolidate them into an array
+                                if (!Array.isArray(inputObj[handleId])) {
+                                    inputObj[handleId] = [inputObj[handleId]];
                                 }
+                                inputObj[handleId].push(edgeOutput);
+                            } else {
+                                inputObj[handleId] = edgeOutput;
                             }
-
-                            // Final fallback: first edge = base, second = overlay
-                            if (!baseEdge && incomingEdges.length >= 1) baseEdge = incomingEdges[0];
-                            if (!overlayEdge && incomingEdges.length >= 2) overlayEdge = incomingEdges[1];
+                        } else if (edgeOutput) {
+                            defaultInputs.push(edgeOutput);
                         }
+                    }
 
-                        input = {
-                            base: baseEdge ? nodeOutputs.get(baseEdge.source) : null,
-                            overlay: overlayEdge ? nodeOutputs.get(overlayEdge.source) : null,
-                        };
-
-                    } else if (node.type === 'compositor') {
-                        // Compositor: map inputs by target handle ID (layer_0, layer_1, etc.)
-                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-                        const handleInputs: Record<string, any> = {};
-
-                        for (const edge of incomingEdges) {
-                            const handleId = (edge as any).targetHandle || 'default';
-                            handleInputs[handleId] = nodeOutputs.get(edge.source);
+                    // Finalize input structure based on what was collected
+                    if (Object.keys(inputObj).length > 0) {
+                        // Mixed named and unnamed handles
+                        if (defaultInputs.length === 1) {
+                            inputObj.default = defaultInputs[0];
+                        } else if (defaultInputs.length > 1) {
+                            inputObj.default = Array.isArray(defaultInputs[0]) ? defaultInputs.flat() : defaultInputs;
                         }
-
-                        input = handleInputs;
-
+                        input = inputObj;
                     } else {
-                        // General case for all other nodes
-                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-                        const hasTargetHandles = incomingEdges.some(e => (e as any).targetHandle);
-
-                        if (hasTargetHandles) {
-                            // If any edge has a named handle (e.g., prompt_in), build an object map
-                            const inputObj: Record<string, any> = {};
-                            const defaultInputs: any[] = [];
-
-                            for (const edge of incomingEdges) {
-                                const handleId = (edge as any).targetHandle;
-                                const edgeOutput = nodeOutputs.get(edge.source);
-
-                                if (handleId) {
-                                    inputObj[handleId] = edgeOutput;
-                                } else if (edgeOutput) {
-                                    defaultInputs.push(edgeOutput);
-                                }
-                            }
-
-                            // If there are unnamed edges (legacy connections), put them in default
-                            if (defaultInputs.length === 1) {
-                                inputObj.default = defaultInputs[0];
-                            } else if (defaultInputs.length > 1) {
-                                inputObj.default = Array.isArray(defaultInputs[0]) ? defaultInputs.flat() : defaultInputs;
-                            }
-                            input = inputObj;
-                        } else {
-                            // Legacy logic: no named handles, just pass the value directly
-                            if (parentIds.length === 1) {
-                                input = nodeOutputs.get(parentIds[0]);
-                            } else if (parentIds.length > 1) {
-                                const allInputs = parentIds
-                                    .map(parentId => nodeOutputs.get(parentId))
-                                    .filter(Boolean);
-
-                                if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
-                                    input = allInputs.flat();
-                                } else {
-                                    input = allInputs[0];
-                                }
+                        // Legacy/Unnamed logic: no named handles, just pass the value directly
+                        if (defaultInputs.length === 1) {
+                            input = defaultInputs[0];
+                        } else if (defaultInputs.length > 1) {
+                            if (Array.isArray(defaultInputs[0])) {
+                                input = defaultInputs.flat();
+                            } else {
+                                input = defaultInputs;
                             }
                         }
                     }
