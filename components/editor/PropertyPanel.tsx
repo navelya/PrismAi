@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
-import { NodeConfig, ScrapeImagesConfig, RemoveBackgroundConfig, FilterSortConfig, AIGenerateImageConfig, UpscaleImageConfig } from '@/lib/nodes/types';
+import { NodeConfig, ScrapeImagesConfig, RemoveBackgroundConfig, FilterSortConfig, AIGenerateImageConfig, UpscaleImageConfig, TextInputConfig } from '@/lib/nodes/types';
 
 interface PropertyPanelProps {
     nodeId: string;
@@ -22,15 +22,8 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 const scrapeConfig = config as ScrapeImagesConfig;
                 return (
                     <>
-                        <div>
-                            <label className={labelClass}>Search Term</label>
-                            <input
-                                type="text"
-                                value={scrapeConfig.searchTerm}
-                                onChange={(e) => onUpdate({ ...scrapeConfig, searchTerm: e.target.value })}
-                                className={inputClass}
-                                placeholder="e.g., sunset, logo, product"
-                            />
+                        <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-content-secondary">
+                            <span className="font-semibold text-blue-400">Note:</span> Connect a <b>Text Input</b> node to the <b>Query</b> handle to set the search term.
                         </div>
                         <div>
                             <label className={labelClass}>Limit</label>
@@ -203,14 +196,8 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                                 <option value="huggingface">Stable Diffusion XL (Hugging Face)</option>
                             </select>
                         </div>
-                        <div>
-                            <label className={labelClass}>Prompt</label>
-                            <textarea
-                                value={aiConfig.prompt}
-                                onChange={(e) => onUpdate({ ...aiConfig, prompt: e.target.value })}
-                                className={inputClass}
-                                rows={3}
-                            />
+                        <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-content-secondary">
+                            <span className="font-semibold text-blue-400">Note:</span> Connect a <b>Text Input</b> node to the <b>Prompt</b> handle to provide the generation prompt.
                         </div>
                         <div>
                             <label className={labelClass}>Aspect Ratio</label>
@@ -245,6 +232,21 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                         <p className="text-xs text-content-tertiary mt-2">
                             Higher scale = better quality but slower processing
                         </p>
+                    </div>
+                );
+
+            case 'text_input':
+                const textConfig = config as TextInputConfig;
+                return (
+                    <div>
+                        <label className={labelClass}>Text</label>
+                        <textarea
+                            value={textConfig.text || ''}
+                            onChange={(e) => onUpdate({ ...textConfig, text: e.target.value })}
+                            className={inputClass}
+                            rows={6}
+                            placeholder="Type your prompt or search term here..."
+                        />
                     </div>
                 );
 

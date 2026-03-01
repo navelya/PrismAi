@@ -215,7 +215,7 @@ export async function parseRequestToWorkflow(
         if (!workflow.edges) workflow.edges = [];
 
         // Validate node types and normalize structure
-        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image', 'media_input', 'compositor'];
+        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image', 'media_input', 'compositor', 'text_input'];
         workflow.nodes = workflow.nodes.map((node, index) => {
             if (!validTypes.includes(node.type)) {
                 throw new Error(`Invalid node type: ${node.type}`);
@@ -394,7 +394,7 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
 
     // Build comprehensive scrape config
     const scrapeConfig: ScrapeImagesConfig = {
-        searchTerm: searchTerm || 'images',
+        searchTerm: searchTerm || 'images', // Keep for backwards compatibility
         limit,
         ...(sources && { sources }),
         imageSize: imageSize || 'any',
@@ -402,6 +402,17 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
         colorType: colorType || 'any',
         safeSearch: 'medium' as const,
     };
+
+    const textNode = {
+        id: `node_${nodeCount++}`,
+        type: 'text_input' as const,
+        position: { x: -250, y: 100 },
+        data: {
+            label: 'Text Input',
+            config: { text: searchTerm || 'images' },
+        },
+    };
+    nodes.push(textNode);
 
     const scrapeNode = {
         id: `node_${nodeCount++}`,
@@ -413,6 +424,13 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
         },
     };
     nodes.push(scrapeNode);
+
+    edges.push({
+        id: `edge_${textNode.id}_${scrapeNode.id}`,
+        source: textNode.id,
+        target: scrapeNode.id,
+        targetHandle: 'prompt_in',
+    });
 
     let lastNodeId = scrapeNode.id;
 

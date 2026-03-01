@@ -191,21 +191,49 @@ export async function executeWorkflow(
 
                         input = handleInputs;
 
-                    } else if (parentIds.length === 1) {
-                        // Single parent - use output directly
-                        input = nodeOutputs.get(parentIds[0]);
-                    } else if (parentIds.length > 1) {
-                        // Multiple parents - merge outputs
-                        const allInputs = parentIds
-                            .map(parentId => nodeOutputs.get(parentId))
-                            .filter(Boolean);
+                    } else {
+                        // General case for all other nodes
+                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
+                        const hasTargetHandles = incomingEdges.some(e => (e as any).targetHandle);
 
-                        if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
-                            // Flatten arrays (e.g., multiple image lists)
-                            input = allInputs.flat();
+                        if (hasTargetHandles) {
+                            // If any edge has a named handle (e.g., prompt_in), build an object map
+                            const inputObj: Record<string, any> = {};
+                            const defaultInputs: any[] = [];
+
+                            for (const edge of incomingEdges) {
+                                const handleId = (edge as any).targetHandle;
+                                const edgeOutput = nodeOutputs.get(edge.source);
+
+                                if (handleId) {
+                                    inputObj[handleId] = edgeOutput;
+                                } else if (edgeOutput) {
+                                    defaultInputs.push(edgeOutput);
+                                }
+                            }
+
+                            // If there are unnamed edges (legacy connections), put them in default
+                            if (defaultInputs.length === 1) {
+                                inputObj.default = defaultInputs[0];
+                            } else if (defaultInputs.length > 1) {
+                                inputObj.default = Array.isArray(defaultInputs[0]) ? defaultInputs.flat() : defaultInputs;
+                            }
+                            input = inputObj;
                         } else {
-                            // Use first input as fallback
-                            input = allInputs[0];
+                            // Legacy logic: no named handles, just pass the value directly
+                            if (parentIds.length === 1) {
+                                input = nodeOutputs.get(parentIds[0]);
+                            } else if (parentIds.length > 1) {
+                                const allInputs = parentIds
+                                    .map(parentId => nodeOutputs.get(parentId))
+                                    .filter(Boolean);
+
+                                if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
+                                    input = allInputs.flat();
+                                } else {
+                                    input = allInputs[0];
+                                }
+                            }
                         }
                     }
 

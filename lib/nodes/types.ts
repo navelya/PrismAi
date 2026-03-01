@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'merge_image' | 'media_input' | 'compositor';
+export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'merge_image' | 'media_input' | 'compositor' | 'text_input';
 
 /**
  * Node execution status for real-time updates
@@ -144,6 +144,14 @@ export interface MediaInputConfig {
     images: string[];
 }
 
+/**
+ * Text Input Node Configuration
+ * Provides a string output to be used as a prompt or search term
+ */
+export interface TextInputConfig {
+    text: string;
+}
+
 export type NodeConfig =
     | ScrapeImagesConfig
     | RemoveBackgroundConfig
@@ -152,7 +160,8 @@ export type NodeConfig =
     | UpscaleImageConfig
     | MergeImageConfig
     | MediaInputConfig
-    | CompositorConfig;
+    | CompositorConfig
+    | TextInputConfig;
 
 /**
  * Node definition for workflow

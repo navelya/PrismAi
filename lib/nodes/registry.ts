@@ -13,6 +13,7 @@ import {
     MediaInputConfig,
     CompositorConfig,
     CompositorLayer,
+    TextInputConfig,
 } from './types';
 
 // Backend URL - uses environment variable in production, localhost in development
@@ -31,8 +32,12 @@ const scrapeImagesExecutor: NodeExecutor = async (
 ): Promise<NodeExecutionResult> => {
     try {
         const scrapeConfig = config as ScrapeImagesConfig;
+
+        // Use dynamically routed text input if available (targetHandle: 'prompt_in')
+        const dynamicSearchTerm = input?.prompt_in?.text || input?.prompt_in;
+        const searchTerm = typeof dynamicSearchTerm === 'string' ? dynamicSearchTerm : scrapeConfig.searchTerm;
+
         const {
-            searchTerm,
             limit,
             sources,
             imageSize,
@@ -251,7 +256,13 @@ const aiGenerateImageExecutor: NodeExecutor = async (
     context: ExecutionContext
 ): Promise<NodeExecutionResult> => {
     try {
-        const { prompt, model = 'gemini', aspectRatio = '1:1' } = config as AIGenerateImageConfig;
+        const aiConfig = config as AIGenerateImageConfig;
+
+        // Use dynamically routed text input if available (targetHandle: 'prompt_in')
+        const dynamicPrompt = input?.prompt_in?.text || input?.prompt_in;
+        const prompt = typeof dynamicPrompt === 'string' ? dynamicPrompt : aiConfig.prompt;
+
+        const { model = 'gemini', aspectRatio = '1:1' } = aiConfig;
 
         // Determine dimensions based on aspect ratio
         const [width, height] = aspectRatio === '16:9' ? [1920, 1080] :
@@ -987,6 +998,30 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 
 /**
+ * Text Input Node
+ * Simply passes its configured text forward
+ */
+const textInputExecutor: NodeExecutor = async (
+    config: NodeConfig,
+    input: any,
+    context: ExecutionContext
+): Promise<NodeExecutionResult> => {
+    try {
+        const textConfig = config as TextInputConfig;
+        return {
+            success: true,
+            data: { text: textConfig.text || '' },
+        };
+    } catch (error) {
+        return {
+            success: false,
+            data: null,
+            error: error instanceof Error ? error.message : 'Text flow failed',
+        };
+    }
+};
+
+/**
  * Node Registry
  * Maps node types to their executor functions
  */
@@ -999,6 +1034,7 @@ export const nodeRegistry: Record<string, NodeExecutor> = {
     merge_image: mergeImageExecutor,
     media_input: mediaInputExecutor,
     compositor: compositorExecutor,
+    text_input: textInputExecutor,
 };
 
 /**

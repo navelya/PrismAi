@@ -52,6 +52,9 @@ export function createNodeFromType(
             outputFormat: 'png',
             outputQuality: 1.0,
         },
+        text_input: {
+            text: '',
+        },
     };
 
     const config = defaultConfigs[type];

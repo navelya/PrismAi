@@ -23,6 +23,7 @@ const nodeTypes: NodeType[] = [
     'upscale_image',
     'merge_image',
     'compositor',
+    'text_input',
 ];
 
 // Menu dimensions for positioning calculations

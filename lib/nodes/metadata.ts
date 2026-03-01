@@ -19,7 +19,7 @@ export const nodeMetadata: Record<string, {
         description: 'Search and fetch images from the web',
         color: '#667eea',
         icon: 'Search',
-        // No inputs - this is a source node
+        inputs: [{ id: 'prompt_in', label: 'Query', color: '#94a3b8' }],
     },
     remove_background: {
         label: 'Remove Background',
@@ -39,7 +39,7 @@ export const nodeMetadata: Record<string, {
         description: 'Generate images with AI',
         color: '#fbbf24',
         icon: 'Sparkles',
-        // No inputs - this is a source node (prompt-based)
+        inputs: [{ id: 'prompt_in', label: 'Prompt', color: '#94a3b8' }],
     },
     upscale_image: {
         label: 'Upscale Image',
@@ -72,5 +72,11 @@ export const nodeMetadata: Record<string, {
         icon: 'Layers2',
         // Dynamic inputs - handled by CompositorNode
         dynamicInputs: true,
+    },
+    text_input: {
+        label: 'Text Input',
+        description: 'Text prompt generator',
+        color: '#cbd5e1',
+        icon: 'Type',
     },
 };

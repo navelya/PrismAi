@@ -20,6 +20,7 @@ import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
 import MediaInputNode from '../canvas/MediaInputNode';
 import CompositorNode from '../canvas/CompositorNode';
+import TextInputNode from '../canvas/TextInputNode';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network, Trash2, Copy, Hand, Minus, Plus, Maximize2 } from 'lucide-react';
@@ -62,6 +63,7 @@ const nodeTypes = {
     merge_image: CustomNode,
     media_input: MediaInputNode,
     compositor: CompositorNode,
+    text_input: TextInputNode,
 };
 
 function EditorCanvasInner({
@@ -284,15 +286,26 @@ function EditorCanvasInner({
         [nodes, edges, onEdgesChange, onConnect]
     );
 
-    // Prevent cycles - check if new connection would create a cycle
+    // Prevent cycles and invalid handle connections
     const isValidConnection = useCallback(
         (connection: Connection) => {
             // Don't allow self-connections
             if (connection.source === connection.target) return false;
 
+            const sourceNode = nodes.find((node: any) => node.id === connection.source);
+            const targetNode = nodes.find((node: any) => node.id === connection.target);
+            if (!sourceNode || !targetNode) return false;
+
+            // Validate handle compatibility for text inputs
+            if (sourceNode.type === 'text_input') {
+                // Text input can ONLY connect to text input handles (prompt_in)
+                if (connection.targetHandle !== 'prompt_in') return false;
+            } else {
+                // Non-text inputs CANNOT connect to text input handles
+                if (connection.targetHandle === 'prompt_in') return false;
+            }
+
             // Check if this connection would create a cycle
-            const target = nodes.find((node: any) => node.id === connection.target);
-            if (!target) return false;
 
             // DFS to check for cycle
             const hasCycle = (node: any, visited = new Set<string>()): boolean => {
@@ -306,7 +319,7 @@ function EditorCanvasInner({
                 return false;
             };
 
-            return !hasCycle(target);
+            return !hasCycle(targetNode);
         },
         [nodes, edges]
     );

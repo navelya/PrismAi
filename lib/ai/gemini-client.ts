@@ -24,8 +24,9 @@ Use "undo" ONLY when the user explicitly asks to "undo", "go back", "revert", or
 
 AVAILABLE NODES for workflow content:
 - media_input: {images:[]} - user uploaded images
-- scrape_images: {searchTerm, limit, imageSize?, imageType?, colorType?, safeSearch?}
-- ai_generate_image: {prompt, model:"gemini-2.5-flash-image"|"gemini-3-pro-image-preview"|"pollinations"|"huggingface", aspectRatio:"1:1"|"16:9"|"4:3"} - model defaults to "gemini-2.5-flash-image"
+- text_input: {text: string} - REQUIRED for text prompts (search terms, image prompts)
+- scrape_images: {limit, imageSize?, imageType?, colorType?, safeSearch?} - MUST receive edge from text_input with targetHandle: "prompt_in"
+- ai_generate_image: {model:"gemini-2.5-flash-image"|"gemini-3-pro-image-preview"|"pollinations"|"huggingface", aspectRatio:"1:1"|"16:9"|"4:3"} - MUST receive edge from text_input with targetHandle: "prompt_in"
 - remove_background: {format:"png"|"webp"}
 - merge_image: {mode, overlayScale?, overlayPosition?} - needs TWO inputs with targetHandle:"base"/"overlay"
 - filter_sort: {criteria:"resolution"|"size"|"format", order:"asc"|"desc"}
@@ -50,11 +51,12 @@ AVAILABLE NODES for workflow content:
 }
 
 WORKFLOW PATTERNS:
+- "Text Inputs": Processing nodes like scrape_images and ai_generate_image DO NOT accept text prompts directly in config. You MUST create a text_input node and connect it to them via an edge specifying "targetHandle": "prompt_in".
 - "Distribute" / "For Each" / "Separately": If the user wants to process multiple items individually (e.g. "find 3 images and put a logo on each separately"), you MUST create multiple downstream nodes (e.g. 3 compositors), one for each item.
 - "Select Specific Item": When connecting a multi-item source (like scrape_images) to multiple downstream nodes, use the 'selectedIndex' property in the receiving node's layer config (0 for 1st image, 1 for 2nd, etc.) to distribute the items.
 
 WORKFLOW STRUCTURE:
-{"name":"...","nodes":[{"id":"node_0","type":"...","position":{"x":0,"y":100},"data":{"label":"...","config":{...}}}],"edges":[{"id":"edge_0_1","source":"node_0","target":"node_1"}]}
+{"name":"...","nodes":[{"id":"node_0","type":"text_input","position":{"x":0,"y":100},"data":{"label":"Prompt","config":{"text":"A sunset"}}},{"id":"node_1","type":"ai_generate_image","position":{"x":200,"y":100},"data":{"label":"Generate","config":{"model":"...","aspectRatio":"16:9"}}}],"edges":[{"id":"edge_0_1","source":"node_0","target":"node_1","targetHandle":"prompt_in"}]}
 
 REMEMBER: Output ONLY the JSON object, nothing else.`;
 
