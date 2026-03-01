@@ -3,9 +3,11 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/metadata';
-import * as Icons from 'lucide-react';
+import { Play, Copy, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+
+import { NodeHeader } from './NodeHeader';
 
 interface TextInputNodeData {
     label: string;
@@ -16,10 +18,6 @@ interface TextInputNodeData {
 
 function TextInputNode({ data, type, id }: NodeProps<TextInputNodeData>) {
     const metadata = nodeMetadata[type as keyof typeof nodeMetadata];
-    const IconComponent = metadata?.icon
-        ? (Icons[metadata.icon as keyof typeof Icons] as React.ComponentType<any>)
-        : Icons.Box;
-
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
 
@@ -85,91 +83,57 @@ function TextInputNode({ data, type, id }: NodeProps<TextInputNodeData>) {
     return (
         <div
             className={cn(
-                "px-6 py-4 rounded-xl shadow-lg border-2 backdrop-blur-sm relative group",
-                "transition-all duration-300 hover:scale-105 hover:shadow-2xl",
-                "min-w-[280px] bg-canvas-node"
+                "rounded-xl shadow-lg border-2 backdrop-blur-sm relative group bg-canvas-node",
+                "transition-all duration-300 hover:shadow-2xl",
+                "w-[280px]"
             )}
             style={{
                 background: `linear-gradient(135deg, ${nodeColor}20 0%, ${nodeColor}40 100%)`,
                 borderColor: nodeColor,
             }}
         >
-            {/* Node Action Buttons - appear on hover */}
+            {/* Action Buttons */}
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                {/* Run from here */}
                 <button
                     onClick={handleRunFromHere}
-                    className="w-6 h-6 rounded-full
-                               bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
-                               flex items-center justify-center
-                               shadow-lg hover:scale-110 transition-all duration-200"
+                    className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
+                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
                     title="Run from here"
                 >
-                    <Icons.Play className="w-3 h-3 text-content-inverted fill-current" />
+                    <Play className="w-3 h-3 text-content-inverted fill-current" />
                 </button>
-                {/* Duplicate Button */}
                 <button
                     onClick={handleDuplicate}
-                    className="w-6 h-6 rounded-full
-                               bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
-                               flex items-center justify-center
-                               shadow-lg hover:scale-110 transition-all duration-200"
+                    className="w-6 h-6 rounded-full bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
+                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
                     title="Duplicate node"
                 >
-                    <Icons.Copy className="w-3 h-3 text-content-inverted" />
+                    <Copy className="w-3 h-3 text-content-inverted" />
                 </button>
-                {/* Delete Button */}
                 <button
                     onClick={handleDelete}
-                    className="w-6 h-6 rounded-full
-                               bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
-                               flex items-center justify-center
-                               shadow-lg hover:scale-110 transition-all duration-200"
+                    className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
+                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
                     title="Delete node"
                 >
-                    <Icons.X className="w-3.5 h-3.5 text-content-inverted" />
+                    <X className="w-3.5 h-3.5 text-content-inverted" />
                 </button>
             </div>
 
-            {/* Status Badge - shows execution state */}
-            {status !== 'idle' && (
-                <div
-                    className={cn(
-                        "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
-                        "shadow-lg border-2 border-surface-primary transition-all duration-300",
-                        status === 'pending' && "bg-content-tertiary",
-                        status === 'running' && "bg-blue-500 animate-pulse",
-                        status === 'success' && "bg-accent-success",
-                        status === 'error' && "bg-accent-error"
-                    )}
-                >
-                    {status === 'running' && <Icons.Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
-                    {status === 'success' && <Icons.Check className="w-4 h-4 text-content-inverted" />}
-                    {status === 'error' && <Icons.X className="w-4 h-4 text-content-inverted" />}
-                    {status === 'pending' && <Icons.Circle className="w-2 h-2 text-content-inverted" />}
-                </div>
-            )}
-
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-surface-primary/50 text-content-primary">
-                    <IconComponent className="w-5 h-5" />
-                </div>
-                <div>
-                    <h3 className="font-bold text-content-primary">{data.label}</h3>
-                    <p className="text-xs text-content-tertiary">{metadata?.description || type}</p>
-                </div>
-            </div>
+            <NodeHeader
+                icon={metadata?.icon || 'Type'}
+                label={metadata?.label || data.label}
+                color={nodeColor}
+            />
 
             {/* Embedded Text Area */}
-            <div className="mt-2">
+            <div className="p-2">
                 <textarea
-                    className="nodrag nowheel w-full h-24 px-3 py-2 text-sm bg-surface-secondary/80 border border-stroke-subtle rounded-md text-content-primary focus:outline-none focus:ring-2 focus:ring-accent-primary resize-none backdrop-blur-sm transition-shadow"
+                    className="nodrag nowheel w-full h-24 px-3 py-2 text-sm bg-surface-secondary/80 border border-stroke-subtle rounded-md text-content-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-inner resize-none backdrop-blur-sm transition-shadow"
                     placeholder="Enter prompt or text here..."
                     value={data.config?.text || ''}
                     onChange={handleTextChange}
                     onKeyDown={(e) => {
-                        // Prevent backspace/delete from deleting the node when typing
                         if (e.key === 'Backspace' || e.key === 'Delete') {
                             e.stopPropagation();
                         }

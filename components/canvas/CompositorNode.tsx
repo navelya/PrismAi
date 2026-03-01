@@ -4,9 +4,10 @@ import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from '
 import { createPortal } from 'react-dom';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/metadata';
-import { Layers2, Plus, X, Edit3, Eye, EyeOff, Play } from 'lucide-react';
+import { Layers2, Plus, X, Edit3, Eye, EyeOff, Play, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { NodeHeader } from './NodeHeader';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
 import CompositorEditorModal from '@/components/compositor/CompositorEditorModal';
 
@@ -34,7 +35,46 @@ const defaultConfig: CompositorConfig = {
     canvasWidth: 1920,
     canvasHeight: 1080,
     backgroundColor: '#00000000',
-    layers: [],
+    layers: [
+        {
+            id: 'layer_0',
+            name: 'Layer 1',
+            sourceHandleId: 'layer_0',
+            selectedIndex: 0,
+            transform: {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+                rotation: 0,
+                opacity: 1,
+                flipX: false,
+                flipY: false,
+                crop: null,
+            },
+            visible: true,
+            locked: false,
+        },
+        {
+            id: 'layer_1',
+            name: 'Layer 2',
+            sourceHandleId: 'layer_1',
+            selectedIndex: 0,
+            transform: {
+                x: 100,
+                y: 100,
+                width: 400,
+                height: 300,
+                rotation: 0,
+                opacity: 1,
+                flipX: false,
+                flipY: false,
+                crop: null,
+            },
+            visible: true,
+            locked: false,
+        }
+    ],
     outputFormat: 'png',
     outputQuality: 1.0,
 };
@@ -228,6 +268,28 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         setIsEditorOpen(true);
     };
 
+    const handleDuplicate = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const currentNode = getNode(id);
+
+        if (currentNode) {
+            const newNode = {
+                ...JSON.parse(JSON.stringify(currentNode)),
+                id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                position: {
+                    x: currentNode.position.x + 50,
+                    y: currentNode.position.y + 50,
+                },
+                selected: false,
+                data: {
+                    ...currentNode.data,
+                    label: `${currentNode.data.label} (Copy)`,
+                }
+            };
+            addNodes(newNode);
+        }
+    };
+
     const handleRunFromHere = (e: React.MouseEvent) => {
         e.stopPropagation();
         triggerRunFromNode(id);
@@ -256,7 +318,7 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                 borderColor: nodeColor,
             }}
         >
-            {/* Node Action Buttons - appear on hover */}
+            {/* Action Buttons */}
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
                 <button
                     onClick={handleRunFromHere}
@@ -275,6 +337,14 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                     <Edit3 className="w-3 h-3 text-content-inverted" />
                 </button>
                 <button
+                    onClick={handleDuplicate}
+                    className="w-6 h-6 rounded-full bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
+                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                    title="Duplicate node"
+                >
+                    <Copy className="w-3 h-3 text-content-inverted" />
+                </button>
+                <button
                     onClick={handleDelete}
                     className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
                                flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
@@ -284,21 +354,12 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                 </button>
             </div>
 
-            {/* Header */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-stroke-subtle/20">
-                <div
-                    className="w-6 h-6 rounded-md flex items-center justify-center"
-                    style={{ backgroundColor: `${nodeColor}40` }}
-                >
-                    <Layers2 className="w-3.5 h-3.5" style={{ color: nodeColor }} />
-                </div>
-                <span className="text-xs font-semibold text-canvas-text truncate">Compositor</span>
-                {config.layers.length > 0 && (
-                    <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary text-content-inverted">
-                        {config.layers.length}
-                    </span>
-                )}
-            </div>
+            <NodeHeader
+                icon="Layers2"
+                label="Compositor"
+                color={nodeColor}
+                badgeCount={config.layers.length}
+            />
 
             {/* Dynamic Input Handles */}
             {inputHandles.map((handle, index) => {
