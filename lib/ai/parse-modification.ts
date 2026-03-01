@@ -99,8 +99,8 @@ Return ONLY valid JSON with this structure:
 
 Examples:
 - "add a filter node" → {"isModification": true, "type": "add_node", "nodeType": "filter_sort", "shouldExecute": true}
-- "change limit to 20" → {"isModification": true, "type": "update_config", "nodeId": "node_0", "config": {"limit": 20}, "shouldExecute": true}
-- "remove background node" → {"isModification": true, "type": "remove_node", "nodeId": "node_1", "shouldExecute": true}
+- "change limit to 20" → {"isModification": true, "type": "update_config", "nodeId": "uuid-node-id", "config": {"limit": 20}, "shouldExecute": true}
+- "remove background node" → {"isModification": true, "type": "remove_node", "nodeId": "uuid-node-id", "shouldExecute": true}
 `;
 
     const response = await generateWithGemini(prompt);
@@ -241,9 +241,7 @@ function applyModification(
 function addNodeToWorkflow(workflow: Workflow, nodeType: NodeType): Workflow {
     const xPosition = workflow.nodes.length * 200;
     const newNode = createNodeFromType(nodeType, { x: xPosition, y: 100 });
-    const newNodeId = `node_${workflow.nodes.length}`;
-
-    newNode.id = newNodeId;
+    const newNodeId = newNode.id;
 
     // If there are existing nodes, connect the last one to this new one
     const newEdges = [...workflow.edges];

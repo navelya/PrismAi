@@ -1,6 +1,7 @@
 import { generateWithGemini } from './gemini-client';
 import { Workflow, WorkflowNode, WorkflowEdge, ScrapeImagesConfig } from '../nodes/types';
 import { autoLayoutNodesAsync } from '../utils/graph-layout';
+import { generateNodeId } from '../utils';
 
 /**
  * Parse user request and convert to workflow using Gemini
@@ -222,17 +223,13 @@ export async function parseRequestToWorkflow(
             }
 
             // Ensure node has a valid ID (ELK requires string IDs)
-            if (!node.id || typeof node.id !== 'string') {
-                // Generate a unique ID that doesn't conflict with any existing IDs
-                let idAttempt = 0;
-                let newId = `node_${idAttempt}`;
-                const allIds = new Set(workflow.nodes.map(n => n.id).filter(id => id && typeof id === 'string'));
-
-                while (allIds.has(newId)) {
-                    idAttempt++;
-                    newId = `node_${idAttempt}`;
+            if (!node.id || typeof node.id !== 'string' || node.id.startsWith('node_')) {
+                // If ID is missing, or is in the legacy 'node_X' format, check if it's a NEW node
+                // If it existed in previousWorkflow, preserve it. If not, generate a fresh UUID.
+                const exists = previousWorkflow?.nodes.some(n => n.id === node.id);
+                if (!exists) {
+                    node.id = generateNodeId();
                 }
-                node.id = newId;
             }
 
             // Ensure node has proper data.config structure
@@ -404,7 +401,7 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
     };
 
     const textNode = {
-        id: `node_${nodeCount++}`,
+        id: generateNodeId(),
         type: 'text_input' as const,
         position: { x: -250, y: 100 },
         data: {
@@ -415,7 +412,7 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
     nodes.push(textNode);
 
     const scrapeNode = {
-        id: `node_${nodeCount++}`,
+        id: generateNodeId(),
         type: 'scrape_images' as const,
         position: { x: 0, y: 100 },
         data: {
@@ -437,7 +434,7 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
     // Check for background removal
     if (promptLower.includes('remove background') || promptLower.includes('no background')) {
         const bgNode = {
-            id: `node_${nodeCount++}`,
+            id: generateNodeId(),
             type: 'remove_background' as const,
             position: { x: 200, y: 100 },
             data: {
@@ -461,7 +458,7 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
         const order: 'asc' | 'desc' = promptLower.includes('desc') || promptLower.includes('largest') ? 'desc' : 'asc';
 
         const sortNode = {
-            id: `node_${nodeCount++}`,
+            id: generateNodeId(),
             type: 'filter_sort' as const,
             position: { x: nodes.length * 200, y: 100 },
             data: {

@@ -37,7 +37,7 @@ WORKFLOW PATTERNS:
 - "Select Specific Item": When connecting a multi-item source (like scrape_images) to multiple downstream nodes, use the 'selectedIndex' property in the receiving node's layer config (0 for 1st image, 1 for 2nd, etc.) to distribute the items.
 
 WORKFLOW STRUCTURE:
-{"name":"...","nodes":[{"id":"node_0","type":"text_input","position":{"x":0,"y":100},"data":{"label":"Prompt","config":{"text":"A sunset"}}},{"id":"node_1","type":"ai_generate_image","position":{"x":200,"y":100},"data":{"label":"Generate","config":{"model":"...","aspectRatio":"16:9"}}}],"edges":[{"id":"edge_0_1","source":"node_0","target":"node_1","targetHandle":"prompt_in"}]}
+{"name":"...","nodes":[{"id":"new-uuid-1","type":"text_input","position":{"x":0,"y":100},"data":{"label":"Prompt","config":{"text":"A sunset"}}},{"id":"new-uuid-2","type":"ai_generate_image","position":{"x":200,"y":100},"data":{"label":"Generate","config":{"model":"...","aspectRatio":"16:9"}}}],"edges":[{"id":"edge_1_2","source":"new-uuid-1","target":"new-uuid-2","targetHandle":"prompt_in"}]}
 
 REMEMBER: Output ONLY the JSON object, nothing else.`;
 }
