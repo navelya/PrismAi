@@ -11,7 +11,7 @@ export const scrapeImagesSharedDef: NodeSharedDef<ScrapeImagesConfig> = {
         icon: 'Search',
     },
     handles: {
-        inputs: [{ id: 'prompt_in', label: 'Query', expectedType: 'text' }],
+        inputs: [{ id: 'prompt_in', label: 'Prompt', expectedType: 'text' }],
         outputs: [{ id: 'images_out', label: 'Images', dataType: 'image_array' }],
     },
     defaultConfig: {

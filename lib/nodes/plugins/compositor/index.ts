@@ -14,7 +14,7 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
         // Inputs are dynamic based on layers, but we define an empty list here
         // as the actual Handles are rendered by CompositorNode dynamically.
         inputs: [],
-        outputs: [{ id: 'image_out', label: 'Composite', dataType: 'image' }],
+        outputs: [{ id: 'image_out', label: '', dataType: 'image' }],
     },
     defaultConfig: {
         canvasWidth: 1920,

@@ -1,6 +1,4 @@
 import { NodeServerDef } from './types';
-import { textInputSharedDef } from '../plugins/text_input';
-import { textInputExecutor } from '../plugins/text_input/executor';
 import { scrapeImagesSharedDef } from '../plugins/scrape_images';
 import { scrapeImagesExecutor } from '../plugins/scrape_images/executor';
 import { removeBackgroundSharedDef } from '../plugins/remove_background';
@@ -15,13 +13,15 @@ import { mergeImageSharedDef } from '../plugins/merge_image';
 import { mergeImageExecutor } from '../plugins/merge_image/executor';
 import { mediaInputSharedDef } from '../plugins/media_input';
 import { mediaInputExecutor } from '../plugins/media_input/executor';
+import { promptSharedDef } from '../plugins/prompt';
+import { promptExecutor } from '../plugins/prompt/executor';
 import { compositorSharedDef } from '../plugins/compositor';
 import { compositorExecutor } from '../plugins/compositor/executor';
 
 // The server-side registry mapping definition types
 // Only import this in Node.js/Backend execution environments
 export const serverRegistry: Record<string, NodeServerDef> = {
-    text_input: { ...textInputSharedDef, executor: textInputExecutor },
+    prompt: { ...promptSharedDef, executor: promptExecutor },
     scrape_images: { ...scrapeImagesSharedDef, executor: scrapeImagesExecutor },
     remove_background: { ...removeBackgroundSharedDef, executor: removeBackgroundExecutor },
     filter_sort: { ...filterSortSharedDef, executor: filterSortExecutor },

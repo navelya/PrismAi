@@ -1,22 +1,19 @@
 import { NodeSharedDef } from '../../core/types';
+import { PromptConfig } from '../../types';
 
-export interface TextInputConfig {
-    text: string;
-}
-
-export const textInputSharedDef: NodeSharedDef<TextInputConfig> = {
-    type: 'text_input',
+export const promptSharedDef: NodeSharedDef<PromptConfig> = {
+    type: 'prompt',
     family: 'input',
     meta: {
-        label: 'Text Input',
+        label: 'Prompt',
         description: 'Provide text or a prompt',
         icon: 'Type',
-        color: 'rgb(var(--accent-primary))',
+        color: '#cbd5e1',
     },
     handles: {
         inputs: [],
         outputs: [
-            { id: 'text_out', label: 'Text', dataType: 'text' }
+            { id: 'text_out', label: 'Prompt', dataType: 'text' }
         ],
     },
     defaultConfig: {

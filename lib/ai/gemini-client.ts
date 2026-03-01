@@ -32,12 +32,12 @@ Use "undo" ONLY when the user explicitly asks to "undo", "go back", "revert", or
 ${nodesStr}
 
 WORKFLOW PATTERNS:
-- "Text Inputs": Processing nodes like scrape_images and ai_generate_image DO NOT accept text prompts directly in config. You MUST create a text_input node and connect it to them via an edge specifying "targetHandle": "prompt_in".
+- "Text Inputs": Processing nodes like scrape_images and ai_generate_image DO NOT accept text prompts directly in config. You MUST create a prompt node and connect it to them via an edge specifying "targetHandle": "prompt_in".
 - "Distribute" / "For Each" / "Separately": If the user wants to process multiple items individually (e.g. "find 3 images and put a logo on each separately"), you MUST create multiple downstream nodes (e.g. 3 compositors), one for each item.
 - "Select Specific Item": When connecting a multi-item source (like scrape_images) to multiple downstream nodes, use the 'selectedIndex' property in the receiving node's layer config (0 for 1st image, 1 for 2nd, etc.) to distribute the items.
 
 WORKFLOW STRUCTURE:
-{"name":"...","nodes":[{"id":"new-uuid-1","type":"text_input","position":{"x":0,"y":100},"data":{"label":"Prompt","config":{"text":"A sunset"}}},{"id":"new-uuid-2","type":"ai_generate_image","position":{"x":200,"y":100},"data":{"label":"Generate","config":{"model":"...","aspectRatio":"16:9"}}}],"edges":[{"id":"edge_1_2","source":"new-uuid-1","target":"new-uuid-2","targetHandle":"prompt_in"}]}
+{"name":"...","nodes":[{"id":"new-uuid-1","type":"prompt","position":{"x":0,"y":100},"data":{"label":"Prompt","config":{"text":"A sunset"}}},{"id":"new-uuid-2","type":"ai_generate_image","position":{"x":200,"y":100},"data":{"label":"Generate","config":{"model":"...","aspectRatio":"16:9"}}}],"edges":[{"id":"edge_1_2","source":"new-uuid-1","target":"new-uuid-2","targetHandle":"prompt_in"}]}
 
 REMEMBER: Output ONLY the JSON object, nothing else.`;
 }

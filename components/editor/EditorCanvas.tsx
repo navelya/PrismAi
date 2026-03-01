@@ -20,7 +20,7 @@ import 'reactflow/dist/style.css';
 import CustomNode from '../canvas/CustomNode';
 import MediaInputNode from '../canvas/MediaInputNode';
 import CompositorNode from '../canvas/CompositorNode';
-import TextInputNode from '../canvas/TextInputNode';
+import PromptNode from '../canvas/PromptNode';
 import { NodeType } from '@/lib/nodes/types';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -56,10 +56,19 @@ interface EditorCanvasProps {
     onPaste?: () => void;
 }
 
-const nodeTypes = Object.entries(clientRegistry).reduce((acc, [type, def]) => {
-    acc[type] = def.component;
-    return acc;
-}, {} as Record<string, React.ComponentType<any>>);
+const nodeTypes = {
+    prompt: PromptNode,
+    scrape_images: CustomNode,
+    media_input: MediaInputNode,
+    compositor: CompositorNode,
+    // Dynamically add other node types from clientRegistry, excluding those already defined
+    ...Object.entries(clientRegistry).reduce((acc, [type, def]) => {
+        if (!['prompt', 'scrape_images', 'media_input', 'compositor'].includes(type)) {
+            acc[type] = def.component;
+        }
+        return acc;
+    }, {} as Record<string, React.ComponentType<any>>),
+};
 
 function EditorCanvasInner({
     nodes,

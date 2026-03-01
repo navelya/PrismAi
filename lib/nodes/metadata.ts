@@ -73,8 +73,8 @@ export const nodeMetadata: Record<string, {
         // Dynamic inputs - handled by CompositorNode
         dynamicInputs: true,
     },
-    text_input: {
-        label: 'Text Input',
+    prompt: {
+        label: 'Prompt',
         description: 'Text prompt generator',
         color: '#cbd5e1',
         icon: 'Type',

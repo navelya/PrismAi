@@ -7,6 +7,7 @@ import { nodeMetadata } from '@/lib/nodes/metadata';
 import { Layers2, Plus, X, Edit3, Eye, EyeOff, Play, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
 import CompositorEditorModal from '@/components/compositor/CompositorEditorModal';
@@ -177,6 +178,9 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const nodeOutputs = useAppStore((state) => state.nodeOutputs);
+
+    const sharedDef = sharedRegistry['compositor'];
+    const outputLabel = sharedDef?.handles?.outputs?.[0]?.label;
 
     // Get config with defaults
     const config: CompositorConfig = useMemo(() => ({
@@ -380,17 +384,11 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                                 left: -5,
                                 top: `calc(50% + ${offset}px + 24px)`,
                             }}
-                        />
-                        <div
-                            className="absolute text-[8px] font-bold pointer-events-none select-none"
-                            style={{
-                                left: 8,
-                                top: `calc(50% + ${offset}px + 20px)`,
-                                color: handle.color,
-                            }}
                         >
-                            {handle.label}
-                        </div>
+                            <div className="absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md" style={{ color: handle.color }}>
+                                {handle.label}
+                            </div>
+                        </Handle>
                     </React.Fragment>
                 );
             })}
@@ -487,7 +485,13 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                 id="output"
                 className="!w-3 !h-3 !border-2 !border-surface-primary hover:!brightness-110 transition-colors"
                 style={{ background: nodeColor, right: -6 }}
-            />
+            >
+                {outputLabel && (
+                    <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md" style={{ color: nodeColor }}>
+                        {outputLabel}
+                    </div>
+                )}
+            </Handle>
 
             {/* Editor Modal Portal */}
             {isEditorOpen && createPortal(

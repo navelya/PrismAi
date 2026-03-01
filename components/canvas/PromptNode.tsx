@@ -6,20 +6,22 @@ import { nodeMetadata } from '@/lib/nodes/metadata';
 import { Play, Copy, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
 
-interface TextInputNodeData {
+interface PromptNodeData {
     label: string;
     config: {
         text: string;
     };
 }
 
-function TextInputNode({ data, type, id }: NodeProps<TextInputNodeData>) {
+function PromptNode({ data, type, id }: NodeProps<PromptNodeData>) {
     const metadata = nodeMetadata[type as keyof typeof nodeMetadata];
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
+    const sharedDef = sharedRegistry['prompt'];
+    const outputLabel = sharedDef?.handles?.outputs?.[0]?.label;
 
     // Use React Flow hook for direct graph manipulation
     const { deleteElements, addNodes, getNode, setNodes } = useReactFlow();
@@ -126,19 +128,21 @@ function TextInputNode({ data, type, id }: NodeProps<TextInputNodeData>) {
                 color={nodeColor}
             />
 
-            {/* Embedded Text Area */}
-            <div className="p-2">
-                <textarea
-                    className="nodrag nowheel w-full h-24 px-3 py-2 text-sm bg-surface-secondary/80 border border-stroke-subtle rounded-md text-content-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-inner resize-none backdrop-blur-sm transition-shadow"
-                    placeholder="Enter prompt or text here..."
-                    value={data.config?.text || ''}
-                    onChange={handleTextChange}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Backspace' || e.key === 'Delete') {
-                            e.stopPropagation();
-                        }
-                    }}
-                />
+            {/* Embedded Text Area Container */}
+            <div className="p-1 px-1.5 pb-2">
+                <div className="relative group/prompt">
+                    <textarea
+                        className="nodrag nowheel w-full h-[160px] px-3 py-2 text-sm bg-surface-secondary/80 border border-stroke-subtle rounded-lg text-content-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-inner resize-none backdrop-blur-sm transition-shadow"
+                        placeholder="Enter prompt or text here..."
+                        value={data.config?.text || ''}
+                        onChange={handleTextChange}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Backspace' || e.key === 'Delete') {
+                                e.stopPropagation();
+                            }
+                        }}
+                    />
+                </div>
             </div>
 
             {/* Output Handle - ONLY ONE on the RIGHT */}
@@ -147,9 +151,15 @@ function TextInputNode({ data, type, id }: NodeProps<TextInputNodeData>) {
                 position={Position.Right}
                 id="text_out"
                 className="w-4 h-4 !bg-accent-primary border-2 border-surface-primary"
-            />
+            >
+                {outputLabel && (
+                    <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md">
+                        {outputLabel}
+                    </div>
+                )}
+            </Handle>
         </div>
     );
 }
 
-export default memo(TextInputNode);
+export default memo(PromptNode);

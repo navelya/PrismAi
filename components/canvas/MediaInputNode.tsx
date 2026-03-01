@@ -5,6 +5,7 @@ import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/metadata';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
 import { LayoutGrid, Square, Check, Upload, Image as ImageIcon, Play, Copy, X, ImagePlus, Plus } from 'lucide-react';
 
@@ -23,6 +24,8 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
     const deleteNode = useAppStore((state) => state.deleteNode);
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
+    const sharedDef = sharedRegistry['media_input'];
+    const outputLabel = sharedDef?.handles?.outputs?.[0]?.label;
 
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -302,7 +305,13 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
                 id="output"
                 className="!w-3 !h-3 !border-2 !border-surface-primary"
                 style={{ background: nodeColor }}
-            />
+            >
+                {outputLabel && (
+                    <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md">
+                        {outputLabel}
+                    </div>
+                )}
+            </Handle>
         </div>
     );
 }

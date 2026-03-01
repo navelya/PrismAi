@@ -1,5 +1,5 @@
 import { NodeSharedDef } from './types';
-import { textInputSharedDef } from '../plugins/text_input';
+import { promptSharedDef } from '../plugins/prompt';
 import { scrapeImagesSharedDef } from '../plugins/scrape_images';
 import { removeBackgroundSharedDef } from '../plugins/remove_background';
 import { filterSortSharedDef } from '../plugins/filter_sort';
@@ -10,9 +10,10 @@ import { mediaInputSharedDef } from '../plugins/media_input';
 import { compositorSharedDef } from '../plugins/compositor';
 
 // The global shared registry mapping definition types
-// This is safe to import ANYWHERE (Front-end, Back-end, Edge)
-export const sharedRegistry: Record<string, NodeSharedDef> = {
-    text_input: textInputSharedDef,
+// This is safe to import { promptSharedDef } from '../plugins/prompt';
+
+export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
+    prompt: promptSharedDef,
     scrape_images: scrapeImagesSharedDef,
     remove_background: removeBackgroundSharedDef,
     filter_sort: filterSortSharedDef,

@@ -1,5 +1,4 @@
 import { NodeClientDef } from './types';
-import { textInputClientDef } from '../plugins/text_input/component';
 import { scrapeImagesClientDef } from '../plugins/scrape_images/component';
 import { removeBackgroundClientDef } from '../plugins/remove_background/component';
 import { filterSortClientDef } from '../plugins/filter_sort/component';
@@ -8,11 +7,12 @@ import { upscaleImageClientDef } from '../plugins/upscale_image/component';
 import { mergeImageClientDef } from '../plugins/merge_image/component';
 import { mediaInputClientDef } from '../plugins/media_input/component';
 import { compositorClientDef } from '../plugins/compositor/component';
+import { promptClientDef } from '../plugins/prompt/component';
 
 // The client-side registry mapping definition types
 // Only import this in Browser/React components
 export const clientRegistry: Record<string, NodeClientDef> = {
-    text_input: textInputClientDef,
+    prompt: promptClientDef,
     scrape_images: scrapeImagesClientDef,
     remove_background: removeBackgroundClientDef,
     filter_sort: filterSortClientDef,

@@ -6,6 +6,7 @@ import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { nodeMetadata } from '@/lib/nodes/metadata';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { LayoutGrid, Square, Check, Layers, Image as ImageIcon, Play, Copy, X, Loader2, Circle } from 'lucide-react';
@@ -17,6 +18,9 @@ interface CustomNodeData {
 
 function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
     const metadata = nodeMetadata[type as keyof typeof nodeMetadata];
+    const sharedDef = sharedRegistry[type as keyof typeof sharedRegistry];
+    const defaultInputLabel = sharedDef?.handles?.inputs?.[0]?.label;
+    const defaultOutputLabel = sharedDef?.handles?.outputs?.[0]?.label;
 
     // Subscribe to specific output for this node
     const output = useAppStore((state) => state.nodeOutputs[id]);
@@ -163,17 +167,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                                         width: '10px',
                                         height: '10px',
                                     }}
-                                />
-                                {/* Small label next to handle */}
-                                <div
-                                    className="absolute text-[8px] font-semibold pointer-events-none select-none text-canvas-subtext"
-                                    style={{
-                                        left: 10,
-                                        top: `calc(50% + ${offset}px - 5px)`,
-                                    }}
                                 >
-                                    {input.label}
-                                </div>
+                                    {input.label && (
+                                        <div className="absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: nodeColor }}>
+                                            {input.label}
+                                        </div>
+                                    )}
+                                </Handle>
                             </React.Fragment>
                         );
                     })}
@@ -191,7 +191,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                         width: '10px',
                         height: '10px',
                     }}
-                />
+                >
+                    {defaultInputLabel && (
+                        <div className="absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: nodeColor }}>
+                            {defaultInputLabel}
+                        </div>
+                    )}
+                </Handle>
             )}
 
             <NodeHeader
@@ -340,7 +346,13 @@ function CustomNode({ data, type, id }: NodeProps<CustomNodeData>) {
                     width: '10px',
                     height: '10px',
                 }}
-            />
+            >
+                {defaultOutputLabel && (
+                    <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: nodeColor }}>
+                        {defaultOutputLabel}
+                    </div>
+                )}
+            </Handle>
         </div >
     );
 }

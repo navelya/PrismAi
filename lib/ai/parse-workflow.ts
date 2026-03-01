@@ -216,7 +216,7 @@ export async function parseRequestToWorkflow(
         if (!workflow.edges) workflow.edges = [];
 
         // Validate node types and normalize structure
-        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image', 'media_input', 'compositor', 'text_input'];
+        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image', 'media_input', 'compositor', 'prompt'];
         workflow.nodes = workflow.nodes.map((node, index) => {
             if (!validTypes.includes(node.type)) {
                 throw new Error(`Invalid node type: ${node.type}`);
@@ -402,7 +402,7 @@ export function createFallbackWorkflow(userPrompt: string): Workflow {
 
     const textNode = {
         id: generateNodeId(),
-        type: 'text_input' as const,
+        type: 'prompt' as const,
         position: { x: -250, y: 100 },
         data: {
             label: 'Text Input',
