@@ -20,7 +20,7 @@ interface WorkspaceLayoutProps {
 const RESIZE_TRANSITION = {
     type: 'tween' as const,
     ease: 'easeInOut' as const,
-    duration: 0.35,
+    duration: 0.25,
 };
 
 // Fix 4b: Sidebar → FAB = playful spring morph/scale
