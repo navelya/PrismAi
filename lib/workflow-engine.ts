@@ -1,5 +1,6 @@
 import { Workflow, WorkflowNode, ExecutionContext, NodeExecutionResult, NodeStatus } from './nodes/types';
 import { getNodeExecutor } from './nodes/registry';
+import { sharedRegistry } from './nodes/core/shared-registry';
 
 /**
  * Build dependency graph for parallel execution
@@ -142,6 +143,21 @@ export async function executeWorkflow(
                     const executor = getNodeExecutor(node.type);
                     if (!executor) {
                         throw new Error(`No executor found for node type: ${node.type}`);
+                    }
+
+                    // Strict Connection Validation for Mandatory Inputs
+                    const sharedDef = sharedRegistry[node.type as keyof typeof sharedRegistry];
+                    if (sharedDef) {
+                        const expectedInputs = sharedDef.handles?.inputs || [];
+                        const checkIncomingEdges = workflow.edges.filter(e => e.target === node.id);
+
+                        const missingMandatory = expectedInputs.find((input: any) =>
+                            input.isMandatory && !checkIncomingEdges.some(e => e.targetHandle === input.id || (!e.targetHandle && expectedInputs.length === 1))
+                        );
+
+                        if (missingMandatory) {
+                            throw new Error(`Missing mandatory connection for input: ${missingMandatory.label}`);
+                        }
                     }
 
                     // Gather inputs from all parents structurally using edge targetHandle
@@ -475,6 +491,21 @@ export async function executeWorkflowFromNode(
                     const executor = getNodeExecutor(node.type);
                     if (!executor) {
                         throw new Error(`No executor found for node type: ${node.type}`);
+                    }
+
+                    // Strict Connection Validation for Mandatory Inputs
+                    const sharedDef = sharedRegistry[node.type as keyof typeof sharedRegistry];
+                    if (sharedDef) {
+                        const expectedInputs = sharedDef.handles?.inputs || [];
+                        const checkIncomingEdges = workflow.edges.filter(e => e.target === node.id);
+
+                        const missingMandatory = expectedInputs.find((input: any) =>
+                            input.isMandatory && !checkIncomingEdges.some(e => e.targetHandle === input.id || (!e.targetHandle && expectedInputs.length === 1))
+                        );
+
+                        if (missingMandatory) {
+                            throw new Error(`Missing mandatory connection for input: ${missingMandatory.label}`);
+                        }
                     }
 
                     // Gather inputs from all parents (same logic as executeWorkflow)

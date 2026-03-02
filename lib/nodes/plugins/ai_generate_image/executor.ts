@@ -9,8 +9,11 @@ export const aiGenerateImageExecutor = async (
         const aiConfig = config;
 
         // Use dynamically routed text input if available
-        const dynamicPrompt = input?.prompt_in?.text || input?.prompt_in;
-        const prompt = typeof dynamicPrompt === 'string' ? dynamicPrompt : (aiConfig.prompt || 'A beautiful image');
+        // The Prompt node outputs { text: string } OR it could just be a string
+        const incomingPromptObj = input?.prompt_in || input?.text || input;
+        const dynamicPrompt = typeof incomingPromptObj === 'object' ? incomingPromptObj.text : incomingPromptObj;
+
+        const prompt = typeof dynamicPrompt === 'string' && dynamicPrompt.trim() !== '' ? dynamicPrompt : (aiConfig.prompt || 'A beautiful image');
 
         const { model = 'gemini', aspectRatio = '1:1' } = aiConfig;
 

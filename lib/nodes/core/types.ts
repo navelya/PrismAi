@@ -1,6 +1,9 @@
 import React from 'react';
 import { ExecutionContext, NodeExecutionResult } from '../types';
 
+// Define all possible data types that can flow through node edges
+export type NodeDataType = 'image' | 'image_array' | 'text' | 'any' | 'prompt' | 'json';
+
 // 1. Shared Definition (Isomorphic - Safe for DB, AI, and both bundles)
 export interface NodeSharedDef<TConfig = any> {
     type: string;
@@ -13,8 +16,8 @@ export interface NodeSharedDef<TConfig = any> {
         dynamicInputs?: boolean; // Flag for nodes with variable input counts
     };
     handles: {
-        inputs: Array<{ id: string; label: string; expectedType: string; color?: string; }>;
-        outputs: Array<{ id: string; label: string; dataType: string }>;
+        inputs: Array<{ id: string; label: string; expectedType: NodeDataType | NodeDataType[]; isMandatory?: boolean; color?: string; }>;
+        outputs: Array<{ id: string; label: string; dataType: NodeDataType }>;
     };
     defaultConfig: TConfig;
     aiSchema: any;       // JSON Schema (Typebox/Zod compatible) for AI structured outputs

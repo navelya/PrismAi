@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, useReactFlow } from 'reactflow';
+import { Handle, Position, useReactFlow, useEdges } from 'reactflow';
 import { Play, Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -50,6 +50,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const deleteNode = useAppStore((state) => state.deleteNode);
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const { deleteElements, addNodes, getNode } = useReactFlow();
+    const edges = useEdges();
 
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
@@ -185,11 +186,19 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                         height: '10px',
                                     }}
                                 >
-                                    {input.label && (
-                                        <div className="absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: input.color || nodeColor }}>
-                                            {input.label}
-                                        </div>
-                                    )}
+                                    {input.label && (() => {
+                                        const isMissing = (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id);
+                                        const isErrorState = status === 'error' && isMissing;
+
+                                        return (
+                                            <div className={cn(
+                                                "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md",
+                                                isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
+                                            )} style={!isErrorState ? { color: input.color || nodeColor } : undefined}>
+                                                {input.label}{(input as any).isMandatory ? ' *' : ''}
+                                            </div>
+                                        );
+                                    })()}
                                 </Handle>
                             </React.Fragment>
                         );
@@ -207,11 +216,20 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                             height: '10px',
                         }}
                     >
-                        {defaultInputLabel && (
-                            <div className="absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: nodeColor }}>
-                                {defaultInputLabel}
-                            </div>
-                        )}
+                        {defaultInputLabel && (() => {
+                            const defaultInput = sharedDef?.handles?.inputs?.[0];
+                            const isMissing = defaultInput?.isMandatory && !edges.some(e => e.target === id && (!e.targetHandle || e.targetHandle === defaultInput.id));
+                            const isErrorState = status === 'error' && isMissing;
+
+                            return (
+                                <div className={cn(
+                                    "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md",
+                                    isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
+                                )} style={!isErrorState ? { color: nodeColor } : undefined}>
+                                    {defaultInputLabel}{defaultInput?.isMandatory ? ' *' : ''}
+                                </div>
+                            );
+                        })()}
                     </Handle>
                 )
             )}

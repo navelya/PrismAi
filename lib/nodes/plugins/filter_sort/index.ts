@@ -11,7 +11,7 @@ export const filterSortSharedDef: NodeSharedDef<FilterSortConfig> = {
         icon: 'ArrowUpDown',
     },
     handles: {
-        inputs: [{ id: 'images_in', label: 'Images', expectedType: 'image_array' }],
+        inputs: [{ id: 'images_in', label: 'Images', expectedType: ['image', 'image_array'], isMandatory: true }],
         outputs: [{ id: 'images_out', label: 'Images', dataType: 'image_array' }],
     },
     defaultConfig: {

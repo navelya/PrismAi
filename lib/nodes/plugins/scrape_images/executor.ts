@@ -14,8 +14,11 @@ export const scrapeImagesExecutor = async (
         const scrapeConfig = config;
 
         // Use dynamically routed text input if available
-        const dynamicSearchTerm = input?.prompt_in?.text || input?.prompt_in;
-        const searchTerm = typeof dynamicSearchTerm === 'string' ? dynamicSearchTerm : (scrapeConfig.searchTerm || 'images');
+        // The Prompt node outputs { text: string } OR it could just be a string
+        const incomingPromptObj = input?.prompt_in || input?.text || input;
+        const dynamicSearchTerm = typeof incomingPromptObj === 'object' ? incomingPromptObj.text : incomingPromptObj;
+
+        const searchTerm = typeof dynamicSearchTerm === 'string' && dynamicSearchTerm.trim() !== '' ? dynamicSearchTerm : (scrapeConfig.searchTerm || 'images');
 
         const {
             limit,

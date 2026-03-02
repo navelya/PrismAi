@@ -299,12 +299,17 @@ function EditorCanvasInner({
                 const targetInput = targetDef.handles.inputs.find(h => h.id === connection.targetHandle) || targetDef.handles.inputs[0];
 
                 if (sourceOutput && targetInput) {
-                    // Match Text Types
-                    const isSourceText = sourceOutput.dataType === 'text';
-                    const isTargetText = targetInput.expectedType === 'text';
+                    const sourceType = sourceOutput.dataType;
+                    const expectedType = targetInput.expectedType;
 
-                    if (isSourceText !== isTargetText) {
-                        return false; // Mismatched specific handles (text into image, or image into text)
+                    if (sourceType !== 'any' && expectedType !== 'any') {
+                        if (Array.isArray(expectedType)) {
+                            if (!expectedType.includes(sourceType as any)) {
+                                return false; // Mismatched specific handles
+                            }
+                        } else if (sourceType !== expectedType) {
+                            return false; // Mismatched specific handles
+                        }
                     }
                 }
             }
