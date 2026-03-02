@@ -5,7 +5,6 @@ import { Handle, Position, useReactFlow } from 'reactflow';
 import { Play, Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import { nodeMetadata } from '@/lib/nodes/metadata';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
 
@@ -43,8 +42,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     customActions,
     ...props
 }, ref) => {
-    const metadata = nodeMetadata[type as keyof typeof nodeMetadata];
     const sharedDef = sharedRegistry[type as keyof typeof sharedRegistry];
+    const metadata = sharedDef?.meta;
 
     // Status and Store Actions
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
@@ -94,7 +93,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     };
 
     // Determine inputs to render
-    const inputsToRender = customInputs || metadata?.inputs;
+    const inputsToRender = customInputs || sharedDef?.handles?.inputs;
 
     return (
         <div

@@ -39,6 +39,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             type: n.type,
             position: n.position,
             data: n.data,
+            zIndex: n.zIndex || 0,
             // selected: false, // Ensure selected state is not initially set from legacy data if possible? ReactFlow handles selection internally on nodes.
         }));
     };
@@ -125,6 +126,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                             type: n.type,
                             position: n.position,
                             data: n.data,
+                            zIndex: n.zIndex || 0,
                         });
                     }
                 });
@@ -172,46 +174,50 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Handle Node Changes
     const onNodesChange = useCallback((changes: NodeChange[]) => {
-        const nextNodes = applyNodeChanges(changes, editorState.nodes);
-
-        // Determine history mode
-        // If specific user interaction (Drag Start) happened, we pushed already.
-        // So subsequent updates during drag should be 'replace'.
-        // Selection changes should also be 'replace'.
-        setEditorState({ ...editorState, nodes: nextNodes }, { history: 'replace' });
-    }, [editorState, setEditorState]);
+        setEditorState((prev) => ({
+            ...prev,
+            nodes: applyNodeChanges(changes, prev.nodes)
+        }), { history: 'replace' });
+    }, [setEditorState]);
 
     // Handle Edge Changes
     const onEdgesChange = useCallback((changes: EdgeChange[]) => {
-        const nextEdges = applyEdgeChanges(changes, editorState.edges);
-        setEditorState({ ...editorState, edges: nextEdges }, { history: 'replace' });
-    }, [editorState, setEditorState]);
+        setEditorState((prev) => ({
+            ...prev,
+            edges: applyEdgeChanges(changes, prev.edges)
+        }), { history: 'replace' });
+    }, [setEditorState]);
 
     // Handle Drag Start (Snapshot)
     const onNodeDragStart: NodeDragHandler = useCallback(() => {
         // Push current state to history before modifications begin
-        setEditorState(editorState, { history: 'push' });
-    }, [editorState, setEditorState]);
+        setEditorState((prev) => prev, { history: 'push' });
+    }, [setEditorState]);
     // NOTE: Does 'push' current state work if object ref is same? 
     // Yes, useUndoRedo copies `present` to `past`.
 
     // Method to directly update node positions (used by auto-layout)
     const updatePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
-        const newNodes = editorState.nodes.map((node) => {
-            const newPosition = positions.get(node.id);
-            return newPosition ? { ...node, position: newPosition } : node;
-        });
-        setEditorState({ ...editorState, nodes: newNodes }, { history: 'push' });
-    }, [editorState, setEditorState]);
+        setEditorState((prev) => ({
+            ...prev,
+            nodes: prev.nodes.map((node) => {
+                const newPosition = positions.get(node.id);
+                return newPosition ? { ...node, position: newPosition } : node;
+            })
+        }), { history: 'push' });
+    }, [setEditorState]);
 
     // Add a new node
     const addNode = useCallback((type: NodeType, position: { x: number; y: number }) => {
         const newNode = createNodeFromType(type, position);
-        setEditorState({
-            ...editorState,
-            nodes: [...editorState.nodes, newNode]
+        setEditorState((prev) => {
+            const maxZ = Math.max(0, ...prev.nodes.map(n => n.zIndex || 0));
+            return {
+                ...prev,
+                nodes: [...prev.nodes, { ...newNode, zIndex: maxZ + 1 }]
+            };
         }, { history: 'push' });
-    }, [editorState, setEditorState]);
+    }, [setEditorState]);
 
     // Delete a node
     const deleteNode = useCallback((nodeId: string) => {
@@ -246,11 +252,15 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Duplicate Nodes
     const duplicateNodes = useCallback((newNodes: any[], newEdges: any[]) => {
-        setEditorState((prev) => ({
-            ...prev,
-            nodes: [...prev.nodes, ...newNodes],
-            edges: [...prev.edges, ...newEdges]
-        }), { history: 'push' });
+        setEditorState((prev) => {
+            const maxZ = Math.max(0, ...prev.nodes.map(n => n.zIndex || 0));
+            const nodesWithZ = newNodes.map((n, i) => ({ ...n, zIndex: maxZ + 1 + i }));
+            return {
+                ...prev,
+                nodes: [...prev.nodes, ...nodesWithZ],
+                edges: [...prev.edges, ...newEdges]
+            };
+        }, { history: 'push' });
     }, [setEditorState]);
 
     // Update node configuration
@@ -294,6 +304,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 type: n.type as NodeType,
                 position: n.position,
                 data: n.data,
+                zIndex: n.zIndex,
             })),
             edges: editorState.edges.map(e => ({
                 id: e.id,
@@ -313,6 +324,19 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
         resetEditorState({ nodes: [], edges: [], name: 'Untitled Workflow' });
         setSelectedNode(null);
     }, [resetEditorState]);
+
+    const bringNodeToFront = useCallback((nodeId: string) => {
+        setEditorState((prev) => {
+            const maxZ = Math.max(0, ...prev.nodes.map(n => n.zIndex || 0));
+            const node = prev.nodes.find(n => n.id === nodeId);
+            if (!node || node.zIndex === maxZ && maxZ > 0) return prev; // Already on top
+
+            return {
+                ...prev,
+                nodes: prev.nodes.map(n => n.id === nodeId ? { ...n, zIndex: maxZ + 1 } : n)
+            };
+        }, { history: 'replace' });
+    }, [setEditorState]);
 
     return {
         nodes: editorState.nodes,
@@ -337,6 +361,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
         undo,
         redo,
         canUndo,
-        canRedo
+        canRedo,
+        bringNodeToFront
     };
 }

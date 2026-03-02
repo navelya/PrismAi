@@ -10,9 +10,10 @@ export interface NodeSharedDef<TConfig = any> {
         description: string;
         icon: string;    // String identifier for Lucide icons
         color: string;   // Hex or CSS variable for UI theme
+        dynamicInputs?: boolean; // Flag for nodes with variable input counts
     };
     handles: {
-        inputs: Array<{ id: string; label: string; expectedType: string }>;
+        inputs: Array<{ id: string; label: string; expectedType: string; color?: string; }>;
         outputs: Array<{ id: string; label: string; dataType: string }>;
     };
     defaultConfig: TConfig;

@@ -12,8 +12,8 @@ export const mergeImageSharedDef: NodeSharedDef<MergeImageConfig> = {
     },
     handles: {
         inputs: [
-            { id: 'base', label: 'BASE', expectedType: 'image_array' },
-            { id: 'overlay', label: 'OVER', expectedType: 'image_array' }
+            { id: 'base', label: 'BASE', expectedType: 'image_array', color: '#22c55e' },
+            { id: 'overlay', label: 'OVER', expectedType: 'image_array', color: '#f59e0b' }
         ],
         outputs: [{ id: 'image_out', label: 'Merged', dataType: 'image_array' }],
     },

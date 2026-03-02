@@ -63,6 +63,7 @@ export default function SharedWorkflowEditor({
         redo,
         canUndo,
         canRedo,
+        bringNodeToFront,
     } = useWorkflowEditor(initialWorkflow);
 
     const [showPropertyPanel, setShowPropertyPanel] = useState(false);
@@ -164,6 +165,7 @@ export default function SharedWorkflowEditor({
     const handleNodeClick = (_event: any, node: any) => {
         if (readOnly) return;
         setSelectedNode(node.id);
+        bringNodeToFront(node.id);
         if (clientRegistry[node.type]?.propertyPanel) {
             setShowPropertyPanel(true);
         } else {
@@ -346,7 +348,10 @@ export default function SharedWorkflowEditor({
                             redo={redo}
                             canUndo={canUndo}
                             canRedo={canRedo}
-                            onNodeDragStart={onNodeDragStart}
+                            onNodeDragStart={(e, node, nodes) => {
+                                bringNodeToFront(node.id);
+                                if (onNodeDragStart) onNodeDragStart(e, node, nodes);
+                            }}
                             onDuplicate={duplicateNodes}
                             onDelete={deleteNodes}
                             onCopy={(id) => useAppStore.getState().copyNode(id)}

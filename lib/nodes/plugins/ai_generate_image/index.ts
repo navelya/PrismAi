@@ -11,7 +11,7 @@ export const aiGenerateImageSharedDef: NodeSharedDef<AIGenerateImageConfig> = {
         icon: 'Sparkles',
     },
     handles: {
-        inputs: [{ id: 'prompt_in', label: 'Prompt', expectedType: 'text' }],
+        inputs: [{ id: 'prompt_in', label: 'Prompt', expectedType: 'text', color: '#94a3b8' }],
         outputs: [{ id: 'image_out', label: 'Image', dataType: 'image_array' }],
     },
     defaultConfig: {

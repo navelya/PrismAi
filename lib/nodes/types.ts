@@ -177,6 +177,7 @@ export interface WorkflowNode {
         label: string;
         config: NodeConfig;
     };
+    zIndex?: number;
 }
 
 /**

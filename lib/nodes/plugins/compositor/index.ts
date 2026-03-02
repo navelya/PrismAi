@@ -9,6 +9,7 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
         description: 'Layer-based image compositing',
         color: '#8b5cf6',
         icon: 'Layers2',
+        dynamicInputs: true,
     },
     handles: {
         // Inputs are dynamic based on layers, but we define an empty list here
