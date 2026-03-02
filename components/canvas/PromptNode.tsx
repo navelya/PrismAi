@@ -1,13 +1,9 @@
 'use client';
 
-import React, { memo } from 'react';
-import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { nodeMetadata } from '@/lib/nodes/metadata';
-import { Play, Copy, X } from 'lucide-react';
+import React, { memo, useRef, useEffect } from 'react';
+import { NodeProps, useReactFlow } from 'reactflow';
 import { cn } from '@/lib/utils';
-import { useAppStore } from '@/lib/store/app-store';
-import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
-import { NodeHeader } from './NodeHeader';
+import BaseNode from '@/components/canvas/BaseNode';
 
 interface PromptNodeData {
     label: string;
@@ -16,50 +12,38 @@ interface PromptNodeData {
     };
 }
 
-function PromptNode({ data, type, id }: NodeProps<PromptNodeData>) {
-    const metadata = nodeMetadata[type as keyof typeof nodeMetadata];
-    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
-    const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
-    const sharedDef = sharedRegistry['prompt'];
-    const outputLabel = sharedDef?.handles?.outputs?.[0]?.label;
-
+function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
     // Use React Flow hook for direct graph manipulation
-    const { deleteElements, addNodes, getNode, setNodes } = useReactFlow();
+    const { setNodes } = useReactFlow();
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    const handleDelete = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        deleteElements({ nodes: [{ id }] });
-    };
+    // Auto-resize algorithm and wheel event capture
+    useEffect(() => {
+        const el = textareaRef.current;
+        if (!el) return;
 
-    // Duplicate node immediately
-    const handleDuplicate = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const currentNode = getNode(id);
+        // Auto-resize logic
+        el.style.height = 'auto';
+        el.style.height = `${el.scrollHeight}px`;
 
-        if (currentNode) {
-            const newNode = {
-                ...JSON.parse(JSON.stringify(currentNode)),
-                id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                position: {
-                    x: currentNode.position.x + 50,
-                    y: currentNode.position.y + 50,
-                },
-                selected: false,
-                data: {
-                    ...currentNode.data,
-                    label: `${currentNode.data.label} (Copy)`,
-                }
-            };
-            addNodes(newNode);
-        }
-    };
+        // Wheel event capture to override React Flow's native behavior selectively
+        const handleWheelNative = (e: WheelEvent) => {
+            // If the user isn't holding Ctrl or Meta, they intend to scroll the text area,
+            // so stop propagation to prevent the canvas from panning.
+            if (!e.ctrlKey && !e.metaKey) {
+                e.stopPropagation();
+            }
+        };
 
-    const handleRunFromHere = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        triggerRunFromNode(id);
-    };
+        el.addEventListener('wheel', handleWheelNative, { passive: false });
+
+        return () => {
+            el.removeEventListener('wheel', handleWheelNative);
+        };
+    }, [data.config?.text]);
 
     const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value;
         setNodes((nds) =>
             nds.map((node) => {
                 if (node.id === id) {
@@ -69,7 +53,7 @@ function PromptNode({ data, type, id }: NodeProps<PromptNodeData>) {
                             ...node.data,
                             config: {
                                 ...node.data.config,
-                                text: e.target.value,
+                                text: newValue,
                             },
                         },
                     };
@@ -79,86 +63,30 @@ function PromptNode({ data, type, id }: NodeProps<PromptNodeData>) {
         );
     };
 
-    // Use node metadata color or fallback to accent
-    const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
-
     return (
-        <div
-            className={cn(
-                "rounded-xl shadow-lg border-2 backdrop-blur-sm relative group bg-canvas-node",
-                "transition-all duration-300 hover:shadow-2xl",
-                "w-[280px]"
-            )}
-            style={{
-                background: `linear-gradient(135deg, ${nodeColor}20 0%, ${nodeColor}40 100%)`,
-                borderColor: nodeColor,
-            }}
+        <BaseNode
+            id={id}
+            type="prompt"
+            label={data.label}
+            selected={selected}
+            renderInputs={false}
         >
-            {/* Action Buttons */}
-            <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                <button
-                    onClick={handleRunFromHere}
-                    className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Run from here"
-                >
-                    <Play className="w-3 h-3 text-content-inverted fill-current" />
-                </button>
-                <button
-                    onClick={handleDuplicate}
-                    className="w-6 h-6 rounded-full bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Duplicate node"
-                >
-                    <Copy className="w-3 h-3 text-content-inverted" />
-                </button>
-                <button
-                    onClick={handleDelete}
-                    className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Delete node"
-                >
-                    <X className="w-3.5 h-3.5 text-content-inverted" />
-                </button>
-            </div>
-
-            <NodeHeader
-                icon={metadata?.icon || 'Type'}
-                label={metadata?.label || data.label}
-                color={nodeColor}
-            />
-
             {/* Embedded Text Area Container */}
-            <div className="p-1 px-1.5 pb-2">
-                <div className="relative group/prompt">
-                    <textarea
-                        className="nodrag nowheel w-full h-[160px] px-3 py-2 text-sm bg-surface-secondary/80 border border-stroke-subtle rounded-lg text-content-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-inner resize-none backdrop-blur-sm transition-shadow"
-                        placeholder="Enter prompt or text here..."
-                        value={data.config?.text || ''}
-                        onChange={handleTextChange}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Backspace' || e.key === 'Delete') {
-                                e.stopPropagation();
-                            }
-                        }}
-                    />
-                </div>
+            <div className="relative group/prompt bg-surface-secondary/80 border border-stroke-subtle rounded-lg shadow-inner backdrop-blur-sm transition-all duration-200 p-2 pr-2">
+                <textarea
+                    ref={textareaRef}
+                    className="nodrag custom-scrollbar block w-full min-h-[60px] max-h-[160px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
+                    placeholder="Enter prompt or text here..."
+                    value={data.config?.text || ''}
+                    onChange={handleTextChange}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Backspace' || e.key === 'Delete') {
+                            e.stopPropagation();
+                        }
+                    }}
+                />
             </div>
-
-            {/* Output Handle - ONLY ONE on the RIGHT */}
-            <Handle
-                type="source"
-                position={Position.Right}
-                id="text_out"
-                className="w-4 h-4 !bg-accent-primary border-2 border-surface-primary"
-            >
-                {outputLabel && (
-                    <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md">
-                        {outputLabel}
-                    </div>
-                )}
-            </Handle>
-        </div>
+        </BaseNode>
     );
 }
 

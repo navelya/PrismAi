@@ -1,13 +1,10 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useState } from 'react';
-import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { nodeMetadata } from '@/lib/nodes/metadata';
+import { NodeProps, useReactFlow } from 'reactflow';
 import { cn } from '@/lib/utils';
-import { useAppStore } from '@/lib/store/app-store';
-import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
-import { NodeHeader } from './NodeHeader';
-import { LayoutGrid, Square, Check, Upload, Image as ImageIcon, Play, Copy, X, ImagePlus, Plus } from 'lucide-react';
+import BaseNode from './BaseNode';
+import { LayoutGrid, Square, Check, Upload, Plus, X } from 'lucide-react';
 
 interface MediaInputNodeData {
     label: string;
@@ -16,27 +13,17 @@ interface MediaInputNodeData {
     };
 }
 
-function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
-    const metadata = nodeMetadata['media_input'];
+function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const [isDragOver, setIsDragOver] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const deleteNode = useAppStore((state) => state.deleteNode);
-    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
-    const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
-    const sharedDef = sharedRegistry['media_input'];
-    const outputLabel = sharedDef?.handles?.outputs?.[0]?.label;
 
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
     const images = data.config?.images || [];
 
-    // Node color with fallback to accent
-    const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
-
     // Use React Flow hook for direct graph manipulation
-    const { setNodes, deleteElements, addNodes, getNode } = useReactFlow();
+    const { setNodes } = useReactFlow();
 
     // Update node config with new images
     const updateImages = useCallback((newImages: string[]) => {
@@ -114,178 +101,103 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
         updateImages(newImages);
     };
 
-    // Delete node
-    const handleDelete = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        deleteElements({ nodes: [{ id }] });
-    };
-
-    const handleDuplicate = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const currentNode = getNode(id);
-
-        if (currentNode) {
-            const newNode = {
-                ...JSON.parse(JSON.stringify(currentNode)),
-                id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                position: {
-                    x: currentNode.position.x + 50,
-                    y: currentNode.position.y + 50,
-                },
-                selected: false,
-                data: {
-                    ...currentNode.data,
-                    label: `${currentNode.data.label} (Copy)`,
-                }
-            };
-            addNodes(newNode);
-        }
-    };
-
-    const handleRunFromHere = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        triggerRunFromNode(id);
-    };
-
     return (
-        <div
-            className={cn(
-                "rounded-xl shadow-lg border-2 backdrop-blur-sm relative group bg-canvas-node",
-                "transition-all duration-300 hover:shadow-2xl",
-                "w-[280px]",
-                isDragOver && "ring-2 ring-accent-primary ring-offset-2"
-            )}
-            style={{
-                background: `linear-gradient(135deg, ${nodeColor}20 0%, ${nodeColor}40 100%)`,
-                borderColor: nodeColor,
-            }}
+        <BaseNode
+            id={id}
+            type="media_input"
+            label={data.label}
+            selected={selected}
+            badgeCount={images.length}
+            className={cn(isDragOver && "ring-2 ring-accent-primary ring-offset-2")}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            renderInputs={false}
         >
-            {/* Action Buttons */}
-            <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                <button
-                    onClick={handleRunFromHere}
-                    className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Run from here"
-                >
-                    <Play className="w-3 h-3 text-content-inverted fill-current" />
-                </button>
-                <button
-                    onClick={handleDuplicate}
-                    className="w-6 h-6 rounded-full bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Duplicate node"
-                >
-                    <Copy className="w-3 h-3 text-content-inverted" />
-                </button>
-                <button
-                    onClick={handleDelete}
-                    className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Delete node"
-                >
-                    <X className="w-3.5 h-3.5 text-content-inverted" />
-                </button>
-            </div>
-
-            <NodeHeader
-                icon="ImagePlus"
-                label="Media Input"
-                color={nodeColor}
-                badgeCount={images.length}
-            />
-
-            {/* Content area matching standardized preview */}
-            <div className="p-1 px-1.5 pb-2">
-                <div
-                    className={cn(
-                        "relative w-full h-[160px] rounded-lg overflow-hidden border border-white/10 bg-[#0a0a0a] shadow-inner",
-                        "transition-all duration-300"
-                    )}
-                    style={{
-                        backgroundImage: 'repeating-conic-gradient(#1a1a1a 0% 25%, #050505 0% 50%)',
-                        backgroundSize: '16px 16px',
-                    }}
-                >
-                    {images.length === 0 ? (
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className={cn(
-                                "absolute inset-0 flex flex-col items-center justify-center gap-1 transition-all",
-                                "text-white/20 hover:text-accent-primary hover:bg-accent-primary/5",
-                                isDragOver && "text-accent-primary bg-accent-primary/10"
-                            )}
-                        >
-                            <Upload className="w-6 h-6" />
-                            <span className="text-[10px] font-bold uppercase tracking-tighter">Upload</span>
-                        </button>
-                    ) : (
-                        <>
-                            {previewMode === 'single' ? (
-                                <div className="w-full h-full group/preview relative">
-                                    <img
-                                        src={images[activeImageIndex]}
-                                        alt=""
-                                        className="w-full h-full object-contain"
-                                    />
-                                    <button
-                                        onClick={(e) => removeImage(e, activeImageIndex)}
-                                        className="absolute top-2 left-2 p-1 rounded bg-black/50 text-white opacity-0 group-hover/preview:opacity-100 transition-opacity"
-                                    >
-                                        <X className="w-3 h-3" />
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="w-full h-full p-2 overflow-y-auto custom-scrollbar">
-                                    <div className="grid grid-cols-3 gap-1.5">
-                                        {images.map((img, index) => (
-                                            <button
-                                                key={index}
-                                                onClick={() => setActiveImageIndex(index)}
-                                                className={cn(
-                                                    "relative aspect-square rounded overflow-hidden border transition-all",
-                                                    activeImageIndex === index ? "border-accent-primary ring-2 ring-accent-primary/20" : "border-white/5"
-                                                )}
-                                            >
-                                                <img src={img} alt="" className="w-full h-full object-cover" />
-                                                {activeImageIndex === index && (
-                                                    <div className="absolute inset-0 bg-accent-primary/20 flex items-center justify-center">
-                                                        <Check className="w-3 h-3 text-white" />
-                                                    </div>
-                                                )}
-                                            </button>
-                                        ))}
-                                        <button
-                                            onClick={() => fileInputRef.current?.click()}
-                                            className="aspect-square rounded border border-dashed border-white/10 flex items-center justify-center text-white/20 hover:border-white/20 hover:text-white/40"
-                                        >
-                                            <Plus className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Controls */}
-                            <div className="absolute bottom-2 right-2 flex bg-black/60 backdrop-blur-md rounded-lg p-0.5 border border-white/10 z-20 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity">
+            <div
+                className={cn(
+                    "relative w-full min-h-[160px] rounded-xl overflow-hidden border-2 border-dashed bg-surface-secondary/50",
+                    isDragOver ? "border-accent-primary bg-accent-primary/5" : "border-stroke-subtle hover:border-stroke-strong",
+                    "transition-all duration-300"
+                )}
+            >
+                {images.length === 0 ? (
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className={cn(
+                            "absolute inset-0 flex flex-col items-center justify-center gap-2 transition-all p-4 text-center",
+                            "text-content-tertiary hover:text-accent-primary hover:bg-accent-primary/5",
+                            isDragOver && "text-accent-primary bg-accent-primary/10"
+                        )}
+                    >
+                        <div className="w-10 h-10 rounded-full bg-surface-primary flex items-center justify-center shadow-sm">
+                            <Upload className="w-5 h-5" />
+                        </div>
+                        <span className="text-xs font-medium">Click or drag images to upload</span>
+                    </button>
+                ) : (
+                    <>
+                        {previewMode === 'single' ? (
+                            <div className="w-full h-full group/preview relative">
+                                <img
+                                    src={images[activeImageIndex]}
+                                    alt=""
+                                    className="w-full h-full object-contain"
+                                />
                                 <button
-                                    onClick={() => setPreviewMode('single')}
-                                    className={cn("p-1.5 rounded-md", previewMode === 'single' ? "bg-accent-primary text-white" : "text-white/40")}
+                                    onClick={(e) => removeImage(e, activeImageIndex)}
+                                    className="absolute top-2 left-2 p-1 rounded bg-black/50 text-white opacity-0 group-hover/preview:opacity-100 transition-opacity"
                                 >
-                                    <Square className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                    onClick={() => setPreviewMode('grid')}
-                                    className={cn("p-1.5 rounded-md", previewMode === 'grid' ? "bg-accent-primary text-white" : "text-white/40")}
-                                >
-                                    <LayoutGrid className="w-3.5 h-3.5" />
+                                    <X className="w-3 h-3" />
                                 </button>
                             </div>
-                        </>
-                    )}
-                </div>
+                        ) : (
+                            <div className="w-full h-full p-2 overflow-y-auto custom-scrollbar">
+                                <div className="grid grid-cols-3 gap-1.5">
+                                    {images.map((img, index) => (
+                                        <button
+                                            key={index}
+                                            onClick={() => setActiveImageIndex(index)}
+                                            className={cn(
+                                                "relative aspect-square rounded overflow-hidden border transition-all",
+                                                activeImageIndex === index ? "border-accent-primary ring-2 ring-accent-primary/20" : "border-white/5"
+                                            )}
+                                        >
+                                            <img src={img} alt="" className="w-full h-full object-cover" />
+                                            {activeImageIndex === index && (
+                                                <div className="absolute inset-0 bg-accent-primary/20 flex items-center justify-center">
+                                                    <Check className="w-3 h-3 text-white" />
+                                                </div>
+                                            )}
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="aspect-square rounded border border-dashed border-white/10 flex items-center justify-center text-white/20 hover:border-white/20 hover:text-white/40"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Controls */}
+                        <div className="absolute bottom-2 right-2 flex bg-black/60 backdrop-blur-md rounded-lg p-0.5 border border-white/10 z-20 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                                onClick={() => setPreviewMode('single')}
+                                className={cn("p-1.5 rounded-md", previewMode === 'single' ? "bg-accent-primary text-white" : "text-white/40")}
+                            >
+                                <Square className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                onClick={() => setPreviewMode('grid')}
+                                className={cn("p-1.5 rounded-md", previewMode === 'grid' ? "bg-accent-primary text-white" : "text-white/40")}
+                            >
+                                <LayoutGrid className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Hidden file input */}
@@ -297,22 +209,7 @@ function MediaInputNode({ data, id }: NodeProps<MediaInputNodeData>) {
                 onChange={handleInputChange}
                 className="hidden"
             />
-
-            {/* Output Handle - Right side only */}
-            <Handle
-                type="source"
-                position={Position.Right}
-                id="output"
-                className="!w-3 !h-3 !border-2 !border-surface-primary"
-                style={{ background: nodeColor }}
-            >
-                {outputLabel && (
-                    <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md">
-                        {outputLabel}
-                    </div>
-                )}
-            </Handle>
-        </div>
+        </BaseNode>
     );
 }
 

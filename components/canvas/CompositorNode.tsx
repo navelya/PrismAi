@@ -2,13 +2,11 @@
 
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
-import { nodeMetadata } from '@/lib/nodes/metadata';
-import { Layers2, Plus, X, Edit3, Eye, EyeOff, Play, Copy } from 'lucide-react';
+import { NodeProps, useReactFlow } from 'reactflow';
+import { Plus, Edit3, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
-import { NodeHeader } from './NodeHeader';
+import BaseNode from './BaseNode';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
 import CompositorEditorModal from '@/components/compositor/CompositorEditorModal';
 
@@ -170,17 +168,11 @@ function LivePreview({
 }
 
 function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
-    const metadata = nodeMetadata['compositor'];
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const previewRef = useRef<HTMLDivElement>(null);
 
-    const deleteNode = useAppStore((state) => state.deleteNode);
-    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const nodeOutputs = useAppStore((state) => state.nodeOutputs);
-
-    const sharedDef = sharedRegistry['compositor'];
-    const outputLabel = sharedDef?.handles?.outputs?.[0]?.label;
 
     // Get config with defaults
     const config: CompositorConfig = useMemo(() => ({
@@ -211,21 +203,8 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
             Object.values(connectedInputs).some(arr => arr && arr.length > 0);
     }, [connectedInputs]);
 
-    const nodeColor = metadata?.color || '#8b5cf6';
-
-    // Dynamic constraint configuration for the live preview
-    const canvasW = config.canvasWidth || 1920;
-    const canvasH = config.canvasHeight || 1080;
-    const MAX_PREVIEW_H = 300;
-
-    // Use a reasonable internal buffer resolution for the preview canvas
-    const PREVIEW_RENDER_SIZE = 512;
-    const renderScale = Math.min(PREVIEW_RENDER_SIZE / canvasW, PREVIEW_RENDER_SIZE / canvasH);
-    const renderWidth = Math.max(1, Math.floor(canvasW * renderScale));
-    const renderHeight = Math.max(1, Math.floor(canvasH * renderScale));
-
     // Use React Flow hook for direct graph manipulation
-    const { setNodes, deleteElements } = useReactFlow();
+    const { setNodes } = useReactFlow();
 
     // Update node config
     const updateConfig = useCallback((newConfig: Partial<CompositorConfig>) => {
@@ -261,42 +240,9 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         updateConfig({ layers: [...config.layers, newLayer] });
     }, [config.layers, updateConfig]);
 
-    // Delete node
-    const handleDelete = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        deleteElements({ nodes: [{ id }] });
-    };
-
     const openEditor = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsEditorOpen(true);
-    };
-
-    const handleDuplicate = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const currentNode = getNode(id);
-
-        if (currentNode) {
-            const newNode = {
-                ...JSON.parse(JSON.stringify(currentNode)),
-                id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                position: {
-                    x: currentNode.position.x + 50,
-                    y: currentNode.position.y + 50,
-                },
-                selected: false,
-                data: {
-                    ...currentNode.data,
-                    label: `${currentNode.data.label} (Copy)`,
-                }
-            };
-            addNodes(newNode);
-        }
-    };
-
-    const handleRunFromHere = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        triggerRunFromNode(id);
     };
 
     // Input handles derived from layers
@@ -309,92 +255,37 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         [config.layers]
     );
 
+    // Dynamic constraint configuration for the live preview
+    const canvasW = config.canvasWidth || 1920;
+    const canvasH = config.canvasHeight || 1080;
+    const MAX_PREVIEW_H = 300;
+
+    // Use a reasonable internal buffer resolution for the preview canvas
+    const PREVIEW_RENDER_SIZE = 512;
+    const renderScale = Math.min(PREVIEW_RENDER_SIZE / canvasW, PREVIEW_RENDER_SIZE / canvasH);
+    const renderWidth = Math.max(1, Math.floor(canvasW * renderScale));
+    const renderHeight = Math.max(1, Math.floor(canvasH * renderScale));
+
     return (
-        <div
-            className={cn(
-                "rounded-xl shadow-lg border-2 backdrop-blur-sm relative group bg-canvas-node",
-                "transition-all duration-300 hover:shadow-2xl",
-                "min-w-[260px]"
-            )}
-            style={{
-                width: 280,
-                background: `linear-gradient(135deg, ${nodeColor}15 0%, ${nodeColor}30 100%)`,
-                borderColor: nodeColor,
-            }}
-        >
-            {/* Action Buttons */}
-            <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                <button
-                    onClick={handleRunFromHere}
-                    className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Run from here"
-                >
-                    <Play className="w-3 h-3 text-content-inverted fill-current" />
-                </button>
-                <button
-                    onClick={openEditor}
-                    className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Edit compositor"
-                >
-                    <Edit3 className="w-3 h-3 text-content-inverted" />
-                </button>
-                <button
-                    onClick={handleDuplicate}
-                    className="w-6 h-6 rounded-full bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Duplicate node"
-                >
-                    <Copy className="w-3 h-3 text-content-inverted" />
-                </button>
-                <button
-                    onClick={handleDelete}
-                    className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Delete node"
-                >
-                    <X className="w-3.5 h-3.5 text-content-inverted" />
-                </button>
-            </div>
-
-            <NodeHeader
-                icon="Layers2"
-                label="Compositor"
-                color={nodeColor}
+        <>
+            <BaseNode
+                id={id}
+                type="compositor"
+                label={data.label}
                 badgeCount={config.layers.length}
-            />
-
-            {/* Dynamic Input Handles */}
-            {inputHandles.map((handle, index) => {
-                const totalHandles = inputHandles.length;
-                const spacing = 28;
-                const totalHeight = (totalHandles - 1) * spacing;
-                const offset = (index * spacing) - (totalHeight / 2);
-
-                return (
-                    <React.Fragment key={handle.id}>
-                        <Handle
-                            type="target"
-                            position={Position.Left}
-                            id={handle.id}
-                            className="!w-2.5 !h-2.5 !border-2 !border-surface-primary hover:!brightness-110 transition-colors"
-                            style={{
-                                background: handle.color,
-                                left: -5,
-                                top: `calc(50% + ${offset}px + 24px)`,
-                            }}
-                        >
-                            <div className="absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md" style={{ color: handle.color }}>
-                                {handle.label}
-                            </div>
-                        </Handle>
-                    </React.Fragment>
-                );
-            })}
-
-            {/* Content */}
-            <div className="p-2">
+                customInputs={inputHandles}
+                customActions={
+                    <button
+                        onClick={openEditor}
+                        className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
+                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                        title="Edit compositor"
+                    >
+                        <Edit3 className="w-3 h-3 text-content-inverted" />
+                    </button>
+                }
+                contentClassName="p-2"
+            >
                 {config.layers.length === 0 ? (
                     <button
                         onClick={addLayer}
@@ -476,34 +367,21 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                         </button>
                     </div>
                 )}
-            </div>
-
-            {/* Output Handle */}
-            <Handle
-                type="source"
-                position={Position.Right}
-                id="output"
-                className="!w-3 !h-3 !border-2 !border-surface-primary hover:!brightness-110 transition-colors"
-                style={{ background: nodeColor, right: -6 }}
-            >
-                {outputLabel && (
-                    <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md" style={{ color: nodeColor }}>
-                        {outputLabel}
-                    </div>
-                )}
-            </Handle>
+            </BaseNode>
 
             {/* Editor Modal Portal */}
-            {isEditorOpen && createPortal(
-                <CompositorEditorModal
-                    nodeId={id}
-                    config={config}
-                    onClose={() => setIsEditorOpen(false)}
-                    onConfigChange={updateConfig}
-                />,
-                document.body
-            )}
-        </div>
+            {
+                isEditorOpen && createPortal(
+                    <CompositorEditorModal
+                        nodeId={id}
+                        config={config}
+                        onClose={() => setIsEditorOpen(false)}
+                        onConfigChange={updateConfig}
+                    />,
+                    document.body
+                )
+            }
+        </>
     );
 }
 
