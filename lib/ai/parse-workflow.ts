@@ -2,6 +2,7 @@ import { generateWithGemini } from './gemini-client';
 import { Workflow, WorkflowNode, WorkflowEdge, ScrapeImagesConfig } from '../nodes/types';
 import { autoLayoutNodesAsync } from '../utils/graph-layout';
 import { generateNodeId } from '../utils';
+import { sharedRegistry } from '../nodes/core/shared-registry';
 
 /**
  * Parse user request and convert to workflow using Gemini
@@ -216,9 +217,8 @@ export async function parseRequestToWorkflow(
         if (!workflow.edges) workflow.edges = [];
 
         // Validate node types and normalize structure
-        const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image', 'media_input', 'compositor', 'prompt'];
         workflow.nodes = workflow.nodes.map((node, index) => {
-            if (!validTypes.includes(node.type)) {
+            if (!sharedRegistry[node.type as keyof typeof sharedRegistry]) {
                 throw new Error(`Invalid node type: ${node.type}`);
             }
 

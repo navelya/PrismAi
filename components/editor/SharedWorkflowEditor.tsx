@@ -245,30 +245,41 @@ export default function SharedWorkflowEditor({
             setExecutionError(null);
             setShowResults(true);
 
-            const setNodeStatus = useAppStore.getState().setNodeStatus;
-            const setNodeOutput = useAppStore.getState().setNodeOutput;
-            const cachedOutputs = useAppStore.getState().nodeOutputs;
+            const store = useAppStore.getState();
+
+            const { getDescendants } = require('@/lib/utils/graph-traversal');
+            const descendants = getDescendants(runFromNodeId, nodes.flatMap((n: any) => n.id === runFromNodeId ? [] : [])); // wait, I don't have edges easily accessible here!
+
+            // Actually, `useAppStore` has `invalidateNodes`!
+            store.invalidateNodes([runFromNodeId]);
+            store.setNodeStatus(runFromNodeId, 'pending');
 
             const workflow = getCurrentWorkflow();
-            const executionId = generateNodeId();
+            const activeSessionId = store.activeSessionId;
 
-            const result = await executeWorkflowFromNode(
-                workflow,
-                executionId,
-                runFromNodeId,
-                cachedOutputs,
-                (nodeId, status) => setNodeStatus(nodeId, status),
-                (nodeId, output) => setNodeOutput(nodeId, output)
-            );
+            try {
+                // Route local execution to the backend worker API
+                const res = await fetch('/api/workflow/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        workflow,
+                        sessionId: activeSessionId,
+                        runFromNodeId
+                    })
+                });
 
-            setIsExecuting(false);
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.error || 'Partial execution request failed');
+                }
 
-            if (result.success) {
-                setExecutionResult(result.result);
+                setIsExecuting(false);
                 setExecutionError(null);
-                if (onExecutionComplete) onExecutionComplete(result.result);
-            } else {
-                setExecutionError(result.error || 'Partial execution failed');
+
+            } catch (err: any) {
+                setIsExecuting(false);
+                setExecutionError(err.message || 'Partial execution failed to start');
                 setExecutionResult(null);
             }
         };

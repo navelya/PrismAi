@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen, AlertTriangle } from 'lucide-react';
 import MessageRenderer from './MessageRenderer';
@@ -8,7 +8,7 @@ import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { generateNodeId, generateEdgeId, formatRelativeTime } from '@/lib/utils';
-import { stableStringify } from '@/lib/utils/stable-stringify';
+import { stableStringify, cleanWorkflowForSave } from '@/lib/utils/stable-stringify';
 import { executeWorkflow } from '@/lib/workflow-engine';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
@@ -59,28 +59,57 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     // Use store workflow for auto-save as it's the source of truth
     const storeWorkflow = useAppStore((state) => state.currentWorkflow);
-    const debouncedWorkflow = useDebounce(storeWorkflow, 2000);
+    // Bundle the session ID so debouncing is bound to the exact chat context it originated in
+    const memoizedSaveState = useMemo(() => ({ workflow: storeWorkflow, sessionId: effectiveSessionId }), [storeWorkflow, effectiveSessionId]);
+    const debouncedSaveState = useDebounce(memoizedSaveState, 2000);
 
     // Auto-save Canvas via BFF API
     // Guard: only write to DB when the workflow content has actually changed from what
-    // the server last wrote. This breaks the feedback loop:
-    //   server writes canvas_state → realtime fires → store update → debouncedWorkflow
-    //   → hash matches serverWorkflowHash → skip save → no DB write → no realtime echo ✅
-    // When the user manually edits nodes in the editor, the hash will differ → save fires.
+    // the server last wrote. This breaks the feedback loop.
     useEffect(() => {
-        if (!sessionId || !debouncedWorkflow) return;
-        const currentHash = stableStringify(debouncedWorkflow);
+        const { workflow: debouncedWorkflow, sessionId: saveSessionId } = debouncedSaveState || {};
+
+        // Prevent "zombie saves" bleeding across sessions
+        if (!debouncedWorkflow || !saveSessionId || saveSessionId !== effectiveSessionId) return;
+
+        // Strip volatile execution states BEFORE hashing/saving so live results don't trigger saves
+        const cleanWorkflow = cleanWorkflowForSave(debouncedWorkflow);
+
+        const currentHash = stableStringify(cleanWorkflow);
         if (currentHash && currentHash !== serverWorkflowHash) {
-            // Update the server hash before the async write so rapid re-renders
-            // don't all fire simultaneously (optimistic dedup)
-            setServerWorkflowHash(debouncedWorkflow);
-            sessionsApi.update(sessionId, {
-                canvas_state: debouncedWorkflow,
+            // Update the server hash before async write (optimistic lock)
+            setServerWorkflowHash(cleanWorkflow);
+            sessionsApi.update(saveSessionId, {
+                canvas_state: cleanWorkflow,
             }).catch((error: any) => {
                 console.error("Auto-save failed", error);
             });
         }
-    }, [debouncedWorkflow, sessionId]);
+    }, [debouncedSaveState, effectiveSessionId]);
+
+    // Fast navigation loss safeguard (Flush on tab close)
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            if (!storeWorkflow || !effectiveSessionId) return;
+
+            const cleanWorkflow = cleanWorkflowForSave(storeWorkflow);
+
+            const currentHash = stableStringify(cleanWorkflow);
+            if (currentHash && currentHash !== serverWorkflowHash) {
+                setServerWorkflowHash(cleanWorkflow);
+                const payload = JSON.stringify({ canvas_state: cleanWorkflow });
+
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(`/api/sessions/${effectiveSessionId}`, new Blob([payload], { type: 'application/json' }));
+                } else {
+                    fetch(`/api/sessions/${effectiveSessionId}`, { method: 'PATCH', body: payload, headers: { 'Content-Type': 'application/json' }, keepalive: true }).catch(() => { });
+                }
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [storeWorkflow, effectiveSessionId]);
 
 
 
@@ -271,15 +300,20 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     // Expose method to add execution results from editor
     // Use ref to prevent infinite loop if onReady changes identity on every render
     const onReadyRef = useRef(onReady);
-    useEffect(() => {
+    const latestDepsRef = useRef({ sessionId: effectiveSessionId, saveMessageToDb, router, addMessage });
+
+    useLayoutEffect(() => {
         onReadyRef.current = onReady;
-    }, [onReady]);
+        latestDepsRef.current = { sessionId: effectiveSessionId, saveMessageToDb, router, addMessage };
+    });
 
     useEffect(() => {
         if (onReadyRef.current) {
             onReadyRef.current(async (result: any) => {
+                const { sessionId: currentSessionId, saveMessageToDb: currentSave, router: currentRouter, addMessage: currentAdd } = latestDepsRef.current;
+
                 // 1. Ensure Active Session Exists (Lazy Creation) via BFF API
-                let activeSessionId = sessionId;
+                let activeSessionId = currentSessionId;
 
                 if (!activeSessionId) {
                     try {
@@ -287,7 +321,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         if (session) {
                             activeSessionId = session.id;
                             useAppStore.getState().setActiveSessionId(session.id);
-                            router.replace(`/chat/${session.id}`, { scroll: false });
+                            currentRouter.replace(`/chat/${session.id}`, { scroll: false });
                         }
                     } catch (err) {
                         console.error("Failed to create session for editor result:", err);
@@ -335,8 +369,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     timestamp: new Date(),
                 };
 
-                addMessage(assistantMessage);
-                saveMessageToDb(assistantMessage, resultImagePaths);
+                currentAdd(assistantMessage);
+                currentSave(assistantMessage, resultImagePaths);
             });
         }
     }, []); // Run once on mount

@@ -3,7 +3,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { createClient } from '@/lib/supabase/client';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { Workflow } from '@/lib/nodes/types';
-import { stableStringify } from '@/lib/utils/stable-stringify';
+import { stableStringify, cleanWorkflowForSave } from '@/lib/utils/stable-stringify';
 
 export interface UseChatRealtimeProps {
     sessionId: string | null;
@@ -32,7 +32,7 @@ export interface UseChatRealtimeProps {
 export let serverWorkflowHash: string | null = null;
 
 export function setServerWorkflowHash(workflow: any) {
-    serverWorkflowHash = workflow ? stableStringify(workflow) : null;
+    serverWorkflowHash = workflow ? stableStringify(cleanWorkflowForSave(workflow)) : null;
 }
 
 export function useChatRealtime({

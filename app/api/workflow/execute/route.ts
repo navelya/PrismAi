@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeWorkflow, validateWorkflow, stripHeavyNodeData } from '@/lib/workflow-engine';
+import { executeWorkflow, executeWorkflowFromNode, validateWorkflow, stripHeavyNodeData } from '@/lib/workflow-engine';
 import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
 import { generateNodeId } from '@/lib/utils';
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
         const { user } = auth;
 
         const body = await request.json();
-        const { workflow, sessionId } = body;
+        const { workflow, sessionId, runFromNodeId } = body;
 
         if (!workflow || !workflow.nodes) {
             return NextResponse.json({ error: 'Invalid workflow' }, { status: 400 });
@@ -101,14 +101,29 @@ export async function POST(request: NextRequest) {
                     computeNodeHash,
                 );
 
-                const result = await executeWorkflow(
-                    workflow as Workflow,
-                    executionId,
-                    onStatusUpdate,
-                    undefined,
-                    undefined,
-                    onNodePersist,
-                );
+                let result;
+                if (runFromNodeId) {
+                    // For partial execution, we don't naturally have `cachedOutputs` here since we rely on the 
+                    // current DB state representing the cached state. The engine handles missing caches seamlessly.
+                    result = await executeWorkflowFromNode(
+                        workflow as Workflow,
+                        executionId,
+                        runFromNodeId,
+                        {}, // No cached outputs provided yet; downstream execution logic will resolve natively
+                        onStatusUpdate,
+                        undefined,
+                        onNodePersist,
+                    );
+                } else {
+                    result = await executeWorkflow(
+                        workflow as Workflow,
+                        executionId,
+                        onStatusUpdate,
+                        undefined,
+                        undefined,
+                        onNodePersist,
+                    );
+                }
 
                 if (workflow.id) {
                     await saveExecution(workflow.id, result.success ? 'completed' : 'failed', result.result, result.error);

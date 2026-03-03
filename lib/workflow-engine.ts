@@ -415,7 +415,22 @@ export async function executeWorkflowFromNode(
     startNodeId: string,
     cachedOutputs: Record<string, any>,
     onStatusUpdate?: (nodeId: string, status: NodeStatus) => void,
-    onNodeOutput?: (nodeId: string, output: any) => void
+    onNodeOutput?: (nodeId: string, output: any) => void,
+    onNodePersist?: (
+        nodeId: string,
+        nodeType: string,
+        config: any,
+        inputUrls: string[],
+        output: any,
+        prevThumbnailPaths: string[],
+        isLeafNode: boolean,
+    ) => Promise<{
+        thumbnailPaths: string[];
+        thumbnailUrls: string[];
+        resultPaths: string[];
+        resultUrls: string[];
+        computedHash: string;
+    } | null>
 ): Promise<{
     success: boolean;
     result: any;
@@ -580,12 +595,60 @@ export async function executeWorkflowFromNode(
             const waveResults = await Promise.allSettled(waveExecutions);
             const nextReadyNodes: WorkflowNode[] = [];
 
-            waveResults.forEach((result, index) => {
+            for (let index = 0; index < waveResults.length; index++) {
+                const result = waveResults[index];
                 const node = readyNodes[index];
 
                 if (result.status === 'fulfilled' && result.value.success) {
                     completedNodes.add(node.id);
                     nodeOutputs.set(node.id, result.value.output);
+
+                    // Mutate workflow with success state and thumbnails
+                    (node.data as any).status = 'success';
+                    const outputStr = result.value.output;
+                    if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
+                        (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
+                    } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
+                        (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
+                    }
+
+                    if (onNodePersist) {
+                        const previousMeta = (node.data as any).outputMetadata;
+                        const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
+
+                        const parentIds = parents.get(node.id) || [];
+                        const inputUrls: string[] = parentIds.flatMap(pid => {
+                            const parentNode = workflow.nodes.find(n => n.id === pid);
+                            return (parentNode?.data as any)?.outputMetadata?.thumbnailUrls ?? [];
+                        });
+
+                        const isLeaf = (children.get(node.id) || []).length === 0;
+
+                        try {
+                            const persistMeta = await onNodePersist(
+                                node.id,
+                                node.type,
+                                (node.data as any).config ?? {},
+                                inputUrls,
+                                result.value.output,
+                                prevThumbnailPaths,
+                                isLeaf,
+                            );
+                            if (persistMeta) {
+                                (node.data as any).outputMetadata = {
+                                    ...(node.data as any).outputMetadata,
+                                    thumbnailPaths: persistMeta.thumbnailPaths,
+                                    thumbnailUrls: persistMeta.thumbnailUrls,
+                                    resultPaths: persistMeta.resultPaths,
+                                    resultUrls: persistMeta.resultUrls,
+                                    computedHash: persistMeta.computedHash,
+                                };
+                            }
+                        } catch (persistErr) {
+                            console.warn(`[Persist] Node ${node.id} persist failed:`, persistErr);
+                        }
+                    }
+
                     onStatusUpdate?.(node.id, 'success');
                     onNodeOutput?.(node.id, result.value.output);
 
@@ -617,7 +680,7 @@ export async function executeWorkflowFromNode(
                     };
                     blockDownstream(node.id);
                 }
-            });
+            }
 
             readyNodes = nextReadyNodes;
         }
@@ -669,9 +732,8 @@ export function validateWorkflow(workflow: Workflow): {
     }
 
     // Check for invalid node types
-    const validTypes = ['scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image', 'upscale_image', 'merge_image', 'media_input', 'compositor'];
     workflow.nodes.forEach(node => {
-        if (!validTypes.includes(node.type)) {
+        if (!sharedRegistry[node.type as keyof typeof sharedRegistry]) {
             errors.push(`Invalid node type: ${node.type}`);
         }
     });
