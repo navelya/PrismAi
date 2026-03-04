@@ -27,8 +27,10 @@ export const scrapeImagesSharedDef: NodeSharedDef<ScrapeImagesConfig> = {
     aiSchema: {
         type: 'object',
         properties: {
-            limit: { type: 'number', description: 'Number of images to fetch' },
-            safeSearch: { type: 'string', enum: ['off', 'medium', 'high'] }
+            limit: { type: 'number', description: 'Number of images to fetch. Default to 1 unless user explicitly asks for more images.' },
+            imageSize: { type: 'string', enum: ['small', 'medium', 'large', 'xlarge', 'any'], description: 'Filter by image size. Default: any.' },
+            imageType: { type: 'string', enum: ['photo', 'clipart', 'lineart', 'face', 'any'], description: 'Filter by image type. Default: any.' },
+            safeSearch: { type: 'string', enum: ['off', 'medium', 'high'], description: 'Safe search level. Default: medium.' }
         }
     }
 };

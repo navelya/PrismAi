@@ -180,7 +180,7 @@ export async function parseRequestToWorkflow(
             return {
                 success: true,
                 type: 'chat',
-                message: typeof envelope.content === 'string' ? envelope.content : JSON.stringify(envelope.content)
+                message: envelope.message || "I'm not sure how to respond to that."
             };
         }
 
@@ -189,24 +189,23 @@ export async function parseRequestToWorkflow(
             return {
                 success: true,
                 type: 'undo',
-                message: typeof envelope.content === 'string' ? envelope.content : "Undoing changes..."
+                message: envelope.message || "Undoing changes..."
             };
         }
 
         // HANDLE WORKFLOW RESPONSE
-        // If type is explicitly 'workflow', OR if it looks like a workflow (legacy fallback)
         let workflow: Workflow;
         if (envelope.type === 'workflow') {
-            workflow = envelope.content;
-        } else if (envelope.nodes && Array.isArray(envelope.nodes)) {
-            // Legacy/Direct workflow format fallback
-            workflow = envelope as Workflow;
+            if (!envelope.workflow) {
+                throw new Error('Invalid workflow: missing "workflow" object in AI response');
+            }
+            workflow = envelope.workflow;
         } else {
             // Unknown structure - assume chat/error
             return {
                 success: true,
                 type: 'chat',
-                message: typeof envelope.content === 'string' ? envelope.content : "I'm not sure how to handle that."
+                message: envelope.message || "I'm not sure how to handle that."
             };
         }
 
@@ -217,42 +216,55 @@ export async function parseRequestToWorkflow(
         if (!workflow.edges) workflow.edges = [];
 
         // Validate node types and normalize structure
-        workflow.nodes = workflow.nodes.map((node, index) => {
-            if (!sharedRegistry[node.type as keyof typeof sharedRegistry]) {
-                throw new Error(`Invalid node type: ${node.type}`);
-            }
-
-            // Ensure node has a valid ID (ELK requires string IDs)
-            if (!node.id || typeof node.id !== 'string' || node.id.startsWith('node_')) {
-                // If ID is missing, or is in the legacy 'node_X' format, check if it's a NEW node
-                // If it existed in previousWorkflow, preserve it. If not, generate a fresh UUID.
-                const exists = previousWorkflow?.nodes.some(n => n.id === node.id);
-                if (!exists) {
-                    node.id = generateNodeId();
+        try {
+            workflow.nodes = workflow.nodes.map((node, index) => {
+                if (!sharedRegistry[node.type as keyof typeof sharedRegistry]) {
+                    console.error(`[AI Workflow Parse] Invalid node type detected. Raw node data:`, JSON.stringify(node, null, 2));
+                    throw new Error(`Invalid node type: ${node.type ?? 'undefined'}`);
                 }
-            }
 
-            // Ensure node has proper data.config structure
-            // AI might return config at top level or under data
-            if (!node.data) {
-                node.data = { label: node.type, config: (node as any).config || {} };
-            } else if (!node.data.config) {
-                node.data.config = {};
-            }
+                // Ensure node has a valid ID (ELK requires string IDs)
+                if (!node.id || typeof node.id !== 'string' || node.id.startsWith('node_')) {
+                    // If ID is missing, or is in the legacy 'node_X' format, check if it's a NEW node
+                    // If it existed in previousWorkflow, preserve it. If not, generate a fresh UUID.
+                    const exists = previousWorkflow?.nodes.some(n => n.id === node.id);
+                    if (!exists) {
+                        node.id = generateNodeId();
+                    }
+                }
 
-            // Clean up top-level config if it was moved to data
-            if ((node as any).config) {
-                node.data.config = { ...node.data.config, ...(node as any).config };
-                delete (node as any).config;
-            }
+                // Ensure node has proper data.config structure
+                if (!node.data) node.data = { label: sharedRegistry[node.type as keyof typeof sharedRegistry].meta.label || node.type, config: {} as any };
+                if (!node.data.config) node.data.config = {};
 
-            // Inject user-uploaded images into media_input nodes
-            if (node.type === 'media_input' && userImages && userImages.length > 0) {
-                node.data.config = { ...node.data.config, images: userImages };
-            }
+                // AI might return config at top level or under data
+                if (!node.data) {
+                    node.data = { label: node.type, config: (node as any).config || {} };
+                } else if (!node.data.config) {
+                    node.data.config = {};
+                }
 
-            return node;
-        });
+                // Clean up top-level config if it was moved to data
+                if ((node as any).config) {
+                    node.data.config = { ...node.data.config, ...(node as any).config };
+                    delete (node as any).config;
+                }
+
+                // Inject user-uploaded images into media_input nodes
+                if (node.type === 'media_input' && userImages && userImages.length > 0) {
+                    node.data.config = { ...node.data.config, images: userImages };
+                }
+
+                return node as WorkflowNode;
+            });
+        } catch (err: any) {
+            // DUMP THE RAW JSON TO CHAT SO WE CAN DEBUG IT EASILY
+            return {
+                success: true,
+                type: 'chat',
+                message: `DEBUG - AI GENERATED INVALID NODE:\n\nError: ${err.message}\n\nFull Envelope Data:\n\`\`\`json\n${JSON.stringify(envelope, null, 2)}\n\`\`\``
+            };
+        }
 
         // Final duplicate check - if AI explicitly returned duplicate IDs, fix them
         const seenIds = new Map<string, number>();

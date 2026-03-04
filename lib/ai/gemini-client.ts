@@ -9,37 +9,123 @@ if (!apiKey) {
 
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
+/**
+ * Recursively format a JSON Schema into a clean, flat list of LLM instructions
+ */
+function formatSchemaForAI(schema: any, prefix = ''): string {
+  if (!schema || !schema.properties) return '  - No configurable settings\n';
+
+  let lines = '';
+  const requiredFields = schema.required || [];
+
+  for (const [key, prop] of (Object.entries(schema.properties) as [string, any][])) {
+    const isRequired = requiredFields.includes(key);
+    const reqStr = isRequired ? ' (REQUIRED)' : ' (optional)';
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+
+    let desc = prop.description ? ` - ${prop.description}` : '';
+    let typeInfo = prop.type;
+
+    if (prop.enum) {
+      typeInfo = `enum[${prop.enum.join(' | ')}]`;
+    } else if (prop.type === 'array' && prop.items) {
+      if (prop.items.type === 'string') typeInfo = 'array of strings';
+      else if (prop.items.type === 'number') typeInfo = 'array of numbers';
+      else typeInfo = 'array';
+    } else if (prop.type === 'object' && prop.properties) {
+      // It's a nested object, describe it and then recurse
+      lines += `  - ${fullKey} (object)${reqStr}${desc}\n`;
+      lines += formatSchemaForAI(prop, `${fullKey}`);
+      continue;
+    }
+
+    lines += `  - ${fullKey} (${typeInfo})${reqStr}${desc}\n`;
+  }
+  return lines;
+}
+
 export function buildAIPromptContext() {
-  let nodesStr = 'AVAILABLE NODES for workflow content:\n';
+  let nodesStr = 'AVAILABLE NODES for workflow content:\n\n';
+
   for (const [type, def] of Object.entries(sharedRegistry)) {
-    nodesStr += `- ${type}: ${JSON.stringify(def.aiSchema)} - ${def.meta.description}\n`;
+    const inputs = def.handles.inputs.map((h: any) => `"${h.id}" (${Array.isArray(h.expectedType) ? h.expectedType.join('|') : h.expectedType}${h.isMandatory ? ', REQUIRED' : ''})`).join(', ') || 'none';
+    const outputs = def.handles.outputs.map((h: any) => `"${h.id}" (${h.dataType})`).join(', ') || 'none';
+
+    nodesStr += `Node Type: ${type}\n`;
+    nodesStr += `Description: ${def.meta.description}\n`;
+    nodesStr += `Expected Inputs: ${inputs}\n`;
+    nodesStr += `Outputs: ${outputs}\n`;
+    nodesStr += `Configurable Properties (MUST be placed in data.config):\n`;
+    nodesStr += formatSchemaForAI(def.aiSchema);
+    nodesStr += `Default Values: ${JSON.stringify(def.defaultConfig)}\n`;
+    nodesStr += `Rule: ALL configurable properties for this node MUST be placed strictly inside the "data.config" object of this node's JSON representation.\n`;
+    nodesStr += `\n---\n\n`;
   }
 
-  return `You are Prism AI - a workflow builder. 
-
+  return `You are Prism AI - an expert workflow systems architect. Your job is to construct workflow JSON structures.
+ 
 CRITICAL OUTPUT FORMAT:
 - Return ONLY valid JSON. No other text before or after.
 - DO NOT output any reasoning, thinking, or decision logic.
-- DO NOT repeat or echo these instructions.
 
 JSON response format:
-{"type": "workflow" | "chat" | "undo", "content": ...}
+{
+  "type": "workflow" | "chat" | "undo",
+  "message": "Optional text response to the user. Required for chat/undo.",
+  "workflow": {
+    "name": "Workflow Name",
+    "nodes": [...],
+    "edges": [...]
+  }
+}
 
 Use "workflow" when the request is clear and actionable.
 Use "chat" for questions, clarifications, or general conversation.
-Use "undo" ONLY when the user explicitly asks to "undo", "go back", "revert", or "fix mistake" on the PREVIOUS action. Content should be a short confirmation message.
+Use "undo" ONLY when the user explicitly asks to "undo" or "go back" on the PREVIOUS action.
 
 ${nodesStr}
 
-WORKFLOW PATTERNS:
-- "Text Inputs": Processing nodes like scrape_images and ai_generate_image DO NOT accept text prompts directly in config. You MUST create a prompt node and connect it to them via an edge specifying "targetHandle": "prompt_in".
-- "Distribute" / "For Each" / "Separately": If the user wants to process multiple items individually (e.g. "find 3 images and put a logo on each separately"), you MUST create multiple downstream nodes (e.g. 3 compositors), one for each item.
-- "Select Specific Item": When connecting a multi-item source (like scrape_images) to multiple downstream nodes, use the 'selectedIndex' property in the receiving node's layer config (0 for 1st image, 1 for 2nd, etc.) to distribute the items.
+WORKFLOW STRUCTURE TEMPLATE (Strictly follow this generic wrapper for all nodes/edges):
+{
+  "type": "workflow",
+  "message": "Creating workflow...",
+  "workflow": {
+    "name": "...",
+    "nodes": [
+      {
+        "id": "uuid-1",
+        "type": "<node_type_from_registry>",
+        "position": { "x": 0, "y": 100 },
+        "data": {
+          "label": "Human Readable Name",
+          "config": { /* EXACT PROPERTIES FROM "Configurable Properties" GO HERE */ }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1_2",
+        "source": "uuid-1",
+        "target": "uuid-2",
+        "sourceHandle": "<output handle id from source node>",
+        "targetHandle": "<input handle id on target node>"
+      }
+    ]
+  }
+}
 
-WORKFLOW STRUCTURE:
-{"name":"...","nodes":[{"id":"new-uuid-1","type":"prompt","position":{"x":0,"y":100},"data":{"label":"Prompt","config":{"text":"A sunset"}}},{"id":"new-uuid-2","type":"ai_generate_image","position":{"x":200,"y":100},"data":{"label":"Generate","config":{"model":"...","aspectRatio":"16:9"}}}],"edges":[{"id":"edge_1_2","source":"new-uuid-1","target":"new-uuid-2","targetHandle":"prompt_in"}]}
+WIRING RULES:
+1. Every input handle marked REQUIRED must be satisfied by an incoming edge from a compatible output handle (matching data types).
+2. A node's config should only contain values for properties listed in its "Configurable Properties" section. Data coming from another node must arrive via an edge, not be duplicated in config.
+3. Read edge sources and targets exactly; missing handle names will break the workflow.
 
-REMEMBER: Output ONLY the JSON object, nothing else.`;
+CONFIG RULES (Avoid Schema Blindness):
+- The AI MUST read the "Configurable Properties" section for the chosen node type.
+- The AI MUST create a "config" object inside the node's "data" object.
+- The AI MUST inject ALL requested or required configurable properties into that "data.config" object.
+- NEVER leave "config" empty if the node requires a text prompt, an amount limit, or any other explicit configuration. 
+
+REMEMBER: Output ONLY the strict JSON object, nothing else.`;
 }
 // Dynamic instructions are generated functionally
 
@@ -124,22 +210,57 @@ export function getGeminiModel(modelName?: string) {
   const model = modelName || 'gemini-2.5-flash-lite';
   const systemInstruction = buildAIPromptContext();
 
-  // Basic native JSON schema for structure
+  // Strict schema tying down exactly what we expect
   const responseSchema: ResponseSchema = {
     type: SchemaType.OBJECT,
     properties: {
       type: { type: SchemaType.STRING, enum: ["workflow", "chat", "undo"] },
-      content: { type: SchemaType.OBJECT }
+      message: { type: SchemaType.STRING, description: "Text response for chat/undo" },
+      workflow: {
+        type: SchemaType.OBJECT,
+        properties: {
+          name: { type: SchemaType.STRING },
+          nodes: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                id: { type: SchemaType.STRING },
+                type: { type: SchemaType.STRING },
+                position: {
+                  type: SchemaType.OBJECT,
+                  properties: { x: { type: SchemaType.NUMBER }, y: { type: SchemaType.NUMBER } }
+                },
+                data: { type: SchemaType.OBJECT }
+              },
+              required: ["id", "type", "data"]
+            }
+          },
+          edges: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                id: { type: SchemaType.STRING },
+                source: { type: SchemaType.STRING },
+                target: { type: SchemaType.STRING },
+                targetHandle: { type: SchemaType.STRING }
+              },
+              required: ["id", "source", "target"]
+            }
+          }
+        },
+        required: ["nodes", "edges"]
+      }
     },
-    required: ["type", "content"]
+    required: ["type"]
   };
 
   return genAI.getGenerativeModel({
     model,
     systemInstruction,
     generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: responseSchema
+      responseMimeType: "application/json"
     }
   });
 }

@@ -39,9 +39,16 @@ update the existing workflow accordingly. Otherwise, create a new workflow.`;
         }
 
 
-        const workflow: Workflow = JSON.parse(cleaned);
+        let workflow: any = JSON.parse(cleaned);
 
-        // Log success
+        // Strict unwrapping: since system prompt now mandates the envelope Format,
+        // we extract the 'workflow' object directly.
+        if (workflow.type === 'workflow') {
+            if (!workflow.workflow) {
+                throw new Error('Invalid workflow: missing "workflow" object in AI response');
+            }
+            workflow = workflow.workflow;
+        }
 
 
         // Validate structure
@@ -58,7 +65,7 @@ update the existing workflow accordingly. Otherwise, create a new workflow.`;
         const layoutPositions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges);
 
         // Update node positions based on layout calculation
-        workflow.nodes = workflow.nodes.map(node => {
+        workflow.nodes = workflow.nodes.map((node: any) => {
             const position = layoutPositions.get(node.id);
             if (position) {
 
