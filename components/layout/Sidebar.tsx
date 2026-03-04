@@ -71,6 +71,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
             if (isDeletingActiveSession) {
                 handleNewChat();
+                router.push('/chat');
             }
         }
     };
