@@ -12,9 +12,35 @@ export const dynamic = 'force-dynamic';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const adminSupabase = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { persistSession: false },
-});
+
+/**
+ * CONCURRENCY FIX: Create a fresh Supabase admin client for every request.
+ *
+ * The old pattern used a module-level singleton `adminSupabase`. Under concurrent
+ * load, multiple `waitUntil` tasks shared that singleton's Realtime connection pool.
+ * When one task's channel was torn down (or the socket was reset), the shared pool
+ * threw `ECONNRESET` / `ConnectTimeoutError` for all other in-flight tasks.
+ *
+ * Each request now gets its own independent connection pool, eliminating that race.
+ */
+function createAdminClient() {
+    return createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { persistSession: false },
+        global: {
+            fetch: (url, options) =>
+                fetch(url, {
+                    ...options,
+                    // Increase keepalive to survive long-running AI model calls
+                    keepalive: true,
+                }),
+        },
+        realtime: {
+            params: {
+                eventsPerSecond: 10,
+            },
+        },
+    });
+}
 
 export async function POST(request: NextRequest) {
     try {
@@ -23,7 +49,11 @@ export async function POST(request: NextRequest) {
         const { user } = auth;
 
         const body = await request.json();
-        const { workflow, sessionId, runFromNodeId } = body;
+        const { workflow, sessionId, runFromNodeId, runMode } = body;
+
+        if (!sessionId) {
+            return NextResponse.json({ error: 'Missing mandatory sessionId context' }, { status: 400 });
+        }
 
         if (!workflow || !workflow.nodes) {
             return NextResponse.json({ error: 'Invalid workflow' }, { status: 400 });
@@ -38,6 +68,9 @@ export async function POST(request: NextRequest) {
         const userId = user.id;
 
         waitUntil((async () => {
+            // ── Per-request isolated client (concurrency-safe) ────────────────
+            const adminSupabase = createAdminClient();
+
             try {
                 const { persistNodeOutputs } = await import('@/lib/workflow/persist-node');
                 const { computeNodeHash } = await import('@/lib/nodes/hash-inputs');
@@ -56,34 +89,79 @@ export async function POST(request: NextRequest) {
                     compositor: 'Compositing layers',
                 };
 
+                // ── Execution broadcast channel ───────────────────────────────
+                const execChannel = adminSupabase.channel(`execution_${sessionId}`);
+
+                await new Promise<void>((resolve) => {
+                    execChannel.subscribe((status) => {
+                        if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                            resolve();
+                        }
+                    });
+                });
+
+                /**
+                 * ZERO-LATENCY FIX:
+                 * Broadcast thumbnailUrls inline inside this same onStatusUpdate callback.
+                 * The old architecture waited for a separate `handleSessionUpdate` round-trip
+                 * (postgres_changes on the sessions table) to deliver image URLs to the UI —
+                 * which caused 3-5 second delays after the server finished.
+                 *
+                 * Now: persist → get URLs → broadcast SUCCESS + URLs atomically in one payload.
+                 * The client receives the image URL the exact millisecond the server is done.
+                 */
                 const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
-                    if (!sessionId) return;
+                    const payload: any = { nodeId, status };
+
+                    if (status === 'success' && currentWorkflow) {
+                        const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
+                        if (node) {
+                            const thumbnailUrls = node.data?.outputMetadata?.thumbnailUrls;
+                            if (Array.isArray(thumbnailUrls) && thumbnailUrls.length > 0) {
+                                // ✅ Safe: these are compact Supabase Storage URLs (~200 chars each), not base64
+                                payload.outputMetadata = { thumbnailUrls };
+                            } else if (node.data?.output) {
+                                // For text/non-image nodes — guard against accidental base64 blobs
+                                const out = node.data.output;
+                                const hasBase64 = Array.isArray(out)
+                                    ? out.some((o: any) => typeof o?.url === 'string' && o.url.startsWith('data:'))
+                                    : typeof out?.url === 'string' && out.url.startsWith('data:');
+
+                                if (!hasBase64) {
+                                    payload.output = out;
+                                }
+                                if (node.data.outputMetadata) {
+                                    payload.outputMetadata = node.data.outputMetadata;
+                                }
+                            }
+                        }
+                    }
+
+                    try {
+                        await execChannel.send({
+                            type: 'broadcast',
+                            event: 'node_execution',
+                            payload,
+                        });
+                    } catch (e) {
+                        console.warn('[API/Execute] Broadcast failed:', e);
+                    }
 
                     if (status === 'running') {
                         const node = workflow.nodes.find((n: any) => n.id === nodeId);
                         const action = node ? (actionDescriptions[node.type] || 'Processing') : 'Processing';
                         const stepMsg = `${action} (${completedNodeCount + 1}/${totalNodes})`;
-                        const payload: Record<string, any> = { status_message: stepMsg };
-                        if (currentWorkflow) payload.canvas_state = stripHeavyNodeData(currentWorkflow);
-
-                        Promise.resolve(adminSupabase.from('sessions').update(payload).eq('id', sessionId))
-                            .catch((e) => console.warn('[API/Execute] Status broadcast failed:', e));
+                        // Fire-and-forget: status message on sessions table
+                        Promise.resolve(adminSupabase.from('sessions').update({ status_message: stepMsg }).eq('id', sessionId))
+                            .catch((e: any) => console.warn('[API/Execute] Status update failed:', e));
                     } else if (status === 'success' || status === 'error') {
                         completedNodeCount++;
-                        if (currentWorkflow) {
-                            Promise.resolve(
-                                adminSupabase.from('sessions')
-                                    .update({ canvas_state: stripHeavyNodeData(currentWorkflow) })
-                                    .eq('id', sessionId)
-                            ).catch((e) => console.warn('[API/Execute] Success/Error broadcast failed:', e));
-                        }
                     }
                 };
 
                 /**
-                 * Dual-save persist callback:
-                 *   isLeafNode=true  → thumbnail + flat result under {sessionId}/
-                 *   isLeafNode=false → thumbnail only under {sessionId}/thumbnails/{nodeId}/
+                 * Dual-save persist callback — node-isolated, concurrency-safe.
+                 * Folder-level wipe happens inside persistNodeOutputs before upload.
                  */
                 const onNodePersist = async (
                     nodeId: string,
@@ -93,26 +171,28 @@ export async function POST(request: NextRequest) {
                     output: any,
                     prevThumbnailPaths: string[] = [],
                     isLeafNode: boolean = false,
+                    forceOverwrite: boolean = false
                 ) => persistNodeOutputs(
                     adminSupabase,
-                    { userId, sessionId: sessionId ?? 'manual', nodeId, nodeType, config, inputUrls, output },
+                    { userId, sessionId, nodeId, nodeType, config, inputUrls, output },
                     prevThumbnailPaths,
                     isLeafNode,
                     computeNodeHash,
+                    forceOverwrite
                 );
 
+                // ── Execute ───────────────────────────────────────────────────
                 let result;
                 if (runFromNodeId) {
-                    // For partial execution, we don't naturally have `cachedOutputs` here since we rely on the 
-                    // current DB state representing the cached state. The engine handles missing caches seamlessly.
                     result = await executeWorkflowFromNode(
                         workflow as Workflow,
                         executionId,
                         runFromNodeId,
-                        {}, // No cached outputs provided yet; downstream execution logic will resolve natively
+                        {},
                         onStatusUpdate,
                         undefined,
                         onNodePersist,
+                        runMode || 'chain'
                     );
                 } else {
                     result = await executeWorkflow(
@@ -125,6 +205,7 @@ export async function POST(request: NextRequest) {
                     );
                 }
 
+                // ── Post-run persistence ──────────────────────────────────────
                 if (workflow.id) {
                     await saveExecution(workflow.id, result.success ? 'completed' : 'failed', result.result, result.error);
                 }

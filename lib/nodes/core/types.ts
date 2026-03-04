@@ -8,6 +8,8 @@ export type NodeDataType = 'image' | 'image_array' | 'text' | 'any' | 'prompt' |
 export interface NodeSharedDef<TConfig = any> {
     type: string;
     family: 'input' | 'generative' | 'utility' | 'output'; // Grouping for menus
+    category: 'input' | 'utility' | 'generative'; // Execution rules category
+    creditCost?: number; // Pre-flight check cost
     meta: {
         label: string;
         description: string;

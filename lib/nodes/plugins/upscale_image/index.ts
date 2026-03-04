@@ -4,6 +4,8 @@ import { UpscaleImageConfig } from '../../types';
 export const upscaleImageSharedDef: NodeSharedDef<UpscaleImageConfig> = {
     type: 'upscale_image',
     family: 'generative',
+    category: 'generative',
+    creditCost: 1,
     meta: {
         label: 'Upscale Image',
         description: 'AI-powered image super-resolution (2x/4x)',

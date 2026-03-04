@@ -14,6 +14,8 @@ import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import CreditConfirmModal from './CreditConfirmModal';
 
 interface SharedWorkflowEditorProps {
     workflow?: Workflow | null;
@@ -68,11 +70,20 @@ export default function SharedWorkflowEditor({
 
     const [showPropertyPanel, setShowPropertyPanel] = useState(false);
     const [executionResult, setExecutionResult] = useState<any>(null);
+    // Use a ref-based counter instead of boolean so concurrent runs don't block each other.
+    // isExecuting = (activeRunCount > 0) for toolbar display.
+    const activeRunCountRef = useRef(0);
     const [isExecuting, setIsExecuting] = useState(false);
     const [executionError, setExecutionError] = useState<string | null>(null);
     const [showResults, setShowResults] = useState(false);
     const [selectionMode, setSelectionMode] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Credit Modal State
+    const [showCreditModal, setShowCreditModal] = useState(false);
+    const [pendingExecutionTarget, setPendingExecutionTarget] = useState<{ id: string | null, mode: 'all' | 'solo' | 'chain' | 'ab_test' } | null>(null);
+    const [pendingCost, setPendingCost] = useState(0);
+    const [pendingNodeCount, setPendingNodeCount] = useState(0);
 
     // Track if component is mounted to prevent stale updates
     const isMountedRef = useRef(true);
@@ -188,31 +199,57 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    const handleRun = async () => {
+    // --- Core Execution Logic (Backend Post) ---
+    const commitExecution = async (targetNodeId: string | null, mode: string) => {
+        // Increment active run counter — allows concurrent independent runs
+        activeRunCountRef.current += 1;
         setIsExecuting(true);
         setExecutionError(null);
         setShowResults(true);
 
-        // Reset all node statuses and outputs for live streaming
         const store = useAppStore.getState();
-        store.resetNodeStatuses();
-        store.clearNodeOutputs();
 
-        // Mark all nodes as pending
-        nodes.forEach(node => store.setNodeStatus(node.id, 'pending'));
+        // ONLY clear stale states, do NOT optimistically set statuses.
+        // The real 'pending/running' state will be broadcasted from the server.
+        if (targetNodeId) {
+            store.invalidateNodes([targetNodeId]);
+        } else {
+            store.resetNodeStatuses();
+            store.clearNodeOutputs();
+        }
 
         const workflow = getCurrentWorkflow();
         const activeSessionId = store.activeSessionId;
 
         try {
-            // POST to the background server execution API
+            // Strip outputMetadata from nodes being re-executed so the server doesn't
+            // reuse stale persisted Storage paths from previous runs.
+            // Non-targeted nodes keep their metadata so upstream context (image URLs as inputs) is preserved.
+            const sanitizedWorkflow = {
+                ...workflow,
+                nodes: workflow.nodes.map((node: any) => {
+                    const isTarget = targetNodeId ? (node.id === targetNodeId) : true;
+                    if (!isTarget) return node;
+                    // Strip all execution output state from targeted nodes before sending to server
+                    const { output, outputMetadata, status, ...cleanData } = node.data || {};
+                    return { ...node, data: cleanData };
+                })
+            };
+
+            const bodyPayload: any = {
+                workflow: sanitizedWorkflow,
+                sessionId: activeSessionId,
+                runMode: mode
+            };
+
+            if (targetNodeId) {
+                bodyPayload.runFromNodeId = targetNodeId;
+            }
+
             const res = await fetch('/api/workflow/execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    workflow,
-                    sessionId: activeSessionId
-                })
+                body: JSON.stringify(bodyPayload)
             });
 
             if (!res.ok) {
@@ -220,73 +257,101 @@ export default function SharedWorkflowEditor({
                 throw new Error(data.error || 'Execution request failed');
             }
 
-            // Immediately clear execution state, UI is now fully driven by Realtime syncs!
-            setIsExecuting(false);
-            setExecutionError(null);
-
         } catch (err: any) {
-            setIsExecuting(false);
             setExecutionError(err.message || 'Execution failed to start');
             setExecutionResult(null);
+        } finally {
+            // Decrement counter; only clear button state when ALL runs complete
+            activeRunCountRef.current -= 1;
+            if (activeRunCountRef.current <= 0) {
+                activeRunCountRef.current = 0;
+                setIsExecuting(false);
+            }
+        }
+    };
+
+    // --- Pricing Calculation & Modal Triggers ---
+
+    // Helper to calculate total cost of an execution set
+    const calculateExecutionCost = (targetNodeId: string | null, mode: string) => {
+        let executionNodes: typeof nodes = [];
+
+        if (targetNodeId && mode === 'solo') {
+            const targetNode = nodes.find(n => n.id === targetNodeId);
+            if (targetNode) executionNodes = [targetNode];
+        } else if (targetNodeId && mode === 'chain') {
+            const { getDescendants } = require('@/lib/utils/graph-traversal');
+            const descendants = getDescendants(targetNodeId, edges);
+            const targetNode = nodes.find(n => n.id === targetNodeId);
+            executionNodes = [...nodes.filter(n => descendants.has(n.id))];
+            if (targetNode) executionNodes.unshift(targetNode);
+        } else {
+            // Mode 'all'
+            executionNodes = nodes;
+        }
+
+        let cost = 0;
+        let count = 0;
+
+        executionNodes.forEach((node) => {
+            const def = sharedRegistry[node.type as keyof typeof sharedRegistry];
+            if (def && def.category === 'generative') {
+                cost += (def.creditCost || 1); // fallback to 1 if not explicitly set
+                count++;
+            }
+        });
+
+        return { cost, count };
+    };
+
+    const handleRun = async () => {
+        if (isExecuting) return;
+        const { cost, count } = calculateExecutionCost(null, 'all');
+
+        if (cost > 0) {
+            setPendingExecutionTarget({ id: null, mode: 'all' });
+            setPendingCost(cost);
+            setPendingNodeCount(count);
+            setShowCreditModal(true);
+        } else {
+            commitExecution(null, 'all');
         }
     };
 
     // Listen for "Run From Node" triggers
     const runFromNodeId = useAppStore((state) => state.runFromNodeId);
+    const runMode = useAppStore((state) => state.runMode);
 
     useEffect(() => {
-        if (!runFromNodeId || isExecuting) return;
+        if (!runFromNodeId || isExecuting || !runMode) return;
 
         const clearRunFromNode = useAppStore.getState().clearRunFromNode;
-        clearRunFromNode();
+        const targetId = runFromNodeId;
+        const mode = runMode;
 
-        const runPartial = async () => {
-            setIsExecuting(true);
-            setExecutionError(null);
-            setShowResults(true);
+        clearRunFromNode(); // clear the dispatcher immediately
 
-            const store = useAppStore.getState();
+        const { cost, count } = calculateExecutionCost(targetId, mode);
 
-            const { getDescendants } = require('@/lib/utils/graph-traversal');
-            const descendants = getDescendants(runFromNodeId, nodes.flatMap((n: any) => n.id === runFromNodeId ? [] : [])); // wait, I don't have edges easily accessible here!
+        if (cost > 0) {
+            setPendingExecutionTarget({ id: targetId, mode });
+            setPendingCost(cost);
+            setPendingNodeCount(count);
+            setShowCreditModal(true);
+        } else {
+            commitExecution(targetId, mode);
+        }
 
-            // Actually, `useAppStore` has `invalidateNodes`!
-            store.invalidateNodes([runFromNodeId]);
-            store.setNodeStatus(runFromNodeId, 'pending');
-
-            const workflow = getCurrentWorkflow();
-            const activeSessionId = store.activeSessionId;
-
-            try {
-                // Route local execution to the backend worker API
-                const res = await fetch('/api/workflow/execute', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        workflow,
-                        sessionId: activeSessionId,
-                        runFromNodeId
-                    })
-                });
-
-                if (!res.ok) {
-                    const data = await res.json();
-                    throw new Error(data.error || 'Partial execution request failed');
-                }
-
-                setIsExecuting(false);
-                setExecutionError(null);
-
-            } catch (err: any) {
-                setIsExecuting(false);
-                setExecutionError(err.message || 'Partial execution failed to start');
-                setExecutionResult(null);
-            }
-        };
-
-        runPartial();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [runFromNodeId]);
+    }, [runFromNodeId, runMode]);
+
+    const confirmCreditRun = () => {
+        if (pendingExecutionTarget) {
+            commitExecution(pendingExecutionTarget.id, pendingExecutionTarget.mode);
+        }
+        setShowCreditModal(false);
+        setPendingExecutionTarget(null);
+    };
 
     const handleStop = () => {
         if (abortControllerRef.current) {
@@ -403,6 +468,18 @@ export default function SharedWorkflowEditor({
                         onClose={() => setShowPropertyPanel(false)}
                     />
                 )}
+
+                <CreditConfirmModal
+                    isOpen={showCreditModal}
+                    cost={pendingCost}
+                    nodeCount={pendingNodeCount}
+                    mode={pendingExecutionTarget?.mode || 'all'}
+                    onConfirm={confirmCreditRun}
+                    onCancel={() => {
+                        setShowCreditModal(false);
+                        setPendingExecutionTarget(null);
+                    }}
+                />
             </div>
         </div>
     );

@@ -14,6 +14,7 @@ import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
 import { useChatMessages } from '@/lib/hooks/use-chat-messages';
+import { useSession } from '@/lib/hooks/use-session';
 import { useChatRealtime, serverWorkflowHash, setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
 import { NodeStatus } from '@/lib/nodes/types';
 import { sessionsApi, messagesApi, uploadApi, userApi, chatApi } from '@/lib/api/client';
@@ -150,6 +151,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         removeAttachedImage,
         clearAttachments
     } = useFileUpload();
+
+    const { createNewSession } = useSession();
 
     const {
         editingMessageId,
@@ -685,8 +688,16 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         {/* Centered Input */}
                         {InputField}
 
-                        {/* Example prompts */}
+                        {/* Example prompts and New Canvas */}
                         <div className="mt-8 flex flex-wrap justify-center gap-2">
+                            <button
+                                onClick={createNewSession}
+                                className="px-4 py-2 text-sm bg-accent-primary hover:bg-accent-hover text-white flex items-center gap-2
+                                           rounded-full transition-colors font-medium shadow-md shadow-accent-primary/20"
+                            >
+                                <Pen className="w-4 h-4" />
+                                Start Empty Canvas
+                            </button>
                             {['Find 10 cat images', 'Remove backgrounds', 'Upscale my photos'].map((prompt) => (
                                 <button
                                     key={prompt}
@@ -749,8 +760,19 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             </h1>
                         </div>
                         <p className="text-content-secondary text-sm">
-                            Tell me what you'd like to do with images.
+                            Tell me what you'd like to do with images, or start from scratch.
                         </p>
+
+                        <div className="mt-6 flex justify-center">
+                            <button
+                                onClick={createNewSession}
+                                className="px-5 py-2.5 text-sm bg-accent-primary hover:bg-accent-hover text-white flex items-center gap-2
+                                           rounded-full transition-colors font-medium shadow-md shadow-accent-primary/20"
+                            >
+                                <Pen className="w-4 h-4" />
+                                Start Empty Canvas
+                            </button>
+                        </div>
                     </div>
                 </div>
 

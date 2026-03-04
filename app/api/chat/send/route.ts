@@ -182,24 +182,64 @@ export async function POST(request: Request) {
                         const totalNodes = result.workflow!.nodes.length;
                         let completedNodeCount = 0;
 
+                        const execChannel = adminSupabase.channel(`execution_${sessionId}`);
+                        // Intentionally not awaiting SUBSCRIBED here to keep chat snappy, 
+                        // broadcast allows 'fire and forget' if role allows. But let's await just to be safe.
+                        await new Promise((resolve) => {
+                            execChannel.subscribe((status) => {
+                                if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                                    resolve(status);
+                                }
+                            });
+                        });
+
                         const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
+                            const payload: any = { nodeId, status };
+                            if (status === 'success' && currentWorkflow) {
+                                const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
+                                if (node) {
+                                    const thumbnailUrls = node.data?.outputMetadata?.thumbnailUrls;
+                                    if (Array.isArray(thumbnailUrls) && thumbnailUrls.length > 0) {
+                                        // Inline zero-latency: send compact Storage URLs, never base64
+                                        payload.outputMetadata = { thumbnailUrls };
+                                    } else if (node.data?.output) {
+                                        const out = node.data.output;
+                                        const hasBase64 = Array.isArray(out)
+                                            ? out.some((o: any) => typeof o?.url === 'string' && o.url.startsWith('data:'))
+                                            : typeof out?.url === 'string' && out.url.startsWith('data:');
+                                        if (!hasBase64) {
+                                            payload.output = out;
+                                        }
+                                        if (node.data.outputMetadata) {
+                                            payload.outputMetadata = node.data.outputMetadata;
+                                        }
+                                    }
+                                }
+                            }
+
+                            try {
+                                await execChannel.send({
+                                    type: 'broadcast',
+                                    event: 'node_execution',
+                                    payload
+                                });
+                            } catch (e) {
+                                console.warn('[Worker] Granular broadcast failed:', e);
+                            }
+
                             if (status === 'running') {
                                 const node = result.workflow!.nodes.find((n: any) => n.id === nodeId);
                                 const action = node ? (actionDescriptions[node.type] || 'Processing') : 'Processing';
                                 const stepMsg = `${action} (${completedNodeCount + 1}/${totalNodes})`;
-                                const payload: Record<string, any> = { status_message: stepMsg };
-                                if (currentWorkflow) payload.canvas_state = stripHeavy(currentWorkflow);
-                                Promise.resolve(
-                                    adminSupabase.from('sessions').update(payload).eq('id', sessionId)
-                                ).catch((e) => console.warn('[Worker] Status broadcast failed:', e));
+                                Promise.resolve(adminSupabase.from('sessions').update({ status_message: stepMsg }).eq('id', sessionId))
+                                    .catch((e: any) => console.warn('[Worker] Status broadcast failed:', e));
                             } else if (status === 'success' || status === 'error') {
                                 completedNodeCount++;
                                 if (currentWorkflow) {
-                                    Promise.resolve(
-                                        adminSupabase.from('sessions')
-                                            .update({ canvas_state: stripHeavy(currentWorkflow) })
-                                            .eq('id', sessionId)
-                                    ).catch((e) => console.warn('[Worker] Success/Error broadcast failed:', e));
+                                    Promise.resolve(adminSupabase.from('sessions')
+                                        .update({ canvas_state: stripHeavy(currentWorkflow) })
+                                        .eq('id', sessionId))
+                                        .catch((e: any) => console.warn('[Worker] Success/Error DB update failed:', e));
                                 }
                             }
                         };
@@ -219,12 +259,14 @@ export async function POST(request: Request) {
                             output: any,
                             prevThumbnailPaths: string[] = [],
                             isLeafNode: boolean = false,
+                            forceOverwrite: boolean = false
                         ) => persistNodeOutputs(
                             adminSupabase,
                             { userId, sessionId, nodeId, nodeType, config, inputUrls, output },
                             prevThumbnailPaths,
                             isLeafNode,
                             computeNodeHash,
+                            forceOverwrite
                         );
 
                         // Execute the full workflow graph

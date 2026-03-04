@@ -27,25 +27,15 @@ function buildDependencyGraph(nodes: WorkflowNode[], edges: { source: string; ta
     return { parents, children, inDegree };
 }
 
-/**
- * Execute a complete workflow with TRUE PARALLEL EXECUTION
- * - Independent nodes run simultaneously
- * - Nodes wait for ALL parents to complete
- * - Failures are isolated to individual branches
- * @param onStatusUpdate Optional callback for real-time status updates
- * @param onNodeOutput Optional callback for streaming node outputs
- */
+
+export type RunMode = 'all' | 'solo' | 'chain' | 'ab_test';
+
 export async function executeWorkflow(
     workflow: Workflow,
     executionId: string,
-    onStatusUpdate?: (nodeId: string, status: NodeStatus, workflow?: any) => void,
+    onStatusUpdate?: (nodeId: string, status: NodeStatus, currentWorkflow?: Workflow) => void,
     onNodeOutput?: (nodeId: string, output: any) => void,
     cachedOutputs?: Record<string, any>,
-    /**
-     * Called after each node succeeds.
-     * - isLeafNode=true  → node has no outgoing edges → upload thumbnail + flat result
-     * - isLeafNode=false → intermediate node → upload thumbnail only
-     */
     onNodePersist?: (
         nodeId: string,
         nodeType: string,
@@ -54,6 +44,37 @@ export async function executeWorkflow(
         output: any,
         prevThumbnailPaths: string[],
         isLeafNode: boolean,
+        forceOverwrite?: boolean
+    ) => Promise<any>
+) {
+    return executeWorkflowFromNode(
+        workflow,
+        executionId,
+        workflow.nodes[0]?.id || '',
+        cachedOutputs || {},
+        onStatusUpdate,
+        onNodeOutput,
+        onNodePersist,
+        'all'
+    );
+}
+
+export async function executeWorkflowFromNode(
+    workflow: Workflow,
+    executionId: string,
+    startNodeId: string,
+    cachedOutputs: Record<string, any>,
+    onStatusUpdate?: (nodeId: string, status: NodeStatus, currentWorkflow?: Workflow) => void,
+    onNodeOutput?: (nodeId: string, output: any) => void,
+    onNodePersist?: (
+        nodeId: string,
+        nodeType: string,
+        config: any,
+        inputUrls: string[],
+        output: any,
+        prevThumbnailPaths: string[],
+        isLeafNode: boolean,
+        forceOverwrite?: boolean
     ) => Promise<{
         thumbnailPaths: string[];
         thumbnailUrls: string[];
@@ -61,6 +82,7 @@ export async function executeWorkflow(
         resultUrls: string[];
         computedHash: string;
     } | null>,
+    runMode: RunMode = 'chain'
 ): Promise<{
     success: boolean;
     result: any;
@@ -71,432 +93,156 @@ export async function executeWorkflow(
             throw new Error('Workflow has no nodes');
         }
 
-        // Build dependency graph
-        const { parents, children, inDegree } = buildDependencyGraph(workflow.nodes, workflow.edges);
+        const { parents, children } = buildDependencyGraph(workflow.nodes, workflow.edges);
 
-        // Create execution context
+        // 1. Compute Target Set (T): Nodes that MUST run (ignoring cache)
+        const targetSet = new Set<string>();
+
+        if (runMode === 'all') {
+            workflow.nodes.forEach(n => targetSet.add(n.id));
+        } else if (runMode === 'solo') {
+            targetSet.add(startNodeId);
+        } else if (runMode === 'chain') {
+            const queue = [startNodeId];
+            while (queue.length > 0) {
+                const nodeId = queue.shift()!;
+                if (!targetSet.has(nodeId)) {
+                    targetSet.add(nodeId);
+                    (children.get(nodeId) || []).forEach(c => queue.push(c));
+                }
+            }
+        } else if (runMode === 'ab_test') {
+            // Find immediate Generative downstream nodes (jumping over utility)
+            const queue = [...(children.get(startNodeId) || [])];
+            const visited = new Set<string>();
+            while (queue.length > 0) {
+                const nodeId = queue.shift()!;
+                if (visited.has(nodeId)) continue;
+                visited.add(nodeId);
+
+                const nodeDef = sharedRegistry[workflow.nodes.find(n => n.id === nodeId)?.type as keyof typeof sharedRegistry];
+                if (nodeDef?.category === 'generative') {
+                    targetSet.add(nodeId);
+                } else {
+                    (children.get(nodeId) || []).forEach(c => queue.push(c));
+                }
+            }
+        }
+
+        // 2. Compute Dependency Set (D): Ancestors of all nodes in T
+        const dependencySet = new Set<string>();
+        const depQueue = Array.from(targetSet);
+        while (depQueue.length > 0) {
+            const nodeId = depQueue.shift()!;
+            const parentIds = parents.get(nodeId) || [];
+            for (const pid of parentIds) {
+                if (!dependencySet.has(pid)) {
+                    dependencySet.add(pid);
+                    depQueue.push(pid);
+                }
+            }
+        }
+
+        // 3. Compute Execution Set (E = T union D)
+        const executionSet = new Set<string>([...targetSet, ...dependencySet]);
+
+        // Validate strictly upstream connections FOR nodes in T
+        for (const tid of targetSet) {
+            const node = workflow.nodes.find(n => n.id === tid);
+            if (!node) continue;
+            const sharedDef = sharedRegistry[node.type as keyof typeof sharedRegistry];
+            if (!sharedDef) continue;
+
+            const expectedInputs = sharedDef.handles?.inputs || [];
+            const incomingEdges = workflow.edges.filter(e => e.target === tid);
+
+            for (const input of expectedInputs) {
+                if (input.isMandatory) {
+                    const hasEdge = incomingEdges.some(e => e.targetHandle === input.id || (!e.targetHandle && expectedInputs.length === 1));
+                    if (!hasEdge) {
+                        throw new Error(`Cannot execute: Missing mandatory upstream dependency [${input.label}] for node ${node.data?.label || node.type}`);
+                    }
+                }
+            }
+        }
+
         const context: ExecutionContext = {
             workflowId: workflow.id || 'temp',
             executionId,
             data: null,
         };
 
-        // Track node states
         const nodeOutputs = new Map<string, any>();
         const completedNodes = new Set<string>();
         const failedNodes = new Set<string>();
         const blockedNodes = new Set<string>();
-        const currentInDegree = new Map(inDegree); // Mutable copy
-        let firstError: string | undefined;
 
-        // Pre-seed from cache
-        if (cachedOutputs) {
-            Object.entries(cachedOutputs).forEach(([nodeId, output]) => {
-                if (output !== undefined) {
-                    nodeOutputs.set(nodeId, output);
-                    completedNodes.add(nodeId);
+        // Compute in-degree specifically mapped FOR THE EXECUTION SET
+        const currentInDegree = new Map<string, number>();
+        executionSet.forEach(id => currentInDegree.set(id, 0));
 
-                    // Mutate workflow for cache hits
-                    const cachedNode = workflow.nodes.find(n => n.id === nodeId);
-                    if (cachedNode) {
-                        if (!cachedNode.data) cachedNode.data = { label: cachedNode.type, config: {} as any };
-                        (cachedNode.data as any).status = 'success';
-
-                        // Try to extract images for thumbnails
-                        if (Array.isArray(output) && output.length > 0 && output[0].url) {
-                            (cachedNode.data as any).outputMetadata = { preview_urls: output.slice(0, 4).map(o => o.url) };
-                        } else if (output && typeof output === 'object' && output.url) {
-                            (cachedNode.data as any).outputMetadata = { preview_urls: [output.url] };
-                        }
-                    }
-
-                    onStatusUpdate?.(nodeId, 'success', workflow);
-                    // onNodeOutput?.(nodeId, output); // Optional: re-emit cached output if needed
-
-                    // Decrement in-degree for children
-                    const childIds = children.get(nodeId) || [];
-                    childIds.forEach(childId => {
-                        const newDegree = (currentInDegree.get(childId) || 0) - 1;
-                        currentInDegree.set(childId, newDegree);
-                    });
-                }
-            });
-        }
-
-        // Find initial ready nodes (no dependencies AND not completed)
-        let readyNodes = workflow.nodes.filter(node =>
-            (currentInDegree.get(node.id) || 0) <= 0 && !completedNodes.has(node.id)
-        );
-
-        // Execute in waves until no more progress
-        while (readyNodes.length > 0) {
-
-            // Execute all ready nodes in parallel
-            const waveExecutions = readyNodes.map(async (node) => {
-                // Mark as running
-                if (!node.data) node.data = { label: node.type, config: {} as any };
-                (node.data as any).status = 'running';
-                delete (node.data as any).error; // Clear old errors
-                if (onStatusUpdate) await onStatusUpdate(node.id, 'running', workflow);
-
-                try {
-                    const executor = getNodeExecutor(node.type);
-                    if (!executor) {
-                        throw new Error(`No executor found for node type: ${node.type}`);
-                    }
-
-                    // Strict Connection Validation for Mandatory Inputs
-                    const sharedDef = sharedRegistry[node.type as keyof typeof sharedRegistry];
-                    if (sharedDef) {
-                        const expectedInputs = sharedDef.handles?.inputs || [];
-                        const checkIncomingEdges = workflow.edges.filter(e => e.target === node.id);
-
-                        const missingMandatory = expectedInputs.find((input: any) =>
-                            input.isMandatory && !checkIncomingEdges.some(e => e.targetHandle === input.id || (!e.targetHandle && expectedInputs.length === 1))
-                        );
-
-                        if (missingMandatory) {
-                            throw new Error(`Missing mandatory connection for input: ${missingMandatory.label}`);
-                        }
-                    }
-
-                    // Gather inputs from all parents structurally using edge targetHandle
-                    const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-                    const parentIds = parents.get(node.id) || [];
-                    let input: any = null;
-
-                    const inputObj: Record<string, any> = {};
-                    const defaultInputs: any[] = [];
-
-                    for (const edge of incomingEdges) {
-                        const handleId = (edge as any).targetHandle;
-                        const edgeOutput = nodeOutputs.get(edge.source);
-
-                        if (handleId) {
-                            if (inputObj[handleId]) {
-                                // If multiple edges connect to the same handle, consolidate them into an array
-                                if (!Array.isArray(inputObj[handleId])) {
-                                    inputObj[handleId] = [inputObj[handleId]];
-                                }
-                                inputObj[handleId].push(edgeOutput);
-                            } else {
-                                inputObj[handleId] = edgeOutput;
-                            }
-                        } else if (edgeOutput) {
-                            defaultInputs.push(edgeOutput);
-                        }
-                    }
-
-                    // Finalize input structure based on what was collected
-                    if (Object.keys(inputObj).length > 0) {
-                        // Mixed named and unnamed handles
-                        if (defaultInputs.length === 1) {
-                            inputObj.default = defaultInputs[0];
-                        } else if (defaultInputs.length > 1) {
-                            inputObj.default = Array.isArray(defaultInputs[0]) ? defaultInputs.flat() : defaultInputs;
-                        }
-                        input = inputObj;
-                    } else {
-                        // Legacy/Unnamed logic: no named handles, just pass the value directly
-                        if (defaultInputs.length === 1) {
-                            input = defaultInputs[0];
-                        } else if (defaultInputs.length > 1) {
-                            if (Array.isArray(defaultInputs[0])) {
-                                input = defaultInputs.flat();
-                            } else {
-                                input = defaultInputs;
-                            }
-                        }
-                    }
-
-                    // Execute node with strict 60s timeout to prevent indefinite engine hangs
-                    const timeoutPromise = new Promise<NodeExecutionResult>((_, reject) =>
-                        setTimeout(() => reject(new Error(`Timeout: Node ${node.type} failed to complete in 60s`)), 60000)
-                    );
-
-                    const result: NodeExecutionResult = await Promise.race([
-                        executor(node.data.config, input, context),
-                        timeoutPromise
-                    ]);
-
-                    if (!result.success) {
-                        throw new Error(result.error || 'Node execution failed');
-                    }
-
-                    return {
-                        nodeId: node.id,
-                        success: true,
-                        output: result.data,
-                    };
-
-                } catch (error) {
-                    return {
-                        nodeId: node.id,
-                        success: false,
-                        error: error instanceof Error ? error.message : 'Unknown error',
-                    };
-                }
-            });
-
-            // Wait for all nodes in this wave using allSettled (failures don't stop others)
-            const waveResults = await Promise.allSettled(waveExecutions);
-
-            // Process results
-            const nextReadyNodes: WorkflowNode[] = [];
-
-            for (let index = 0; index < waveResults.length; index++) {
-                const result = waveResults[index];
-                const node = readyNodes[index];
-
-                if (result.status === 'fulfilled' && result.value.success) {
-                    // Node succeeded
-                    completedNodes.add(node.id);
-                    nodeOutputs.set(node.id, result.value.output);
-
-                    // Mutate workflow with success state and thumbnails
-                    (node.data as any).status = 'success';
-                    const outputStr = result.value.output;
-                    if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
-                        (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
-                    } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
-                        (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
-                    }
-
-                    // Await persist BEFORE broadcasting — so canvas_state contains thumbnailUrls
-                    if (onNodePersist) {
-                        const previousMeta = (node.data as any).outputMetadata;
-                        // Only pass thumbnail paths for deletion (results are permanent)
-                        const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
-
-                        // Input URLs = parent nodes' thumbnailUrls (already-persisted)
-                        const parentIds = parents.get(node.id) || [];
-                        const inputUrls: string[] = parentIds.flatMap(pid => {
-                            const parentNode = workflow.nodes.find(n => n.id === pid);
-                            return (parentNode?.data as any)?.outputMetadata?.thumbnailUrls ?? [];
-                        });
-
-                        // Leaf node = no outgoing edges (children)
-                        const isLeaf = (children.get(node.id) || []).length === 0;
-
-                        try {
-                            const persistMeta = await onNodePersist(
-                                node.id,
-                                node.type,
-                                (node.data as any).config ?? {},
-                                inputUrls,
-                                result.value.output,
-                                prevThumbnailPaths,
-                                isLeaf,
-                            );
-                            if (persistMeta) {
-                                (node.data as any).outputMetadata = {
-                                    ...(node.data as any).outputMetadata,
-                                    thumbnailPaths: persistMeta.thumbnailPaths,
-                                    thumbnailUrls: persistMeta.thumbnailUrls,
-                                    resultPaths: persistMeta.resultPaths,
-                                    resultUrls: persistMeta.resultUrls,
-                                    computedHash: persistMeta.computedHash,
-                                };
-                            }
-                        } catch (persistErr) {
-                            console.warn(`[Persist] Node ${node.id} persist failed:`, persistErr);
-                        }
-                    }
-
-                    if (onStatusUpdate) await onStatusUpdate(node.id, 'success', workflow);
-
-                    // Emit the output for live streaming results
-                    onNodeOutput?.(node.id, result.value.output);
-
-                    // Unlock children
-                    const childIds = children.get(node.id) || [];
-                    childIds.forEach(childId => {
-                        if (!blockedNodes.has(childId)) {
-                            const newDegree = (currentInDegree.get(childId) || 0) - 1;
-                            currentInDegree.set(childId, newDegree);
-
-                            // If child is now ready, add to next wave
-                            if (newDegree <= 0 && !completedNodes.has(childId)) {
-                                const childNode = workflow.nodes.find(n => n.id === childId);
-                                if (childNode) {
-                                    nextReadyNodes.push(childNode);
-                                }
-                            }
-                        }
-                    });
-
-                } else {
-                    // Node failed
-                    failedNodes.add(node.id);
-                    const errorMsg = result.status === 'rejected' ? result.reason : (result as any).value.error;
-                    if (!firstError) firstError = errorMsg;
-
-                    // Mutate workflow with error state
-                    (node.data as any).status = 'error';
-                    (node.data as any).error = errorMsg;
-
-                    if (onStatusUpdate) await onStatusUpdate(node.id, 'error', workflow);
-
-                    // Block all downstream nodes in this branch
-                    const blockDownstream = (nodeId: string) => {
-                        const childIds = children.get(nodeId) || [];
-                        childIds.forEach(childId => {
-                            if (!blockedNodes.has(childId)) {
-                                blockedNodes.add(childId);
-                                const childNode = workflow.nodes.find(n => n.id === childId);
-                                if (childNode) {
-                                    (childNode.data as any).status = 'error';
-                                    (childNode.data as any).error = 'Blocked by upstream error';
-                                }
-                                blockDownstream(childId);
-                            }
-                        });
-                    };
-
-                    blockDownstream(node.id);
-                }
+        workflow.edges.forEach(edge => {
+            if (executionSet.has(edge.source) && executionSet.has(edge.target)) {
+                currentInDegree.set(edge.target, (currentInDegree.get(edge.target) || 0) + 1);
             }
-            // Move to next wave
-            readyNodes = nextReadyNodes;
-        }
-
-        // Find the final output node(s) - nodes with no children
-        const finalNodes = Array.from(completedNodes).filter(nodeId => {
-            const childIds = children.get(nodeId) || [];
-            return childIds.length === 0;
         });
 
-        // Get the output from the final node(s)
-        let finalResult;
-        if (finalNodes.length === 1) {
-            // Single final node - return its output directly
-            finalResult = nodeOutputs.get(finalNodes[0]);
-        } else if (finalNodes.length > 1) {
-            // Multiple final nodes - merge their outputs
-            const outputs = finalNodes.map(nodeId => nodeOutputs.get(nodeId)).filter(Boolean);
+        // Pre-seed dependencies that have cached outputs (and are NOT in target set)
+        for (const nodeId of dependencySet) {
+            if (!targetSet.has(nodeId)) {
+                const node = workflow.nodes.find(n => n.id === nodeId);
+                if (node) {
+                    let cachedOutput = (node.data as any)?.output;
 
-            // If all outputs are arrays (e.g., images), flatten them
-            if (outputs.every(output => Array.isArray(output))) {
-                finalResult = outputs.flat();
-            } else {
-                finalResult = outputs;
-            }
-        } else {
-            // No final nodes (all blocked/failed) - return null
-            finalResult = null;
-        }
+                    const sharedDef = sharedRegistry[node.type as keyof typeof sharedRegistry];
+                    if (sharedDef && sharedDef.family === 'input') {
+                        // Input nodes are static holders and don't "run", so their data.output might be stale.
+                        // We instantly re-evaluate them here to capture live text/number edits.
+                        const executor = getNodeExecutor(node.type);
+                        if (executor) {
+                            try {
+                                const res = await executor(node.data?.config, null, context);
+                                if (res.success) cachedOutput = res.data;
+                            } catch (e) {
+                                console.error(`Failed to evaluate input node ${node.id}`, e);
+                            }
+                        }
+                    }
 
-        // Return result
-        return {
-            success: completedNodes.size > 0,
-            result: finalResult,
-            error: failedNodes.size > 0 ? (firstError || `${failedNodes.size} node(s) failed`) : undefined,
-        };
+                    if (!cachedOutput && (node.data as any)?.outputMetadata?.thumbnailUrls?.length) {
+                        cachedOutput = (node.data as any).outputMetadata.thumbnailUrls.map((url: string) => ({ url }));
+                    }
+                    if (!cachedOutput && cachedOutputs && cachedOutputs[nodeId]) {
+                        cachedOutput = cachedOutputs[nodeId];
+                    }
 
-    } catch (error) {
-        console.error('💥 Workflow execution error:', error);
-        return {
-            success: false,
-            result: null,
-            error: error instanceof Error ? error.message : 'Unknown execution error',
-        };
-    }
-}
+                    if (cachedOutput !== undefined && cachedOutput !== null) {
+                        nodeOutputs.set(nodeId, cachedOutput);
+                        completedNodes.add(nodeId);
+                        onStatusUpdate?.(nodeId, 'success', workflow);
 
-/**
- * Execute a workflow starting from a specific node.
- * - Upstream nodes with cached outputs are skipped (pre-seeded)
- * - Only the startNode and its downstream descendants are executed
- * - If an upstream node has no cached output, it is included in execution
- */
-export async function executeWorkflowFromNode(
-    workflow: Workflow,
-    executionId: string,
-    startNodeId: string,
-    cachedOutputs: Record<string, any>,
-    onStatusUpdate?: (nodeId: string, status: NodeStatus) => void,
-    onNodeOutput?: (nodeId: string, output: any) => void,
-    onNodePersist?: (
-        nodeId: string,
-        nodeType: string,
-        config: any,
-        inputUrls: string[],
-        output: any,
-        prevThumbnailPaths: string[],
-        isLeafNode: boolean,
-    ) => Promise<{
-        thumbnailPaths: string[];
-        thumbnailUrls: string[];
-        resultPaths: string[];
-        resultUrls: string[];
-        computedHash: string;
-    } | null>
-): Promise<{
-    success: boolean;
-    result: any;
-    error?: string;
-}> {
-    try {
-        if (!workflow.nodes || workflow.nodes.length === 0) {
-            throw new Error('Workflow has no nodes');
-        }
-
-        const { parents, children, inDegree } = buildDependencyGraph(workflow.nodes, workflow.edges);
-
-        // BFS from startNode to find all downstream nodes (including startNode itself)
-        const downstreamSet = new Set<string>();
-        const queue = [startNodeId];
-        while (queue.length > 0) {
-            const nodeId = queue.shift()!;
-            if (downstreamSet.has(nodeId)) continue;
-            downstreamSet.add(nodeId);
-            const childIds = children.get(nodeId) || [];
-            childIds.forEach(c => queue.push(c));
-        }
-
-        // Create execution context
-        const context: ExecutionContext = {
-            workflowId: workflow.id || 'temp',
-            executionId,
-            data: null,
-        };
-
-        // Track node states
-        const nodeOutputs = new Map<string, any>();
-        const completedNodes = new Set<string>();
-        const failedNodes = new Set<string>();
-        const blockedNodes = new Set<string>();
-        const currentInDegree = new Map(inDegree);
-        let firstError: string | undefined;
-
-        // Pre-seed upstream nodes: any node NOT in downstreamSet that has cached output
-        for (const node of workflow.nodes) {
-            if (!downstreamSet.has(node.id) && cachedOutputs[node.id] !== undefined) {
-                nodeOutputs.set(node.id, cachedOutputs[node.id]);
-                completedNodes.add(node.id);
-                onStatusUpdate?.(node.id, 'success');
-
-                // Decrement in-degree for children of this pre-seeded node
-                const childIds = children.get(node.id) || [];
-                childIds.forEach(childId => {
-                    currentInDegree.set(childId, (currentInDegree.get(childId) || 0) - 1);
-                });
+                        const childIds = children.get(nodeId) || [];
+                        childIds.forEach(childId => {
+                            if (executionSet.has(childId)) {
+                                currentInDegree.set(childId, (currentInDegree.get(childId) || 0) - 1);
+                            }
+                        });
+                    }
+                }
             }
         }
 
-        // Find initial ready nodes within the downstream set
         let readyNodes = workflow.nodes.filter(node =>
-            downstreamSet.has(node.id) && currentInDegree.get(node.id) === 0
+            executionSet.has(node.id) &&
+            (currentInDegree.get(node.id) || 0) <= 0 &&
+            !completedNodes.has(node.id)
         );
 
-        // Mark downstream nodes as pending
-        for (const node of workflow.nodes) {
-            if (downstreamSet.has(node.id) && !readyNodes.find(r => r.id === node.id)) {
-                onStatusUpdate?.(node.id, 'pending');
-            }
+        for (const tid of targetSet) {
+            onStatusUpdate?.(tid, 'pending');
         }
 
-        let waveNumber = 1;
+        let firstError: string | undefined;
 
         while (readyNodes.length > 0) {
             const waveExecutions = readyNodes.map(async (node) => {
@@ -504,26 +250,8 @@ export async function executeWorkflowFromNode(
 
                 try {
                     const executor = getNodeExecutor(node.type);
-                    if (!executor) {
-                        throw new Error(`No executor found for node type: ${node.type}`);
-                    }
+                    if (!executor) throw new Error(`No executor found for node type: ${node.type}`);
 
-                    // Strict Connection Validation for Mandatory Inputs
-                    const sharedDef = sharedRegistry[node.type as keyof typeof sharedRegistry];
-                    if (sharedDef) {
-                        const expectedInputs = sharedDef.handles?.inputs || [];
-                        const checkIncomingEdges = workflow.edges.filter(e => e.target === node.id);
-
-                        const missingMandatory = expectedInputs.find((input: any) =>
-                            input.isMandatory && !checkIncomingEdges.some(e => e.targetHandle === input.id || (!e.targetHandle && expectedInputs.length === 1))
-                        );
-
-                        if (missingMandatory) {
-                            throw new Error(`Missing mandatory connection for input: ${missingMandatory.label}`);
-                        }
-                    }
-
-                    // Gather inputs from all parents (same logic as executeWorkflow)
                     const parentIds = parents.get(node.id) || [];
                     let input = null;
 
@@ -569,18 +297,16 @@ export async function executeWorkflowFromNode(
                         }
                     }
 
-                    // Execute node with strict 60s timeout to prevent indefinite engine hangs
                     const timeoutPromise = new Promise<NodeExecutionResult>((_, reject) =>
                         setTimeout(() => reject(new Error(`Timeout: Node ${node.type} failed to complete in 60s`)), 60000)
                     );
 
                     const result: NodeExecutionResult = await Promise.race([
-                        executor(node.data.config, input, context),
+                        executor(node.data?.config, input, context),
                         timeoutPromise
                     ]);
-                    if (!result.success) {
-                        throw new Error(result.error || 'Node execution failed');
-                    }
+
+                    if (!result.success) throw new Error(result.error || 'Node execution failed');
 
                     return { nodeId: node.id, success: true, output: result.data };
                 } catch (error) {
@@ -603,38 +329,50 @@ export async function executeWorkflowFromNode(
                     completedNodes.add(node.id);
                     nodeOutputs.set(node.id, result.value.output);
 
-                    // Mutate workflow with success state and thumbnails
-                    (node.data as any).status = 'success';
-                    const outputStr = result.value.output;
-                    if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
-                        (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
-                    } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
-                        (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
+                    if (node.data) {
+                        (node.data as any).output = result.value.output;
+
+                        const outputStr = result.value.output;
+                        if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
+                            (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
+                        } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
+                            (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
+                        }
                     }
 
                     if (onNodePersist) {
-                        const previousMeta = (node.data as any).outputMetadata;
+                        const previousMeta = (node.data as any)?.outputMetadata;
                         const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
 
                         const parentIds = parents.get(node.id) || [];
-                        const inputUrls: string[] = parentIds.flatMap(pid => {
-                            const parentNode = workflow.nodes.find(n => n.id === pid);
-                            return (parentNode?.data as any)?.outputMetadata?.thumbnailUrls ?? [];
+                        // We must hash the ACTUAL inputs passed to this node (including text prompts),
+                        // otherwise changing a connected prompt won't bust the cache!
+                        const inputsForHashing = parentIds.flatMap(pid => {
+                            const val = nodeOutputs.get(pid);
+                            // Convert to string representations or extract URLs/text
+                            if (Array.isArray(val)) return val.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v));
+                            if (typeof val === 'object') return [JSON.stringify(val)];
+                            return [String(val)];
                         });
 
                         const isLeaf = (children.get(node.id) || []).length === 0;
 
                         try {
+                            // If the node is explicitly in the targetSet, the user intentionally ran it.
+                            // We MUST force an overwrite to bypass the deterministic DB Cache, generating fresh variants.
+                            const forceOverwrite = targetSet.has(node.id);
+
                             const persistMeta = await onNodePersist(
                                 node.id,
                                 node.type,
-                                (node.data as any).config ?? {},
-                                inputUrls,
+                                (node.data as any)?.config ?? {},
+                                inputsForHashing,
                                 result.value.output,
                                 prevThumbnailPaths,
                                 isLeaf,
+                                forceOverwrite
                             );
-                            if (persistMeta) {
+                            if (persistMeta && node.data) {
                                 (node.data as any).outputMetadata = {
                                     ...(node.data as any).outputMetadata,
                                     thumbnailPaths: persistMeta.thumbnailPaths,
@@ -649,12 +387,12 @@ export async function executeWorkflowFromNode(
                         }
                     }
 
-                    onStatusUpdate?.(node.id, 'success');
+                    onStatusUpdate?.(node.id, 'success', workflow);
                     onNodeOutput?.(node.id, result.value.output);
 
                     const childIds = children.get(node.id) || [];
                     childIds.forEach(childId => {
-                        if (!blockedNodes.has(childId) && downstreamSet.has(childId)) {
+                        if (!blockedNodes.has(childId) && executionSet.has(childId)) {
                             const newDegree = (currentInDegree.get(childId) || 0) - 1;
                             currentInDegree.set(childId, newDegree);
                             if (newDegree === 0) {
@@ -672,8 +410,9 @@ export async function executeWorkflowFromNode(
                     const blockDownstream = (nodeId: string) => {
                         const childIds = children.get(nodeId) || [];
                         childIds.forEach(childId => {
-                            if (!blockedNodes.has(childId)) {
+                            if (!blockedNodes.has(childId) && executionSet.has(childId)) {
                                 blockedNodes.add(childId);
+                                onStatusUpdate?.(childId, 'error');
                                 blockDownstream(childId);
                             }
                         });
@@ -685,15 +424,13 @@ export async function executeWorkflowFromNode(
             readyNodes = nextReadyNodes;
         }
 
-        // Find final output from downstream completed nodes with no children (or no downstream children)
-        const finalNodes = Array.from(completedNodes).filter(nodeId => {
-            if (!downstreamSet.has(nodeId)) return false; // skip pre-seeded upstream
+        const finalNodes = Array.from(targetSet).filter(nodeId => {
             const childIds = children.get(nodeId) || [];
-            return childIds.length === 0 || childIds.every(c => !downstreamSet.has(c));
+            return childIds.length === 0 || childIds.every(c => !targetSet.has(c));
         });
 
         let finalResult;
-        if (finalNodes.length === 1) {
+        if (finalNodes.length === 1 && completedNodes.has(finalNodes[0])) {
             finalResult = nodeOutputs.get(finalNodes[0]);
         } else if (finalNodes.length > 1) {
             const outputs = finalNodes.map(nid => nodeOutputs.get(nid)).filter(Boolean);
@@ -703,7 +440,7 @@ export async function executeWorkflowFromNode(
         }
 
         return {
-            success: completedNodes.size > 0,
+            success: failedNodes.size === 0,
             result: finalResult,
             error: failedNodes.size > 0 ? (firstError || `${failedNodes.size} node(s) failed`) : undefined,
         };
@@ -717,7 +454,6 @@ export async function executeWorkflowFromNode(
         };
     }
 }
-
 /**
  * Validate workflow structure
  */
@@ -802,8 +538,14 @@ export function stripHeavyNodeData(workflow: Workflow): Workflow {
     if (cleanWorkflow.nodes) {
         cleanWorkflow.nodes.forEach(node => {
             if (node.data) {
-                // Strip ephemeral large data
-                delete (node.data as any).output;
+                const hasThumbnails = (node.data as any).outputMetadata?.thumbnailUrls?.length > 0;
+
+                // Only strip `output` if it's been uploaded to Supabase Storage (i.e. we have thumbnails).
+                // This preserves textual inputs/outputs (Prompt nodes, logic gates) permanently.
+                if (hasThumbnails) {
+                    delete (node.data as any).output;
+                }
+
                 if ((node.data as any).outputMetadata) {
                     // Remove raw base64 preview_urls — keep persisted storage references
                     delete (node.data as any).outputMetadata.preview_urls;

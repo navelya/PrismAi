@@ -4,6 +4,7 @@ import { MediaInputConfig } from '../../types';
 export const mediaInputSharedDef: NodeSharedDef<MediaInputConfig> = {
     type: 'media_input',
     family: 'input',
+    category: 'input',
     meta: {
         label: 'Media Input',
         description: 'Upload images manually',

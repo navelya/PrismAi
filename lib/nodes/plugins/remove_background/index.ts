@@ -3,7 +3,9 @@ import { RemoveBackgroundConfig } from '../../types';
 
 export const removeBackgroundSharedDef: NodeSharedDef<RemoveBackgroundConfig> = {
     type: 'remove_background',
-    family: 'utility',
+    family: 'utility', // UI menu
+    category: 'generative', // Execution behavior
+    creditCost: 1,
     meta: {
         label: 'Remove Background',
         description: 'Remove backgrounds from images',

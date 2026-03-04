@@ -163,14 +163,8 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                     setEditorState({ nodes: newNodes, edges: newEdges, name: initialWorkflow.name }, { history: 'replace' });
                 }
             }
-        } else if (initialWorkflow === null && editorState.nodes.length > 0) {
-            // Check checks for explicit null to clear? Or just if empty?
-            // Existing logic cleared if initialWorkflow.nodes was missing.
-            lastLoadedWorkflowRef.current = null;
-            resetEditorState({ nodes: [], edges: [], name: 'Untitled Workflow' });
-            setSelectedNode(null);
         }
-    }, [initialWorkflow, setEditorState, resetEditorState, editorState.nodes.length]);
+    }, [initialWorkflow, setEditorState, resetEditorState]);
 
     // Handle Node Changes
     const onNodesChange = useCallback((changes: NodeChange[]) => {

@@ -4,6 +4,8 @@ import { AIGenerateImageConfig } from '../../types';
 export const aiGenerateImageSharedDef: NodeSharedDef<AIGenerateImageConfig> = {
     type: 'ai_generate_image',
     family: 'generative',
+    category: 'generative',
+    creditCost: 1,
     meta: {
         label: 'AI Generate',
         description: 'Generate images with AI',

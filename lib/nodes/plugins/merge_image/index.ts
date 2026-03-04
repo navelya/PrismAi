@@ -4,6 +4,8 @@ import { MergeImageConfig } from '../../types';
 export const mergeImageSharedDef: NodeSharedDef<MergeImageConfig> = {
     type: 'merge_image',
     family: 'generative',
+    category: 'generative',
+    creditCost: 1,
     meta: {
         label: 'Merge Image',
         description: 'Composite overlay onto base image',

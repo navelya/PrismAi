@@ -4,6 +4,7 @@ import { CompositorConfig } from '../../types';
 export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
     type: 'compositor',
     family: 'output',
+    category: 'utility',
     meta: {
         label: 'Compositor',
         description: 'Layer-based image compositing',

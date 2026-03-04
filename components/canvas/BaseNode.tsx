@@ -2,7 +2,7 @@
 
 import React, { memo } from 'react';
 import { Handle, Position, useReactFlow, useEdges } from 'reactflow';
-import { Play, Copy, X, Loader2, Check, Circle } from 'lucide-react';
+import { Play, Copy, X, Loader2, Check, Circle, FastForward } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -88,9 +88,14 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         }
     };
 
-    const handleRunFromHere = (e: React.MouseEvent) => {
+    const handleRunSolo = (e: React.MouseEvent) => {
         e.stopPropagation();
-        triggerRunFromNode(id);
+        triggerRunFromNode(id, 'solo');
+    };
+
+    const handleRunChain = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        triggerRunFromNode(id, 'chain');
     };
 
     // Determine inputs to render
@@ -115,14 +120,27 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         >
             {/* Action Buttons */}
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                <button
-                    onClick={handleRunFromHere}
-                    className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                    title="Run from here"
-                >
-                    <Play className="w-3 h-3 text-content-inverted fill-current" />
-                </button>
+                {sharedDef?.category === 'generative' && (
+                    <>
+                        <button
+                            onClick={handleRunSolo}
+                            className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
+                                       flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                            title="Run Solo (This node only)"
+                        >
+                            <Play className="w-3 h-3 text-content-inverted fill-current" />
+                        </button>
+                        <button
+                            onClick={handleRunChain}
+                            className="w-6 h-6 rounded-full bg-purple-500/90 hover:bg-purple-600 backdrop-blur-sm
+                                       flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                            title="Run Chain (This node + all downstream)"
+                        >
+                            <FastForward className="w-3.5 h-3.5 text-content-inverted fill-current" />
+                        </button>
+                    </>
+                )}
+                {/* Input nodes don't have manual triggers anymore. Utility nodes compute reactively. */}
                 {customActions}
                 <button
                     onClick={handleDuplicate}

@@ -4,6 +4,7 @@ import { PromptConfig } from '../../types';
 export const promptSharedDef: NodeSharedDef<PromptConfig> = {
     type: 'prompt',
     family: 'input',
+    category: 'input',
     meta: {
         label: 'Prompt',
         description: 'Provide text or a prompt',

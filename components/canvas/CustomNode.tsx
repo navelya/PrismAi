@@ -15,8 +15,11 @@ interface CustomNodeData {
 }
 
 function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
-    // Subscribe to specific output for this node
-    const output = useAppStore((state) => state.nodeOutputs[id]);
+    // Subscribe to specific output for this node, or fallback to saved metadata (for page refreshes)
+    const liveOutput = useAppStore((state) => state.nodeOutputs[id]);
+    const output = liveOutput ||
+        (data as any).output ||
+        ((data as any).outputMetadata?.thumbnailUrls?.length ? (data as any).outputMetadata.thumbnailUrls.map((url: string) => ({ url })) : null);
 
     // Preview Mode: 'single' or 'grid'
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');

@@ -4,6 +4,7 @@ import { FilterSortConfig } from '../../types';
 export const filterSortSharedDef: NodeSharedDef<FilterSortConfig> = {
     type: 'filter_sort',
     family: 'utility',
+    category: 'utility',
     meta: {
         label: 'Filter & Sort',
         description: 'Filter and sort image arrays',

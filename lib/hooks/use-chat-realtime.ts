@@ -49,7 +49,6 @@ export function useChatRealtime({
     // =========================================================================
     useEffect(() => {
         const activeSessionId = sessionId;
-        if (!activeSessionId) return;
 
         const supabase = createClient();
         supabaseRef.current = supabase;
@@ -221,35 +220,49 @@ export function useChatRealtime({
                 }
 
                 // ─── HASH GUARD ────────────────────────────────────────────────────
-                // Mark this workflow hash as "server-authored" before updating the store.
-                // The auto-save in ChatInterface.tsx will compare its debouncedWorkflow
-                // hash against this value and skip the write if they match, breaking
-                // the feedback loop at the source.
-                setServerWorkflowHash(newWorkflow);
-                // ──────────────────────────────────────────────────────────────────
+                // Break the echo loop: if the incoming workflow hash structurally matches 
+                // what the server/we already know, ignore it to preserve volatile local state (like .output).
+                const incomingHash = stableStringify(cleanWorkflowForSave(newWorkflow));
+                if (incomingHash === serverWorkflowHash) {
+                    return;
+                }
 
+                setServerWorkflowHash(newWorkflow);
                 store.setCurrentWorkflow(newWorkflow);
 
                 // Live Sync Node Statuses & outputs from Worker execution
                 if (newWorkflow.nodes) {
+                    const currentStatuses = store.nodeStatuses;
+                    // If any node is ACTIVELY running, do NOT overwrite statuses from the DB snapshot.
+                    // The live status comes from the execution Realtime channel (useExecutionChannel).
+                    // Syncing from DB here would clobber 'running' with stale 'pending'/'idle' data.
+                    const isExecutionInProgress = Object.values(currentStatuses).some(
+                        (s) => s === 'running' || s === 'pending'
+                    );
+
                     newWorkflow.nodes.forEach((node: any) => {
-                        if (node.data?.status) {
-                            const currentStatus = store.nodeStatuses[node.id];
+                        if (!isExecutionInProgress && node.data?.status) {
+                            const currentStatus = currentStatuses[node.id];
+                            // Only promote from non-terminal states; never downgrade success/error.
                             if (currentStatus !== 'success' && currentStatus !== 'error') {
                                 store.setNodeStatus(node.id, node.data.status);
                             }
                         }
 
-                        // Priority 1: persisted Supabase Storage thumbnailUrls (shown in canvas node)
+                        // Always sync persisted imageURLs from outputMetadata (these are permanent
+                        // Supabase Storage URLs that reflect the most recent completed execution).
                         const meta = node.data?.outputMetadata;
                         if (meta?.thumbnailUrls && Array.isArray(meta.thumbnailUrls) && meta.thumbnailUrls.length > 0) {
-                            const imageObjects = meta.thumbnailUrls.map((url: string, idx: number) => ({
-                                url,
-                                resolution: { width: 1024, height: 1024 },
-                                metadata: { title: `Output ${idx + 1}`, source: 'Persisted' },
-                            }));
-                            store.setNodeOutput(node.id, imageObjects);
-                        } else if (node.data?.output !== undefined) {
+                            // Only update outputs if we're NOT mid-execution (would clobber live stream)
+                            if (!isExecutionInProgress) {
+                                const imageObjects = meta.thumbnailUrls.map((url: string, idx: number) => ({
+                                    url,
+                                    resolution: { width: 1024, height: 1024 },
+                                    metadata: { title: `Output ${idx + 1}`, source: 'Persisted' },
+                                }));
+                                store.setNodeOutput(node.id, imageObjects);
+                            }
+                        } else if (!isExecutionInProgress && node.data?.output !== undefined) {
                             // Priority 2: inline output (non-image nodes or legacy)
                             store.setNodeOutput(node.id, node.data.output);
                         }
@@ -261,43 +274,49 @@ export function useChatRealtime({
         // ─── Subscribe ───────────────────────────────────────────────────────
 
         const subscribe = () => {
-            const messagesChannel = supabase
-                .channel(`chat-messages-${activeSessionId}`)
-                .on(
-                    'postgres_changes',
-                    {
-                        event: 'UPDATE',
-                        schema: 'public',
-                        table: 'messages',
-                        filter: `session_id=eq.${activeSessionId}`,
-                    },
-                    handleMessageUpdate
-                )
-                .subscribe((status, err) => {
-                    if (err) console.error('[Realtime] Messages channel error:', err);
-                    else console.log('[Realtime] Messages channel status:', status);
-                });
+            if (activeSessionId) {
+                const messagesChannel = supabase
+                    .channel(`chat-messages-${activeSessionId}`)
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: 'UPDATE',
+                            schema: 'public',
+                            table: 'messages',
+                            filter: `session_id=eq.${activeSessionId}`,
+                        },
+                        handleMessageUpdate
+                    )
+                    .subscribe((status, err) => {
+                        if (err) console.error('[Realtime] Messages channel error:', err);
+                        else console.log('[Realtime] Messages channel status:', status);
+                    });
 
-            messagesChannelRef.current = messagesChannel;
+                messagesChannelRef.current = messagesChannel;
 
-            const sessionsChannel = supabase
-                .channel(`chat-sessions-${activeSessionId}`)
-                .on(
-                    'postgres_changes',
-                    {
-                        event: 'UPDATE',
-                        schema: 'public',
-                        table: 'sessions',
-                        filter: `id=eq.${activeSessionId}`,
-                    },
-                    handleSessionUpdate
-                )
-                .subscribe((status, err) => {
-                    if (err) console.error('[Realtime] Sessions channel error:', err);
-                    else console.log('[Realtime] Sessions channel status:', status);
-                });
+                const sessionsChannel = supabase
+                    .channel(`chat-sessions-${activeSessionId}`)
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: 'UPDATE',
+                            schema: 'public',
+                            table: 'sessions',
+                            filter: `id=eq.${activeSessionId}`,
+                        },
+                        handleSessionUpdate
+                    )
+                    .subscribe((status, err) => {
+                        if (err) console.error('[Realtime] Sessions channel error:', err);
+                        else console.log('[Realtime] Sessions channel status:', status);
+                    });
 
-            sessionsChannelRef.current = sessionsChannel;
+                sessionsChannelRef.current = sessionsChannel;
+
+                // NOTE: The execution channel (execution_${activeSessionId}) is intentionally NOT
+                // subscribed here. It is managed by useExecutionChannel in ChatClientPage,
+                // which is at a higher level that survives ChatInterface unmounting.
+            }
         };
 
         subscribe();
@@ -310,43 +329,45 @@ export function useChatRealtime({
             console.log('[Realtime] Tab became visible — checking execution state...');
             const store = useAppStore.getState();
 
-            try {
-                const { data: latestMessages } = await supabase
-                    .from('messages')
-                    .select('*')
-                    .eq('session_id', activeSessionId)
-                    .eq('role', 'assistant')
-                    .order('created_at', { ascending: false })
-                    .limit(1);
+            if (activeSessionId) {
+                try {
+                    const { data: latestMessages } = await supabase
+                        .from('messages')
+                        .select('*')
+                        .eq('session_id', activeSessionId)
+                        .eq('role', 'assistant')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
 
-                const latestAssistant = latestMessages?.[0];
+                    const latestAssistant = latestMessages?.[0];
 
-                if (
-                    latestAssistant &&
-                    store.isLoading &&
-                    (latestAssistant.status === 'completed' || latestAssistant.status === 'failed')
-                ) {
-                    console.log('[Realtime] Recovering from stale loading state after tab return...');
-                    await handleMessageUpdate({ new: latestAssistant });
-                }
-
-                const { data: sessionData } = await supabase
-                    .from('sessions')
-                    .select('canvas_state, status_message')
-                    .eq('id', activeSessionId)
-                    .single();
-
-                if (sessionData) {
-                    if (sessionData.status_message !== undefined) {
-                        store.setStatusMessage(sessionData.status_message || null);
+                    if (
+                        latestAssistant &&
+                        store.isLoading &&
+                        (latestAssistant.status === 'completed' || latestAssistant.status === 'failed')
+                    ) {
+                        console.log('[Realtime] Recovering from stale loading state after tab return...');
+                        await handleMessageUpdate({ new: latestAssistant });
                     }
-                    if (sessionData.canvas_state && !store.isLoading) {
-                        setServerWorkflowHash(sessionData.canvas_state);
-                        store.setCurrentWorkflow(sessionData.canvas_state);
+
+                    const { data: sessionData } = await supabase
+                        .from('sessions')
+                        .select('canvas_state, status_message')
+                        .eq('id', activeSessionId)
+                        .single();
+
+                    if (sessionData) {
+                        if (sessionData.status_message !== undefined) {
+                            store.setStatusMessage(sessionData.status_message || null);
+                        }
+                        if (sessionData.canvas_state && !store.isLoading) {
+                            setServerWorkflowHash(sessionData.canvas_state);
+                            store.setCurrentWorkflow(sessionData.canvas_state);
+                        }
                     }
+                } catch (e) {
+                    console.error('[Realtime] Tab-return state check failed:', e);
                 }
-            } catch (e) {
-                console.error('[Realtime] Tab-return state check failed:', e);
             }
 
             // Resubscribe if channels are closed

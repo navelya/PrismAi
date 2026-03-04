@@ -62,6 +62,17 @@ interface AppState {
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
     resetNodeStatuses: () => void;
 
+    // Advanced Execution States
+    nodeDirtyStates: Record<string, boolean>; // Stale/Dirty tracker
+    setNodeDirtyState: (nodeId: string, isDirty: boolean) => void;
+
+    isComputing: Record<string, boolean>; // Utility node sync
+    setIsComputing: (nodeId: string, computing: boolean) => void;
+
+    executionLocks: Record<string, boolean>; // Race condition locks
+    setExecutionLock: (nodeId: string, locked: boolean) => void;
+    clearExecutionLocks: () => void;
+
     // Live Node Outputs (streaming results)
     nodeOutputs: Record<string, any>;
     setNodeOutput: (nodeId: string, output: any) => void;
@@ -78,7 +89,8 @@ interface AppState {
 
     // Run From Node (partial execution trigger)
     runFromNodeId: string | null;
-    triggerRunFromNode: (nodeId: string) => void;
+    runMode: 'solo' | 'chain' | 'ab_test' | null;
+    triggerRunFromNode: (nodeId: string, runMode?: 'solo' | 'chain' | 'ab_test') => void;
     clearRunFromNode: () => void;
 
     // Invalidates nodes and their descendants (Partial Execution Helper)
@@ -114,9 +126,13 @@ export const useAppStore = create<AppState>()(
             },
             executionResults: {},
             nodeStatuses: {}, // Initialize empty status map
+            nodeDirtyStates: {},
+            isComputing: {},
+            executionLocks: {},
             nodeOutputs: {}, // Initialize empty outputs map
             copiedNode: null, // Initialize copied node as null
             runFromNodeId: null, // No partial execution pending
+            runMode: null, // Execution targeting modifier
             layoutEngine: 'elk', // Default layout engine
             isLoading: false,
             statusMessage: null,
@@ -133,9 +149,13 @@ export const useAppStore = create<AppState>()(
                     },
                     executionResults: {},
                     nodeStatuses: {},
+                    nodeDirtyStates: {},
+                    isComputing: {},
+                    executionLocks: {},
                     nodeOutputs: {},
                     copiedNode: null,
                     runFromNodeId: null,
+                    runMode: null,
                     isLoading: false,
                     statusMessage: null,
                     isCanvasMode: false,
@@ -286,6 +306,33 @@ export const useAppStore = create<AppState>()(
 
             resetNodeStatuses: () => set({ nodeStatuses: {} }),
 
+            // Advanced Execution States
+            setNodeDirtyState: (nodeId, isDirty) =>
+                set((state) => ({
+                    nodeDirtyStates: {
+                        ...state.nodeDirtyStates,
+                        [nodeId]: isDirty,
+                    },
+                })),
+
+            setIsComputing: (nodeId, computing) =>
+                set((state) => ({
+                    isComputing: {
+                        ...state.isComputing,
+                        [nodeId]: computing,
+                    },
+                })),
+
+            setExecutionLock: (nodeId, locked) =>
+                set((state) => ({
+                    executionLocks: {
+                        ...state.executionLocks,
+                        [nodeId]: locked,
+                    },
+                })),
+
+            clearExecutionLocks: () => set({ executionLocks: {} }),
+
             // Live Node Output Actions (streaming results)
             setNodeOutput: (nodeId, output) =>
                 set((state) => ({
@@ -298,19 +345,21 @@ export const useAppStore = create<AppState>()(
             clearNodeOutputs: () => set({ nodeOutputs: {} }),
 
             // Run From Node Actions
-            triggerRunFromNode: (nodeId) => set({ runFromNodeId: nodeId }),
-            clearRunFromNode: () => set({ runFromNodeId: null }),
+            triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode }),
+            clearRunFromNode: () => set({ runFromNodeId: null, runMode: null }),
 
             // Invalidates nodes and their descendants (Partial Execution Helper)
             invalidateNodes: (nodeIds) => {
                 const state = get();
                 if (!state.currentWorkflow) return;
 
-                // 1. Identify all descendants (recursive)
+                // 1. Identify the target nodes AND all their descendants (recursive)
                 const { getDescendants } = require('../utils/graph-traversal');
                 const allDirtyNodes = new Set<string>();
 
                 nodeIds.forEach(id => {
+                    // Include the target node itself — not just its children!
+                    allDirtyNodes.add(id);
                     const descendants = getDescendants(id, state.currentWorkflow!.edges);
                     descendants.forEach((d: string) => allDirtyNodes.add(d));
                 });
@@ -327,9 +376,7 @@ export const useAppStore = create<AppState>()(
                 set({
                     nodeStatuses: newStatuses,
                     nodeOutputs: newOutputs,
-                    // Do NOT trigger runFromNodeId automatically
                 });
-                // Add your cache clearing logic here if applicable
             },
 
             // Workspace view mode
@@ -353,6 +400,9 @@ export const useAppStore = create<AppState>()(
                     'chatMessages',
                     'executionResults',
                     'nodeStatuses',
+                    'nodeDirtyStates',
+                    'isComputing',
+                    'executionLocks',
                     'nodeOutputs',
                     'copiedNode',
                     'isLoading',
@@ -368,6 +418,9 @@ export const useAppStore = create<AppState>()(
                     state.isDragging = false;
                     state.currentWorkflow = null;
                     state.nodeStatuses = {};
+                    state.nodeDirtyStates = {};
+                    state.isComputing = {};
+                    state.executionLocks = {};
                     state.nodeOutputs = {};
                     state.executionResults = {};
                     state.isCopilotMinimized = false;

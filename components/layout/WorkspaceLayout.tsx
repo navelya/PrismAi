@@ -103,25 +103,16 @@ export default function WorkspaceLayout({
                 transition={CANVAS_TRANSITION}
                 style={{ willChange: 'filter' }}
             >
-                {hasWorkflow ? (
-                    <SharedWorkflowEditor
-                        key={sessionId}
-                        workflow={workflow}
-                        showToolbar={true}
-                        showResultsPanel={false}
-                        readOnly={false}
-                        onExecutionComplete={(result) => {
-                            if (onExecutionResult) onExecutionResult(result);
-                        }}
-                    />
-                ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                        <div className="text-center text-content-tertiary select-none">
-                            <WorkflowIcon className="w-14 h-14 mx-auto mb-3 opacity-20" />
-                            <p className="text-sm font-medium opacity-40">Canvas will appear here</p>
-                        </div>
-                    </div>
-                )}
+                <SharedWorkflowEditor
+                    key={sessionId || 'empty-session-canvas'}
+                    workflow={workflow}
+                    showToolbar={true}
+                    showResultsPanel={false}
+                    readOnly={false}
+                    onExecutionComplete={(result) => {
+                        if (onExecutionResult) onExecutionResult(result);
+                    }}
+                />
             </motion.div>
 
             {/* ─────────── LAYER 2 · Chat / Copilot ────────────────────────────
@@ -244,7 +235,7 @@ export default function WorkspaceLayout({
 
                         {/* ── Canvas toggle pill (Chat Mode, top-right) ─── */}
                         <AnimatePresence>
-                            {!isCanvasMode && hasWorkflow && (
+                            {!isCanvasMode && (
                                 <motion.button
                                     key="canvas-toggle"
                                     onClick={() => setIsCanvasMode(true)}

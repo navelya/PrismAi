@@ -4,6 +4,8 @@ import { ScrapeImagesConfig } from '../../types';
 export const scrapeImagesSharedDef: NodeSharedDef<ScrapeImagesConfig> = {
     type: 'scrape_images',
     family: 'generative',
+    category: 'generative',
+    creditCost: 1,
     meta: {
         label: 'Scrape Images',
         description: 'Search and fetch images from the web',

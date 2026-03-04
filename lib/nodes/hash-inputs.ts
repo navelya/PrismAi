@@ -24,8 +24,10 @@ export async function computeNodeHash(
     nodeType: string,
     config: Record<string, unknown>,
     inputUrls: string[] = [],
+    nodeId: string = ''
 ): Promise<string> {
     const payload = stableStringify({
+        nodeId,
         nodeType,
         config,
         // Sort URLs so order of upstream results doesn't change the hash
