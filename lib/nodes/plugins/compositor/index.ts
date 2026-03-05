@@ -11,6 +11,7 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
         color: '#8b5cf6',
         icon: 'Layers2',
         dynamicInputs: true,
+        ephemeral: true,
     },
     handles: {
         // Inputs are dynamic based on layers, but we define an empty list here

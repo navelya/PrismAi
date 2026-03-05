@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeWorkflow, executeWorkflowFromNode, validateWorkflow, stripHeavyNodeData } from '@/lib/workflow-engine';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
 import { generateNodeId } from '@/lib/utils';
@@ -172,14 +173,42 @@ export async function POST(request: NextRequest) {
                     prevThumbnailPaths: string[] = [],
                     isLeafNode: boolean = false,
                     forceOverwrite: boolean = false
-                ) => persistNodeOutputs(
-                    adminSupabase,
-                    { userId, sessionId, nodeId, nodeType, config, inputUrls, output },
-                    prevThumbnailPaths,
-                    isLeafNode,
-                    computeNodeHash,
-                    forceOverwrite
-                );
+                ) => {
+                    // GENERIC BYPASS: If a node is marked as ephemeral (e.g. Filter & Sort, Compositor)
+                    // it means it just reorganizes/displays existing data. We completely skip Supabase 
+                    // storage uploads and cache DB inserts, and instantly pipe the live data back 
+                    // to the engine so the UI sees it.
+                    const isEphemeral = sharedRegistry[nodeType]?.meta?.ephemeral;
+
+                    if (isEphemeral) {
+                        // Extract URLs from current output (which might be an array or object from the node's executor)
+                        let rawUrls: string[] = [];
+                        if (Array.isArray(output)) {
+                            rawUrls = output.filter((o: any) => o?.url).map((o: any) => o.url);
+                        } else if (output?.url) {
+                            rawUrls = [output.url];
+                        }
+
+                        // Fake the persistence metadata so the UI engine renders the images perfectly 
+                        // without us ever saving them to the DB or dragging down the network.
+                        return {
+                            thumbnailPaths: [], // No DB path
+                            thumbnailUrls: rawUrls,
+                            resultPaths: [],
+                            resultUrls: isLeafNode ? rawUrls : [],
+                            computedHash: `ephemeral-${Date.now()}`
+                        };
+                    }
+
+                    return persistNodeOutputs(
+                        adminSupabase,
+                        { userId, sessionId, nodeId, nodeType, config, inputUrls, output },
+                        prevThumbnailPaths,
+                        isLeafNode,
+                        computeNodeHash,
+                        forceOverwrite
+                    );
+                };
 
                 // ── Execute ───────────────────────────────────────────────────
                 let result;

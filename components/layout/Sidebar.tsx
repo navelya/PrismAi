@@ -17,7 +17,6 @@ import { UserAvatar } from '@/components/ui/UserAvatar';
 
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
-    { name: 'Editor', path: '/editor', icon: Pen, desktopOnly: true },
     { name: 'Library', path: '/library', icon: BookOpen, desktopOnly: false },
     { name: 'Nodes', path: '/nodes', icon: Boxes, desktopOnly: false },
     { name: 'Settings', path: '/settings', icon: Settings, desktopOnly: false },
@@ -116,9 +115,13 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
                         (payload: any) => {
                             const updated = payload.new;
-                            setSessions(prev =>
-                                prev.map(s => s.id === updated.id ? { ...s, ...updated } : s)
-                            );
+                            if (updated.is_deleted) {
+                                setSessions(prev => prev.filter(s => s.id !== updated.id));
+                            } else {
+                                setSessions(prev =>
+                                    prev.map(s => s.id === updated.id ? { ...s, ...updated } : s)
+                                );
+                            }
                         }
                     )
                     .on(

@@ -16,6 +16,7 @@ export interface NodeSharedDef<TConfig = any> {
         icon: string;    // String identifier for Lucide icons
         color: string;   // Hex or CSS variable for UI theme
         dynamicInputs?: boolean; // Flag for nodes with variable input counts
+        ephemeral?: boolean;     // If true, engine skips saving outputs to DB (live preview only)
     };
     handles: {
         inputs: Array<{ id: string; label: string; expectedType: NodeDataType | NodeDataType[]; isMandatory?: boolean; color?: string; }>;

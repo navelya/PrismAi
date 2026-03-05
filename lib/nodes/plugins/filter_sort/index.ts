@@ -10,6 +10,7 @@ export const filterSortSharedDef: NodeSharedDef<FilterSortConfig> = {
         description: 'Filter and sort image arrays',
         color: '#4ade80',
         icon: 'ArrowUpDown',
+        ephemeral: true,
     },
     handles: {
         inputs: [{ id: 'images_in', label: 'Images', expectedType: ['image', 'image_array'], isMandatory: true }],

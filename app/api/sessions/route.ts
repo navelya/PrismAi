@@ -15,6 +15,7 @@ export async function GET() {
         .from('sessions')
         .select('id, title, updated_at')
         .eq('user_id', user.id)
+        .eq('is_deleted', false)
         .order('updated_at', { ascending: false });
 
     if (error) {

@@ -235,7 +235,7 @@ export default function WorkspaceLayout({
 
                         {/* ── Canvas toggle pill (Chat Mode, top-right) ─── */}
                         <AnimatePresence>
-                            {!isCanvasMode && (
+                            {!isCanvasMode && !!sessionId && (
                                 <motion.button
                                     key="canvas-toggle"
                                     onClick={() => setIsCanvasMode(true)}
