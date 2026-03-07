@@ -17,7 +17,7 @@ import { useChatMessages } from '@/lib/hooks/use-chat-messages';
 import { useSession } from '@/lib/hooks/use-session';
 import { useChatRealtime, serverWorkflowHash, setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
 import { NodeStatus } from '@/lib/nodes/types';
-import { sessionsApi, messagesApi, uploadApi, userApi, chatApi } from '@/lib/api/client';
+import { sessionsApi, messagesApi, uploadApi, userApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { useDebounce } from '@/lib/hooks/use-debounce';
 import { convertImageToWebP } from '@/lib/utils/image-processing';
@@ -26,7 +26,7 @@ interface Message {
     id: string;
     type: 'user' | 'assistant';
     content: string;
-    images?: string[]; // Attached images (base64)
+    images?: string[];
     result?: any;
     workflow?: Workflow;
     timestamp: Date;
@@ -44,41 +44,40 @@ interface ChatInterfaceProps {
 export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady, userName: initialUserName, sessionId: propSessionId }: ChatInterfaceProps) {
     const params = useParams();
     const router = useRouter();
+    const supabase = createClient();
     const sessionId = (propSessionId || params?.sessionId || params?.id) as string;
-    // State for Edit Mode // Server-provided execution progress
-    const [sidebarSessionId, setSidebarSessionId] = useState<string | null>(null); // Tracks active polling intervals to prevent zombies
 
+    // 👑 STABILITY FIX: מוחק את הזיכרון ברגע שחוזרים לעמוד ריק (New Chat)
+    const [prevSessionId, setPrevSessionId] = useState(sessionId);
+    if (sessionId !== prevSessionId) {
+        setPrevSessionId(sessionId);
+        if (!sessionId) {
+            useAppStore.getState().setActiveSessionId(null);
+            useAppStore.getState().clearMessages();
+            useAppStore.getState().setCurrentWorkflow(null);
+        }
+    }
 
     const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
     const isCanvasMode = useAppStore((state) => state.isCanvasMode);
 
-    // Strict Route-Based Rendering (Optimistic)
-    // The Welcome screen MUST ONLY render if there is NO sessionId in the URL AND NO active session in the store.
-    // By merging storeActiveSessionId, we instantly bypass the Welcome UI when the user starts a chat, entirely bypassing the Next.js `router.replace` RSC latency!
     const effectiveSessionId = sessionId || storeActiveSessionId;
     const isEmptyState = !effectiveSessionId;
 
-    // Use store workflow for auto-save as it's the source of truth
     const storeWorkflow = useAppStore((state) => state.currentWorkflow);
-    // Bundle the session ID so debouncing is bound to the exact chat context it originated in
     const memoizedSaveState = useMemo(() => ({ workflow: storeWorkflow, sessionId: effectiveSessionId }), [storeWorkflow, effectiveSessionId]);
     const debouncedSaveState = useDebounce(memoizedSaveState, 2000);
 
-    // Auto-save Canvas via BFF API
-    // Guard: only write to DB when the workflow content has actually changed from what
-    // the server last wrote. This breaks the feedback loop.
     useEffect(() => {
         const { workflow: debouncedWorkflow, sessionId: saveSessionId } = debouncedSaveState || {};
 
-        // Prevent "zombie saves" bleeding across sessions
         if (!debouncedWorkflow || !saveSessionId || saveSessionId !== effectiveSessionId) return;
 
-        // Strip volatile execution states BEFORE hashing/saving so live results don't trigger saves
-        const cleanWorkflow = cleanWorkflowForSave(debouncedWorkflow);
+        if (!debouncedWorkflow.nodes?.length && !debouncedWorkflow.edges?.length) return;
 
+        const cleanWorkflow = cleanWorkflowForSave(debouncedWorkflow);
         const currentHash = stableStringify(cleanWorkflow);
         if (currentHash && currentHash !== serverWorkflowHash) {
-            // Update the server hash before async write (optimistic lock)
             setServerWorkflowHash(cleanWorkflow);
             sessionsApi.update(saveSessionId, {
                 canvas_state: cleanWorkflow,
@@ -88,13 +87,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, [debouncedSaveState, effectiveSessionId]);
 
-    // Fast navigation loss safeguard (Flush on tab close)
     useEffect(() => {
         const handleBeforeUnload = () => {
             if (!storeWorkflow || !effectiveSessionId) return;
 
             const cleanWorkflow = cleanWorkflowForSave(storeWorkflow);
-
             const currentHash = stableStringify(cleanWorkflow);
             if (currentHash && currentHash !== serverWorkflowHash) {
                 setServerWorkflowHash(cleanWorkflow);
@@ -112,15 +109,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [storeWorkflow, effectiveSessionId]);
 
-
-
-
-
     const isMobile = useIsMobile();
-
-    // ... existing code ...
-
-    // Use global store for messages
     const messages = useAppStore((state) => state.chatMessages);
     const addMessage = useAppStore((state) => state.addMessage);
 
@@ -130,16 +119,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const statusMessage = useAppStore((state) => state.statusMessage);
     const setStatusMessage = useAppStore((state) => state.setStatusMessage);
 
-
-
     const [isListening, setIsListening] = useState(false);
     const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
     const recognitionRef = useRef<any>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const lastScrollTime = useRef<number>(0);
 
-    // Initialize custom hooks
     const {
         attachedImages,
         attachedBlobsRef,
@@ -167,6 +155,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         abortControllerRef
     });
 
+    // 👑 פונקציית ה-Send המעודכנת שכוללת ניווט ויצירת סשן
     const handleSend = () => {
         sendMessage(input.trim(), attachedBlobsRef.current, attachedImages, clearAttachments, setInput);
     };
@@ -177,35 +166,37 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         handleRevert
     });
 
-    // Textarea ref for auto-resize
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const ghostRef = useRef<HTMLDivElement>(null);
     const [isExpanded, setIsExpanded] = useState(false);
     const [isMultiLine, setIsMultiLine] = useState(false);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
-
     useEffect(() => {
-        scrollToBottom();
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+
+        if (isNearBottom) {
+            const now = Date.now();
+            if (now - lastScrollTime.current > 150) {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                lastScrollTime.current = now;
+            }
+        }
     }, [messages]);
 
-    // Correctly resize textarea when layout mode changes
     useLayoutEffect(() => {
         const textarea = textareaRef.current;
         if (textarea && isMultiLine) {
-            // Reset to auto to get correct scrollHeight in the new 'relative' layout
             textarea.style.height = 'auto';
             const newHeight = textarea.scrollHeight;
-
             const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
             textarea.style.height = `${Math.min(newHeight, maxHeight)}px`;
         }
     }, [isMultiLine, isMobile, isExpanded]);
 
     const toggleListening = () => {
-        // Check browser support
         if (typeof window === 'undefined') return;
 
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -224,7 +215,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             }
             setIsListening(false);
         } else {
-            // Capture current input state
             const startingText = input;
 
             try {
@@ -247,15 +237,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 };
 
                 recognition.onend = () => {
-                    // Only set listening to false if we stopped it manually or it timed out
-                    // We verify if the abortController is still active or check internal state
                     setIsListening(false);
                     recognitionRef.current = null;
                 };
 
                 recognition.onerror = (event: any) => {
-                    console.error('Speech recognition error details:', event);
-
                     if (event.error === 'no-speech') {
                         setIsListening(false);
                     }
@@ -278,14 +264,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     };
 
-
     const handleEdit = (message: Message) => {
         setEditingMessageId(message.id);
         setInput(message.content);
-        // Focus input
         setTimeout(() => {
             textareaRef.current?.focus();
-            // Adjust height
             if (textareaRef.current) {
                 textareaRef.current.style.height = 'auto';
                 textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
@@ -298,10 +281,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         setInput('');
     };
 
-
-
-    // Expose method to add execution results from editor
-    // Use ref to prevent infinite loop if onReady changes identity on every render
     const onReadyRef = useRef(onReady);
     const latestDepsRef = useRef({ sessionId: effectiveSessionId, saveMessageToDb, router, addMessage });
 
@@ -315,7 +294,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             onReadyRef.current(async (result: any) => {
                 const { sessionId: currentSessionId, saveMessageToDb: currentSave, router: currentRouter, addMessage: currentAdd } = latestDepsRef.current;
 
-                // 1. Ensure Active Session Exists (Lazy Creation) via BFF API
                 let activeSessionId = currentSessionId;
 
                 if (!activeSessionId) {
@@ -335,7 +313,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 let processedResult = result;
                 let resultImagePaths: string[] = [];
 
-                // 2. Process images via BFF upload API
                 try {
                     if (Array.isArray(result)) {
                         for (let i = 0; i < result.length; i++) {
@@ -363,7 +340,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     console.error("Failed to process editor result images:", e);
                 }
 
-                // 3. Save Message with persistence
                 const assistantMessage: Message = {
                     id: Date.now().toString(),
                     type: 'assistant',
@@ -376,9 +352,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 currentSave(assistantMessage, resultImagePaths);
             });
         }
-    }, []); // Run once on mount
+    }, []);
 
-    // Reusable height-recalculation logic (used by both typing and resize)
     const adjustTextareaHeight = useCallback(() => {
         const textarea = textareaRef.current;
         const ghost = ghostRef.current;
@@ -407,7 +382,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 setIsMultiLine(false);
             } else {
                 setIsMultiLine(hasNewlines || contentHeight > 40);
-
                 const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
                 const newHeight = Math.min(contentHeight, maxHeight);
                 textarea.style.height = `${newHeight}px`;
@@ -415,7 +389,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, [isMultiLine, isMobile, isExpanded]);
 
-    // ResizeObserver: retrigger height calc when container dimensions change
     useEffect(() => {
         const textarea = textareaRef.current;
         if (!textarea) return;
@@ -428,24 +401,18 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         return () => ro.disconnect();
     }, [adjustTextareaHeight]);
 
-    // Auto-resize textarea and detect multi-line
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setInput(e.target.value);
-        // Immediately recalculate after React updates the DOM value
-        // (the ref's .value is already updated by the controlled input at this point)
         adjustTextareaHeight();
     };
 
-    // Check if textarea exceeds 3 lines (for mobile expand button)
     const showExpandButton = isMobile && !isExpanded && textareaRef.current && textareaRef.current.scrollHeight > 72;
 
-    // Input component (reused in both states)
     const InputField = (
         <form onSubmit={(e) => {
             e.preventDefault();
             handleSend();
         }} className="relative w-full max-w-3xl mx-auto">
-            {/* Mobile expand button */}
             {showExpandButton && (
                 <button
                     type="button"
@@ -458,13 +425,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 </button>
             )}
 
-            {/* Input container */}
             <div className={`relative flex flex-col rounded-2xl border bg-surface-secondary/50 
                            focus-within:ring-2 focus-within:ring-accent-primary/20 focus-within:border-accent-primary focus-within:bg-surface-primary
                            transition-all duration-200
                            ${isListening ? 'border-accent-error ring-2 ring-accent-error/20' : 'border-stroke-subtle'}`}>
 
-                {/* Attached Images Preview Strip */}
                 {attachedImages.length > 0 && (
                     <div className="flex gap-2 px-3 pt-3 pb-1 overflow-x-auto">
                         {attachedImages.map((img, index) => (
@@ -483,7 +448,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     </div>
                 )}
 
-                {/* Hidden ghost element */}
                 <div
                     ref={ghostRef}
                     className="absolute top-0 left-0 -z-50 invisible whitespace-pre-wrap break-words pointer-events-none"
@@ -497,7 +461,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     aria-hidden="true"
                 />
 
-                {/* Textarea */}
                 <textarea
                     ref={textareaRef}
                     value={input}
@@ -524,10 +487,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     }}
                 />
 
-                {/* Bottom row */}
                 <div className={`flex w-full items-center justify-between px-2 pb-2
                                ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}>
-                    {/* Plus button on left */}
                     <div className="relative z-10">
                         <Tooltip content="Add attachment" position="top">
                             <button
@@ -539,7 +500,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             </button>
                         </Tooltip>
 
-                        {/* Dropup Menu */}
                         {isPlusMenuOpen && (
                             <div className="absolute bottom-full left-0 mb-2 w-48 bg-surface-primary rounded-xl shadow-xl border border-stroke-subtle overflow-hidden z-50">
                                 <button
@@ -563,7 +523,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         )}
                     </div>
 
-                    {/* Mic and Send buttons on right */}
                     <div className="flex items-center gap-1 z-10">
                         {!isLoading && (
                             <Tooltip content={isListening ? 'Stop listening' : 'Voice input'} position="top">
@@ -595,9 +554,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             <Tooltip content="Send message" position="top">
                                 <button
                                     type="submit"
-                                    disabled={!input.trim()}
+                                    disabled={!input.trim() && attachedImages.length === 0}
                                     className={`p-2 rounded-lg transition-all duration-200
-                                ${input.trim()
+                                ${input.trim() || attachedImages.length > 0
                                             ? 'bg-content-primary hover:bg-content-secondary text-surface-primary'
                                             : 'bg-surface-secondary text-content-tertiary cursor-not-allowed'
                                         }`}
@@ -612,12 +571,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         </form>
     );
 
-    // Mobile: Slide-out drawer
-    // ... (This hook logic is in Sidebar, not here. We are in ChatInterface)
-
-    // START: Add User Name Fetching Logic
     const [userName, setUserName] = useState<string>(initialUserName || '');
-    // Removed redundant supabase declaration
 
     useEffect(() => {
         const getUserName = async () => {
@@ -628,15 +582,12 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     setUserName(name);
                 }
             } catch {
-                // Not authenticated or failed
             }
         };
 
         getUserName();
     }, []);
-    // END: User Name Fetching Logic
 
-    // Desktop Empty State
     if (isEmptyState && !isMobile) {
         return (
             <div
@@ -645,7 +596,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 onDragLeave={handleChatDragLeave}
                 onDrop={handleChatDrop}
             >
-                {/* Hidden file input */}
                 <input
                     ref={imageInputRef}
                     type="file"
@@ -658,7 +608,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     className="hidden"
                 />
 
-                {/* Drag-drop overlay */}
                 {isDragOver && (
                     <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/90 backdrop-blur-sm">
                         <div className="text-center">
@@ -685,10 +634,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                             Tell me what you'd like to do with images, and I'll create an automation workflow for you.
                         </p>
 
-                        {/* Centered Input */}
                         {InputField}
 
-                        {/* Example prompts and New Canvas */}
                         <div className="mt-8 flex flex-wrap justify-center gap-2">
                             <button
                                 onClick={createNewSession}
@@ -715,7 +662,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         );
     }
 
-    // Mobile Empty State
     if (isEmptyState && isMobile) {
         return (
             <div
@@ -724,7 +670,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 onDragLeave={handleChatDragLeave}
                 onDrop={handleChatDrop}
             >
-                {/* Hidden file input */}
                 <input
                     ref={imageInputRef}
                     type="file"
@@ -783,7 +728,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         );
     }
 
-    // Normal chat state
     return (
         <div
             className="relative flex flex-col h-full bg-surface-primary"
@@ -815,13 +759,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 </div>
             )}
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6">
                 <div className="max-w-3xl mx-auto space-y-6">
                     {messages.map((message, index) => {
-                        // Calculate undo target for User messages
                         let undoSnapshotId: string | undefined;
                         if (message.type === 'user') {
-                            // Find closest preceding snapshot
                             let found = false;
                             for (let i = index - 1; i >= 0; i--) {
                                 const m = messages[i];
@@ -831,16 +773,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                     break;
                                 }
                             }
-                            // If no preceding snapshot found, allow reverting to INITIAL (empty) state
                             if (!found) {
                                 undoSnapshotId = 'initial';
                             }
                         }
 
-                        // Calculate disabled state for Edit Mode
                         const editingIndex = editingMessageId ? messages.findIndex(m => m.id === editingMessageId) : -1;
                         const isDisabled = editingIndex !== -1 && index > editingIndex;
                         const isEditing = message.id === editingMessageId;
+                        const isGenerating = isLoading && index === messages.length - 1 && message.type === 'assistant';
 
                         return (
                             <MemoizedMessage
@@ -853,6 +794,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 isEditing={isEditing}
                                 serverStatus={statusMessage}
                                 isCanvasMode={isCanvasMode}
+                                isGenerating={isGenerating}
                             />
                         );
                     })}
@@ -899,9 +841,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     );
 }
 
-// Dynamic execution status component
 export function ExecutionUserFeedback({ serverStatus }: { serverStatus?: string | null }) {
-    // Prefer server-provided status (from sessions.status_message via Realtime)
     const [dots, setDots] = useState('');
 
     useEffect(() => {
@@ -920,8 +860,6 @@ export function ExecutionUserFeedback({ serverStatus }: { serverStatus?: string 
     );
 }
 
-// ... MemoizedMessage definition ...
-
 const MemoizedMessage = React.memo(function MemoizedMessage({
     message,
     onRevert,
@@ -931,6 +869,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
     isEditing,
     serverStatus,
     isCanvasMode = false,
+    isGenerating,
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -940,11 +879,10 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
     isEditing?: boolean;
     serverStatus?: string | null;
     isCanvasMode?: boolean;
+    isGenerating?: boolean;
 }) {
-    // State for local relative time
     const [timeString, setTimeString] = React.useState('');
 
-    // Update relative time every minute
     React.useEffect(() => {
         const updateTime = () => {
             setTimeString(formatRelativeTime(message.timestamp));
@@ -954,9 +892,8 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
         return () => clearInterval(interval);
     }, [message.timestamp]);
 
-    // Handler for Revert button click
     const handleRevertClick = (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent bubble click events
+        e.stopPropagation();
         if (onRevert && undoSnapshotId) {
             onRevert(undoSnapshotId);
         }
@@ -976,13 +913,12 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
 
             <div className={`relative max-w-[85%] ${message.type === 'user' ? 'min-w-[200px]' : ''}`}>
                 <div
-                    className={`flex flex-col overflow-hidden transition-all duration-300 ${message.type === 'user'
+                    className={`flex flex-col overflow-visible transition-all duration-300 ${message.type === 'user'
                         ? `bg-gradient-premium text-white rounded-2xl rounded-tr-sm relative shadow-lg shadow-accent-primary/10
                            ${isCanvasMode ? 'px-3 py-2 space-y-1' : 'px-5 py-4 space-y-2'}`
                         : 'space-y-2'
                         }`}
                 >
-                    {/* Image Attachments */}
                     {message.type === 'user' && message.images && message.images.length > 0 && (
                         <div className="flex gap-2 flex-wrap mb-1">
                             {message.images.map((img, index) => (
@@ -993,26 +929,35 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                         </div>
                     )}
 
-                    {/* Message Content */}
-                    {message.content ? (
-                        <p className={`text-[15px] leading-relaxed ${message.type === 'user' ? 'text-white/95 font-medium' : 'text-content-primary'}`}>
-                            {message.content}
-                        </p>
-                    ) : message.type === 'assistant' && !message.result && (
+                    {message.content ? (() => {
+                        const TAIL_LENGTH = 15;
+                        const isActuallyStreaming = isGenerating && message.content.length > TAIL_LENGTH;
+                        const stableText = isActuallyStreaming ? message.content.slice(0, -TAIL_LENGTH) : message.content;
+                        const tailText = isActuallyStreaming ? message.content.slice(-TAIL_LENGTH) : "";
+
+                        return (
+                            <p className={`text-[15px] leading-relaxed ${message.type === 'user' ? 'text-white/95 font-medium' : 'text-content-primary'}`}>
+                                {stableText}
+                                {isActuallyStreaming && tailText.split('').map((char, index) => (
+                                    <span key={index} style={{ opacity: (TAIL_LENGTH - index) / TAIL_LENGTH }}>
+                                        {char}
+                                    </span>
+                                ))}
+                            </p>
+                        );
+                    })() : message.type === 'assistant' && !message.result && (
                         <div className="flex items-center gap-2 text-content-primary py-1">
                             <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
                             <ExecutionUserFeedback serverStatus={serverStatus} />
                         </div>
                     )}
 
-                    {/* Result (Assistant) — suppressed in Canvas Mode, replaced by compact tag */}
                     {message.result && (
                         <div className="mt-2">
                             <MessageRenderer data={message.result} isCanvasMode={isCanvasMode} />
                         </div>
                     )}
 
-                    {/* Footer: Timestamp + Edit + Revert — hidden in canvas mode (micro-bubble) */}
                     {message.type === 'user' && (
                         <div
                             className="overflow-hidden transition-all duration-300"

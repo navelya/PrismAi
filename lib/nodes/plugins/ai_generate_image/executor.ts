@@ -90,7 +90,7 @@ export const aiGenerateImageExecutor = async (
             const sourceName = geminiModel === 'gemini-3-pro-image-preview' ? 'Gemini 3 Pro' : 'Nano Banana';
 
             // Gemini Image Generation models to try
-            const modelsToTry = [geminiModel, 'gemini-2.5-flash-image', 'imagen-3.0-generate-001'].filter(
+            const modelsToTry = [geminiModel, 'gemini-2.5-flash-image'].filter(
                 (v, i, arr) => arr.indexOf(v) === i // deduplicate
             );
 

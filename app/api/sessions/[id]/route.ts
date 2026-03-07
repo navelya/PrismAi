@@ -79,6 +79,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 /**
+ * POST /api/sessions/:id — Support for navigator.sendBeacon (which only sends POST)
+ * Proxies to the same logic as PATCH.
+ */
+export async function POST(request: NextRequest, { params }: RouteParams) {
+    return PATCH(request, { params });
+}
+
+
+/**
  * DELETE /api/sessions/:id — Delete a session and all associated assets
  */
 export async function DELETE(request: NextRequest, { params }: RouteParams) {

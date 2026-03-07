@@ -114,6 +114,9 @@ export async function POST(request: NextRequest) {
                 const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
                     const payload: any = { nodeId, status };
 
+                    // 🛠️ DEBUG LOG: Track every broadcast to verify the feedback loop
+                    console.log(`[API/Execute] Broadcasting: Node=${nodeId}, Status=${status}`);
+
                     if (status === 'success' && currentWorkflow) {
                         const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
                         if (node) {

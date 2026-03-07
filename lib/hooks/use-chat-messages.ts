@@ -3,7 +3,7 @@ import { useRouter } from 'next/navigation';
 import { Workflow, NodeStatus } from '@/lib/nodes/types';
 import { Message } from '@/lib/store/app-store';
 import { useAppStore } from '@/lib/store/app-store';
-import { messagesApi, sessionsApi, uploadApi, chatApi } from '@/lib/api/client';
+import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 
@@ -119,11 +119,11 @@ export function useChatMessages({
         clearAttachments: () => void,
         setInput: (val: string) => void
     ) => {
-        if (!trimmedInput || isLoading) return;
+        if (!trimmedInput && attachedImages.length === 0) return;
 
-        // EDIT MODE LOGIC: Revert before sending
         if (editingMessageId) {
-            const msgIndex = messages.findIndex(m => m.id === editingMessageId);
+            // ... (לוגיקת ה-Revert המקורית שלך נשארת כאן כרגיל)
+            const msgIndex = messages.findIndex((m: any) => m.id === editingMessageId);
             if (msgIndex !== -1) {
                 let undoSnapshotId = 'initial';
                 for (let i = msgIndex - 1; i >= 0; i--) {
@@ -138,98 +138,167 @@ export function useChatMessages({
             }
         }
 
-        const blobsToSend = [...attachedBlobs];
         const imagesToSend = [...attachedImages];
-
         clearAttachments();
         setInput('');
 
-        const userMessage: Message = {
-            id: Date.now().toString(),
+        // 👑 החזרנו את העדכון המיידי של ה-UI לראש הפונקציה! (לפני ה-await)
+        const userMsgId = `user-${Date.now()}`;
+        const assistantMsgId = `assistant-${Date.now()}`;
+
+        addMessage({
+            id: userMsgId,
             type: 'user',
             content: trimmedInput,
             images: imagesToSend.length > 0 ? imagesToSend : undefined,
             timestamp: new Date(),
-        };
-        addMessage(userMessage);
-        setIsLoading(true);
+        });
 
-        let activeSessionId = sessionId;
+        addMessage({
+            id: assistantMsgId,
+            type: 'assistant',
+            content: '',
+            timestamp: new Date(),
+        });
+
+        setIsLoading(true);
+        setStatusMessage('Prism is thinking...');
+
+        let activeSessionId = sessionId || useAppStore.getState().activeSessionId;
+
         if (!activeSessionId) {
-            // Optimistic instantaneous navigation for new chats!
             activeSessionId = crypto.randomUUID();
             useAppStore.getState().setActiveSessionId(activeSessionId);
 
-            // Break the synchronous event loop so React 18 paints the optimistic Chat bubbles INSTANTLY!
-            // If we don't use setTimeout, React will batch the store update inside the Next.js transition, freezing the screen.
-            setTimeout(() => {
+            // 👑 התיקון נגד ההבהוב! מעבר חלק לגמרי ברקע בלי להרוס את המסך
+            startTransition(() => {
                 router.replace(`/chat/${activeSessionId}`, { scroll: false });
-            }, 0);
+            });
 
             try {
-                // We MUST await this so the row exists in Postgres before `chatApi.send` fires.
-                // Since `handleSend` is async, this await does NOT block the UI thread from painting.
+                // רק עכשיו מחכים לשרת!
                 await sessionsApi.create('', activeSessionId);
 
-                // FIRE AND FORGET: Trigger title generation asynchronously so it does not block the interaction
                 sessionsApi.generateTitle({
                     sessionId: activeSessionId,
                     message: trimmedInput
-                }).catch(err => console.error('[TitleGen] Async title generation failed:', err));
-
+                }).catch(err => console.error('[TitleGen] Error:', err));
             } catch (err) {
-                console.error('[Optimistic Navigation] Failed to quietly create DB session:', err);
-                // We don't abort here because the local optimistic state is already live.
+                console.error("[Session Create] Error:", err);
             }
         }
 
-        let uploadedPaths: string[] = [];
-        if (blobsToSend.length > 0 && activeSessionId) {
-            try {
-                const results = await Promise.all(
-                    blobsToSend.map(blob => uploadApi.upload(blob, undefined, activeSessionId || undefined))
-                );
-                uploadedPaths = results.map(r => r.path);
-            } catch (e) {
-                console.error('[DEBUG] Image upload failed', e);
-            }
-        }
-
+        // --- קריאה לשרת הסטרימינג ---
         try {
-            const currentWorkflow = useAppStore.getState().currentWorkflow;
-            const response = await chatApi.send({
-                sessionId: activeSessionId!,
-                prompt: trimmedInput,
-                previousWorkflow: currentWorkflow,
-                attachedImages: imagesToSend.length > 0 ? imagesToSend : undefined,
-                imagePaths: uploadedPaths.length > 0 ? uploadedPaths : undefined,
-            });
-
-            startTransition(() => {
-                if (response.userMessage?.id) {
-                    useAppStore.getState().updateMessage(userMessage.id, { id: response.userMessage.id });
-                }
-
-                const assistantPlaceholder: Message = {
-                    id: response.assistantMessage.id,
-                    type: 'assistant',
-                    content: '',
-                    timestamp: new Date(),
-                };
-                addMessage(assistantPlaceholder);
-            });
-            // Realtime WebSocket handles the completion updates natively.
-            // (Legacy 1-second network spam polling has been permanently removed here).
-
-        } catch (error) {
-            console.error('Failed to send message:', error);
-            const errorMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                type: 'assistant',
-                content: `Sorry, I failed to send the message: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            // Save user message immediately
+            const userMsg: Message = {
+                id: userMsgId,
+                type: 'user',
+                content: trimmedInput,
+                images: imagesToSend.length > 0 ? imagesToSend : undefined,
                 timestamp: new Date(),
             };
-            addMessage(errorMessage);
+            // 🛑 DELETED: saveMessageToDb call removed.
+            // User message is now persisted server-side in stream/route.ts.
+
+            const response = await fetch('/api/chat/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: trimmedInput,
+                    sessionId: activeSessionId, // תמיד משתמש ב-ID הנכון
+                    previousWorkflow: useAppStore.getState().currentWorkflow,
+                    attachedImages: imagesToSend
+                }),
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Server error: ${errText}`);
+            }
+            if (!response.body) throw new Error('No response body');
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let networkText = '';
+            let displayedText = '';
+            let streamDone = false;
+            let buffer = '';
+            let finalWorkflow: Workflow | undefined = undefined;
+
+            const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+
+            const renderLoop = async () => {
+                while (!streamDone || displayedText.length < networkText.length) {
+                    if (displayedText.length < networkText.length) {
+                        const remaining = networkText.length - displayedText.length;
+                        const charsToAdd = Math.max(1, Math.ceil(remaining * 0.3));
+                        displayedText += networkText.substring(displayedText.length, displayedText.length + charsToAdd);
+
+                        useAppStore.getState().updateMessage(assistantMsgId, {
+                            content: displayedText
+                        });
+                    }
+                    await nextFrame();
+                }
+                setIsLoading(false);
+                setStatusMessage(null);
+
+                // Assistant message generation and local state update are finished.
+                // 🛑 DELETED: saveMessageToDb call removed.
+                // Persistence is handled server-side in stream/route.ts.
+            };
+
+            renderLoop();
+
+            const processStreamLine = (parsed: any) => {
+                if (parsed.type === 'text') {
+                    networkText += parsed.content;
+                }
+                else if (parsed.type === 'tool' && parsed.name === 'build_workflow') {
+                    if (parsed.message) {
+                        networkText += (networkText ? '\n\n' : '') + parsed.message;
+                    }
+                    const safeNodes = (parsed.workflow.nodes || []).map((node: any) => ({
+                        ...node,
+                        position: node.position || { x: 0, y: 0 }
+                    }));
+                    const safeWorkflow = { ...parsed.workflow, nodes: safeNodes };
+                    finalWorkflow = safeWorkflow;
+
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        workflow: safeWorkflow
+                    });
+
+                    if (onWorkflowGenerated) onWorkflowGenerated(safeWorkflow);
+                }
+            };
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    if (buffer.trim()) {
+                        try { processStreamLine(JSON.parse(buffer)); } catch (e) { }
+                    }
+                    streamDone = true;
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try { processStreamLine(JSON.parse(line)); } catch (e) { }
+                }
+            }
+
+        } catch (error) {
+            console.error("Stream failed:", error);
+            useAppStore.getState().updateMessage(assistantMsgId, {
+                content: "Sorry, I encountered a network error while streaming."
+            });
             setIsLoading(false);
             setStatusMessage(null);
         }

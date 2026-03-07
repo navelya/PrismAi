@@ -10,6 +10,8 @@ import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { useUndoRedo } from '@/lib/hooks/use-undo-redo';
 
+import { useAppStore } from '@/lib/store/app-store';
+
 // Types for the internal state of the hook
 interface EditorState {
     nodes: any[];
@@ -18,6 +20,9 @@ interface EditorState {
 }
 
 export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
+    const nodeStatuses = useAppStore((state) => state.nodeStatuses);
+    const nodeOutputs = useAppStore((state) => state.nodeOutputs);
+
     // Create a stable identity for the workflow to detect changes
     const getWorkflowIdentity = (wf: Workflow | null | undefined) => {
         if (!wf) return 'empty';
@@ -149,7 +154,11 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 });
                 const newEdges = Array.from(uniqueEdges.values());
 
-                const needsLayout = newNodes.length > 0 && newNodes.every(n => n.position.x === 0 && n.position.y === 0 || (n.position.x === 0 && n.position.y === 100));
+                const needsLayout = newNodes.length > 0 && newNodes.every(n => {
+                    // קוד הגנתי: אם מסיבה כלשהי (היסטוריה ישנה או שגיאת AI) אין מיקום, נשתמש ב-0,0
+                    const pos = n.position || { x: 0, y: 0 };
+                    return (pos.x === 0 && pos.y === 0) || (pos.x === 0 && pos.y === 100);
+                });
 
                 if (needsLayout) {
                     autoLayoutNodesAsync(newNodes, newEdges, 'elk').then(layoutedPositions => {
@@ -165,6 +174,11 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
             }
         }
     }, [initialWorkflow, setEditorState, resetEditorState]);
+
+    // 👑 Note: Direct subscription to nodeStatuses and nodeOutputs is handled 
+    // inside CustomNode.tsx. We no longer sync these into the local 'nodes' array
+    // here to prevent circular updates and stale state resets that were causing
+    // status indicators to disappear or "reset" during execution.
 
     // Handle Node Changes
     const onNodesChange = useCallback((changes: NodeChange[]) => {

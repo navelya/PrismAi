@@ -144,7 +144,11 @@ export async function executeWorkflowFromNode(
         }
 
         // 3. Compute Execution Set (E = T union D)
+        // Ensure that any node in T has its ancestors (D) available for data flow.
         const executionSet = new Set<string>([...targetSet, ...dependencySet]);
+
+        // 🛠️ DEBUG LOG: Verify the execution set before running
+        console.log(`[WorkflowEngine] targetSet size: ${targetSet.size}, executionSet size: ${executionSet.size}`);
 
         // Validate strictly upstream connections FOR nodes in T
         for (const tid of targetSet) {
