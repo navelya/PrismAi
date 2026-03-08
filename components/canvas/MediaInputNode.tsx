@@ -116,9 +116,9 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         >
             <div
                 className={cn(
-                    "relative w-full min-h-[160px] rounded-xl overflow-hidden border-2 border-dashed bg-surface-secondary/50",
-                    isDragOver ? "border-accent-primary bg-accent-primary/5" : "border-stroke-subtle hover:border-stroke-strong",
-                    "transition-all duration-300"
+                    "relative w-full min-h-[160px] rounded-xl overflow-hidden border-2 border-dashed bg-white/5",
+                    isDragOver ? "border-accent-primary bg-accent-primary/10" : "border-white/10 hover:border-white/20",
+                    "transition-all duration-500"
                 )}
             >
                 {images.length === 0 ? (

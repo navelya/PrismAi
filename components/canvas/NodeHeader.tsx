@@ -17,25 +17,23 @@ export function NodeHeader({ icon, label, color, badgeCount, className }: NodeHe
     const IconComponent = (Icons[icon as keyof typeof Icons] as React.ComponentType<any>) || Icons.Box;
 
     return (
-        <div className={cn("flex items-center gap-2 px-3 py-2 border-b border-white/5", className)}>
+        <div className={cn("flex items-center gap-2 px-3 py-2 border-b border-white/10", className)}>
             <div
-                className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
-                style={{ backgroundColor: `${color}30` }}
+                className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-white/10"
             >
                 <IconComponent
-                    className="w-3.5 h-3.5"
-                    style={{ color: color }}
+                    className="w-3.5 h-3.5 text-white/60"
                 />
             </div>
 
             <div className="flex-1 min-w-0">
-                <h3 className="text-[11px] font-bold text-white/90 truncate tracking-tight uppercase">
+                <h3 className="text-[11px] font-bold text-white/90 truncate tracking-wider uppercase">
                     {label}
                 </h3>
             </div>
 
             {badgeCount !== undefined && badgeCount > 0 && (
-                <div className="px-1.5 py-0.5 rounded-full bg-accent-primary text-[9px] font-bold text-white leading-none shadow-sm">
+                <div className="px-2 py-0.5 rounded-full bg-accent-primary text-[10px] font-black text-white leading-none shadow-lg shadow-accent-primary/20">
                     {badgeCount}
                 </div>
             )}

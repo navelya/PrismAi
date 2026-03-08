@@ -307,15 +307,13 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                         >
                             <div
                                 ref={previewRef}
-                                className="relative flex-shrink-0 rounded-lg border border-stroke-subtle overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.5)] bg-[#1a1a1a]"
+                                className="relative flex-shrink-0 rounded-xl border border-white/10 overflow-hidden shadow-2xl bg-white/5"
                                 style={{
                                     width: '100%',
                                     maxWidth: `calc(${MAX_PREVIEW_H}px * (${canvasW} / ${canvasH}))`,
                                     maxHeight: `${MAX_PREVIEW_H}px`,
                                     aspectRatio: `${canvasW} / ${canvasH}`,
-                                    backgroundImage: 'repeating-conic-gradient(#262626 0% 25%, #1a1a1a 0% 50%)',
-                                    backgroundSize: '16px 16px',
-                                    backgroundPosition: '0 0',
+                                    backgroundImage: 'linear-gradient(to bottom right, rgba(255, 255, 255, 0.05), transparent)',
                                 }}
                             >
                                 {hasConnectedInputs ? (

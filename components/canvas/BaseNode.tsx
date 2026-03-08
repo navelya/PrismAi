@@ -105,15 +105,15 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         <div
             ref={ref}
             className={cn(
-                "rounded-xl shadow-lg border-2 backdrop-blur-sm relative group bg-canvas-node",
-                "transition-all duration-300 hover:shadow-2xl",
+                "rounded-2xl border backdrop-blur-xl relative group bg-surface-elevated/40",
+                "transition-all duration-300 ease-out",
+                selected ? "border-accent-primary/50 shadow-[0_0_20px_rgba(var(--accent-primary-rgb),0.1)]" : "border-white/10 shadow-xl",
+                "hover:border-white/20 hover:bg-surface-elevated/50 hover:shadow-2xl",
                 typeof width === 'string' ? width : '',
                 className
             )}
             style={{
                 width: typeof width === 'number' ? width : undefined,
-                background: `linear-gradient(135deg, ${nodeColor}15 0%, ${nodeColor}30 100%)`, // slightly more transparent for lighter feel
-                borderColor: nodeColor,
                 ...props.style
             }}
             {...props}
@@ -194,14 +194,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    className="w-6 h-6 !border-2 !border-surface-primary hover:!brightness-110 transition-colors
+                                    className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                               before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                                     style={{
                                         background: input.color || nodeColor,
-                                        left: -6,
+                                        boxShadow: `0 0 10px ${input.color || nodeColor}40`,
+                                        left: -5,
                                         top: `calc(50% + ${offset}px)`,
-                                        width: '10px',
-                                        height: '10px',
                                     }}
                                 >
                                     {input.label && (() => {
@@ -225,13 +224,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
-                        className="w-4 h-4 !border-2 !border-surface-primary hover:!brightness-110 transition-colors
+                        className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                   before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                         style={{
                             background: nodeColor,
-                            left: -6,
-                            width: '10px',
-                            height: '10px',
+                            boxShadow: `0 0 10px ${nodeColor}40`,
+                            left: -5,
                         }}
                     >
                         {defaultInputLabel && (() => {
@@ -270,13 +268,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     type="source"
                     position={Position.Right}
                     id={defaultOutputId}
-                    className="w-4 h-4 !border-2 !border-surface-primary hover:!brightness-110 transition-colors
+                    className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                               before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
                     style={{
                         background: nodeColor,
-                        right: -6,
-                        width: '10px',
-                        height: '10px',
+                        boxShadow: `0 0 10px ${nodeColor}40`,
+                        right: -5,
                     }}
                 >
                     {defaultOutputLabel && (
