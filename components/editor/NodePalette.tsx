@@ -9,12 +9,13 @@ import { Tooltip } from '@/components/ui/Tooltip';
 
 interface NodePaletteProps {
     onDragStart: (type: NodeType) => void;
+    isCollapsed: boolean;
+    setIsCollapsed: (v: boolean) => void;
 }
 
 const nodeTypes = Object.keys(sharedRegistry) as NodeType[];
 
-export default function NodePalette({ onDragStart }: NodePaletteProps) {
-    const [isCollapsed, setIsCollapsed] = useState(false);
+export default function NodePalette({ onDragStart, isCollapsed, setIsCollapsed }: NodePaletteProps) {
 
     const handleDragStart = (event: React.DragEvent, nodeType: NodeType) => {
         event.dataTransfer.setData('application/reactflow', nodeType);
@@ -46,14 +47,17 @@ export default function NodePalette({ onDragStart }: NodePaletteProps) {
             </Tooltip>
 
             {/* Clipping Container - Handles the "Wipe" animation (Width 0 -> 64) */}
-            <div className={`h-full bg-surface-primary border-r border-stroke-subtle overflow-hidden transition-all duration-500 ease-in-out ${isCollapsed ? 'w-0' : 'w-64'}`}>
+            <div className={`h-full bg-surface-elevated/80 backdrop-blur-md border-r border-stroke-subtle overflow-hidden transition-all duration-500 ease-in-out ${isCollapsed ? 'w-0' : 'w-64'}`}>
 
                 {/* Fixed Width Content - Stays stable (w-64) while parent clips it */}
                 <div className="w-64 h-full flex flex-col">
 
                     {/* Header */}
-                    <div className="h-14 flex items-center px-4 border-b border-stroke-subtle flex-shrink-0">
-                        <h3 className="text-sm font-semibold text-content-secondary uppercase tracking-wide">Nodes</h3>
+                    <div className="h-16 flex items-center px-6 flex-shrink-0">
+                        <h3 className="text-xs font-bold text-content-tertiary uppercase tracking-widest flex items-center gap-2">
+                            <Icons.Box className="w-3.5 h-3.5" />
+                            Node Library
+                        </h3>
                     </div>
 
                     {/* Content */}

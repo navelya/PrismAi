@@ -193,45 +193,33 @@ export default function WorkspaceLayout({
                                 }
                         }
                     >
-                        {/* ── Copilot header: always in DOM, animates height+opacity.
-                             Keeping it in DOM prevents flex-height snap during expand. ── */}
-                        <motion.div
-                            className="flex-shrink-0 flex items-center justify-between px-4 overflow-hidden"
-                            animate={
-                                isCanvasMode
-                                    ? { height: 44, opacity: 1, pointerEvents: 'auto' as any }
-                                    : { height: 0, opacity: 0, pointerEvents: 'none' as any }
-                            }
-                            initial={false}
-                            transition={RESIZE_TRANSITION}
-                            style={{ minHeight: 0 }}
-                        >
-                            {/* Ghost title */}
-                            <div className="flex items-center gap-1.5">
-                                <MessageSquare className="w-3.5 h-3.5 text-content-tertiary" />
-                                <span className="text-xs font-medium text-content-tertiary tracking-wide">Copilot</span>
-                            </div>
-                            <div className="flex items-center gap-0.5">
-                                {/* Minimize → FAB */}
-                                <motion.button
-                                    onClick={() => setIsCopilotMinimized(true)}
-                                    className="p-1.5 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-white/8 transition-colors"
-                                    title="Minimize copilot"
-                                    whileTap={{ scale: 0.85 }}
+                        {/* ── Copilot Floating Controls ─── */}
+                        <AnimatePresence>
+                            {isCanvasMode && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="absolute top-3 right-3 z-30 flex items-center gap-1 p-1 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-full shadow-lg"
                                 >
-                                    <Minimize2 className="w-3.5 h-3.5" />
-                                </motion.button>
-                                {/* Exit canvas mode */}
-                                <motion.button
-                                    onClick={() => { setIsCanvasMode(false); setIsCopilotMinimized(false); }}
-                                    className="p-1.5 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-white/8 transition-colors"
-                                    title="Exit canvas mode"
-                                    whileTap={{ scale: 0.85 }}
-                                >
-                                    <Maximize2 className="w-3.5 h-3.5" />
-                                </motion.button>
-                            </div>
-                        </motion.div>
+                                    <button
+                                        onClick={() => setIsCopilotMinimized(true)}
+                                        className="p-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-white/10 transition-colors"
+                                        title="Minimize copilot"
+                                    >
+                                        <Minimize2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <div className="w-[1px] h-3 bg-stroke-subtle" />
+                                    <button
+                                        onClick={() => { setIsCanvasMode(false); setIsCopilotMinimized(false); }}
+                                        className="p-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-white/10 transition-colors"
+                                        title="Exit canvas mode"
+                                    >
+                                        <Maximize2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
 
                         {/* ── Canvas toggle pill (Chat Mode, top-right) ─── */}
                         <AnimatePresence>

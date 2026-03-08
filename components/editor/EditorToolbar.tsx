@@ -15,6 +15,7 @@ interface EditorToolbarProps {
     onNew: () => void;
     selectionMode?: boolean;
     onSelectionModeChange?: (enabled: boolean) => void;
+    isPaletteOpen?: boolean;
 }
 
 export default function EditorToolbar({
@@ -28,121 +29,122 @@ export default function EditorToolbar({
     onNew,
     selectionMode = false,
     onSelectionModeChange,
+    isPaletteOpen = true,
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
+    // State for auto-expanding width
+    const [titleWidth, setTitleWidth] = useState('auto');
+    const spanRef = React.useRef<HTMLSpanElement>(null);
+
+    React.useEffect(() => {
+        if (spanRef.current) {
+            const width = spanRef.current.offsetWidth;
+            setTitleWidth(`${Math.max(120, Math.min(width + 32, 400))}px`);
+        }
+    }, [workflowName]);
+
+    // Floating Island CSS Classes
+    const islandBase = "pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle shadow-xl shadow-black/20 transition-all duration-500 ease-in-out px-2 py-1.5 flex items-center gap-2";
 
     return (
-        <div className="flex items-center gap-2 px-4 py-3 bg-surface-primary border-b border-stroke-subtle">
-            {/* Workflow Name - Responsive */}
-            <input
-                type="text"
-                value={workflowName || ''}
-                onChange={(e) => onNameChange(e.target.value)}
-                className="flex-1 min-w-0 px-3 py-1.5 text-sm font-medium bg-surface-tertiary border border-stroke-subtle rounded-lg 
-                           text-content-primary placeholder:text-content-tertiary
-                           focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent"
-                placeholder="Workflow name"
-            />
+        <div className="absolute inset-0 z-40 p-4 pointer-events-none flex items-start">
+            {/* Hidden span for width measurement */}
+            <span
+                ref={spanRef}
+                className="absolute opacity-0 pointer-events-none whitespace-pre font-semibold text-sm px-4"
+                aria-hidden="true"
+            >
+                {workflowName || "Untitled Workflow"}
+            </span>
 
-            {/* Primary Action - Run/Stop toggle */}
-            {isRunning ? (
-                <Tooltip content="Stop" popupClassName="sm:hidden">
-                    <button
-                        onClick={onStop}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 hover:shadow-md transition-all font-medium text-sm"
-                    >
-                        <Square className="w-4 h-4 fill-current" />
-                        <span className="hidden sm:inline">Stop</span>
-                    </button>
-                </Tooltip>
-            ) : (
-                <Tooltip content="Run" popupClassName="sm:hidden">
-                    <button
-                        onClick={onRun}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-gradient-premium text-white rounded-lg hover:shadow-md hover:shadow-accent-primary/25 transition-all font-medium text-sm"
-                    >
-                        <Play className="w-4 h-4" />
-                        <span className="hidden sm:inline">Run</span>
-                    </button>
-                </Tooltip>
-            )}
-
-            {/* Desktop: Show all buttons */}
-            <div className="hidden lg:flex items-center gap-2">
-                <button
-                    onClick={onSave}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors text-sm border border-stroke-subtle"
-                >
-                    <Save className="w-4 h-4" />
-                    <span>Save</span>
-                </button>
-
-                <button
-                    onClick={onNew}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors text-sm border border-stroke-subtle"
-                >
-                    <FilePlus className="w-4 h-4" />
-                    <span>New</span>
-                </button>
-
-                <button
-                    onClick={onDelete}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 text-red-600 rounded-lg hover:bg-red-500/20 transition-colors text-sm border border-transparent hover:border-red-200 dark:hover:border-red-900"
-                >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Delete</span>
-                </button>
+            {/* Workflow Name Island (Centered) */}
+            <div
+                className={`${islandBase} rounded-2xl absolute left-1/2 -translate-x-1/2`}
+                style={{ width: titleWidth }}
+            >
+                <div className="flex items-center gap-2 w-full justify-center px-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse flex-shrink-0" />
+                    <input
+                        type="text"
+                        value={workflowName || ''}
+                        onChange={(e) => onNameChange(e.target.value)}
+                        className="w-full bg-transparent text-sm font-semibold text-content-primary placeholder:text-content-tertiary focus:outline-none text-center"
+                        placeholder="Untitled Workflow"
+                    />
+                </div>
             </div>
 
-            {/* Mobile/Tablet: Icon-only buttons */}
-            <div className="flex lg:hidden items-center gap-1">
+            <div className="flex-1" />
+
+            {/* Actions Island (Right) */}
+            <div className={`${islandBase} rounded-full`}>
+                {/* Primary Action - Run/Stop toggle */}
+                {isRunning ? (
+                    <Tooltip content="Stop" position="bottom">
+                        <button
+                            onClick={onStop}
+                            className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-sm"
+                        >
+                            <Square className="w-4 h-4 fill-current" />
+                        </button>
+                    </Tooltip>
+                ) : (
+                    <Tooltip content="Run" position="bottom">
+                        <button
+                            onClick={onRun}
+                            className="p-2 bg-gradient-premium text-white rounded-full hover:scale-105 transition-all shadow-sm"
+                        >
+                            <Play className="w-4 h-4" />
+                        </button>
+                    </Tooltip>
+                )}
+
+                <div className="w-[1px] h-4 bg-stroke-subtle mx-1" />
+
                 <Tooltip content="Save" position="bottom">
                     <button
                         onClick={onSave}
-                        className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
+                        className="p-2 text-content-secondary hover:text-content-primary hover:bg-surface-tertiary rounded-full transition-colors"
                     >
                         <Save className="w-4 h-4" />
                     </button>
                 </Tooltip>
 
-                {/* More menu for New and Delete */}
-                <div className="relative">
-                    <Tooltip content="More actions" position="bottom-end">
-                        <button
-                            onClick={() => setShowMenu(!showMenu)}
-                            className="p-2 bg-surface-secondary text-content-secondary rounded-lg hover:bg-surface-tertiary transition-colors border border-stroke-subtle"
-                        >
-                            <MoreVertical className="w-4 h-4" />
-                        </button>
-                    </Tooltip>
+                <Tooltip content="New" position="bottom">
+                    <button
+                        onClick={onNew}
+                        className="p-2 text-content-secondary hover:text-content-primary hover:bg-surface-tertiary rounded-full transition-colors"
+                    >
+                        <FilePlus className="w-4 h-4" />
+                    </button>
+                </Tooltip>
 
-                    {/* Dropdown Menu */}
+                {/* More Menu */}
+                <div className="relative">
+                    <button
+                        onClick={() => setShowMenu(!showMenu)}
+                        className="p-2 text-content-secondary hover:text-content-primary hover:bg-surface-tertiary rounded-full transition-colors"
+                    >
+                        <MoreVertical className="w-4 h-4" />
+                    </button>
+
                     {showMenu && (
                         <>
-                            <div
-                                className="fixed inset-0 z-10"
-                                onClick={() => setShowMenu(false)}
-                            />
-                            <div className="absolute right-0 top-full mt-1 w-40 bg-surface-elevated border border-stroke-subtle rounded-lg shadow-lg z-20 py-1">
+                            <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+                            <div className="absolute right-0 top-full mt-2 w-48 bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle rounded-xl shadow-2xl z-20 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                                 <button
-                                    onClick={() => {
-                                        onNew();
-                                        setShowMenu(false);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-content-secondary hover:bg-surface-tertiary transition-colors"
+                                    onClick={() => { onSelectionModeChange?.(!selectionMode); setShowMenu(false); }}
+                                    className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors ${selectionMode ? 'text-accent-primary bg-accent-primary/5' : 'text-content-secondary hover:bg-surface-tertiary'}`}
                                 >
-                                    <FilePlus className="w-4 h-4" />
-                                    New Workflow
+                                    <MousePointer className="w-4 h-4" />
+                                    {selectionMode ? 'Exit Selection Mode' : 'Selection Mode'}
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        onDelete();
-                                        setShowMenu(false);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                    onClick={() => { onDelete(); setShowMenu(false); }}
+                                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-500/5 transition-colors"
                                 >
                                     <Trash2 className="w-4 h-4" />
-                                    Delete
+                                    Delete Workflow
                                 </button>
                             </div>
                         </>

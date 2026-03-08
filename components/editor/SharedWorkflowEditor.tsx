@@ -380,34 +380,43 @@ export default function SharedWorkflowEditor({
         }
     };
 
+    const [isPaletteOpen, setIsPaletteOpen] = useState(true);
+
     const selectedNodeData = nodes.find(n => n.id === selectedNode);
 
     return (
-        <div className="w-full h-full flex flex-col">
-            {/* Toolbar */}
-            {showToolbar && (
-                <EditorToolbar
-                    workflowName={workflowName}
-                    onNameChange={setWorkflowName}
-                    onSave={handleSave}
-                    onRun={handleRun}
-                    onStop={handleStop}
-                    isRunning={isExecuting}
-                    onDelete={handleDelete}
-                    onNew={handleNew}
-                    selectionMode={selectionMode}
-                    onSelectionModeChange={setSelectionMode}
-                />
-            )}
+        <div className="w-full h-full relative overflow-hidden flex flex-col">
+            {/* Main Editor Container */}
+            <div className="flex-1 relative flex overflow-hidden">
+                {/* Floating Toolbar Island - Moved up for stable centering */}
+                {showToolbar && (
+                    <EditorToolbar
+                        workflowName={workflowName}
+                        onNameChange={setWorkflowName}
+                        onSave={handleSave}
+                        onRun={handleRun}
+                        onStop={handleStop}
+                        isRunning={isExecuting}
+                        onDelete={handleDelete}
+                        onNew={handleNew}
+                        selectionMode={selectionMode}
+                        onSelectionModeChange={setSelectionMode}
+                        isPaletteOpen={isPaletteOpen}
+                    />
+                )}
 
-            {/* Main Editor Area */}
-            <div className="flex-1 flex overflow-hidden">
-                {/* Node Palette */}
-                {!readOnly && <NodePalette onDragStart={() => { }} />}
+                {/* Node Palette - Now floating/drawer style */}
+                {!readOnly && (
+                    <NodePalette
+                        onDragStart={() => { }}
+                        isCollapsed={!isPaletteOpen}
+                        setIsCollapsed={(v) => setIsPaletteOpen(!v)}
+                    />
+                )}
 
-                {/* Canvas */}
-                <div className="flex-1 bg-gray-50 flex flex-col">
-                    <div className="flex-1">
+                {/* Canvas Area */}
+                <div className="flex-1 relative bg-surface-primary flex flex-col overflow-hidden">
+                    <div className="flex-1 relative z-10">
                         <EditorCanvas
                             nodes={nodes}
                             edges={edges}
