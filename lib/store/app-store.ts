@@ -36,7 +36,8 @@ interface AppState {
 
     // Node Management
     copiedNode: WorkflowNode | null;
-    deleteNode: (nodeId: string) => void;
+    cleanupNodeMetadata: (nodeId: string) => void;
+    deleteNodeWithAssets: (nodeId: string) => Promise<void>;
     copyNode: (nodeId: string) => void;
     pasteNode: (position?: { x: number; y: number }) => void;
     updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
@@ -109,6 +110,10 @@ interface AppState {
     // Chat Scroll Persistence (Ephemeral)
     chatScrollTop: number;
     setChatScrollTop: (pos: number) => void;
+
+    // Interaction Heartbeat (for auto-save de-bounce)
+    lastInteraction: number;
+    touchInteraction: () => void;
 }
 
 const MAX_HISTORY = 50; // Keep last 50 snapshots
@@ -143,6 +148,9 @@ export const useAppStore = create<AppState>()(
 
             chatScrollTop: 9999999,
             setChatScrollTop: (pos) => set({ chatScrollTop: pos }),
+
+            lastInteraction: Date.now(),
+            touchInteraction: () => set({ lastInteraction: Date.now() }),
 
             // Global Reset
             clearAllState: () => {
@@ -197,20 +205,68 @@ export const useAppStore = create<AppState>()(
 
             setIsDragging: (isDragging) => set({ isDragging }),
 
-            // Node Management
-            deleteNode: (nodeId) => {
+            // Node Management - metadata and asset cleanup side-effects
+            // ⚠️ NOTE: This does NOT modify currentWorkflow. 
+            // The editor (SharedWorkflowEditor) is the source of truth for nodes/edges.
+            cleanupNodeMetadata: (nodeId: string) => {
                 const state = get();
-                if (!state.currentWorkflow) return;
+                const { nodeStatuses, nodeOutputs, nodeDirtyStates, isComputing, executionLocks } = state;
 
-                const updatedWorkflow: Workflow = {
-                    ...state.currentWorkflow,
-                    nodes: state.currentWorkflow.nodes.filter((node) => node.id !== nodeId),
-                    edges: state.currentWorkflow.edges.filter(
-                        (edge) => edge.source !== nodeId && edge.target !== nodeId
-                    ),
-                };
+                const newStatuses = { ...nodeStatuses };
+                const newOutputs = { ...nodeOutputs };
+                const newDirty = { ...nodeDirtyStates };
+                const newComputing = { ...isComputing };
+                const newLocks = { ...executionLocks };
 
-                set({ currentWorkflow: updatedWorkflow });
+                delete newStatuses[nodeId];
+                delete newOutputs[nodeId];
+                delete newDirty[nodeId];
+                delete newComputing[nodeId];
+                delete newLocks[nodeId];
+
+                set({
+                    nodeStatuses: newStatuses,
+                    nodeOutputs: newOutputs,
+                    nodeDirtyStates: newDirty,
+                    isComputing: newComputing,
+                    executionLocks: newLocks
+                });
+            },
+
+            deleteNodeWithAssets: async (nodeId: string) => {
+                const state = get();
+                const { activeSessionId, currentWorkflow, nodeOutputs } = state;
+
+                // 1. CLEANUP METADATA (statuses, outputs, etc.)
+                state.cleanupNodeMetadata(nodeId);
+
+                // 2. Determine if asset cleanup is needed
+                // We check the currentWorkflow snapshot in the store
+                const targetNode = currentWorkflow?.nodes.find(n => n.id === nodeId);
+                const hasImagesInConfig = (targetNode?.data?.config as any)?.images?.length > 0;
+                const hasImagesInOutput = nodeOutputs[nodeId]?.some?.((item: any) => item.url);
+                const hasAssets = hasImagesInConfig || hasImagesInOutput;
+
+                if (!hasAssets) {
+                    console.log(`[Store] Optimistic cleanup for node ${nodeId} complete (no remote assets).`);
+                    return;
+                }
+
+                // 3. BACKGROUND ASSET CLEANUP
+                (async () => {
+                    try {
+                        const { userApi, uploadApi } = await import('@/lib/api/client');
+                        const { user } = await userApi.me();
+
+                        if (user && activeSessionId) {
+                            const folderPath = `${user.id}/${activeSessionId}/thumbnails/${nodeId}`;
+                            console.log(`[Store] Cleaning up Assets in background for node ${nodeId} at ${folderPath}...`);
+                            await uploadApi.deleteFolder(folderPath);
+                        }
+                    } catch (err) {
+                        console.error('Failed to cleanup node assets in background:', err);
+                    }
+                })();
             },
 
             copyNode: (nodeId) => {

@@ -169,10 +169,15 @@ export function useSession() {
                     }
 
                     // Hydrate execution borders
+                    // 🛡️ SANITIZATION: If the session is loaded from the DB, any 'running' or 'pending'
+                    // statuses are stale (from an interrupted past execution). 
+                    // We must convert them to 'idle' to avoid blocking the auto-save guard.
                     if (isCompleted) {
                         store.setNodeStatus(node.id, isFailed ? 'error' : 'success');
                     } else if (node.data?.status) {
-                        store.setNodeStatus(node.id, node.data.status);
+                        const status = node.data.status;
+                        const sanitizedStatus = (status === 'running' || status === 'pending') ? 'idle' : status;
+                        store.setNodeStatus(node.id, sanitizedStatus);
                     }
                 });
             }

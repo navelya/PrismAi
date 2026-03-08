@@ -134,6 +134,11 @@ export default function SharedWorkflowEditor({
                 });
 
                 if (currentStateString !== lastSavedStateRef.current) {
+                    console.log("[EditorSync] 🔄 Change detected", {
+                        nodes: workflow.nodes.length,
+                        hasLastState: !!lastSavedStateRef.current
+                    });
+
                     lastSavedStateRef.current = currentStateString;
 
                     // Clear existing timer
@@ -148,14 +153,21 @@ export default function SharedWorkflowEditor({
                         // This prevents the old editor from writing back to store after "New Chat" clears the session
                         const currentActiveId = useAppStore.getState().activeSessionId;
 
+                        console.log("[EditorSync] 📤 Syncing to store...", {
+                            sessionId: currentActiveId,
+                            nodesCount: workflow.nodes?.length
+                        });
+
                         if (isMountedRef.current && currentActiveId) {
                             setCurrentWorkflow(workflow);
                         } else {
                             // Session changed or cleared
-
+                            console.log("[EditorSync] ⏩ Skipping sync: No active session or unmounted");
                         }
                     }, 300);
                 }
+            } else {
+                // console.log("[EditorSync] ⏩ Skipping: Currently dragging");
             }
 
             // Also notify parent component
@@ -209,12 +221,21 @@ export default function SharedWorkflowEditor({
 
         const store = useAppStore.getState();
 
-        // ONLY clear stale states, do NOT optimistically set statuses.
-        // The real 'pending/running' state will be broadcasted from the server.
-        if (targetNodeId) {
-            store.invalidateNodes([targetNodeId]);
+        // Optimistically set statuses to 'pending' for targeted nodes
+        // This provides instant UI feedback while the server request is in flight.
+        if (targetNodeId && mode === 'solo') {
+            store.setNodeStatus(targetNodeId, 'pending');
+        } else if (targetNodeId && mode === 'chain') {
+            const { getDescendants } = require('@/lib/utils/graph-traversal');
+            const descendants = getDescendants(targetNodeId, edges);
+            store.setNodeStatus(targetNodeId, 'pending');
+            descendants.forEach((id: string) => store.setNodeStatus(id, 'pending'));
+        } else if (targetNodeId && mode === 'ab_test') {
+            // Simplification: set current node to pending. Realtime will fill rest.
+            store.setNodeStatus(targetNodeId, 'pending');
         } else {
-            store.resetNodeStatuses();
+            // Full Run
+            nodes.forEach(n => store.setNodeStatus(n.id, 'pending'));
             store.clearNodeOutputs();
         }
 

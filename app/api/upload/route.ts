@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
         const urlToFetch = formData.get('url') as string | null;
         const customFilename = formData.get('filename') as string | null;
         const sessionId = formData.get('sessionId') as string | null;
+        const nodeId = formData.get('nodeId') as string | null;
 
         if (!file && !urlToFetch) {
             return NextResponse.json({ error: 'No file or url provided' }, { status: 400 });
@@ -58,11 +59,15 @@ export async function POST(request: NextRequest) {
             throw new Error('Unreachable');
         }
 
-        // Generate scoped path under user directory and optionally session directory
+        // Generate scoped path: {userId}/{sessionId}/thumbnails/{nodeId}/{filename}
         const filename = customFilename || `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-        const storagePath = sessionId
-            ? `${user.id}/${sessionId}/${filename}`
-            : `${user.id}/${filename}`;
+
+        let storagePath = `${user.id}/${filename}`;
+        if (sessionId) {
+            storagePath = nodeId
+                ? `${user.id}/${sessionId}/thumbnails/${nodeId}/${filename}`
+                : `${user.id}/${sessionId}/${filename}`;
+        }
 
         const { data, error } = await supabase.storage
             .from('chat-assets')
@@ -93,17 +98,18 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * DELETE /api/upload — Delete an uploaded image
+ * DELETE /api/upload — Delete an uploaded image or folder
  * 
  * Expects JSON body with:
- * - path: the storage path to delete
+ * - path: the storage path to delete (file or folder prefix)
+ * - isFolder: boolean (optional)
  */
 export async function DELETE(request: NextRequest) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
     const { user, supabase } = auth;
 
-    const { path } = await request.json();
+    const { path, isFolder } = await request.json();
 
     if (!path) {
         return NextResponse.json({ error: 'No path provided' }, { status: 400 });
@@ -114,12 +120,36 @@ export async function DELETE(request: NextRequest) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    const { error } = await supabase.storage
-        .from('chat-assets')
-        .remove([path]);
+    if (isFolder) {
+        // Recursive delete for folders
+        // First list all files in the folder
+        const { data: files, error: listError } = await supabase.storage
+            .from('chat-assets')
+            .list(path);
 
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        if (listError) {
+            return NextResponse.json({ error: listError.message }, { status: 500 });
+        }
+
+        if (files && files.length > 0) {
+            const filesToRemove = files.map(f => `${path}/${f.name}`);
+            const { error: removeError } = await supabase.storage
+                .from('chat-assets')
+                .remove(filesToRemove);
+
+            if (removeError) {
+                return NextResponse.json({ error: removeError.message }, { status: 500 });
+            }
+        }
+    } else {
+        // Single file delete
+        const { error } = await supabase.storage
+            .from('chat-assets')
+            .remove([path]);
+
+        if (error) {
+            return NextResponse.json({ error: error.message }, { status: 500 });
+        }
     }
 
     return NextResponse.json({ success: true });

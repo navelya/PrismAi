@@ -98,7 +98,6 @@ function EditorCanvasInner({
     // Removed old history actions
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
-    const deleteNode = useAppStore((state) => state.deleteNode);
     const layoutEngine = useAppStore((state) => state.layoutEngine);
 
     // Get selected nodes
@@ -111,6 +110,8 @@ function EditorCanvasInner({
         stroke: 'rgb(var(--canvas-edge))',
         cursor: 'pointer',
     }), [resolvedTheme]);
+
+    const touchInteraction = useAppStore((state) => state.touchInteraction);
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -168,14 +169,16 @@ function EditorCanvasInner({
     // Handle node drag start
     const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
         setIsDragging(true);
+        touchInteraction();
         if (onNodeDragStart) onNodeDragStart(event, node, nodes);
-    }, [setIsDragging, onNodeDragStart]);
+    }, [setIsDragging, onNodeDragStart, touchInteraction]);
 
     // Handle node drag stop
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         setIsDragging(false);
+        touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
-    }, [setIsDragging, onNodeDragStop]);
+    }, [setIsDragging, onNodeDragStop, touchInteraction]);
 
     // Handle undo button click
     const handleUndo = () => {
@@ -368,9 +371,18 @@ function EditorCanvasInner({
                     animated: false,
                     style: edgeStyle,
                 }))}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
+                onNodesChange={(changes) => {
+                    touchInteraction();
+                    onNodesChange(changes);
+                }}
+                onEdgesChange={(changes) => {
+                    touchInteraction();
+                    onEdgesChange(changes);
+                }}
+                onConnect={(connection) => {
+                    touchInteraction();
+                    onConnect(connection);
+                }}
                 onNodeClick={onNodeClick}
                 onNodeDragStart={handleNodeDragStart}
                 onNodeDragStop={handleNodeDragStop}
@@ -385,7 +397,10 @@ function EditorCanvasInner({
                 minZoom={0.1}
                 maxZoom={2}
                 deleteKeyCode="Delete"
-                onNodesDelete={onNodesDelete}
+                onNodesDelete={(deleted) => {
+                    touchInteraction();
+                    onNodesDelete(deleted);
+                }}
                 isValidConnection={isValidConnection}
                 selectionOnDrag={!isPanMode}
                 panOnDrag={isPanMode ? [0, 1] : [1]}

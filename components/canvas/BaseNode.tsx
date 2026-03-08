@@ -47,9 +47,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
     // Status and Store Actions
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
-    const deleteNode = useAppStore((state) => state.deleteNode);
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
-    const { deleteElements, addNodes, getNode } = useReactFlow();
+    const { addNodes, getNode, deleteElements } = useReactFlow();
     const edges = useEdges();
 
     // Node Color
@@ -63,6 +62,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
+        // Standard React Flow deletion - bubbles up to onNodesDelete in SharedWorkflowEditor
         deleteElements({ nodes: [{ id }] });
     };
 

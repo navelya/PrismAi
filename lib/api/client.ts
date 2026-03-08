@@ -118,17 +118,17 @@ export const messagesApi = {
 // ─── Upload APIs ───────────────────────────────────────────────────────
 
 export const uploadApi = {
-    /** Upload an image (pass a Blob) */
-    upload: async (file: Blob, filename?: string, sessionId?: string) => {
+    /** Upload an image (pass a Blob or File) */
+    upload: async (file: Blob, options?: { filename?: string; sessionId?: string; nodeId?: string }) => {
         const formData = new FormData();
         formData.append('file', file);
-        if (filename) formData.append('filename', filename);
-        if (sessionId) formData.append('sessionId', sessionId);
+        if (options?.filename) formData.append('filename', options.filename);
+        if (options?.sessionId) formData.append('sessionId', options.sessionId);
+        if (options?.nodeId) formData.append('nodeId', options.nodeId);
 
         const res = await fetch('/api/upload', {
             method: 'POST',
             body: formData,
-            // Don't set Content-Type — browser will set it with boundary
         });
 
         const data = await res.json();
@@ -137,11 +137,12 @@ export const uploadApi = {
     },
 
     /** Upload an external image URL server-side */
-    uploadUrl: async (url: string, filename?: string, sessionId?: string) => {
+    uploadUrl: async (url: string, options?: { filename?: string; sessionId?: string; nodeId?: string }) => {
         const formData = new FormData();
         formData.append('url', url);
-        if (filename) formData.append('filename', filename);
-        if (sessionId) formData.append('sessionId', sessionId);
+        if (options?.filename) formData.append('filename', options.filename);
+        if (options?.sessionId) formData.append('sessionId', options.sessionId);
+        if (options?.nodeId) formData.append('nodeId', options.nodeId);
 
         const res = await fetch('/api/upload', {
             method: 'POST',
@@ -158,6 +159,13 @@ export const uploadApi = {
         apiFetch<{ success: boolean }>('/api/upload', {
             method: 'DELETE',
             body: JSON.stringify({ path }),
+        }),
+
+    /** Delete an entire storage folder by its prefix */
+    deleteFolder: (prefix: string) =>
+        apiFetch<{ success: boolean }>('/api/upload', {
+            method: 'DELETE',
+            body: JSON.stringify({ path: prefix, isFolder: true }),
         }),
 };
 

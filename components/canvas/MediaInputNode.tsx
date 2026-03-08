@@ -3,13 +3,14 @@
 import React, { memo, useCallback, useRef, useState } from 'react';
 import { NodeProps, useReactFlow } from 'reactflow';
 import { cn } from '@/lib/utils';
+import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from './BaseNode';
-import { LayoutGrid, Square, Check, Upload, Plus, X } from 'lucide-react';
+import { LayoutGrid, Square, Check, Upload, Plus, X, Loader2 } from 'lucide-react';
 
 interface MediaInputNodeData {
     label: string;
     config: {
-        images: string[];
+        images: Array<{ url: string; path: string } | string>;
     };
 }
 
@@ -24,9 +25,11 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
     // Use React Flow hook for direct graph manipulation
     const { setNodes } = useReactFlow();
+    const [isUploading, setIsUploading] = useState(false);
+    const activeSessionId = useAppStore((state) => state.activeSessionId);
 
     // Update node config with new images
-    const updateImages = useCallback((newImages: string[]) => {
+    const updateImages = useCallback((newImages: Array<{ url: string; path: string } | string>) => {
         setNodes((nds) =>
             nds.map((node) => {
                 if (node.id === id) {
@@ -47,23 +50,36 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     }, [id, setNodes]);
 
     // Handle file upload
-    const handleFiles = useCallback((files: FileList | null) => {
-        if (!files || files.length === 0) return;
+    const handleFiles = useCallback(async (files: FileList | null) => {
+        if (!files || files.length === 0 || !activeSessionId) return;
 
-        const newImages: string[] = [...images];
+        setIsUploading(true);
+        try {
+            const { uploadApi } = await import('@/lib/api/client');
 
-        Array.from(files).forEach((file) => {
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64 = reader.result as string;
-                    newImages.push(base64);
-                    updateImages([...newImages]);
-                };
-                reader.readAsDataURL(file);
+            const uploadPromises = Array.from(files).map(async (file) => {
+                if (file.type.startsWith('image/')) {
+                    const result = await uploadApi.upload(file, {
+                        sessionId: activeSessionId,
+                        nodeId: id
+                    });
+                    return { url: result.publicUrl, path: result.path };
+                }
+                return null;
+            });
+
+            const results = await Promise.all(uploadPromises);
+            const validResults = results.filter((r): r is { url: string; path: string } => r !== null);
+
+            if (validResults.length > 0) {
+                updateImages([...images, ...validResults]);
             }
-        });
-    }, [images, updateImages]);
+        } catch (err) {
+            console.error('Upload failed:', err);
+        } finally {
+            setIsUploading(false);
+        }
+    }, [activeSessionId, id, images, updateImages]);
 
     // Handle file input change
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,11 +110,28 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     };
 
     // Remove an image
-    const removeImage = (e: React.MouseEvent, index: number) => {
+    const removeImage = async (e: React.MouseEvent, index: number) => {
         e.stopPropagation();
         e.preventDefault();
+
+        const imageToRemove = images[index];
+
+        if (typeof imageToRemove === 'object' && 'path' in imageToRemove) {
+            try {
+                const { uploadApi } = await import('@/lib/api/client');
+                await uploadApi.delete(imageToRemove.path);
+            } catch (err) {
+                console.error('Failed to delete image from storage:', err);
+            }
+        }
+
         const newImages = images.filter((_, i) => i !== index);
         updateImages(newImages);
+    };
+
+    const getImageUrl = (img: any) => {
+        if (typeof img === 'string') return img;
+        return img?.url;
     };
 
     return (
@@ -140,7 +173,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                         {previewMode === 'single' ? (
                             <div className="w-full h-full group/preview relative">
                                 <img
-                                    src={images[activeImageIndex]}
+                                    src={getImageUrl(images[activeImageIndex])}
                                     alt=""
                                     className="w-full h-full object-contain"
                                 />
@@ -163,12 +196,19 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                                 activeImageIndex === index ? "border-accent-primary ring-2 ring-accent-primary/20" : "border-white/5"
                                             )}
                                         >
-                                            <img src={img} alt="" className="w-full h-full object-cover" />
+                                            <img src={getImageUrl(img)} alt="" className="w-full h-full object-cover" />
                                             {activeImageIndex === index && (
                                                 <div className="absolute inset-0 bg-accent-primary/20 flex items-center justify-center">
                                                     <Check className="w-3 h-3 text-white" />
                                                 </div>
                                             )}
+                                            <button
+                                                onClick={(e) => removeImage(e, index)}
+                                                className="absolute top-1 right-1 p-0.5 rounded bg-black/50 text-white opacity-0 hover:bg-red-500 group-hover:opacity-100 transition-opacity"
+                                                style={{ zIndex: 10 }}
+                                            >
+                                                <X className="w-2.5 h-2.5" />
+                                            </button>
                                         </button>
                                     ))}
                                     <button

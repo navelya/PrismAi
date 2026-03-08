@@ -22,6 +22,7 @@ interface EditorState {
 export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
     const nodeStatuses = useAppStore((state) => state.nodeStatuses);
     const nodeOutputs = useAppStore((state) => state.nodeOutputs);
+    const touchInteraction = useAppStore((state) => state.touchInteraction);
 
     // Create a stable identity for the workflow to detect changes
     const getWorkflowIdentity = (wf: Workflow | null | undefined) => {
@@ -256,6 +257,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Add a new node
     const addNode = useCallback((type: NodeType, position: { x: number; y: number }) => {
+        touchInteraction();
         const newNode = createNodeFromType(type, position);
         setEditorState((prev) => {
             const maxZ = Math.max(0, ...prev.nodes.map(n => n.zIndex || 0));
@@ -268,10 +270,11 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Delete a node
     const deleteNode = useCallback((nodeId: string) => {
-        // If array is passed? logic used by deletedNode in store was single ID.
-        // EditorCanvas passes single ID usually?
-        // Wait, SharedWorkflowEditor calls deleteNode with IDs.
-        // Let's support single ID for now as per signature.
+        touchInteraction();
+        // Trigger asset cleanup in global store (background)
+        const store = useAppStore.getState();
+        store.deleteNodeWithAssets(nodeId);
+
         setEditorState((prev) => ({
             ...prev,
             nodes: prev.nodes.filter((n) => n.id !== nodeId),
@@ -285,6 +288,11 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Bulk Delete
     const deleteNodes = useCallback((nodeIds: string[]) => {
+        touchInteraction();
+        // Trigger asset cleanup for each node in global store
+        const store = useAppStore.getState();
+        nodeIds.forEach(id => store.deleteNodeWithAssets(id));
+
         const ids = new Set(nodeIds);
         setEditorState((prev) => ({
             ...prev,
@@ -312,6 +320,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
 
     // Update node configuration
     const updateNodeConfig = useCallback((nodeId: string, config: any) => {
+        touchInteraction();
         setEditorState((prev) => ({
             ...prev,
             nodes: prev.nodes.map((n) =>

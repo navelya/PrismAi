@@ -65,34 +65,75 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const isEmptyState = !effectiveSessionId;
 
     const storeWorkflow = useAppStore((state) => state.currentWorkflow);
-    const memoizedSaveState = useMemo(() => ({ workflow: storeWorkflow, sessionId: effectiveSessionId }), [storeWorkflow, effectiveSessionId]);
+    const lastInteraction = useAppStore((state) => state.lastInteraction);
+    const isDragging = useAppStore((state) => state.isDragging);
+
+    const memoizedSaveState = useMemo(() => ({
+        workflow: storeWorkflow,
+        sessionId: effectiveSessionId,
+        lastInteraction,
+        isDragging
+    }), [storeWorkflow, effectiveSessionId, lastInteraction, isDragging]);
+
     const debouncedSaveState = useDebounce(memoizedSaveState, 2000);
 
     useEffect(() => {
-        const { workflow: debouncedWorkflow, sessionId: saveSessionId } = debouncedSaveState || {};
+        const { workflow: debouncedWorkflow, sessionId: saveSessionId, isDragging: debouncedIsDragging } = debouncedSaveState || {};
 
-        if (!debouncedWorkflow || !saveSessionId || saveSessionId !== effectiveSessionId) return;
+        if (!debouncedWorkflow || !saveSessionId || saveSessionId !== effectiveSessionId) {
+            return;
+        }
+
+        // 🛡️ INTERACTION GUARD: If the user is currently dragging, skip save.
+        // (Even though debounce should handle this, this is an extra safety layer).
+        if (debouncedIsDragging) {
+            return;
+        }
 
         if (!debouncedWorkflow.nodes?.length && !debouncedWorkflow.edges?.length) return;
 
         const cleanWorkflow = cleanWorkflowForSave(debouncedWorkflow);
         const currentHash = stableStringify(cleanWorkflow);
 
-        // 🛡️ AUTOSAVE GUARD: If an execution is in progress, do NOT save from the UI.
-        // The server is currently processing and will write the definitive 'canvas_state'
-        // at the end of the run. A UI-save now would be 'stale' and overwrite the server.
+        // 🛡️ AUTOSAVE GUARD: Only block if nodes IN THIS WORKFLOW are currently executing.
+        // Stale statuses from other or deleted nodes should not block persistence.
         const nodeStatuses = useAppStore.getState().nodeStatuses;
-        const isExecuting = Object.values(nodeStatuses).some(s => s === 'running' || s === 'pending');
-        if (isExecuting) return;
+        const workflowNodeIds = new Set(debouncedWorkflow.nodes.map(n => n.id));
+        const isExecuting = Object.entries(nodeStatuses).some(
+            ([id, status]) => workflowNodeIds.has(id) && (status === 'running' || status === 'pending')
+        );
 
-        if (currentHash && currentHash !== serverWorkflowHash) {
-            setServerWorkflowHash(cleanWorkflow);
-            sessionsApi.update(saveSessionId, {
-                canvas_state: cleanWorkflow,
-            }).catch((error: any) => {
-                console.error("Auto-save failed", error);
+        if (isExecuting) {
+            console.log("[AutoSave] 🛑 Blocked: Workflow nodes are currently executing", {
+                executingNodes: Object.entries(nodeStatuses)
+                    .filter(([id, status]) => workflowNodeIds.has(id) && (status === 'running' || status === 'pending'))
+                    .map(([id]) => id)
             });
+            return;
         }
+
+        const isSameHash = currentHash === serverWorkflowHash;
+
+        if (isSameHash) {
+            console.log("[AutoSave] ⏩ Skipping: No changes detected since last server sync", {
+                hash: currentHash.slice(0, 8)
+            });
+            return;
+        }
+
+        console.log("[AutoSave] 🚀 Saving workflow...", {
+            sessionId: saveSessionId,
+            nodes: debouncedWorkflow.nodes.length,
+            hash: currentHash.slice(0, 8),
+            prevHash: serverWorkflowHash?.slice(0, 8)
+        });
+
+        setServerWorkflowHash(cleanWorkflow);
+        sessionsApi.update(saveSessionId, {
+            canvas_state: cleanWorkflow,
+        }).catch((error: any) => {
+            console.error("[AutoSave] ❌ Failed to update session", error);
+        });
     }, [debouncedSaveState, effectiveSessionId]);
 
     useEffect(() => {
@@ -105,10 +146,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             // 🛡️ UNLOAD GUARD: Same logic as autosave — if the background is still running 
             // nodes, we don't want a "shutdown save" to overwrite the server's progress.
             const nodeStatuses = useAppStore.getState().nodeStatuses;
-            const isExecuting = Object.values(nodeStatuses).some(s => s === 'running' || s === 'pending');
+            const workflowNodeIds = new Set(storeWorkflow.nodes?.map(n => n.id) || []);
+            const isExecuting = Object.entries(nodeStatuses).some(
+                ([id, status]) => workflowNodeIds.has(id) && (status === 'running' || status === 'pending')
+            );
+
             if (isExecuting) return;
 
             if (currentHash && currentHash !== serverWorkflowHash) {
+                console.log("Unload-saving workflow...", { sessionId: effectiveSessionId });
                 setServerWorkflowHash(cleanWorkflow);
                 const payload = JSON.stringify({ canvas_state: cleanWorkflow });
 
@@ -396,7 +442,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 try {
                                     const response = await fetch(item.url);
                                     const blob = await response.blob();
-                                    const uploaded = await uploadApi.upload(blob, undefined, activeSessionId || undefined);
+                                    const uploaded = await uploadApi.upload(blob, {
+                                        sessionId: activeSessionId || undefined
+                                    });
                                     resultImagePaths.push(uploaded.path);
                                     result[i] = { ...item, url: uploaded.publicUrl };
                                 } catch (e) {
