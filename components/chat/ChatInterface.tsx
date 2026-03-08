@@ -501,7 +501,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                            ${isListening ? 'border-accent-error ring-2 ring-accent-error/20' : 'border-stroke-subtle'}`}>
 
                 {attachedImages.length > 0 && (
-                    <div className="flex gap-2 px-3 pt-3 pb-1 overflow-x-auto">
+                    <div className={`flex gap-2 px-3 pt-3 pb-1 overflow-x-auto ${isCanvasMode ? 'px-2 pt-2' : 'px-3 pt-3'}`}>
                         {attachedImages.map((img, index) => (
                             <div key={index} className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden group/img bg-surface-tertiary border border-stroke-subtle">
                                 <img src={img} alt={`Attached ${index + 1}`} className="w-full h-full object-cover" />
@@ -544,9 +544,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     placeholder={isListening ? 'Listening...' : isCanvasMode ? 'Edit canvas' : 'Message Prism...'}
                     rows={1}
                     className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
-                                ${isMultiLine || attachedImages.length > 0
-                            ? 'relative w-full px-4 py-2'
-                            : 'absolute left-12 right-24 top-1/2 -translate-y-1/2 px-2 py-2'
+                                 ${isMultiLine || attachedImages.length > 0
+                            ? `relative w-full px-4 py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`
+                            : `absolute ${isCanvasMode ? 'left-10 right-20' : 'left-12 right-24'} top-1/2 -translate-y-1/2 px-2 py-2`
                         }`}
                     style={{
                         minHeight: isMultiLine || attachedImages.length > 0 ? '40px' : '24px',
@@ -558,7 +558,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 />
 
                 <div className={`flex w-full items-center justify-between px-2 pb-2
-                               ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}>
+                                ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}>
                     <div className="relative z-10">
                         <Tooltip content="Add attachment" position="top">
                             <button
@@ -631,7 +631,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                             : 'bg-surface-secondary text-content-tertiary cursor-not-allowed'
                                         }`}
                                 >
-                                    <Send className="w-4 h-4" />
+                                    <Send className={`${isCanvasMode ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
                                 </button>
                             </Tooltip>
                         )}
@@ -832,9 +832,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             <div
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-6"
+                className={`flex-1 overflow-y-auto ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
             >
-                <div className="max-w-3xl mx-auto space-y-6">
+                <div className={`${isCanvasMode ? 'max-w-full' : 'max-w-3xl'} mx-auto space-y-6 pb-2`}>
                     {messages.map((message, index) => {
                         let undoSnapshotId: string | undefined;
                         if (message.type === 'user') {
@@ -874,9 +874,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     })}
 
                     {isLoading && !(messages.length > 0 && messages[messages.length - 1].type === 'assistant' && !messages[messages.length - 1].content) && (
-                        <div className="flex gap-4">
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center">
-                                <Bot className="w-5 h-5 text-white" />
+                        <div className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'}`}>
+                            <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-10 h-10'} rounded-full bg-gradient-premium flex items-center justify-center`}>
+                                <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-white`} />
                             </div>
                             <div className="flex items-center gap-2 text-content-secondary">
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -975,21 +975,21 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
 
     return (
         <div
-            className={`flex gap-4 ${message.type === 'user' ? 'justify-end animate-fade-in' : 'justify-start'} 
+            className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} ${message.type === 'user' ? 'justify-end animate-fade-in' : 'justify-start'} 
                 ${isDisabled ? 'opacity-40 grayscale pointer-events-none select-none filter blur-[1px]' : ''}
                 ${isEditing ? 'z-10 relative' : ''}`}
         >
             {message.type === 'assistant' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-premium flex items-center justify-center mt-1">
-                    <Bot className="w-5 h-5 text-white" />
+                <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-8 h-8'} rounded-full bg-gradient-premium flex items-center justify-center mt-1`}>
+                    <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-white`} />
                 </div>
             )}
 
-            <div className={`relative max-w-[85%] ${message.type === 'user' ? 'min-w-[200px]' : ''}`}>
+            <div className={`relative ${isCanvasMode ? 'max-w-[92%]' : 'max-w-[85%]'} ${message.type === 'user' ? 'min-w-[140px]' : ''}`}>
                 <div
                     className={`flex flex-col overflow-visible transition-all duration-300 ${message.type === 'user'
                         ? `bg-gradient-premium text-white rounded-2xl rounded-tr-sm relative shadow-lg shadow-accent-primary/10
-                           ${isCanvasMode ? 'px-3 py-2 space-y-1' : 'px-5 py-4 space-y-2'}`
+                           ${isCanvasMode ? 'px-3.5 py-2.5 space-y-1' : 'px-5 py-4 space-y-2'}`
                         : 'space-y-2'
                         }`}
                 >

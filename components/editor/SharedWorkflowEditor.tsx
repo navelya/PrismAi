@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import EditorToolbar from './EditorToolbar';
 import EditorCanvas from './EditorCanvas';
-import NodePalette from './NodePalette';
 import PropertyPanel from './PropertyPanel';
 import ResultsPanel from './ResultsPanel';
 import { useWorkflowEditor } from '@/hooks/useWorkflowEditor';
@@ -15,6 +14,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
 
 interface SharedWorkflowEditorProps {
@@ -380,8 +380,6 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    const [isPaletteOpen, setIsPaletteOpen] = useState(true);
-
     const selectedNodeData = nodes.find(n => n.id === selectedNode);
 
     return (
@@ -401,16 +399,6 @@ export default function SharedWorkflowEditor({
                         onNew={handleNew}
                         selectionMode={selectionMode}
                         onSelectionModeChange={setSelectionMode}
-                        isPaletteOpen={isPaletteOpen}
-                    />
-                )}
-
-                {/* Node Palette - Now floating/drawer style */}
-                {!readOnly && (
-                    <NodePalette
-                        onDragStart={() => { }}
-                        isCollapsed={!isPaletteOpen}
-                        setIsCollapsed={(v) => setIsPaletteOpen(!v)}
                     />
                 )}
 
@@ -467,16 +455,27 @@ export default function SharedWorkflowEditor({
                     )}
                 </div>
 
-                {/* Property Panel */}
-                {!readOnly && showPropertyPanel && selectedNodeData && selectedNodeData.type && selectedNodeData.data?.config && (
-                    <PropertyPanel
-                        nodeId={selectedNodeData.id}
-                        nodeType={selectedNodeData.type}
-                        config={selectedNodeData.data.config}
-                        onUpdate={(config) => updateNodeConfig(selectedNodeData.id, config)}
-                        onClose={() => setShowPropertyPanel(false)}
-                    />
-                )}
+                <AnimatePresence>
+                    {!readOnly && showPropertyPanel && selectedNodeData?.type && selectedNodeData.data?.config && (
+                        <motion.div
+                            initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            exit={{ opacity: 0, x: 20, scale: 0.95 }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                            className="absolute top-[80px] right-4 bottom-4 z-40 pointer-events-none"
+                        >
+                            <div className="pointer-events-auto h-full">
+                                <PropertyPanel
+                                    nodeId={selectedNodeData.id}
+                                    nodeType={selectedNodeData.type}
+                                    config={selectedNodeData.data.config}
+                                    onUpdate={(config) => updateNodeConfig(selectedNodeData.id, config)}
+                                    onClose={() => setShowPropertyPanel(false)}
+                                />
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 <CreditConfirmModal
                     isOpen={showCreditModal}

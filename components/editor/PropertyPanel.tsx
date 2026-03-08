@@ -17,33 +17,38 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
     const PropertyComponent = clientRegistry[nodeType]?.propertyPanel;
 
     return (
-        <div className="w-80 bg-surface-primary border-l border-stroke-subtle p-4 space-y-4 overflow-y-auto">
+        <div className="w-80 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-full h-fit">
             {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-stroke-subtle">
-                <h3 className="font-semibold text-content-primary">Properties</h3>
+            <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle">
+                <div className="flex items-center gap-2">
+                    <div className="w-1 h-3 bg-accent-primary rounded-full" />
+                    <h3 className="font-bold text-sm text-content-primary">Node Properties</h3>
+                </div>
                 <button
                     onClick={onClose}
-                    className="p-1 hover:bg-surface-secondary rounded transition-colors"
+                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group"
                 >
-                    <X className="w-5 h-5 text-content-secondary" />
+                    <X className="w-4 h-4 text-content-tertiary group-hover:text-content-primary" />
                 </button>
             </div>
 
-            {/* Node Info */}
-            <div className="bg-surface-secondary rounded-lg p-3">
-                <div className="text-xs text-content-tertiary uppercase tracking-wide">Node ID</div>
-                <div className="text-sm font-mono text-content-primary mt-1">{nodeId.substring(0, 8)}...</div>
-            </div>
+            <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
+                {/* Node Info - Minimalist Card */}
+                <div className="bg-white/5 border border-stroke-subtle rounded-xl p-3">
+                    <div className="text-[10px] font-bold text-content-tertiary uppercase tracking-widest">Selected ID</div>
+                    <div className="text-xs font-mono text-content-secondary mt-1 opacity-70">{nodeId}</div>
+                </div>
 
-            {/* Form Fields or Placeholder */}
-            <div className="space-y-4">
-                {PropertyComponent ? (
-                    <PropertyComponent config={config} onUpdate={onUpdate} />
-                ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-center border-2 border-dashed border-stroke-subtle rounded-xl bg-surface-primary/50">
-                        <p className="text-sm text-content-secondary">No properties available for this node.</p>
-                    </div>
-                )}
+                {/* Form Fields */}
+                <div className="pb-2">
+                    {PropertyComponent ? (
+                        <PropertyComponent config={config} onUpdate={onUpdate} />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed border-stroke-subtle rounded-xl bg-white/5">
+                            <p className="text-xs text-content-tertiary font-medium">No properties available</p>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

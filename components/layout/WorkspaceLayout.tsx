@@ -38,8 +38,8 @@ const CANVAS_TRANSITION = {
     duration: 0.4,
 };
 
-const SIDEBAR_WIDTH = 290;
-const SIDEBAR_HEIGHT = 480; // Fixed compact height, anchored to bottom
+const SIDEBAR_WIDTH = 380;
+const SIDEBAR_HEIGHT = 520; // Increased for better aspect ratio
 
 export default function WorkspaceLayout({
     chatPanel,
@@ -69,9 +69,9 @@ export default function WorkspaceLayout({
         return () => ro.disconnect();
     }, []);
 
-    // Exact pixel position for the sidebar — numerically tweeneable.
+    // Exact pixel position for the sidebar — numerically tweeneable (NOW DOCKED LEFT)
     const PAD = 20;
-    const canvasLeft = Math.max(0, containerSize.w - SIDEBAR_WIDTH - PAD);
+    const canvasLeft = PAD;
     const canvasTop = Math.max(0, containerSize.h - SIDEBAR_HEIGHT - PAD);
 
     const hasWorkflow = !!workflow;
@@ -85,11 +85,7 @@ export default function WorkspaceLayout({
     return (
         <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-surface-primary">
 
-            {/* ─────────── LAYER 1 · Canvas ─────────────────────────────────────
-                Always in DOM. Blurred + darkened in Chat Mode; full clarity in Canvas Mode.
-                IMPORTANT: This div has filter applied; it creates a new stacking context,
-                which is why ImageLightbox must use a React Portal to escape it.
-            ──────────────────────────────────────────────────────────────────── */}
+            {/* ─────────── LAYER 1 · Canvas ───────────────────────────────────── */}
             <motion.div
                 className="absolute inset-0"
                 animate={{
@@ -98,8 +94,6 @@ export default function WorkspaceLayout({
                         : 'blur(14px) brightness(0.3)',
                     pointerEvents: isCanvasMode ? 'auto' : 'none',
                 }}
-                // Note: no scale here — scale on a filter-animated parent also breaks
-                // child stacking contexts. We rely purely on filter for the reveal effect.
                 transition={CANVAS_TRANSITION}
                 style={{ willChange: 'filter' }}
             >
@@ -115,24 +109,14 @@ export default function WorkspaceLayout({
                 />
             </motion.div>
 
-            {/* ─────────── LAYER 2 · Chat / Copilot ────────────────────────────
-                Chat Mode:       absolute inset-0, full width, opaque background
-                Canvas Sidebar:  fixed, right-docked, top/bottom margin, glass panel
-                Minimized FAB:   tiny circle bottom-right (AnimatePresence swap)
-
-                FIX 1: The container only animates its own dimensions/position.
-                        Inner children are NOT scaled or distorted. `overflow: hidden`
-                        on the container clips cleanly as width changes.
-
-                FIX 3: Docked RIGHT. Margin top: 20px, bottom: 20px.
-            ──────────────────────────────────────────────────────────────────── */}
+            {/* ─────────── LAYER 2 · Chat / Copilot ──────────────────────────── */}
             <AnimatePresence mode="popLayout" initial={false}>
                 {isCanvasMode && isCopilotMinimized ? (
-                    /* ── FIX 4b · FAB · spring MORPH animation ──────────── */
+                    /* ── FAB · DOCKED LEFT ──────────── */
                     <motion.button
                         key="fab"
                         onClick={() => setIsCopilotMinimized(false)}
-                        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-surface-elevated border border-stroke-subtle shadow-xl shadow-black/40 flex items-center justify-center"
+                        className="fixed bottom-6 left-6 z-50 w-14 h-14 rounded-full bg-surface-elevated border border-stroke-subtle shadow-xl shadow-black/40 flex items-center justify-center"
                         initial={{ opacity: 0, scale: 0.3, borderRadius: '16px' }}
                         animate={{ opacity: 1, scale: 1, borderRadius: '50%' }}
                         exit={{ opacity: 0, scale: 0.3, borderRadius: '16px' }}
@@ -159,10 +143,9 @@ export default function WorkspaceLayout({
                         animate={
                             isCanvasMode
                                 ? {
-                                    // Canvas: computed pixel position — fully numeric, no 'auto'
+                                    // Canvas: computed pixel position (Docked LEFT)
                                     left: canvasLeft,
                                     top: canvasTop,
-                                    right: PAD,
                                     bottom: PAD,
                                     width: SIDEBAR_WIDTH,
                                     height: SIDEBAR_HEIGHT,
