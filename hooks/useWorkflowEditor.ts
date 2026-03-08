@@ -42,7 +42,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
         return wf.nodes.map(n => ({
             id: n.id,
             type: n.type,
-            position: n.position,
+            position: n.position || { x: 0, y: 0 },
             data: n.data,
             zIndex: n.zIndex || 0,
             // selected: false, // Ensure selected state is not initially set from legacy data if possible? ReactFlow handles selection internally on nodes.
@@ -129,7 +129,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                         uniqueNodes.set(n.id, {
                             id: n.id,
                             type: n.type,
-                            position: n.position,
+                            position: n.position || { x: 0, y: 0 },
                             data: n.data,
                             zIndex: n.zIndex || 0,
                         });
@@ -175,17 +175,56 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
         }
     }, [initialWorkflow, setEditorState, resetEditorState]);
 
-    // 👑 Note: Direct subscription to nodeStatuses and nodeOutputs is handled 
-    // inside CustomNode.tsx. We no longer sync these into the local 'nodes' array
-    // here to prevent circular updates and stale state resets that were causing
-    // status indicators to disappear or "reset" during execution.
+    // 👑 SYNC OUTPUTS: Watch the global store for node outputs (thumbnails/results) 
+    // and sync them into the local 'nodes' array data. This is CRITICAL for 
+    // persistence, as the editor's auto-save uses this local data. 
+    // We specifically do NOT sync 'nodeStatuses' here to avoid the rendering 
+    // feedback loop bug — status is handled directly by CustomNode.tsx.
+    useEffect(() => {
+        const outputIds = Object.keys(nodeOutputs);
+        if (outputIds.length === 0) return;
+
+        setEditorState((prev) => {
+            let changed = false;
+            const newNodes = prev.nodes.map((node) => {
+                const globalOutput = nodeOutputs[node.id];
+                if (globalOutput === undefined) return node;
+
+                // Only update if the output has actually changed (to prevent loops)
+                // Note: we specifically promote thumbnailUrls from the global record
+                // if they exist, as these are the primary persistence targets.
+                const currentOutput = node.data?.output;
+                const currentMeta = node.data?.outputMetadata;
+
+                // Detection: Check if new output data exists
+                if (stableStringify(globalOutput) !== stableStringify(currentOutput)) {
+                    changed = true;
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            output: globalOutput,
+                        }
+                    };
+                }
+                return node;
+            });
+
+            return changed ? { ...prev, nodes: newNodes } : prev;
+        }, { history: 'replace' });
+    }, [nodeOutputs, setEditorState]);
 
     // Handle Node Changes
     const onNodesChange = useCallback((changes: NodeChange[]) => {
-        setEditorState((prev) => ({
-            ...prev,
-            nodes: applyNodeChanges(changes, prev.nodes)
-        }), { history: 'replace' });
+        setEditorState((prev) => {
+            const nextNodes = applyNodeChanges(changes, prev.nodes);
+            // 🛡️ SANITY CHECK: Ensure no node lost its position during change
+            const validatedNodes = nextNodes.map(n => !n.position ? { ...n, position: { x: 0, y: 0 } } : n);
+            return {
+                ...prev,
+                nodes: validatedNodes
+            };
+        }, { history: 'replace' });
     }, [setEditorState]);
 
     // Handle Edge Changes

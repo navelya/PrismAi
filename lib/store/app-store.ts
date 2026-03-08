@@ -177,6 +177,10 @@ export const useAppStore = create<AppState>()(
                                 config: { ...def.defaultConfig, ...(node.data?.config || {}) }
                             };
                         }
+                        // 🛡️ CRASH PREVENTION: Ensure every node has a valid position
+                        if (!node.position) {
+                            node.position = { x: 0, y: 0 };
+                        }
                         return node;
                     });
                 }

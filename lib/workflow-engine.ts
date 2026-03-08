@@ -223,6 +223,17 @@ export async function executeWorkflowFromNode(
                     if (cachedOutput !== undefined && cachedOutput !== null) {
                         nodeOutputs.set(nodeId, cachedOutput);
                         completedNodes.add(nodeId);
+
+                        // RESTORE METADATA: If the node was skipped/cached, we must ensure its metadata 
+                        // is copied back into the workflow object. Without this, the final session 
+                        // save at the end of the API call would strip the thumbnails of skipped nodes.
+                        if (node.data) {
+                            const metadata = (node.data as any).outputMetadata;
+                            if (metadata?.thumbnailUrls?.length) {
+                                (node.data as any).outputMetadata = metadata;
+                            }
+                        }
+
                         onStatusUpdate?.(nodeId, 'success', workflow);
 
                         const childIds = children.get(nodeId) || [];

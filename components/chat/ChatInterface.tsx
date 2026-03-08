@@ -77,6 +77,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
         const cleanWorkflow = cleanWorkflowForSave(debouncedWorkflow);
         const currentHash = stableStringify(cleanWorkflow);
+
+        // 🛡️ AUTOSAVE GUARD: If an execution is in progress, do NOT save from the UI.
+        // The server is currently processing and will write the definitive 'canvas_state'
+        // at the end of the run. A UI-save now would be 'stale' and overwrite the server.
+        const nodeStatuses = useAppStore.getState().nodeStatuses;
+        const isExecuting = Object.values(nodeStatuses).some(s => s === 'running' || s === 'pending');
+        if (isExecuting) return;
+
         if (currentHash && currentHash !== serverWorkflowHash) {
             setServerWorkflowHash(cleanWorkflow);
             sessionsApi.update(saveSessionId, {
@@ -93,6 +101,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
             const cleanWorkflow = cleanWorkflowForSave(storeWorkflow);
             const currentHash = stableStringify(cleanWorkflow);
+
+            // 🛡️ UNLOAD GUARD: Same logic as autosave — if the background is still running 
+            // nodes, we don't want a "shutdown save" to overwrite the server's progress.
+            const nodeStatuses = useAppStore.getState().nodeStatuses;
+            const isExecuting = Object.values(nodeStatuses).some(s => s === 'running' || s === 'pending');
+            if (isExecuting) return;
+
             if (currentHash && currentHash !== serverWorkflowHash) {
                 setServerWorkflowHash(cleanWorkflow);
                 const payload = JSON.stringify({ canvas_state: cleanWorkflow });
