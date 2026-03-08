@@ -560,7 +560,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 <div className={`flex w-full items-center justify-between px-2 pb-2
                                 ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}>
                     <div className="relative z-10">
-                        <Tooltip content="Add attachment" position="top">
+                        <Tooltip content="Add attachment" position={isCanvasMode ? "top-start" : "top"}>
                             <button
                                 type="button"
                                 onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
@@ -595,7 +595,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
                     <div className="flex items-center gap-1 z-10">
                         {!isLoading && (
-                            <Tooltip content={isListening ? 'Stop listening' : 'Voice input'} position="top">
+                            <Tooltip content={isListening ? 'Stop listening' : 'Voice input'} position={isCanvasMode ? "top-end" : "top"}>
                                 <button
                                     type="button"
                                     onClick={toggleListening}
@@ -621,7 +621,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 </button>
                             </Tooltip>
                         ) : (
-                            <Tooltip content="Send message" position="top">
+                            <Tooltip content="Send message" position={isCanvasMode ? "top-end" : "top"}>
                                 <button
                                     type="submit"
                                     disabled={!input.trim() && attachedImages.length === 0}
@@ -834,7 +834,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 onScroll={handleScroll}
                 className={`flex-1 overflow-y-auto ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
             >
-                <div className={`${isCanvasMode ? 'max-w-full' : 'max-w-3xl'} mx-auto space-y-6 pb-2`}>
+                <div className="max-w-3xl mx-auto space-y-6 pb-2">
                     {messages.map((message, index) => {
                         let undoSnapshotId: string | undefined;
                         if (message.type === 'user') {
@@ -985,7 +985,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                 </div>
             )}
 
-            <div className={`relative ${isCanvasMode ? 'max-w-[92%]' : 'max-w-[85%]'} ${message.type === 'user' ? 'min-w-[140px]' : ''}`}>
+            <div className={`relative ${isCanvasMode ? 'max-w-[90%]' : 'max-w-[85%]'} ${message.type === 'user' ? (isCanvasMode ? 'min-w-[120px]' : 'min-w-[200px]') : ''}`}>
                 <div
                     className={`flex flex-col overflow-visible transition-all duration-300 ${message.type === 'user'
                         ? `bg-gradient-premium text-white rounded-2xl rounded-tr-sm relative shadow-lg shadow-accent-primary/10
@@ -1010,7 +1010,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                         const tailText = isActuallyStreaming ? message.content.slice(-TAIL_LENGTH) : "";
 
                         return (
-                            <p className={`text-[15px] leading-relaxed ${message.type === 'user' ? 'text-white/95 font-medium' : 'text-content-primary'}`}>
+                            <p className={`${isCanvasMode ? 'text-[13px] leading-[1.4]' : 'text-[15px] leading-relaxed'} ${message.type === 'user' ? 'text-white/95 font-medium' : 'text-content-primary'}`}>
                                 {stableText}
                                 {isActuallyStreaming && tailText.split('').map((char, index) => (
                                     <span key={index} style={{ opacity: (TAIL_LENGTH - index) / TAIL_LENGTH }}>
@@ -1034,7 +1034,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
 
                     {message.type === 'user' && (
                         <div
-                            className="overflow-hidden transition-all duration-300"
+                            className={`transition-all duration-300 ${isCanvasMode ? 'overflow-hidden' : 'overflow-visible'}`}
                             style={{
                                 maxHeight: isCanvasMode ? 0 : 80,
                                 opacity: isCanvasMode ? 0 : 1,

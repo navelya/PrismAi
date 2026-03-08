@@ -38,7 +38,7 @@ const CANVAS_TRANSITION = {
     duration: 0.4,
 };
 
-const SIDEBAR_WIDTH = 380;
+const SIDEBAR_WIDTH = 340;
 const SIDEBAR_HEIGHT = 520; // Increased for better aspect ratio
 
 export default function WorkspaceLayout({
@@ -116,7 +116,7 @@ export default function WorkspaceLayout({
                     <motion.button
                         key="fab"
                         onClick={() => setIsCopilotMinimized(false)}
-                        className="fixed bottom-6 left-6 z-50 w-14 h-14 rounded-full bg-surface-elevated border border-stroke-subtle shadow-xl shadow-black/40 flex items-center justify-center"
+                        className="absolute bottom-6 left-6 z-50 w-14 h-14 rounded-full bg-surface-elevated border border-stroke-subtle shadow-xl shadow-black/40 flex items-center justify-center"
                         initial={{ opacity: 0, scale: 0.3, borderRadius: '16px' }}
                         animate={{ opacity: 1, scale: 1, borderRadius: '50%' }}
                         exit={{ opacity: 0, scale: 0.3, borderRadius: '16px' }}
@@ -183,7 +183,7 @@ export default function WorkspaceLayout({
                                     initial={{ opacity: 0, y: -10 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: -10 }}
-                                    className="absolute top-3 right-3 z-30 flex items-center gap-1 p-1 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-full shadow-lg"
+                                    className="absolute top-3 right-3 z-30 flex items-center gap-0.5 p-0.5 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-full"
                                 >
                                     <button
                                         onClick={() => setIsCopilotMinimized(true)}
