@@ -105,6 +105,10 @@ interface AppState {
     // Layout Engine Preference
     layoutEngine: LayoutEngine;
     setLayoutEngine: (engine: LayoutEngine) => void;
+
+    // Chat Scroll Persistence (Ephemeral)
+    chatScrollTop: number;
+    setChatScrollTop: (pos: number) => void;
 }
 
 const MAX_HISTORY = 50; // Keep last 50 snapshots
@@ -137,6 +141,9 @@ export const useAppStore = create<AppState>()(
             isLoading: false,
             statusMessage: null,
 
+            chatScrollTop: 9999999,
+            setChatScrollTop: (pos) => set({ chatScrollTop: pos }),
+
             // Global Reset
             clearAllState: () => {
                 set({
@@ -160,6 +167,7 @@ export const useAppStore = create<AppState>()(
                     statusMessage: null,
                     isCanvasMode: false,
                     isCopilotMinimized: false,
+                    chatScrollTop: 9999999,
                 });
             },
 

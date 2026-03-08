@@ -82,10 +82,10 @@ export async function POST(req: Request) {
             }
         }
 
-        // 2. Build the sliding window context (last 4 messages)
+        // 2. Build the sliding window context (last 8 messages)
         const chatWindow = (messages || [])
             .filter((m: any) => m.content && m.content.trim().length > 0)
-            .slice(-4);
+            .slice(-8);
 
         const mappedHistory = chatWindow.map((m: any) => ({
             role: (m.role || m.type) === 'assistant' ? 'assistant' : 'user',

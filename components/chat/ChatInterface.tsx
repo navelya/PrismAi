@@ -133,6 +133,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const setIsLoading = useAppStore((state) => state.setIsLoading);
     const statusMessage = useAppStore((state) => state.statusMessage);
     const setStatusMessage = useAppStore((state) => state.setStatusMessage);
+    const chatScrollTop = useAppStore((state) => state.chatScrollTop);
+    const setChatScrollTop = useAppStore((state) => state.setChatScrollTop);
 
     const [isListening, setIsListening] = useState(false);
     const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
@@ -186,20 +188,73 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const [isExpanded, setIsExpanded] = useState(false);
     const [isMultiLine, setIsMultiLine] = useState(false);
 
-    useEffect(() => {
+    const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+    const lastScrollTop = useRef(0);
+
+    const handleScroll = useCallback(() => {
         const container = scrollContainerRef.current;
         if (!container) return;
 
-        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        const isNearBottom = scrollHeight - scrollTop - clientHeight < 50;
 
+        // Sync scroll position to global store for persistence across views
+        setChatScrollTop(scrollTop);
+
+        // If we are currently loading (AI is typing) and user scrolls UP, disable auto-scroll
+        if (isLoading && scrollTop < lastScrollTop.current && !isNearBottom) {
+            setAutoScrollEnabled(false);
+        }
+
+        // If user manually scrolls back to the very bottom, re-enable auto-scroll
         if (isNearBottom) {
+            setAutoScrollEnabled(true);
+        }
+
+        lastScrollTop.current = scrollTop;
+    }, [isLoading, setChatScrollTop]);
+
+    // RESTORE scroll position instantly on mount (avoid eye-jump)
+    useLayoutEffect(() => {
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = chatScrollTop;
+            lastScrollTop.current = chatScrollTop;
+        }
+    }, []); // Only on mount
+
+    // Reset auto-scroll and position memory when a new request starts
+    useEffect(() => {
+        if (isLoading) {
+            setAutoScrollEnabled(true);
+            setChatScrollTop(9999999);
+        }
+    }, [isLoading, setChatScrollTop]);
+
+    // Force reset scroll memory when switching sessions (fresh start at bottom)
+    useEffect(() => {
+        if (sessionId) {
+            setChatScrollTop(9999999);
+            setAutoScrollEnabled(true);
+        }
+    }, [sessionId, setChatScrollTop]);
+
+    useEffect(() => {
+        if (autoScrollEnabled) {
+            const container = scrollContainerRef.current;
+            if (!container) return;
+
             const now = Date.now();
-            if (now - lastScrollTime.current > 150) {
-                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            if (now - lastScrollTime.current > 100) {
+                // Use 'auto' for streaming (performance) and 'smooth' for the very first scroll
+                const isStreaming = isLoading && messages.length > 0;
+                messagesEndRef.current?.scrollIntoView({
+                    behavior: isStreaming ? 'auto' : 'smooth',
+                    block: 'end'
+                });
                 lastScrollTime.current = now;
             }
         }
-    }, [messages]);
+    }, [messages, autoScrollEnabled, isLoading]);
 
     useLayoutEffect(() => {
         const textarea = textareaRef.current;
@@ -774,7 +829,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 </div>
             )}
 
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6">
+            <div
+                ref={scrollContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-6"
+            >
                 <div className="max-w-3xl mx-auto space-y-6">
                     {messages.map((message, index) => {
                         let undoSnapshotId: string | undefined;
