@@ -38,9 +38,6 @@ function getCleanNodesContext() {
     return nodesStr;
 }
 
-// 👑 חזרנו לאובייקט נקי לחלוטין! בלי פונקציית tool(), בלי @ts-ignore
-// 👑 אובייקט נקי לחלוטין! בלי tool(), בלי בעיות TypeScript.
-// אבל הפעם - לא נותנים לו z.any(). מכריחים אותו לייצר את המבנה המדויק!
 const prismTools: any = {
     build_workflow: {
         description: 'Create or modify a workflow canvas based on the user request. YOU MUST provide valid nodes and edges.',
@@ -51,7 +48,7 @@ const prismTools: any = {
                 id: z.string(),
                 type: z.string(),
                 position: z.object({ x: z.number(), y: z.number() }),
-                data: z.object({ config: z.any() }) // ההגדרות עצמן חופשיות כדי שישאב אותן מה-Registry
+                data: z.object({ config: z.any() })
             })).describe('Array of workflow nodes. You MUST include id, type, position {x,y}, and data {config} for each node.'),
             edges: z.array(z.object({
                 id: z.string(),
@@ -67,19 +64,33 @@ const prismTools: any = {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { prompt, sessionId, previousWorkflow, attachedImages } = body;
+        const { messages, sessionId, previousWorkflow, attachedImages } = body;
 
         const supabase = createServiceClient();
 
-        if (sessionId) {
-            await supabase.from('messages').insert({
-                session_id: sessionId,
-                role: 'user',
-                content: prompt,
-                status: 'completed',
-                created_at: new Date().toISOString()
-            });
+        // 1. Save the new user message to DB (it's the last one in the client's payload)
+        if (sessionId && messages && messages.length > 0) {
+            const lastUserMsg = messages[messages.length - 1];
+            if (lastUserMsg.type === 'user') {
+                await supabase.from('messages').insert({
+                    session_id: sessionId,
+                    role: 'user',
+                    content: lastUserMsg.content,
+                    status: 'completed',
+                    created_at: new Date().toISOString()
+                });
+            }
         }
+
+        // 2. Build the sliding window context (last 4 messages)
+        const chatWindow = (messages || [])
+            .filter((m: any) => m.content && m.content.trim().length > 0)
+            .slice(-4);
+
+        const mappedHistory = chatWindow.map((m: any) => ({
+            role: (m.role || m.type) === 'assistant' ? 'assistant' : 'user',
+            content: m.content
+        }));
 
         let workflowContext = "";
         if (previousWorkflow && previousWorkflow.nodes && previousWorkflow.nodes.length > 0) {
@@ -112,14 +123,14 @@ export async function POST(req: Request) {
             ${workflowContext}
             ${imagesContext}
 
-CRITICAL RULES:
+            CRITICAL RULES:
             1. You MUST call the 'build_workflow' tool.
             2. EXPLAIN YOUR WORK: You MUST write a short, conversational explanation of the workflow you built INSIDE the tool's 'message' parameter. NEVER leave the message empty!
             3. You MUST provide a creative 'name' for the workflow inside the tool parameters.
             4. CONFIGURATIONS & LAYERS: You MUST populate settings inside 'data.config'. If a node uses dynamic items like 'layers', generate them in 'data.config'.
             5. CONNECTIONS: Connect nodes logically. For dynamic nodes (like compositor layers), invent logical targetHandles (e.g., 'layer_0') and force the connections!`,
 
-            prompt: prompt,
+            messages: mappedHistory,
             tools: prismTools,
         });
 

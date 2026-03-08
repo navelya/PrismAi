@@ -121,6 +121,9 @@ export function useChatMessages({
     ) => {
         if (!trimmedInput && attachedImages.length === 0) return;
 
+        // 📸 Capture history snapshot BEFORE any optimistic updates or clearing
+        const historySnapshot = useAppStore.getState().chatMessages;
+
         if (editingMessageId) {
             // ... (לוגיקת ה-Revert המקורית שלך נשארת כאן כרגיל)
             const msgIndex = messages.findIndex((m: any) => m.id === editingMessageId);
@@ -190,7 +193,6 @@ export function useChatMessages({
 
         // --- קריאה לשרת הסטרימינג ---
         try {
-            // Save user message immediately
             const userMsg: Message = {
                 id: userMsgId,
                 type: 'user',
@@ -198,15 +200,16 @@ export function useChatMessages({
                 images: imagesToSend.length > 0 ? imagesToSend : undefined,
                 timestamp: new Date(),
             };
-            // 🛑 DELETED: saveMessageToDb call removed.
-            // User message is now persisted server-side in stream/route.ts.
+
+            // Build the full history using the snapshot taken BEFORE optimistic updates
+            const fullHistory = [...historySnapshot, userMsg];
 
             const response = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    prompt: trimmedInput,
-                    sessionId: activeSessionId, // תמיד משתמש ב-ID הנכון
+                    messages: fullHistory,
+                    sessionId: activeSessionId,
                     previousWorkflow: useAppStore.getState().currentWorkflow,
                     attachedImages: imagesToSend
                 }),
