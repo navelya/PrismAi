@@ -3,7 +3,9 @@
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeProps, useReactFlow, useEdges } from 'reactflow';
-import { Plus, Edit3, Eye, EyeOff } from 'lucide-react';
+import { Plus, Edit3 } from 'lucide-react';
+import { Stage, Layer, Image as KonvaImage, Group } from 'react-konva';
+import useImage from 'use-image';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from './BaseNode';
@@ -17,7 +19,6 @@ const LAYER_COLORS = [
     '#8b5cf6', '#06b6d4', '#f97316', '#84cc16',
 ];
 
-// Default transform for new layers
 const defaultTransform: LayerTransform = {
     x: 0,
     y: 0,
@@ -30,7 +31,6 @@ const defaultTransform: LayerTransform = {
     crop: null,
 };
 
-// Default compositor config
 const defaultConfig: CompositorConfig = {
     canvasWidth: 1920,
     canvasHeight: 1080,
@@ -54,25 +54,6 @@ const defaultConfig: CompositorConfig = {
             },
             visible: true,
             locked: false,
-        },
-        {
-            id: 'layer_1',
-            name: 'Layer 2',
-            sourceHandleId: 'layer_1',
-            selectedIndex: 0,
-            transform: {
-                x: 100,
-                y: 100,
-                width: 400,
-                height: 300,
-                rotation: 0,
-                opacity: 1,
-                flipX: false,
-                flipY: false,
-                crop: null,
-            },
-            visible: true,
-            locked: false,
         }
     ],
     outputFormat: 'png',
@@ -84,102 +65,124 @@ interface CompositorNodeData {
     config: CompositorConfig;
 }
 
-// Live preview component using canvas-absolute coordinates (matching editor)
+// 1. Memoized Preview Image WITH CACHE-BUSTING CORS FIX
+const PreviewImage = memo(({ layer, imageUrl }: { layer: CompositorLayer, imageUrl: string }) => {
+    const safeUrl = useMemo(() => {
+        if (!imageUrl) return '';
+        if (imageUrl.startsWith('data:')) return imageUrl;
+        return imageUrl + (imageUrl.includes('?') ? '&' : '?') + 'notaint=1';
+    }, [imageUrl]);
+
+    const [img] = useImage(safeUrl, 'anonymous');
+
+    if (!img) return null;
+
+    return (
+        <KonvaImage
+            image={img}
+            x={layer.transform.x}
+            y={layer.transform.y}
+            width={layer.transform.width}
+            height={layer.transform.height}
+            rotation={layer.transform.rotation}
+            opacity={layer.transform.opacity}
+            scaleX={layer.transform.flipX ? -1 : 1}
+            scaleY={layer.transform.flipY ? -1 : 1}
+            offsetX={layer.transform.flipX ? layer.transform.width : 0}
+            offsetY={layer.transform.flipY ? layer.transform.height : 0}
+            listening={false}
+        />
+    );
+});
+
+// Professional CSS Checkerboard to indicate transparent areas
+const checkerboardStyle = {
+    backgroundImage: 'repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a), repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a)',
+    backgroundPosition: '0 0, 8px 8px',
+    backgroundSize: '16px 16px',
+    backgroundColor: '#222'
+};
+
+// 2. Dynamic Auto-Scaling Live Preview WITH TRANSPARENCY FIX
 function LivePreview({
-    id,
     config,
     connectedInputs,
-    containerWidth,
-    containerHeight,
+    stageRef
 }: {
-    id: string;
     config: CompositorConfig;
     connectedInputs: Record<string, ImageObject[]>;
-    containerWidth: number;
-    containerHeight: number;
+    stageRef: React.RefObject<any>;
 }) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const imagesLoadedRef = useRef<Map<string, HTMLImageElement>>(new Map());
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [size, setSize] = useState({ width: 0, height: 0 });
+
+    const canvasWidth = config.canvasWidth || 1920;
+    const canvasHeight = config.canvasHeight || 1080;
 
     useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        const container = containerRef.current;
+        if (!container) return;
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        const observer = new ResizeObserver((entries) => {
+            const rect = entries[0].contentRect;
+            setSize({ width: rect.width, height: rect.height });
+        });
 
-        canvas.width = containerWidth;
-        canvas.height = containerHeight;
+        observer.observe(container);
+        return () => observer.disconnect();
+    }, []);
 
-        // Fixed scale: preview pixels → canvas-absolute pixels
-        const canvasWidth = config.canvasWidth || 1920;
-        const canvasHeight = config.canvasHeight || 1080;
-        const scale = containerWidth / canvasWidth;
+    const scale = size.width > 0 ? size.width / canvasWidth : 0;
 
-        // Clear canvas (no background grid)
-        ctx.clearRect(0, 0, containerWidth, containerHeight);
+    return (
+        <div
+            ref={containerRef}
+            className="w-full relative overflow-hidden flex items-center justify-center rounded-xl border border-white/10 shadow-2xl"
+            style={{
+                ...checkerboardStyle,
+                aspectRatio: `${canvasWidth} / ${canvasHeight}`
+            }}
+        >
+            {scale > 0 && (
+                <Stage
+                    ref={stageRef}
+                    width={size.width}
+                    height={size.height}
+                >
+                    <Layer>
+                        <Group scaleX={scale} scaleY={scale}>
+                            {/* THE FIX: The background <Rect> was completely removed to guarantee strict transparency */}
+                            {config.layers.map((layer) => {
+                                if (!layer.visible) return null;
 
-        // Draw each layer
-        const drawLayers = async () => {
-            for (let i = 0; i < config.layers.length; i++) {
-                const layer = config.layers[i];
-                if (!layer.visible) continue;
+                                const sourceImages = connectedInputs[layer.sourceHandleId];
+                                const imageData = sourceImages?.[layer.selectedIndex] || sourceImages?.[0];
+                                if (!imageData?.url) return null;
 
-                const sourceImages = connectedInputs[layer.sourceHandleId];
-                if (!sourceImages || sourceImages.length === 0) continue;
-
-                const imageData = sourceImages[layer.selectedIndex] || sourceImages[0];
-                if (!imageData?.url) continue;
-
-                // Load or get cached image
-                let img = imagesLoadedRef.current.get(imageData.url);
-                if (!img) {
-                    img = new Image();
-                    img.crossOrigin = 'anonymous';
-                    img.src = imageData.url;
-                    imagesLoadedRef.current.set(imageData.url, img);
-                    await new Promise<void>((resolve) => {
-                        img!.onload = () => resolve();
-                        img!.onerror = () => resolve();
-                    });
-                }
-
-                if (!img.complete || img.naturalWidth === 0) continue;
-
-                ctx.save();
-                ctx.globalAlpha = layer.transform.opacity;
-
-                // Canvas-absolute coords → preview coords
-                const x = layer.transform.x * scale;
-                const y = layer.transform.y * scale;
-                const w = layer.transform.width * scale;
-                const h = layer.transform.height * scale;
-
-                ctx.translate(x + w / 2, y + h / 2);
-                ctx.rotate((layer.transform.rotation * Math.PI) / 180);
-                ctx.scale(layer.transform.flipX ? -1 : 1, layer.transform.flipY ? -1 : 1);
-
-                ctx.drawImage(img, -w / 2, -h / 2, w, h);
-                ctx.restore();
-            }
-        };
-
-        drawLayers();
-    }, [config, connectedInputs, containerWidth, containerHeight]);
-
-    return <canvas id={`canvas-${id}`} ref={canvasRef} className="w-full h-full" />;
+                                return (
+                                    <PreviewImage
+                                        key={layer.id}
+                                        layer={layer}
+                                        imageUrl={imageData.url}
+                                    />
+                                );
+                            })}
+                        </Group>
+                    </Layer>
+                </Stage>
+            )}
+        </div>
+    );
 }
 
 function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [lightboxOpen, setLightboxOpen] = useState(false);
-    const previewRef = useRef<HTMLDivElement>(null);
-    const liveCanvasRef = useRef<HTMLCanvasElement>(null);
+    const stageRef = useRef<any>(null);
 
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const nodeOutputs = useAppStore((state) => state.nodeOutputs);
 
-    // Get config with defaults
     const config: CompositorConfig = useMemo(() => ({
         ...defaultConfig,
         ...data.config,
@@ -189,7 +192,6 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     const edges = useEdges();
     const connectedEdges = useMemo(() => edges.filter(e => e.target === id), [edges, id]);
 
-    // Find the max index currently connected
     const maxConnectedIndex = useMemo(() => {
         let max = -1;
         connectedEdges.forEach(edge => {
@@ -202,10 +204,8 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         return max;
     }, [connectedEdges]);
 
-    // Always have one more handle than the max connected (Strict N+1)
     const handleCount = Math.max(1, maxConnectedIndex + 2);
 
-    // Get connected inputs for live preview
     const connectedInputs = useMemo(() => {
         if (!currentWorkflow) return {};
         const edges = currentWorkflow.edges?.filter(e => e.target === id) || [];
@@ -227,17 +227,14 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
             Object.values(connectedInputs).some(arr => arr && arr.length > 0);
     }, [connectedInputs]);
 
-    // Use React Flow hook for direct graph manipulation
     const { setNodes } = useReactFlow();
 
-    // Sync layers with handle count automatically
     useEffect(() => {
         const currentLayers = data.config?.layers || defaultConfig.layers;
         if (currentLayers.length !== handleCount) {
             let newLayers = [...currentLayers];
 
             if (newLayers.length < handleCount) {
-                // Add missing
                 for (let i = newLayers.length; i < handleCount; i++) {
                     newLayers.push({
                         id: `layer_${i}`,
@@ -250,7 +247,6 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                     });
                 }
             } else {
-                // Prune extra
                 newLayers = newLayers.slice(0, handleCount);
             }
 
@@ -271,7 +267,6 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         }
     }, [handleCount, id, setNodes, data.config]);
 
-    // Update node config
     const updateConfig = useCallback((newConfig: Partial<CompositorConfig>) => {
         setNodes((nds) =>
             nds.map((node) => {
@@ -289,28 +284,11 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         );
     }, [id, config, setNodes]);
 
-    // Add a new layer
-    const addLayer = useCallback((e: React.MouseEvent) => {
-        e.stopPropagation();
-        const newLayerIndex = config.layers.length;
-        const newLayer: CompositorLayer = {
-            id: `layer_${newLayerIndex}`,
-            name: `Layer ${newLayerIndex + 1}`,
-            sourceHandleId: `layer_${newLayerIndex}`,
-            selectedIndex: 0,
-            transform: { ...defaultTransform },
-            visible: true,
-            locked: false,
-        };
-        updateConfig({ layers: [...config.layers, newLayer] });
-    }, [config.layers, updateConfig]);
-
     const openEditor = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsEditorOpen(true);
     };
 
-    // Input handles derived from needed handles
     const inputHandles = useMemo(() => {
         const handles = [];
         for (let i = 0; i < handleCount; i++) {
@@ -323,21 +301,13 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         return handles;
     }, [handleCount]);
 
-    // Dynamic constraint configuration for the live preview
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
-    const MAX_PREVIEW_H = 300;
 
     const openLightbox = (e: React.MouseEvent) => {
         e.stopPropagation();
         setLightboxOpen(true);
     };
-
-    // Use a reasonable internal buffer resolution for the preview canvas
-    const PREVIEW_RENDER_SIZE = 512;
-    const renderScale = Math.min(PREVIEW_RENDER_SIZE / canvasW, PREVIEW_RENDER_SIZE / canvasH);
-    const renderWidth = Math.max(1, Math.floor(canvasW * renderScale));
-    const renderHeight = Math.max(1, Math.floor(canvasH * renderScale));
 
     return (
         <>
@@ -362,26 +332,19 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
             >
                 <div
                     onClick={openLightbox}
-                    className="relative w-full group/compositor bg-canvas-bg/20 backdrop-blur-sm transition-all duration-500 cursor-zoom-in"
-                    style={{
-                        aspectRatio: `${canvasW} / ${canvasH}`,
-                        minHeight: '160px',
-                    }}
+                    className="relative w-full group/compositor transition-all duration-500 cursor-zoom-in flex flex-col"
+                    style={{ minHeight: '160px' }}
                 >
                     {hasConnectedInputs ? (
-                        <div className="w-full h-full p-1">
-                            <div className="w-full h-full relative rounded-xl overflow-hidden border border-white/10 shadow-2xl">
-                                <LivePreview
-                                    id={id}
-                                    config={config}
-                                    connectedInputs={connectedInputs}
-                                    containerWidth={renderWidth}
-                                    containerHeight={renderHeight}
-                                />
-                            </div>
+                        <div className="w-full p-1">
+                            <LivePreview
+                                config={config}
+                                connectedInputs={connectedInputs}
+                                stageRef={stageRef}
+                            />
                         </div>
                     ) : (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-content-tertiary">
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-content-tertiary border border-white/5 rounded-xl bg-white/5 m-1">
                             <Plus className="w-8 h-8 opacity-20" />
                             <span className="text-[10px] font-medium uppercase tracking-wider opacity-40">Connect Inputs</span>
                         </div>
@@ -419,10 +382,15 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                     document.body
                 )
             }
+            {/* Lightbox Portal */}
             {
                 lightboxOpen && createPortal(
                     <ImageLightbox
-                        images={[{ base64: (document.getElementById(`canvas-${id}`) as HTMLCanvasElement)?.toDataURL() || '' }]}
+                        images={[{
+                            base64: stageRef.current ? stageRef.current.toDataURL({
+                                pixelRatio: 1 / stageRef.current.scaleX()
+                            }) : ''
+                        }]}
                         initialIndex={0}
                         onClose={() => setLightboxOpen(false)}
                     />,
