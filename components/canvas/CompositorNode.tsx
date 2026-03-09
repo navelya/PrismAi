@@ -2,13 +2,14 @@
 
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { NodeProps, useReactFlow } from 'reactflow';
+import { NodeProps, useReactFlow, useEdges } from 'reactflow';
 import { Plus, Edit3, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from './BaseNode';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
 import CompositorEditorModal from '@/components/compositor/CompositorEditorModal';
+import ImageLightbox from '@/components/ui/ImageLightbox';
 
 // Layer colors for visual distinction
 const LAYER_COLORS = [
@@ -85,11 +86,13 @@ interface CompositorNodeData {
 
 // Live preview component using canvas-absolute coordinates (matching editor)
 function LivePreview({
+    id,
     config,
     connectedInputs,
     containerWidth,
     containerHeight,
 }: {
+    id: string;
     config: CompositorConfig;
     connectedInputs: Record<string, ImageObject[]>;
     containerWidth: number;
@@ -113,7 +116,7 @@ function LivePreview({
         const canvasHeight = config.canvasHeight || 1080;
         const scale = containerWidth / canvasWidth;
 
-        // Clear canvas
+        // Clear canvas (no background grid)
         ctx.clearRect(0, 0, containerWidth, containerHeight);
 
         // Draw each layer
@@ -164,12 +167,14 @@ function LivePreview({
         drawLayers();
     }, [config, connectedInputs, containerWidth, containerHeight]);
 
-    return <canvas ref={canvasRef} className="w-full h-full" />;
+    return <canvas id={`canvas-${id}`} ref={canvasRef} className="w-full h-full" />;
 }
 
 function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
+    const [lightboxOpen, setLightboxOpen] = useState(false);
     const previewRef = useRef<HTMLDivElement>(null);
+    const liveCanvasRef = useRef<HTMLCanvasElement>(null);
 
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const nodeOutputs = useAppStore((state) => state.nodeOutputs);
@@ -178,8 +183,27 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
     const config: CompositorConfig = useMemo(() => ({
         ...defaultConfig,
         ...data.config,
-        layers: data.config?.layers || [],
+        layers: data.config?.layers || defaultConfig.layers,
     }), [data.config]);
+
+    const edges = useEdges();
+    const connectedEdges = useMemo(() => edges.filter(e => e.target === id), [edges, id]);
+
+    // Find the max index currently connected
+    const maxConnectedIndex = useMemo(() => {
+        let max = -1;
+        connectedEdges.forEach(edge => {
+            const handleId = edge.targetHandle;
+            if (handleId && handleId.startsWith('layer_')) {
+                const index = parseInt(handleId.split('_')[1], 10);
+                if (!isNaN(index) && index > max) max = index;
+            }
+        });
+        return max;
+    }, [connectedEdges]);
+
+    // Always have one more handle than the max connected (Strict N+1)
+    const handleCount = Math.max(1, maxConnectedIndex + 2);
 
     // Get connected inputs for live preview
     const connectedInputs = useMemo(() => {
@@ -205,6 +229,47 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
 
     // Use React Flow hook for direct graph manipulation
     const { setNodes } = useReactFlow();
+
+    // Sync layers with handle count automatically
+    useEffect(() => {
+        const currentLayers = data.config?.layers || defaultConfig.layers;
+        if (currentLayers.length !== handleCount) {
+            let newLayers = [...currentLayers];
+
+            if (newLayers.length < handleCount) {
+                // Add missing
+                for (let i = newLayers.length; i < handleCount; i++) {
+                    newLayers.push({
+                        id: `layer_${i}`,
+                        name: `Layer ${i + 1}`,
+                        sourceHandleId: `layer_${i}`,
+                        selectedIndex: 0,
+                        transform: { ...defaultTransform },
+                        visible: true,
+                        locked: false,
+                    });
+                }
+            } else {
+                // Prune extra
+                newLayers = newLayers.slice(0, handleCount);
+            }
+
+            setNodes((nds) =>
+                nds.map((node) => {
+                    if (node.id === id) {
+                        return {
+                            ...node,
+                            data: {
+                                ...node.data,
+                                config: { ...node.data.config, layers: newLayers },
+                            },
+                        };
+                    }
+                    return node;
+                })
+            );
+        }
+    }, [handleCount, id, setNodes, data.config]);
 
     // Update node config
     const updateConfig = useCallback((newConfig: Partial<CompositorConfig>) => {
@@ -245,20 +310,28 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
         setIsEditorOpen(true);
     };
 
-    // Input handles derived from layers
-    const inputHandles = useMemo(() =>
-        config.layers.map((layer, index) => ({
-            id: layer.sourceHandleId,
-            label: `L${index + 1}`,
-            color: LAYER_COLORS[index % LAYER_COLORS.length],
-        })),
-        [config.layers]
-    );
+    // Input handles derived from needed handles
+    const inputHandles = useMemo(() => {
+        const handles = [];
+        for (let i = 0; i < handleCount; i++) {
+            handles.push({
+                id: `layer_${i}`,
+                label: `L${i + 1}`,
+                color: LAYER_COLORS[i % LAYER_COLORS.length],
+            });
+        }
+        return handles;
+    }, [handleCount]);
 
     // Dynamic constraint configuration for the live preview
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
     const MAX_PREVIEW_H = 300;
+
+    const openLightbox = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setLightboxOpen(true);
+    };
 
     // Use a reasonable internal buffer resolution for the preview canvas
     const PREVIEW_RENDER_SIZE = 512;
@@ -273,98 +346,65 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                 type="compositor"
                 label={data.label}
                 badgeCount={config.layers.length}
+                width={320}
                 customInputs={inputHandles}
                 customActions={
                     <button
                         onClick={openEditor}
                         className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                                flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
                         title="Edit compositor"
                     >
                         <Edit3 className="w-3 h-3 text-content-inverted" />
                     </button>
                 }
-                contentClassName="p-2"
+                contentClassName="p-0 overflow-hidden"
             >
-                {config.layers.length === 0 ? (
-                    <button
-                        onClick={addLayer}
-                        className={cn(
-                            "w-full h-20 rounded-lg border-2 border-dashed transition-all",
-                            "flex flex-col items-center justify-center gap-1",
-                            "text-content-tertiary hover:text-accent-primary hover:border-accent-primary",
-                            "border-stroke-default"
-                        )}
-                    >
-                        <Plus className="w-5 h-5" />
-                        <span className="text-[10px]">Add Layer</span>
-                    </button>
-                ) : (
-                    <div className="space-y-1">
-                        {/* Live Preview Container Wrapper */}
-                        <div
-                            className="w-full flex items-center justify-center p-2 pt-0"
-                        >
-                            <div
-                                ref={previewRef}
-                                className="relative flex-shrink-0 rounded-xl border border-white/10 overflow-hidden shadow-2xl bg-white/5"
-                                style={{
-                                    width: '100%',
-                                    maxWidth: `calc(${MAX_PREVIEW_H}px * (${canvasW} / ${canvasH}))`,
-                                    maxHeight: `${MAX_PREVIEW_H}px`,
-                                    aspectRatio: `${canvasW} / ${canvasH}`,
-                                    backgroundImage: 'linear-gradient(to bottom right, rgba(255, 255, 255, 0.05), transparent)',
-                                }}
-                            >
-                                {hasConnectedInputs ? (
-                                    <LivePreview
-                                        config={config}
-                                        connectedInputs={connectedInputs}
-                                        containerWidth={renderWidth}
-                                        containerHeight={renderHeight}
-                                    />
-                                ) : (
-                                    <div className="absolute inset-0 flex items-center justify-center text-xs text-content-tertiary">
-                                        <div className="bg-surface-primary/80 px-2 py-1 rounded backdrop-blur-sm shadow-sm font-medium">
-                                            Connect inputs
-                                        </div>
-                                    </div>
-                                )}
+                <div
+                    onClick={openLightbox}
+                    className="relative w-full group/compositor bg-canvas-bg/20 backdrop-blur-sm transition-all duration-500 cursor-zoom-in"
+                    style={{
+                        aspectRatio: `${canvasW} / ${canvasH}`,
+                        minHeight: '160px',
+                    }}
+                >
+                    {hasConnectedInputs ? (
+                        <div className="w-full h-full p-1">
+                            <div className="w-full h-full relative rounded-xl overflow-hidden border border-white/10 shadow-2xl">
+                                <LivePreview
+                                    id={id}
+                                    config={config}
+                                    connectedInputs={connectedInputs}
+                                    containerWidth={renderWidth}
+                                    containerHeight={renderHeight}
+                                />
                             </div>
                         </div>
-
-                        {/* Layer list */}
-                        <div className="flex flex-wrap gap-1">
-                            {config.layers.slice(0, 4).map((layer, index) => (
-                                <div
-                                    key={layer.id}
-                                    className="px-1.5 py-0.5 rounded text-[9px] font-medium flex items-center gap-1"
-                                    style={{
-                                        backgroundColor: `${LAYER_COLORS[index % LAYER_COLORS.length]}20`,
-                                        color: LAYER_COLORS[index % LAYER_COLORS.length],
-                                    }}
-                                >
-                                    {layer.visible ? <Eye className="w-2 h-2" /> : <EyeOff className="w-2 h-2 opacity-50" />}
-                                    L{index + 1}
-                                </div>
-                            ))}
-                            {config.layers.length > 4 && (
-                                <div className="px-1.5 py-0.5 rounded text-[9px] font-medium text-content-secondary bg-surface-tertiary">
-                                    +{config.layers.length - 4}
-                                </div>
-                            )}
+                    ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-content-tertiary">
+                            <Plus className="w-8 h-8 opacity-20" />
+                            <span className="text-[10px] font-medium uppercase tracking-wider opacity-40">Connect Inputs</span>
                         </div>
+                    )}
 
-                        {/* Add Layer Button */}
-                        <button
-                            onClick={addLayer}
-                            className="w-full py-1 rounded text-[10px] font-medium text-accent-primary 
-                                       bg-accent-primary/10 hover:bg-accent-primary/20 transition-colors"
-                        >
-                            + Add Layer
-                        </button>
+                    {/* Quick Edit Overlay */}
+                    <div className="absolute inset-x-0 bottom-0 p-3 translate-y-2 opacity-0 group-hover/compositor:translate-y-0 group-hover/compositor:opacity-100 transition-all duration-300 pointer-events-none">
+                        <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-lg p-2 flex items-center justify-between pointer-events-auto">
+                            <div className="flex flex-col">
+                                <span className="text-[9px] font-bold text-white/50 px-1 uppercase tracking-tighter">
+                                    {canvasW}x{canvasH}
+                                </span>
+                                <span className="text-[7px] text-white/30 px-1 uppercase leading-none">Composition</span>
+                            </div>
+                            <button
+                                onClick={openEditor}
+                                className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[9px] font-bold text-white uppercase transition-colors"
+                            >
+                                Open Editor
+                            </button>
+                        </div>
                     </div>
-                )}
+                </div>
             </BaseNode>
 
             {/* Editor Modal Portal */}
@@ -375,6 +415,16 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                         config={config}
                         onClose={() => setIsEditorOpen(false)}
                         onConfigChange={updateConfig}
+                    />,
+                    document.body
+                )
+            }
+            {
+                lightboxOpen && createPortal(
+                    <ImageLightbox
+                        images={[{ base64: (document.getElementById(`canvas-${id}`) as HTMLCanvasElement)?.toDataURL() || '' }]}
+                        initialIndex={0}
+                        onClose={() => setLightboxOpen(false)}
                     />,
                     document.body
                 )

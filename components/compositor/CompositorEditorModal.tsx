@@ -424,8 +424,7 @@ export default function CompositorEditorModal({
     }, [localLayers.length]);
 
     const removeLayer = useCallback((index: number) => {
-        setLocalLayers(prev => prev.filter((_, i) => i !== index));
-        setSelectedLayerIndex(null);
+        // Disabled manually - layers are managed by node connections
     }, []);
 
     const toggleVisibility = useCallback((index: number) => {
@@ -707,9 +706,7 @@ export default function CompositorEditorModal({
                     <div className="w-52 border-r border-stroke-subtle flex flex-col">
                         <div className="p-2 border-b border-stroke-subtle flex items-center justify-between">
                             <span className="text-xs font-medium text-content-secondary">Layers</span>
-                            <button onClick={addLayer} className="p-1 rounded hover:bg-surface-tertiary">
-                                <Plus className="w-4 h-4" />
-                            </button>
+                            <div className="text-[10px] text-content-tertiary px-1">Auto-managed</div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -743,10 +740,6 @@ export default function CompositorEditorModal({
                                         </button>
                                         <button onClick={(e) => { e.stopPropagation(); moveLayerDown(index); }} disabled={index === localLayers.length - 1} className="p-0.5 disabled:opacity-30">
                                             <ChevronDown className="w-3 h-3" />
-                                        </button>
-                                        <div className="flex-1" />
-                                        <button onClick={(e) => { e.stopPropagation(); removeLayer(index); }} className="p-0.5 hover:text-accent-error">
-                                            <Trash2 className="w-3 h-3" />
                                         </button>
                                     </div>
                                 </div>

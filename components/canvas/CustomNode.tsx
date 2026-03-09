@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
@@ -9,6 +9,7 @@ import BaseNode from './BaseNode';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { LayoutGrid, Square, Check, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import GlassyLoader from '@/components/ui/GlassyLoader';
 
 interface CustomNodeData {
     label: string;
@@ -35,6 +36,14 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
 
     // Dynamic sizing logic based on output
     const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+    const [isImageLoading, setIsImageLoading] = useState(false);
+
+    // Track when output changes to show loader
+    useEffect(() => {
+        if (output) {
+            setIsImageLoading(true);
+        }
+    }, [output, activeImageIndex]);
     const MAX_WIDTH = 400;
     const MIN_HEIGHT = 180;
     const MAX_HEIGHT = 450;
@@ -78,12 +87,8 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
                     </div>
                 )}
 
-                {/* Loading State? We could add a spinner here if status is 'running' */}
-                {status === 'running' && (
-                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] z-10 flex items-center justify-center">
-                        <Loader2 className="w-6 h-6 animate-spin text-accent-primary" />
-                    </div>
-                )}
+                {/* Modern Glassy Loading Effect - Persists until image satisfies onLoad */}
+                {(status === 'running' || isImageLoading) && <GlassyLoader />}
 
                 {/* Single Image View */}
                 {output && previewMode === 'single' && (
@@ -102,6 +107,7 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
                                     onLoad={(e) => {
                                         const img = e.target as HTMLImageElement;
                                         setAspectRatio(img.naturalWidth / img.naturalHeight);
+                                        setIsImageLoading(false);
                                     }}
                                     style={{
                                         maxHeight: MAX_HEIGHT,

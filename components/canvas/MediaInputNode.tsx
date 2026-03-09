@@ -1,11 +1,12 @@
 'use client';
 
-import React, { memo, useCallback, useRef, useState } from 'react';
+import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
 import { NodeProps, useReactFlow } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from './BaseNode';
-import { LayoutGrid, Square, Check, Upload, Plus, X, Loader2 } from 'lucide-react';
+import { LayoutGrid, Square, Check, Upload, Plus, X } from 'lucide-react';
+import GlassyLoader from '@/components/ui/GlassyLoader';
 
 interface MediaInputNodeData {
     label: string;
@@ -26,7 +27,15 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     // Use React Flow hook for direct graph manipulation
     const { setNodes } = useReactFlow();
     const [isUploading, setIsUploading] = useState(false);
+    const [isImageLoading, setIsImageLoading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
+
+    // Track when images change to show loader
+    useEffect(() => {
+        if (images.length > 0) {
+            setIsImageLoading(true);
+        }
+    }, [images, activeImageIndex]);
 
     // Update node config with new images
     const updateImages = useCallback((newImages: Array<{ url: string; path: string } | string>) => {
@@ -176,6 +185,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                     src={getImageUrl(images[activeImageIndex])}
                                     alt=""
                                     className="w-full h-full object-contain"
+                                    onLoad={() => setIsImageLoading(false)}
                                 />
                                 <button
                                     onClick={(e) => removeImage(e, activeImageIndex)}
@@ -238,6 +248,8 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                         </div>
                     </>
                 )}
+                {/* Modern Glassy Loading Effect */}
+                {(isUploading || isImageLoading) && <GlassyLoader />}
             </div>
 
             {/* Hidden file input */}
