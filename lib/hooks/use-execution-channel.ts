@@ -38,7 +38,6 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                 return;
             }
 
-            console.log(`[ExecutionChannel] node_execution: nodeId=${nodeId} status=${status}`);
 
             store.setNodeStatus(nodeId, status);
 
@@ -65,7 +64,6 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                 if (err) {
                     console.error('[ExecutionChannel] Subscription error:', err);
                 } else {
-                    console.log(`[ExecutionChannel] Status: ${status} for session ${sessionId}`);
                 }
             });
 
@@ -76,7 +74,6 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
             if (document.visibilityState !== 'visible') return;
             const channelState = (executionChannelRef.current as any)?.state;
             if (channelState === 'closed' || channelState === 'errored') {
-                console.log('[ExecutionChannel] Tab visible — reconnecting closed channel...');
                 if (executionChannelRef.current) supabase.removeChannel(executionChannelRef.current);
                 const reconnected = supabase
                     .channel(`execution_${sessionId}`)

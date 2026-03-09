@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store/app-store';
 import { useTheme } from '@/components/theme/ThemeProvider';
-import { LayoutEngine } from '@/lib/utils/graph-layout';
+
 import { createClient } from '@/lib/supabase/client';
 import { userApi } from '@/lib/api/client';
 import { UserAvatar } from '@/components/ui/UserAvatar';
@@ -469,25 +469,20 @@ function AccountProfileView({ user, onProfileUpdated }: { user: any, onProfileUp
 
 function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfileUpdated: () => void }) {
     const { theme: activeTheme, setTheme: setActiveTheme } = useTheme();
-    const activeLayoutEngine = useAppStore((state) => state.layoutEngine);
-    const setLayoutEngine = useAppStore((state) => state.setLayoutEngine);
+
 
     // Initialize local state from DB preferences, falling back to current active state
     const [localTheme, setLocalTheme] = useState(user?.profile?.preferences?.theme || activeTheme);
-    const [localEngine, setLocalEngine] = useState(user?.profile?.preferences?.layoutEngine || activeLayoutEngine);
+    const [localEngine, setLocalEngine] = useState(user?.profile?.preferences?.layoutEngine || 'elk');
 
     const [saving, setSaving] = useState(false);
 
     // Determine baseline to check for unsaved changes
     const baselineTheme = user?.profile?.preferences?.theme || activeTheme;
-    const baselineEngine = user?.profile?.preferences?.layoutEngine || activeLayoutEngine;
+    const baselineEngine = user?.profile?.preferences?.layoutEngine || 'elk';
     const hasChanges = localTheme !== baselineTheme || localEngine !== baselineEngine;
 
-    const layoutEngines = [
-        { value: 'elk' as LayoutEngine, label: 'ELK', description: 'Best for minimizing edge crossings' },
-        { value: 'dagre' as LayoutEngine, label: 'Dagre', description: 'Fast horizontal layouts' },
-        { value: 'd3-hierarchy' as LayoutEngine, label: 'D3 Tree', description: 'Tree-based hierarchical layouts' },
-    ];
+
 
     const themes = [
         { id: 'light', name: 'Light', icon: <Sun className="w-4 h-4" /> },
@@ -515,8 +510,9 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
             if (error) throw error;
 
             // Apply changes globally
+            // setActiveTheme(localTheme);
+            // setLayoutEngine(localEngine);
             setActiveTheme(localTheme);
-            setLayoutEngine(localEngine);
 
             // Fetch fresh profile state to container
             onProfileUpdated();
@@ -536,24 +532,7 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
                     EDITOR
                 </h2>
                 <div className="flex flex-col">
-                    <SettingCard
-                        title="Layout Engine"
-                        description="Choose the algorithm used for auto-arranging workflow nodes."
-                        layout="stacked"
-                    >
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            {layoutEngines.map((engine) => (
-                                <SelectOption
-                                    key={engine.value}
-                                    value={engine.value}
-                                    label={engine.label}
-                                    description={engine.description}
-                                    selected={localEngine === engine.value}
-                                    onSelect={() => setLocalEngine(engine.value)}
-                                />
-                            ))}
-                        </div>
-                    </SettingCard>
+
 
                     <SettingCard
                         title="Auto-save"

@@ -64,7 +64,6 @@ export function useChatRealtime({
                 updatedMessage.status !== 'processing'
             ) return;
 
-            console.log('[Realtime] Assistant message update received:', updatedMessage.id, updatedMessage.status);
 
             const store = useAppStore.getState();
             let responseType = updatedMessage.metadata?.type || (updatedMessage.workflow ? 'workflow' : undefined);
@@ -146,7 +145,7 @@ export function useChatRealtime({
 
                     if (needsLayout) {
                         try {
-                            const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges, 'elk');
+                            const positions = await autoLayoutNodesAsync(workflow.nodes, workflow.edges);
                             workflow.nodes = workflow.nodes.map((n: any) => {
                                 const pos = positions.get(n.id);
                                 return pos ? { ...n, position: pos } : n;
@@ -289,7 +288,6 @@ export function useChatRealtime({
                     )
                     .subscribe((status, err) => {
                         if (err) console.error('[Realtime] Messages channel error:', err);
-                        else console.log('[Realtime] Messages channel status:', status);
                     });
 
                 messagesChannelRef.current = messagesChannel;
@@ -308,14 +306,9 @@ export function useChatRealtime({
                     )
                     .subscribe((status, err) => {
                         if (err) console.error('[Realtime] Sessions channel error:', err);
-                        else console.log('[Realtime] Sessions channel status:', status);
                     });
 
                 sessionsChannelRef.current = sessionsChannel;
-
-                // NOTE: The execution channel (execution_${activeSessionId}) is intentionally NOT
-                // subscribed here. It is managed by useExecutionChannel in ChatClientPage,
-                // which is at a higher level that survives ChatInterface unmounting.
             }
         };
 
@@ -326,7 +319,6 @@ export function useChatRealtime({
         const handleVisibilityChange = async () => {
             if (document.visibilityState !== 'visible') return;
 
-            console.log('[Realtime] Tab became visible — checking execution state...');
             const store = useAppStore.getState();
 
             if (activeSessionId) {
@@ -346,7 +338,6 @@ export function useChatRealtime({
                         store.isLoading &&
                         (latestAssistant.status === 'completed' || latestAssistant.status === 'failed')
                     ) {
-                        console.log('[Realtime] Recovering from stale loading state after tab return...');
                         await handleMessageUpdate({ new: latestAssistant });
                     }
 
@@ -375,7 +366,6 @@ export function useChatRealtime({
             const getSessState = () => (sessionsChannelRef.current as any)?.state;
 
             if (getMsgState() === 'closed' || getSessState() === 'closed') {
-                console.log('[Realtime] Channels closed — resubscribing...');
                 if (messagesChannelRef.current) supabase.removeChannel(messagesChannelRef.current);
                 if (sessionsChannelRef.current) supabase.removeChannel(sessionsChannelRef.current);
                 subscribe();

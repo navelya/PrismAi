@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { Workflow, WorkflowNode, NodeStatus } from '../nodes/types';
-import { LayoutEngine } from '../utils/graph-layout';
+
 import { sharedRegistry } from '../nodes/core/shared-registry';
 
 // Message interface
@@ -103,9 +103,7 @@ interface AppState {
     isCopilotMinimized: boolean;
     setIsCopilotMinimized: (v: boolean) => void;
 
-    // Layout Engine Preference
-    layoutEngine: LayoutEngine;
-    setLayoutEngine: (engine: LayoutEngine) => void;
+
 
     // Chat Scroll Persistence (Ephemeral)
     chatScrollTop: number;
@@ -142,7 +140,7 @@ export const useAppStore = create<AppState>()(
             copiedNode: null, // Initialize copied node as null
             runFromNodeId: null, // No partial execution pending
             runMode: null, // Execution targeting modifier
-            layoutEngine: 'elk', // Default layout engine
+
             isLoading: false,
             statusMessage: null,
 
@@ -248,7 +246,6 @@ export const useAppStore = create<AppState>()(
                 const hasAssets = hasImagesInConfig || hasImagesInOutput;
 
                 if (!hasAssets) {
-                    console.log(`[Store] Optimistic cleanup for node ${nodeId} complete (no remote assets).`);
                     return;
                 }
 
@@ -260,7 +257,6 @@ export const useAppStore = create<AppState>()(
 
                         if (user && activeSessionId) {
                             const folderPath = `${user.id}/${activeSessionId}/thumbnails/${nodeId}`;
-                            console.log(`[Store] Cleaning up Assets in background for node ${nodeId} at ${folderPath}...`);
                             await uploadApi.deleteFolder(folderPath);
                         }
                     } catch (err) {
@@ -451,8 +447,7 @@ export const useAppStore = create<AppState>()(
             setIsCanvasMode: (v) => set({ isCanvasMode: v }),
             setIsCopilotMinimized: (v) => set({ isCopilotMinimized: v }),
 
-            // Layout Engine Actions
-            setLayoutEngine: (engine) => set({ layoutEngine: engine }),
+
 
             setIsLoading: (isLoading) => set({ isLoading }),
             setStatusMessage: (statusMessage) => set({ statusMessage }),

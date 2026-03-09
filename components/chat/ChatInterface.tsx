@@ -10,7 +10,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { generateNodeId, generateEdgeId, formatRelativeTime } from '@/lib/utils';
 import { stableStringify, cleanWorkflowForSave } from '@/lib/utils/stable-stringify';
 import { executeWorkflow } from '@/lib/workflow-engine';
-import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
+
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
 import { useChatMessages } from '@/lib/hooks/use-chat-messages';
@@ -104,29 +104,15 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         );
 
         if (isExecuting) {
-            console.log("[AutoSave] 🛑 Blocked: Workflow nodes are currently executing", {
-                executingNodes: Object.entries(nodeStatuses)
-                    .filter(([id, status]) => workflowNodeIds.has(id) && (status === 'running' || status === 'pending'))
-                    .map(([id]) => id)
-            });
             return;
         }
 
         const isSameHash = currentHash === serverWorkflowHash;
 
         if (isSameHash) {
-            console.log("[AutoSave] ⏩ Skipping: No changes detected since last server sync", {
-                hash: currentHash.slice(0, 8)
-            });
             return;
         }
 
-        console.log("[AutoSave] 🚀 Saving workflow...", {
-            sessionId: saveSessionId,
-            nodes: debouncedWorkflow.nodes.length,
-            hash: currentHash.slice(0, 8),
-            prevHash: serverWorkflowHash?.slice(0, 8)
-        });
 
         setServerWorkflowHash(cleanWorkflow);
         sessionsApi.update(saveSessionId, {
@@ -154,7 +140,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             if (isExecuting) return;
 
             if (currentHash && currentHash !== serverWorkflowHash) {
-                console.log("Unload-saving workflow...", { sessionId: effectiveSessionId });
                 setServerWorkflowHash(cleanWorkflow);
                 const payload = JSON.stringify({ canvas_state: cleanWorkflow });
 

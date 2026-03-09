@@ -17,7 +17,7 @@ export const mediaInputExecutor = async (
         }
 
         // Convert base64 data URLs to ImageObject format
-        const imageObjects: ImageObject[] = images.map((dataUrl: string, index: number) => ({
+        const imageObjects: ImageObject[] = images.map((dataUrl: any, index: number) => ({
             url: dataUrl,
             resolution: {
                 width: 800,  // Placeholder - actual dimensions determined at runtime

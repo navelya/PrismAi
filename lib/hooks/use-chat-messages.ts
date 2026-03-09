@@ -5,7 +5,7 @@ import { Message } from '@/lib/store/app-store';
 import { useAppStore } from '@/lib/store/app-store';
 import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
-import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
+
 
 export interface UseChatMessagesProps {
     sessionId?: string;

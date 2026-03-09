@@ -162,7 +162,7 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
                 });
 
                 if (needsLayout) {
-                    autoLayoutNodesAsync(newNodes, newEdges, 'elk').then(layoutedPositions => {
+                    autoLayoutNodesAsync(newNodes, newEdges).then(layoutedPositions => {
                         const layoutedNodes = newNodes.map(n => {
                             const pos = layoutedPositions.get(n.id);
                             return pos ? { ...n, position: pos } : n;

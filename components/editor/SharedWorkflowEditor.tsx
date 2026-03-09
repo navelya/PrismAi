@@ -134,10 +134,6 @@ export default function SharedWorkflowEditor({
                 });
 
                 if (currentStateString !== lastSavedStateRef.current) {
-                    console.log("[EditorSync] 🔄 Change detected", {
-                        nodes: workflow.nodes.length,
-                        hasLastState: !!lastSavedStateRef.current
-                    });
 
                     lastSavedStateRef.current = currentStateString;
 
@@ -153,21 +149,15 @@ export default function SharedWorkflowEditor({
                         // This prevents the old editor from writing back to store after "New Chat" clears the session
                         const currentActiveId = useAppStore.getState().activeSessionId;
 
-                        console.log("[EditorSync] 📤 Syncing to store...", {
-                            sessionId: currentActiveId,
-                            nodesCount: workflow.nodes?.length
-                        });
 
                         if (isMountedRef.current && currentActiveId) {
                             setCurrentWorkflow(workflow);
                         } else {
                             // Session changed or cleared
-                            console.log("[EditorSync] ⏩ Skipping sync: No active session or unmounted");
                         }
                     }, 300);
                 }
             } else {
-                // console.log("[EditorSync] ⏩ Skipping: Currently dragging");
             }
 
             // Also notify parent component

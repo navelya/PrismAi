@@ -79,7 +79,6 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         if (user) {
             const fetchSessions = async () => {
                 try {
-                    console.log('[Sidebar] Fetching sessions...');
                     const { sessions: data } = await sessionsApi.list();
                     if (data) {
                         setSessions(data);

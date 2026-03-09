@@ -98,7 +98,7 @@ function EditorCanvasInner({
     // Removed old history actions
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
-    const layoutEngine = useAppStore((state) => state.layoutEngine);
+
 
     // Get selected nodes
     const selectedNodes = useMemo(() => nodes.filter((n: any) => n.selected), [nodes]);
@@ -199,7 +199,7 @@ function EditorCanvasInner({
         if (nodes.length === 0 || !updatePositions) return;
 
         // Calculate new positions using selected layout engine
-        const newPositions = await autoLayoutNodesAsync(nodes, edges, layoutEngine);
+        const newPositions = await autoLayoutNodesAsync(nodes, edges);
 
         // Log a sample position
         const firstEntry = Array.from(newPositions.entries())[0];
@@ -207,6 +207,11 @@ function EditorCanvasInner({
 
         // Update positions directly in the canvas (bypasses store to avoid re-render loop)
         updatePositions(newPositions);
+
+        // Smooth fit view after layout
+        setTimeout(() => {
+            reactFlowInstance?.fitView({ duration: 800, padding: 0.3 });
+        }, 50);
     };
 
     const onDragOver = useCallback((event: React.DragEvent) => {
@@ -455,7 +460,7 @@ function EditorCanvasInner({
                         />
                         <ToolbarButton
                             icon={Maximize2}
-                            onClick={() => reactFlowInstance?.fitView({ padding: 0.3, maxZoom: 1 })}
+                            onClick={() => reactFlowInstance?.fitView({ padding: 0.3, duration: 800 })}
                             title="Fit View"
                         />
                         <ToolbarDivider />
@@ -463,13 +468,13 @@ function EditorCanvasInner({
                         {/* Zoom Group */}
                         <ToolbarButton
                             icon={Minus}
-                            onClick={() => reactFlowInstance?.zoomOut()}
+                            onClick={() => reactFlowInstance?.zoomOut({ duration: 300 })}
                             title="Zoom Out"
                         />
                         <ZoomDisplay />
                         <ToolbarButton
                             icon={Plus}
-                            onClick={() => reactFlowInstance?.zoomIn()}
+                            onClick={() => reactFlowInstance?.zoomIn({ duration: 300 })}
                             title="Zoom In"
                         />
                     </div>
