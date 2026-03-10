@@ -9,8 +9,6 @@ import { aiGenerateImageSharedDef } from '../plugins/ai_generate_image';
 import { aiGenerateImageExecutor } from '../plugins/ai_generate_image/executor';
 import { upscaleImageSharedDef } from '../plugins/upscale_image';
 import { upscaleImageExecutor } from '../plugins/upscale_image/executor';
-import { mergeImageSharedDef } from '../plugins/merge_image';
-import { mergeImageExecutor } from '../plugins/merge_image/executor';
 import { mediaInputSharedDef } from '../plugins/media_input';
 import { mediaInputExecutor } from '../plugins/media_input/executor';
 import { promptSharedDef } from '../plugins/prompt';
@@ -27,7 +25,6 @@ export const serverRegistry: Record<string, NodeServerDef> = {
     filter_sort: { ...filterSortSharedDef, executor: filterSortExecutor },
     ai_generate_image: { ...aiGenerateImageSharedDef, executor: aiGenerateImageExecutor },
     upscale_image: { ...upscaleImageSharedDef, executor: upscaleImageExecutor },
-    merge_image: { ...mergeImageSharedDef, executor: mergeImageExecutor },
     media_input: { ...mediaInputSharedDef, executor: mediaInputExecutor },
     compositor: { ...compositorSharedDef, executor: compositorExecutor },
 };

@@ -4,7 +4,6 @@ import { removeBackgroundClientDef } from '../plugins/remove_background/componen
 import { filterSortClientDef } from '../plugins/filter_sort/component';
 import { aiGenerateImageClientDef } from '../plugins/ai_generate_image/component';
 import { upscaleImageClientDef } from '../plugins/upscale_image/component';
-import { mergeImageClientDef } from '../plugins/merge_image/component';
 import { mediaInputClientDef } from '../plugins/media_input/component';
 import { compositorClientDef } from '../plugins/compositor/component';
 import { promptClientDef } from '../plugins/prompt/component';
@@ -18,7 +17,6 @@ export const clientRegistry: Record<string, NodeClientDef> = {
     filter_sort: filterSortClientDef,
     ai_generate_image: aiGenerateImageClientDef,
     upscale_image: upscaleImageClientDef,
-    merge_image: mergeImageClientDef,
     media_input: mediaInputClientDef,
     compositor: compositorClientDef,
 };

@@ -270,204 +270,180 @@ export async function executeWorkflowFromNode(
                     const parentIds = parents.get(node.id) || [];
                     let input = null;
 
-                    if (node.type === 'merge_image') {
-                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-                        let baseEdge = incomingEdges.find(e => (e as any).targetHandle === 'base');
-                        let overlayEdge = incomingEdges.find(e => (e as any).targetHandle === 'overlay');
-
-                        if (!baseEdge || !overlayEdge) {
-                            for (const edge of incomingEdges) {
-                                const sourceNode = workflow.nodes.find(n => n.id === edge.source);
-                                if (!sourceNode) continue;
-                                if (sourceNode.type === 'remove_background' && !overlayEdge) {
-                                    overlayEdge = edge;
-                                } else if ((sourceNode.type === 'ai_generate_image' || sourceNode.type === 'scrape_images') && !baseEdge) {
-                                    baseEdge = edge;
-                                }
-                            }
-                            if (!baseEdge && incomingEdges.length >= 1) baseEdge = incomingEdges[0];
-                            if (!overlayEdge && incomingEdges.length >= 2) overlayEdge = incomingEdges[1];
-                        }
-
-                        input = {
-                            base: baseEdge ? nodeOutputs.get(baseEdge.source) : null,
-                            overlay: overlayEdge ? nodeOutputs.get(overlayEdge.source) : null,
-                        };
-                    } else if (node.type === 'compositor') {
-                        const incomingEdges = workflow.edges.filter(e => e.target === node.id);
-                        const handleInputs: Record<string, any> = {};
-                        for (const edge of incomingEdges) {
-                            const handleId = (edge as any).targetHandle || 'default';
-                            handleInputs[handleId] = nodeOutputs.get(edge.source);
-                        }
-                        input = handleInputs;
-                    } else if (parentIds.length === 1) {
-                        input = nodeOutputs.get(parentIds[0]);
-                    } else if (parentIds.length > 1) {
-                        const allInputs = parentIds.map(pid => nodeOutputs.get(pid)).filter(Boolean);
-                        if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
-                            input = allInputs.flat();
-                        } else {
-                            input = allInputs[0];
-                        }
+                    const incomingEdges = workflow.edges.filter(e => e.target === node.id);
+                    const handleInputs: Record<string, any> = {};
+                    for (const edge of incomingEdges) {
+                        const handleId = (edge as any).targetHandle || 'default';
+                        handleInputs[handleId] = nodeOutputs.get(edge.source);
                     }
-
-                    const timeoutPromise = new Promise<NodeExecutionResult>((_, reject) =>
-                        setTimeout(() => reject(new Error(`Timeout: Node ${node.type} failed to complete in 60s`)), 60000)
-                    );
-
-                    const result: NodeExecutionResult = await Promise.race([
-                        executor(node.data?.config, input, context),
-                        timeoutPromise
-                    ]);
-
-                    if (!result.success) throw new Error(result.error || 'Node execution failed');
-
-                    return { nodeId: node.id, success: true, output: result.data };
-                } catch (error) {
-                    return {
-                        nodeId: node.id,
-                        success: false,
-                        error: error instanceof Error ? error.message : 'Unknown error',
-                    };
+                    input = handleInputs;
+                } else if (parentIds.length === 1) {
+                    input = nodeOutputs.get(parentIds[0]);
+                } else if (parentIds.length > 1) {
+                    const allInputs = parentIds.map(pid => nodeOutputs.get(pid)).filter(Boolean);
+                    if (allInputs.length > 0 && Array.isArray(allInputs[0])) {
+                        input = allInputs.flat();
+                    } else {
+                        input = allInputs[0];
+                    }
                 }
-            });
 
-            const waveResults = await Promise.allSettled(waveExecutions);
-            const nextReadyNodes: WorkflowNode[] = [];
+                const timeoutPromise = new Promise<NodeExecutionResult>((_, reject) =>
+                    setTimeout(() => reject(new Error(`Timeout: Node ${node.type} failed to complete in 60s`)), 60000)
+                );
 
-            for (let index = 0; index < waveResults.length; index++) {
-                const result = waveResults[index];
-                const node = readyNodes[index];
+                const result: NodeExecutionResult = await Promise.race([
+                    executor(node.data?.config, input, context),
+                    timeoutPromise
+                ]);
 
-                if (result.status === 'fulfilled' && result.value.success) {
-                    completedNodes.add(node.id);
-                    nodeOutputs.set(node.id, result.value.output);
+                if (!result.success) throw new Error(result.error || 'Node execution failed');
 
-                    if (node.data) {
-                        (node.data as any).output = result.value.output;
-
-                        const outputStr = result.value.output;
-                        if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
-                            (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
-                        } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
-                            (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
-                        }
-                    }
-
-                    if (onNodePersist) {
-                        const previousMeta = (node.data as any)?.outputMetadata;
-                        const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
-
-                        const parentIds = parents.get(node.id) || [];
-                        // We must hash the ACTUAL inputs passed to this node (including text prompts),
-                        // otherwise changing a connected prompt won't bust the cache!
-                        const inputsForHashing = parentIds.flatMap(pid => {
-                            const val = nodeOutputs.get(pid);
-                            // Convert to string representations or extract URLs/text
-                            if (Array.isArray(val)) return val.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v));
-                            if (typeof val === 'object') return [JSON.stringify(val)];
-                            return [String(val)];
-                        });
-
-                        const isLeaf = (children.get(node.id) || []).length === 0;
-
-                        try {
-                            // If the node is explicitly in the targetSet, the user intentionally ran it.
-                            // We MUST force an overwrite to bypass the deterministic DB Cache, generating fresh variants.
-                            const forceOverwrite = targetSet.has(node.id);
-
-                            const persistMeta = await onNodePersist(
-                                node.id,
-                                node.type,
-                                (node.data as any)?.config ?? {},
-                                inputsForHashing,
-                                result.value.output,
-                                prevThumbnailPaths,
-                                isLeaf,
-                                forceOverwrite
-                            );
-                            if (persistMeta && node.data) {
-                                (node.data as any).outputMetadata = {
-                                    ...(node.data as any).outputMetadata,
-                                    thumbnailPaths: persistMeta.thumbnailPaths,
-                                    thumbnailUrls: persistMeta.thumbnailUrls,
-                                    resultPaths: persistMeta.resultPaths,
-                                    resultUrls: persistMeta.resultUrls,
-                                    computedHash: persistMeta.computedHash,
-                                };
-                            }
-                        } catch (persistErr) {
-                            console.warn(`[Persist] Node ${node.id} persist failed:`, persistErr);
-                        }
-                    }
-
-                    onStatusUpdate?.(node.id, 'success', workflow);
-                    onNodeOutput?.(node.id, result.value.output);
-
-                    const childIds = children.get(node.id) || [];
-                    childIds.forEach(childId => {
-                        if (!blockedNodes.has(childId) && executionSet.has(childId)) {
-                            const newDegree = (currentInDegree.get(childId) || 0) - 1;
-                            currentInDegree.set(childId, newDegree);
-                            if (newDegree === 0) {
-                                const childNode = workflow.nodes.find(n => n.id === childId);
-                                if (childNode) nextReadyNodes.push(childNode);
-                            }
-                        }
-                    });
-                } else {
-                    const errorMsg = result.status === 'fulfilled' ? result.value.error : 'Promise rejected';
-                    if (!firstError) firstError = `${node.type} failed: ${errorMsg}`;
-                    failedNodes.add(node.id);
-                    onStatusUpdate?.(node.id, 'error');
-
-                    const blockDownstream = (nodeId: string) => {
-                        const childIds = children.get(nodeId) || [];
-                        childIds.forEach(childId => {
-                            if (!blockedNodes.has(childId) && executionSet.has(childId)) {
-                                blockedNodes.add(childId);
-                                onStatusUpdate?.(childId, 'error');
-                                blockDownstream(childId);
-                            }
-                        });
-                    };
-                    blockDownstream(node.id);
-                }
+                return { nodeId: node.id, success: true, output: result.data };
+            } catch (error) {
+                return {
+                    nodeId: node.id,
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                };
             }
-
-            readyNodes = nextReadyNodes;
-        }
-
-        const finalNodes = Array.from(targetSet).filter(nodeId => {
-            const childIds = children.get(nodeId) || [];
-            return childIds.length === 0 || childIds.every(c => !targetSet.has(c));
         });
 
-        let finalResult;
-        if (finalNodes.length === 1 && completedNodes.has(finalNodes[0])) {
-            finalResult = nodeOutputs.get(finalNodes[0]);
-        } else if (finalNodes.length > 1) {
-            const outputs = finalNodes.map(nid => nodeOutputs.get(nid)).filter(Boolean);
-            finalResult = outputs.every(o => Array.isArray(o)) ? outputs.flat() : outputs;
-        } else {
-            finalResult = null;
+        const waveResults = await Promise.allSettled(waveExecutions);
+        const nextReadyNodes: WorkflowNode[] = [];
+
+        for (let index = 0; index < waveResults.length; index++) {
+            const result = waveResults[index];
+            const node = readyNodes[index];
+
+            if (result.status === 'fulfilled' && result.value.success) {
+                completedNodes.add(node.id);
+                nodeOutputs.set(node.id, result.value.output);
+
+                if (node.data) {
+                    (node.data as any).output = result.value.output;
+
+                    const outputStr = result.value.output;
+                    if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
+                        (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
+                    } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
+                        (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
+                    }
+                }
+
+                if (onNodePersist) {
+                    const previousMeta = (node.data as any)?.outputMetadata;
+                    const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
+
+                    const parentIds = parents.get(node.id) || [];
+                    // We must hash the ACTUAL inputs passed to this node (including text prompts),
+                    // otherwise changing a connected prompt won't bust the cache!
+                    const inputsForHashing = parentIds.flatMap(pid => {
+                        const val = nodeOutputs.get(pid);
+                        // Convert to string representations or extract URLs/text
+                        if (Array.isArray(val)) return val.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v));
+                        if (typeof val === 'object') return [JSON.stringify(val)];
+                        return [String(val)];
+                    });
+
+                    const isLeaf = (children.get(node.id) || []).length === 0;
+
+                    try {
+                        // If the node is explicitly in the targetSet, the user intentionally ran it.
+                        // We MUST force an overwrite to bypass the deterministic DB Cache, generating fresh variants.
+                        const forceOverwrite = targetSet.has(node.id);
+
+                        const persistMeta = await onNodePersist(
+                            node.id,
+                            node.type,
+                            (node.data as any)?.config ?? {},
+                            inputsForHashing,
+                            result.value.output,
+                            prevThumbnailPaths,
+                            isLeaf,
+                            forceOverwrite
+                        );
+                        if (persistMeta && node.data) {
+                            (node.data as any).outputMetadata = {
+                                ...(node.data as any).outputMetadata,
+                                thumbnailPaths: persistMeta.thumbnailPaths,
+                                thumbnailUrls: persistMeta.thumbnailUrls,
+                                resultPaths: persistMeta.resultPaths,
+                                resultUrls: persistMeta.resultUrls,
+                                computedHash: persistMeta.computedHash,
+                            };
+                        }
+                    } catch (persistErr) {
+                        console.warn(`[Persist] Node ${node.id} persist failed:`, persistErr);
+                    }
+                }
+
+                onStatusUpdate?.(node.id, 'success', workflow);
+                onNodeOutput?.(node.id, result.value.output);
+
+                const childIds = children.get(node.id) || [];
+                childIds.forEach(childId => {
+                    if (!blockedNodes.has(childId) && executionSet.has(childId)) {
+                        const newDegree = (currentInDegree.get(childId) || 0) - 1;
+                        currentInDegree.set(childId, newDegree);
+                        if (newDegree === 0) {
+                            const childNode = workflow.nodes.find(n => n.id === childId);
+                            if (childNode) nextReadyNodes.push(childNode);
+                        }
+                    }
+                });
+            } else {
+                const errorMsg = result.status === 'fulfilled' ? result.value.error : 'Promise rejected';
+                if (!firstError) firstError = `${node.type} failed: ${errorMsg}`;
+                failedNodes.add(node.id);
+                onStatusUpdate?.(node.id, 'error');
+
+                const blockDownstream = (nodeId: string) => {
+                    const childIds = children.get(nodeId) || [];
+                    childIds.forEach(childId => {
+                        if (!blockedNodes.has(childId) && executionSet.has(childId)) {
+                            blockedNodes.add(childId);
+                            onStatusUpdate?.(childId, 'error');
+                            blockDownstream(childId);
+                        }
+                    });
+                };
+                blockDownstream(node.id);
+            }
         }
 
-        return {
-            success: failedNodes.size === 0,
-            result: finalResult,
-            error: failedNodes.size > 0 ? (firstError || `${failedNodes.size} node(s) failed`) : undefined,
-        };
-
-    } catch (error) {
-        console.error('💥 Workflow partial execution error:', error);
-        return {
-            success: false,
-            result: null,
-            error: error instanceof Error ? error.message : 'Unknown execution error',
-        };
+        readyNodes = nextReadyNodes;
     }
+
+        const finalNodes = Array.from(targetSet).filter(nodeId => {
+        const childIds = children.get(nodeId) || [];
+        return childIds.length === 0 || childIds.every(c => !targetSet.has(c));
+    });
+
+    let finalResult;
+    if (finalNodes.length === 1 && completedNodes.has(finalNodes[0])) {
+        finalResult = nodeOutputs.get(finalNodes[0]);
+    } else if (finalNodes.length > 1) {
+        const outputs = finalNodes.map(nid => nodeOutputs.get(nid)).filter(Boolean);
+        finalResult = outputs.every(o => Array.isArray(o)) ? outputs.flat() : outputs;
+    } else {
+        finalResult = null;
+    }
+
+    return {
+        success: failedNodes.size === 0,
+        result: finalResult,
+        error: failedNodes.size > 0 ? (firstError || `${failedNodes.size} node(s) failed`) : undefined,
+    };
+
+} catch (error) {
+    console.error('💥 Workflow partial execution error:', error);
+    return {
+        success: false,
+        result: null,
+        error: error instanceof Error ? error.message : 'Unknown execution error',
+    };
+}
 }
 /**
  * Validate workflow structure

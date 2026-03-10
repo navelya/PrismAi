@@ -85,7 +85,6 @@ export async function POST(request: NextRequest) {
                     filter_sort: 'Filtering results',
                     ai_generate_image: 'Generating AI image',
                     upscale_image: 'Upscaling image',
-                    merge_image: 'Merging images',
                     media_input: 'Processing upload',
                     compositor: 'Compositing layers',
                 };

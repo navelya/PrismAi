@@ -5,7 +5,6 @@ import { removeBackgroundSharedDef } from '../plugins/remove_background';
 import { filterSortSharedDef } from '../plugins/filter_sort';
 import { aiGenerateImageSharedDef } from '../plugins/ai_generate_image';
 import { upscaleImageSharedDef } from '../plugins/upscale_image';
-import { mergeImageSharedDef } from '../plugins/merge_image';
 import { mediaInputSharedDef } from '../plugins/media_input';
 import { compositorSharedDef } from '../plugins/compositor';
 
@@ -19,7 +18,6 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     filter_sort: filterSortSharedDef,
     ai_generate_image: aiGenerateImageSharedDef,
     upscale_image: upscaleImageSharedDef,
-    merge_image: mergeImageSharedDef,
     media_input: mediaInputSharedDef,
     compositor: compositorSharedDef,
 };

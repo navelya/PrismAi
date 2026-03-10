@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'merge_image' | 'media_input' | 'compositor' | 'prompt';
+export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'media_input' | 'compositor' | 'prompt';
 
 /**
  * Node execution status for real-time updates
@@ -62,25 +62,6 @@ export interface UpscaleImageConfig {
     scale: 2 | 3 | 4 | 8;  // Upscale factor
 }
 
-/**
- * Image Merge Node Configuration
- * Composites one image (overlay) onto another (base) with positioning and scaling
- * 
- * ITERATION BEHAVIOR:
- * - 1-to-1: Single base + single overlay = 1 composite
- * - 1-to-Many: 10 bases + 1 overlay = 10 composites (overlay is repeated)
- * - Many-to-Many: 10 bases + 10 overlays = 10 composites (pairwise: base[i] + overlay[i])
- */
-export interface MergeImageConfig {
-    /** Position of overlay on base image */
-    position: 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top-center' | 'bottom-center';
-    /** Scale of overlay relative to base image width (0.1 = 10%, 1.0 = 100%) */
-    overlayScale: number;
-    /** Opacity of overlay (0.0 = transparent, 1.0 = opaque) */
-    opacity: number;
-    /** Padding from edge in pixels */
-    padding: number;
-}
 
 /**
  * Layer transformation data for Compositor
@@ -158,7 +139,6 @@ export type NodeConfig =
     | FilterSortConfig
     | AIGenerateImageConfig
     | UpscaleImageConfig
-    | MergeImageConfig
     | MediaInputConfig
     | CompositorConfig
     | PromptConfig;
