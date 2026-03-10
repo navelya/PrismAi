@@ -83,7 +83,7 @@ export default function EditorToolbar({
                     <Tooltip content="Stop" position="bottom">
                         <button
                             onClick={onStop}
-                            className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-sm"
+                            className="p-2.5 bg-accent-error/20 border border-accent-error/30 text-accent-error rounded-full hover:bg-accent-error/30 transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)]"
                         >
                             <Square className="w-4 h-4 fill-current" />
                         </button>
@@ -92,9 +92,9 @@ export default function EditorToolbar({
                     <Tooltip content="Run" position="bottom">
                         <button
                             onClick={onRun}
-                            className="p-2 bg-gradient-premium text-white rounded-full hover:scale-105 transition-all shadow-sm"
+                            className="p-2.5 bg-accent-primary text-white rounded-full hover:scale-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] border border-accent-primary/50"
                         >
-                            <Play className="w-4 h-4" />
+                            <Play className="w-4 h-4 fill-current" />
                         </button>
                     </Tooltip>
                 )}

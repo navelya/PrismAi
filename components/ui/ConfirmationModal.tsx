@@ -59,7 +59,7 @@ export function ConfirmationModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
             onClick={handleBackdropClick}
         >
-            <div className="relative w-full max-w-md p-6 m-4 bg-surface-elevated rounded-2xl shadow-2xl border border-stroke-subtle transform animate-in zoom-in-95 duration-200">
+            <div className="relative w-full max-w-md p-8 m-4 bg-bg-primary/80 backdrop-blur-2xl rounded-2xl shadow-premium border border-white/10 transform animate-in zoom-in-95 duration-300">
                 {/* Close button */}
                 <button
                     onClick={onClose}
@@ -73,10 +73,10 @@ export function ConfirmationModal({
                     {/* Header with Icon */}
                     <div className="flex items-center gap-3">
                         <div className={`
-                            w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
-                            ${variant === 'danger' ? 'bg-red-500/10 text-red-500' :
-                                variant === 'warning' ? 'bg-yellow-500/10 text-yellow-500' :
-                                    'bg-blue-500/10 text-blue-500'}
+                            w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border
+                            ${variant === 'danger' ? 'bg-accent-error/10 text-accent-error border-accent-error/20 shadow-[0_0_15px_rgba(239,68,68,0.1)]' :
+                                variant === 'warning' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 shadow-[0_0_15px_rgba(234,179,8,0.1)]' :
+                                    'bg-accent-primary/10 text-accent-primary border-accent-primary/20 shadow-[0_0_15px_rgba(6,182,212,0.1)]'}
                         `}>
                             <AlertTriangle className="w-6 h-6" />
                         </div>
@@ -104,10 +104,10 @@ export function ConfirmationModal({
                                 onClose();
                             }}
                             className={`
-                                px-4 py-2 text-sm font-medium text-white rounded-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all
-                                ${variant === 'danger' ? 'bg-red-500 hover:bg-red-600' :
-                                    variant === 'warning' ? 'bg-yellow-500 hover:bg-yellow-600' :
-                                        'bg-accent-primary hover:bg-accent-secondary'}
+                                px-5 py-2.5 text-xs font-black uppercase tracking-widest text-white rounded-lg shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 transition-all
+                                ${variant === 'danger' ? 'bg-accent-error shadow-accent-error/20' :
+                                    variant === 'warning' ? 'bg-yellow-600 shadow-yellow-600/20' :
+                                        'bg-accent-primary shadow-accent-primary/20'}
                             `}
                         >
                             {confirmText}

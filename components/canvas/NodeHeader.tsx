@@ -19,10 +19,10 @@ export function NodeHeader({ icon, label, color, badgeCount, className }: NodeHe
     return (
         <div className={cn("flex items-center gap-2 px-3 py-2 border-white/10", className)}>
             <div
-                className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-white/10"
+                className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-accent-primary/10 border border-accent-primary/20"
             >
                 <IconComponent
-                    className="w-3.5 h-3.5 text-white/60"
+                    className="w-3.5 h-3.5 text-accent-primary"
                 />
             </div>
 

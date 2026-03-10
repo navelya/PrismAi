@@ -105,9 +105,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         <div
             ref={ref}
             className={cn(
-                "rounded-2xl border backdrop-blur-xl relative group bg-surface-elevated/40",
-                "transition-all duration-300 ease-out",
-                selected ? "border-accent-primary/50 shadow-[0_0_20px_rgba(var(--accent-primary-rgb),0.1)]" : "border-white/10 shadow-xl",
+                "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40",
+                "transition-all duration-500 ease-out",
+                selected ? "border-accent-primary shadow-[0_0_20px_rgba(6,182,212,0.15)] ring-1 ring-accent-primary/20" : "border-white/5 shadow-xl",
                 "hover:border-white/20 hover:bg-surface-elevated/50 hover:shadow-2xl",
                 typeof width === 'string' ? width : '',
                 className
@@ -124,19 +124,19 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <>
                         <button
                             onClick={handleRunSolo}
-                            className="w-6 h-6 rounded-full bg-emerald-500/90 hover:bg-emerald-600 backdrop-blur-sm
-                                       flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                            className="w-6 h-6 rounded-lg bg-accent-primary/20 border border-accent-primary/30 backdrop-blur-md
+                                       flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-primary transition-all duration-200 group/btn"
                             title="Run Solo (This node only)"
                         >
-                            <Play className="w-3 h-3 text-content-inverted fill-current" />
+                            <Play className="w-3 h-3 text-accent-primary group-hover/btn:text-white fill-current" />
                         </button>
                         <button
                             onClick={handleRunChain}
-                            className="w-6 h-6 rounded-full bg-purple-500/90 hover:bg-purple-600 backdrop-blur-sm
-                                       flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                            className="w-6 h-6 rounded-lg bg-accent-secondary/20 border border-accent-secondary/30 backdrop-blur-md
+                                       flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-secondary transition-all duration-200 group/btn"
                             title="Run Chain (This node + all downstream)"
                         >
-                            <FastForward className="w-3.5 h-3.5 text-content-inverted fill-current" />
+                            <FastForward className="w-3.5 h-3.5 text-accent-secondary group-hover/btn:text-white fill-current" />
                         </button>
                     </>
                 )}
@@ -144,19 +144,19 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 {customActions}
                 <button
                     onClick={handleDuplicate}
-                    className="w-6 h-6 rounded-full bg-blue-500/90 hover:bg-blue-600 backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                    className="w-6 h-6 rounded-lg bg-white/5 border border-white/10 backdrop-blur-md
+                               flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white/10 transition-all duration-200"
                     title="Duplicate node"
                 >
-                    <Copy className="w-3 h-3 text-content-inverted" />
+                    <Copy className="w-3 h-3 text-content-primary" />
                 </button>
                 <button
                     onClick={handleDelete}
-                    className="w-6 h-6 rounded-full bg-accent-error/90 hover:bg-accent-error backdrop-blur-sm
-                               flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                    className="w-6 h-6 rounded-lg bg-accent-error/10 border border-accent-error/20 backdrop-blur-md
+                               flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-white transition-all duration-200 group/del"
                     title="Delete node"
                 >
-                    <X className="w-3.5 h-3.5 text-content-inverted" />
+                    <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-white" />
                 </button>
             </div>
 
@@ -166,9 +166,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     className={cn(
                         "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
                         "shadow-lg border-2 border-surface-primary transition-all duration-300",
-                        status === 'pending' && "bg-content-tertiary",
-                        status === 'running' && "bg-blue-500 animate-pulse",
-                        status === 'success' && "bg-accent-success",
+                        status === 'pending' && "bg-slate-500",
+                        status === 'running' && "bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]",
+                        status === 'success' && "bg-accent-secondary shadow-[0_0_10px_rgba(20,184,166,0.5)]",
                         status === 'error' && "bg-accent-error"
                     )}
                 >

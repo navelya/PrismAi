@@ -485,9 +485,11 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
 
 
     const themes = [
-        { id: 'light', name: 'Light', icon: <Sun className="w-4 h-4" /> },
-        { id: 'dark', name: 'Dark', icon: <Moon className="w-4 h-4" /> },
-        { id: 'system', name: 'System', icon: <Monitor className="w-4 h-4" /> },
+        { id: 'modern-light', name: 'Modern Light', icon: <Sun className="w-4 h-4" />, description: 'Clean, professional light mode' },
+        { id: 'modern-dark', name: 'Modern Dark', icon: <Moon className="w-4 h-4" />, description: 'The new standard balanced dark mode' },
+        { id: 'system', name: 'System', icon: <Monitor className="w-4 h-4" />, description: 'Follow your system preference' },
+        { id: 'oceanic-neon', name: 'Oceanic Neon', icon: <Zap className="w-4 h-4" />, description: 'Vibrant legacy cyan/teal highlights' },
+        { id: 'midnight-slate', name: 'Midnight Slate', icon: <Database className="w-4 h-4" />, description: 'Deep slate with high-contrast text' },
     ];
 
     const handleSave = async () => {
@@ -558,13 +560,14 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
                         description="Choose between light and dark mode."
                         layout="stacked"
                     >
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             {themes.map((t) => (
                                 <SelectOption
                                     key={t.id}
                                     label={t.name}
+                                    description={t.description}
                                     selected={localTheme === t.id}
-                                    onSelect={() => setLocalTheme(t.id)}
+                                    onSelect={() => setLocalTheme(t.id as any)}
                                     icon={t.icon}
                                 />
                             ))}

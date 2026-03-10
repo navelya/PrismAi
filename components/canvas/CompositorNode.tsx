@@ -15,8 +15,14 @@ import ImageLightbox from '@/components/ui/ImageLightbox';
 
 // Layer colors for visual distinction
 const LAYER_COLORS = [
-    '#22c55e', '#f59e0b', '#3b82f6', '#ec4899',
-    '#8b5cf6', '#06b6d4', '#f97316', '#84cc16',
+    '#06b6d4', // Cyan
+    '#14b8a6', // Teal
+    '#10b981', // Emerald
+    '#0ea5e9', // Sky
+    '#34d399', // Light Emerald
+    '#22d3ee', // Light Cyan
+    '#2dd4bf', // Light Teal
+    '#67e8f9', // Very Light Cyan
 ];
 
 const defaultTransform: LayerTransform = {

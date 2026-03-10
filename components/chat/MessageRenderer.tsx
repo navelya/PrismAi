@@ -50,9 +50,9 @@ export default function MessageRenderer({ data, isCanvasMode = false }: MessageR
 // ────────────────────────────────────────────────────────────────────────────
 function CanvasResultTag({ count }: { count: number }) {
     return (
-        <div className="flex items-center gap-2 mt-1 px-2.5 py-1.5 bg-accent-primary/8 border border-accent-primary/20 rounded-lg w-fit max-w-full">
+        <div className="flex items-center gap-2 mt-1 px-2.5 py-1.5 bg-accent-primary/10 border border-accent-primary/20 rounded-lg w-fit max-w-full backdrop-blur-sm">
             <LayoutDashboard className="w-3.5 h-3.5 text-accent-primary flex-shrink-0" />
-            <span className="text-xs font-medium text-accent-primary truncate">
+            <span className="text-xs font-bold text-accent-primary uppercase tracking-wider truncate">
                 {count === 1 ? 'Image' : `${count} images`} added to Canvas
             </span>
         </div>
@@ -172,21 +172,21 @@ function DataTable({ data }: { data: any[] }) {
                 <span>{data.length} rows</span>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border border-stroke-subtle">
-                <table className="min-w-full divide-y divide-stroke-subtle">
-                    <thead className="bg-surface-secondary">
+            <div className="overflow-x-auto rounded-xl border border-accent-primary/10 glassmorphism">
+                <table className="min-w-full divide-y divide-accent-primary/10">
+                    <thead className="bg-accent-primary/5">
                         <tr>
                             {keys.map((key) => (
                                 <th
                                     key={key}
-                                    className="px-4 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider"
+                                    className="px-4 py-3 text-left text-[10px] font-black text-accent-primary uppercase tracking-widest"
                                 >
                                     {key}
                                 </th>
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="bg-surface-primary divide-y divide-stroke-subtle">
+                    <tbody className="divide-y divide-accent-primary/5">
                         {data.map((row, idx) => (
                             <tr key={idx} className="hover:bg-surface-secondary/50">
                                 {keys.map((key) => (

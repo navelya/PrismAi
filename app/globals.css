@@ -4,40 +4,12 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-display: var(--font-space), var(--font-sans);
+}
+
 @layer base {
-  :root {
-    /* Legacy HSL variables for backward compatibility */
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --primary: 250 84% 67%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --border: 214.3 31.8% 91.4%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-  }
-
-  [data-theme="dark"] {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --primary: 250 84% 67%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --border: 217.2 32.6% 17.5%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-  }
-
   * {
     border-color: rgb(var(--border-subtle));
   }
@@ -45,16 +17,70 @@
   body {
     background-color: rgb(var(--bg-primary));
     color: rgb(var(--text-primary));
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: var(--font-sans);
+    @apply antialiased selection:bg-accent-primary/30 selection:text-accent-primary;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    @apply tracking-tighter uppercase font-black;
   }
 }
 
 @layer utilities {
   .glassmorphism {
     background: rgb(var(--glass-bg) / var(--glass-opacity));
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgb(var(--glass-border) / var(--glass-border-opacity));
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  }
+
+  .glass-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .glass-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: -150%;
+    background: linear-gradient(90deg,
+        transparent,
+        rgba(255, 255, 255, 0.03),
+        transparent);
+    transform: rotate(25deg);
+    animation: shimmer 12s infinite linear;
+    pointer-events: none;
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%) rotate(25deg);
+    }
+
+    30% {
+      transform: translateX(100%) rotate(25deg);
+    }
+
+    100% {
+      transform: translateX(100%) rotate(25deg);
+    }
+  }
+
+  .mesh-gradient {
+    background-color: #05070a;
+    background-image:
+      radial-gradient(at 0% 0%, hsla(180, 100%, 15%, 0.15) 0px, transparent 50%),
+      radial-gradient(at 50% 0%, hsla(160, 100%, 10%, 0.1) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsla(190, 100%, 15%, 0.15) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, hsla(170, 100%, 10%, 0.1) 0px, transparent 50%);
+    background-attachment: fixed;
   }
 
   .text-gradient {
@@ -65,47 +91,48 @@
   }
 
   .shadow-premium {
-    box-shadow: 0 10px 40px rgb(var(--accent-primary) / 0.2);
+    box-shadow: 0 0 60px -10px rgba(6, 182, 212, 0.15);
+  }
+
+  .animate-infinite-scroll {
+    animation: infinite-scroll 40s linear infinite;
+  }
+
+  @keyframes infinite-scroll {
+    from {
+      transform: translateX(0);
+    }
+
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  .text-glow {
+    text-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+  }
+
+  .hud-grid {
+    background-image: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.02) 1px, transparent 0);
+    background-size: 24px 24px;
   }
 }
 
 /* Custom scrollbar - theme aware */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(var(--scrollbar-track));
+  @apply bg-transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--scrollbar-thumb));
-  border-radius: 4px;
+  @apply bg-accent-primary/10 rounded-full hover:bg-accent-primary/30 transition-colors border border-accent-primary/5;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--scrollbar-thumb-hover));
-}
-
-/* Animation improvements */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
-}
-
-/* React Flow custom styles - theme aware */
+/* React Flow custom styles */
 .react-flow__node {
   cursor: grab;
 }
@@ -124,19 +151,6 @@
   border: 2px solid rgb(var(--bg-primary));
 }
 
-/* Performance: GPU acceleration for smooth animations */
-.react-flow__node,
-.react-flow__edge {
-  will-change: transform;
-  transform: translateZ(0);
-}
-
-/* Performance: Smooth transitions */
-.react-flow__pane {
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* React Flow controls - theme aware */
 .react-flow__controls {
   background: rgb(var(--bg-elevated) / 0.9) !important;
   border: 1px solid rgb(var(--border-subtle)) !important;
@@ -153,11 +167,6 @@
   background: rgb(var(--interactive-hover)) !important;
 }
 
-.react-flow__controls-button:last-child {
-  border-bottom: none !important;
-}
-
-/* React Flow minimap - theme aware */
 .react-flow__minimap {
   background: rgb(var(--bg-secondary)) !important;
   border: 1px solid rgb(var(--border-subtle)) !important;

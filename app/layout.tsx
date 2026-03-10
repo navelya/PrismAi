@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import AppLayout from '@/components/layout/AppLayout';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { Analytics } from '@vercel/analytics/next';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space' });
 
 export const metadata: Metadata = {
     title: 'Prism AI - Chat-First Automation Platform',
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-    themeColor: '#7c3aed',
+    themeColor: '#05070a',
     width: 'device-width',
     initialScale: 1,
     maximumScale: 1,
@@ -36,10 +37,18 @@ const themeScript = `
 (function() {
   try {
     const theme = localStorage.getItem('prism-theme') || 'system';
-    const resolved = theme === 'system'
-      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : theme;
+    let resolved = theme;
+    if (theme === 'system') {
+      resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'modern-dark' : 'modern-light';
+    } else if (theme === 'dark') {
+      resolved = 'modern-dark';
+    } else if (theme === 'light') {
+      resolved = 'modern-light';
+    }
     document.documentElement.setAttribute('data-theme', resolved);
+    if (resolved.includes('dark') || resolved === 'oceanic-neon' || resolved === 'midnight-slate') {
+      document.documentElement.classList.add('dark');
+    }
   } catch (e) {}
 })();
 `;
@@ -56,7 +65,7 @@ export default function RootLayout({
                     dangerouslySetInnerHTML={{ __html: themeScript }}
                 />
             </head>
-            <body className={inter.className}>
+            <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans`}>
                 <ThemeProvider>
                     <AppLayout>{children}</AppLayout>
                 </ThemeProvider>

@@ -4,169 +4,154 @@
    
    This file defines all color tokens as RGB triplets.
    Usage: rgb(var(--token-name)) or rgb(var(--token-name) / 0.5) for opacity
-   
-   DO NOT use hardcoded colors in components.
-   Always reference these semantic tokens.
 ============================================ */
 
-:root {
-  /* === SURFACES === */
-  --bg-primary: 255 255 255;
-  /* Main app background */
-  --bg-secondary: 249 250 251;
-  /* Cards, sidebars (gray-50) */
-  --bg-tertiary: 243 244 246;
-  /* Hover states, subtle areas (gray-100) */
-  --bg-elevated: 255 255 255;
-  /* Modals, popovers */
+/* === DEFAULT: MODERN MINIMAL DARK === */
+:root,
+[data-theme="modern-dark"],
+[data-theme="dark"] {
+  /* Surfaces */
+  --bg-primary: 9 9 11;
+  /* zinc-950 */
+  --bg-secondary: 24 24 27;
+  /* zinc-900 */
+  --bg-tertiary: 39 39 42;
+  /* zinc-800 */
+  --bg-elevated: 24 24 27;
 
-  /* === TYPOGRAPHY === */
-  --text-primary: 17 24 39;
-  /* Main text (gray-900) */
-  --text-secondary: 75 85 99;
-  /* Subtle text (gray-600) */
-  --text-tertiary: 156 163 175;
-  /* Disabled/muted (gray-400) */
-  --text-inverted: 255 255 255;
-  /* Text on dark backgrounds */
+  /* Typography */
+  --text-primary: 250 250 250;
+  --text-secondary: 161 161 170;
+  /* zinc-400 */
+  --text-tertiary: 113 113 122;
+  /* zinc-500 */
+  --text-inverted: 9 9 11;
 
-  /* === BORDERS === */
-  --border-subtle: 229 231 235;
-  /* Light borders (gray-200) */
-  --border-default: 209 213 219;
-  /* Standard borders (gray-300) */
-  --border-strong: 156 163 175;
-  /* Emphasized borders (gray-400) */
+  /* Borders */
+  --border-subtle: 39 39 42;
+  /* zinc-800 */
+  --border-default: 63 63 70;
+  /* zinc-700 */
+  --border-strong: 82 82 91;
+  /* zinc-600 */
 
-  /* === ACCENTS === */
-  --accent-primary: 102 126 234;
-  /* Primary brand (#667eea) */
-  --accent-secondary: 118 75 162;
-  /* Secondary brand (#764ba2) */
-  --accent-success: 34 197 94;
-  /* Success green */
+  /* Accents (Indigo/Violet - Professional) */
+  --accent-primary: 99 102 241;
+  /* indigo-500 */
+  --accent-secondary: 139 92 246;
+  /* violet-500 */
+  --accent-success: 16 185 129;
   --accent-error: 239 68 68;
-  /* Error red */
-  --accent-warning: 251 191 36;
-  /* Warning yellow */
+  --accent-warning: 245 158 11;
 
-  /* === INTERACTIVE === */
-  --interactive-hover: 243 244 246;
-  /* Hover background (gray-100) */
-  --interactive-active: 229 231 235;
-  /* Active/pressed (gray-200) */
+  /* Interactive */
+  --interactive-hover: 39 39 42;
+  --interactive-active: 63 63 70;
 
-  /* === CANVAS SPECIFIC === */
-  --canvas-bg: 249 250 251;
-  /* Canvas background */
-  --canvas-dots: 209 213 219;
-  /* Grid dots (gray-300) */
-  --canvas-node-bg: 255 255 255;
-  /* Node background */
-  --canvas-node-text: 17 24 39;
-  /* Node text */
-  --canvas-node-subtext: 75 85 99;
-  /* Node description text */
-  --canvas-edge: 102 126 234;
-  /* Edge/connection lines */
-  --canvas-handle: 102 126 234;
-  /* Handle color */
+  /* Canvas Specific */
+  --canvas-bg: 9 9 11;
+  --canvas-dots: 39 39 42;
+  --canvas-node-bg: 24 24 27;
+  --canvas-node-text: 250 250 252;
+  --canvas-node-subtext: 161 161 170;
+  --canvas-edge: 99 102 241;
+  --canvas-handle: 99 102 241;
 
-  /* === SHADOWS === */
-  --shadow-color: 0 0 0;
-  --shadow-opacity: 0.1;
-
-  /* === SCROLLBAR === */
-  --scrollbar-track: 241 245 249;
-  --scrollbar-thumb: 203 213 225;
-  --scrollbar-thumb-hover: 148 163 184;
-
-  /* === GLASSMORPHISM === */
-  --glass-bg: 255 255 255;
-  --glass-opacity: 0.7;
-  --glass-border: 255 255 255;
-  --glass-border-opacity: 0.3;
+  /* Glassmorphism */
+  --glass-bg: 24 24 27;
+  --glass-opacity: 0.6;
 }
 
-/* ============================================
-   DARK THEME
-============================================ */
-[data-theme="dark"],
-.dark {
-  /* === SURFACES === */
-  --bg-primary: 17 24 39;
-  /* gray-900 */
-  --bg-secondary: 31 41 55;
-  /* gray-800 */
-  --bg-tertiary: 55 65 81;
-  /* gray-700 */
-  --bg-elevated: 31 41 55;
-  /* gray-800 */
+/* === MODERN MINIMAL LIGHT === */
+[data-theme="modern-light"],
+[data-theme="light"] {
+  /* Surfaces */
+  --bg-primary: 250 250 250;
+  --bg-secondary: 244 244 245;
+  /* zinc-100 */
+  --bg-tertiary: 228 228 231;
+  /* zinc-200 */
+  --bg-elevated: 255 255 255;
 
-  /* === TYPOGRAPHY === */
-  --text-primary: 249 250 251;
-  /* gray-50 */
-  --text-secondary: 156 163 175;
-  /* gray-400 */
-  --text-tertiary: 107 114 128;
-  /* gray-500 */
-  --text-inverted: 17 24 39;
-  /* For inverted contexts */
+  /* Typography */
+  --text-primary: 24 24 27;
+  /* zinc-900 */
+  --text-secondary: 82 82 91;
+  /* zinc-600 */
+  --text-tertiary: 161 161 170;
+  /* zinc-400 */
+  --text-inverted: 255 255 255;
 
-  /* === BORDERS === */
-  --border-subtle: 55 65 81;
-  /* gray-700 */
-  --border-default: 75 85 99;
-  /* gray-600 */
-  --border-strong: 107 114 128;
-  /* gray-500 */
+  /* Borders */
+  --border-subtle: 228 228 231;
+  --border-default: 212 212 216;
+  --border-strong: 161 161 170;
 
-  /* === ACCENTS (slightly brighter for dark mode) === */
-  --accent-primary: 129 140 248;
-  /* indigo-400 */
-  --accent-secondary: 167 139 250;
-  /* purple-400 */
-  --accent-success: 74 222 128;
-  /* green-400 */
-  --accent-error: 248 113 113;
-  /* red-400 */
-  --accent-warning: 251 191 36;
-  /* amber-400 */
+  /* Accents */
+  --accent-primary: 79 70 229;
+  /* indigo-600 */
+  --accent-secondary: 124 58 237;
+  /* violet-600 */
+  --accent-success: 5 150 105;
+  --accent-error: 220 38 38;
+  --accent-warning: 217 119 6;
 
-  /* === INTERACTIVE === */
-  --interactive-hover: 55 65 81;
-  /* gray-700 */
-  --interactive-active: 75 85 99;
-  /* gray-600 */
+  /* Interactive */
+  --interactive-hover: 244 244 245;
+  --interactive-active: 228 228 231;
 
-  /* === CANVAS SPECIFIC === */
-  --canvas-bg: 17 24 39;
-  /* Dark canvas */
-  --canvas-dots: 55 65 81;
-  /* Subtle dots (gray-700) */
-  --canvas-node-bg: 31 41 55;
-  /* Node cards (gray-800) */
-  --canvas-node-text: 249 250 251;
-  /* Light text on nodes */
-  --canvas-node-subtext: 156 163 175;
-  /* gray-400 */
-  --canvas-edge: 129 140 248;
-  /* Brighter edges (indigo-400) */
-  --canvas-handle: 129 140 248;
-  /* Brighter handles */
+  /* Canvas Specific */
+  --canvas-bg: 244 244 245;
+  --canvas-dots: 212 212 216;
+  --canvas-node-bg: 255 255 255;
+  --canvas-node-text: 24 24 27;
+  --canvas-node-subtext: 82 82 91;
+  --canvas-edge: 79 70 229;
+  --canvas-handle: 79 70 229;
 
-  /* === SHADOWS (stronger in dark mode) === */
-  --shadow-color: 0 0 0;
-  --shadow-opacity: 0.4;
-
-  /* === SCROLLBAR === */
-  --scrollbar-track: 31 41 55;
-  --scrollbar-thumb: 75 85 99;
-  --scrollbar-thumb-hover: 107 114 128;
-
-  /* === GLASSMORPHISM === */
-  --glass-bg: 31 41 55;
+  /* Glassmorphism */
+  --glass-bg: 255 255 255;
   --glass-opacity: 0.8;
-  --glass-border: 55 65 81;
-  --glass-border-opacity: 0.5;
+}
+
+/* === PRO: OCEANIC NEON (Legacy) === */
+[data-theme="oceanic-neon"] {
+  --bg-primary: 5 7 10;
+  --bg-secondary: 10 15 25;
+  --bg-tertiary: 15 23 42;
+  --bg-elevated: 15 23 42;
+  --text-primary: 248 250 252;
+  --text-secondary: 148 163 184;
+  --text-tertiary: 71 85 105;
+  --accent-primary: 6 182 212;
+  /* Electric Cyan */
+  --accent-secondary: 20 184 166;
+  /* Deep Teal */
+  --border-subtle: 30 41 59;
+  --canvas-bg: 5 7 10;
+  --canvas-edge: 6 182 212;
+  --glass-bg: 10 15 25;
+  --glass-opacity: 0.6;
+}
+
+/* === PRO: MIDNIGHT SLATE === */
+[data-theme="midnight-slate"] {
+  --bg-primary: 2 6 23;
+  /* slate-950 */
+  --bg-secondary: 15 23 42;
+  /* slate-900 */
+  --bg-tertiary: 30 41 59;
+  /* slate-800 */
+  --bg-elevated: 15 23 42;
+  --text-primary: 241 245 249;
+  --text-secondary: 148 163 184;
+  --accent-primary: 56 189 248;
+  /* sky-400 */
+  --accent-secondary: 129 140 248;
+  /* indigo-400 */
+  --border-subtle: 30 41 59;
+  --canvas-bg: 2 6 23;
+  --canvas-edge: 56 189 248;
+  --glass-bg: 15 23 42;
+  --glass-opacity: 0.7;
 }

@@ -528,10 +528,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 </button>
             )}
 
-            <div className={`relative flex flex-col rounded-2xl border bg-surface-secondary/50 
-                           focus-within:ring-2 focus-within:ring-accent-primary/20 focus-within:border-accent-primary focus-within:bg-surface-primary
-                           transition-all duration-200
-                           ${isListening ? 'border-accent-error ring-2 ring-accent-error/20' : 'border-stroke-subtle'}`}>
+            <div className={`relative flex flex-col rounded-2xl border bg-surface-secondary/30 backdrop-blur-xl
+                           focus-within:ring-2 focus-within:ring-accent-primary/20 focus-within:border-accent-primary/50 focus-within:bg-bg-primary/50
+                           transition-all duration-300 group/input
+                           ${isListening ? 'border-accent-error ring-2 ring-accent-error/20' : 'border-accent-primary/10'}`}>
 
                 {attachedImages.length > 0 && (
                     <div className={`flex gap-2 px-3 pt-3 pb-1 overflow-x-auto ${isCanvasMode ? 'px-2 pt-2' : 'px-3 pt-3'}`}>
@@ -658,10 +658,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 <button
                                     type="submit"
                                     disabled={!input.trim() && attachedImages.length === 0}
-                                    className={`p-2 rounded-lg transition-all duration-200
+                                    className={`p-2 rounded-lg transition-all duration-300
                                 ${input.trim() || attachedImages.length > 0
-                                            ? 'bg-content-primary hover:bg-content-secondary text-surface-primary'
-                                            : 'bg-surface-secondary text-content-tertiary cursor-not-allowed'
+                                            ? 'bg-accent-primary hover:bg-accent-hover text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                                            : 'bg-surface-tertiary text-content-tertiary cursor-not-allowed'
                                         }`}
                                 >
                                     <Send className={`${isCanvasMode ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
@@ -907,9 +907,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     })}
 
                     {isLoading && !(messages.length > 0 && messages[messages.length - 1].type === 'assistant' && !messages[messages.length - 1].content) && (
-                        <div className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'}`}>
-                            <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-10 h-10'} rounded-full bg-gradient-premium flex items-center justify-center`}>
-                                <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-white`} />
+                        <div className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} animate-in fade-in slide-in-from-left-2 duration-500`}>
+                            <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-10 h-10'} rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center shadow-sm`}>
+                                <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-accent-primary`} />
                             </div>
                             <div className="flex items-center gap-2 text-content-secondary">
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1013,17 +1013,18 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                 ${isEditing ? 'z-10 relative' : ''}`}
         >
             {message.type === 'assistant' && (
-                <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-8 h-8'} rounded-full bg-gradient-premium flex items-center justify-center mt-1`}>
-                    <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-white`} />
+                <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-9 h-9'} rounded-xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-center mt-1`}>
+                    <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-accent-primary`} />
                 </div>
             )}
 
             <div className={`relative ${isCanvasMode ? 'max-w-[90%]' : 'max-w-[85%]'} ${message.type === 'user' ? (isCanvasMode ? 'min-w-[120px]' : 'min-w-[200px]') : ''}`}>
                 <div
-                    className={`flex flex-col overflow-visible transition-all duration-300 ${message.type === 'user'
-                        ? `bg-gradient-premium text-white rounded-2xl rounded-tr-sm relative shadow-lg shadow-accent-primary/10
+                    className={`flex flex-col overflow-visible transition-all duration-500 rounded-2xl ${message.type === 'user'
+                        ? `bg-accent-primary/5 border border-accent-primary/10 rounded-tr-sm relative
                            ${isCanvasMode ? 'px-3.5 py-2.5 space-y-1' : 'px-5 py-4 space-y-2'}`
-                        : 'space-y-2'
+                        : `bg-surface-secondary/50 border border-stroke-subtle rounded-tl-sm
+                           ${isCanvasMode ? 'px-3.5 py-2.5 space-y-1' : 'px-5 py-4 space-y-2'}`
                         }`}
                 >
                     {message.type === 'user' && message.images && message.images.length > 0 && (
@@ -1043,7 +1044,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                         const tailText = isActuallyStreaming ? message.content.slice(-TAIL_LENGTH) : "";
 
                         return (
-                            <p className={`${isCanvasMode ? 'text-[13px] leading-[1.4]' : 'text-[15px] leading-relaxed'} ${message.type === 'user' ? 'text-white/95 font-medium' : 'text-content-primary'}`}>
+                            <p className={`${isCanvasMode ? 'text-[13px] leading-[1.4]' : 'text-[15px] max-w-none leading-relaxed'} ${message.type === 'user' ? 'text-content-primary font-medium' : 'text-content-primary'}`}>
                                 {stableText}
                                 {isActuallyStreaming && tailText.split('').map((char, index) => (
                                     <span key={index} style={{ opacity: (TAIL_LENGTH - index) / TAIL_LENGTH }}>
@@ -1074,8 +1075,8 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                                 marginTop: isCanvasMode ? 0 : undefined,
                             }}
                         >
-                            <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
-                                <span className="text-[11px] text-white/60 font-medium tracking-wide">
+                            <div className="flex items-center justify-between mt-3 pt-2 border-t border-stroke-subtle">
+                                <span className="text-[10px] text-content-tertiary font-bold uppercase tracking-widest opacity-60">
                                     {timeString}
                                 </span>
                                 <div className="flex items-center gap-2">
@@ -1087,11 +1088,11 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                                                     onEdit(message);
                                                 }}
                                                 className={`flex items-center justify-center p-1.5 rounded-lg 
-                                                         transition-all duration-200 backdrop-blur-sm
-                                                         border border-white/10 group
-                                                         ${isEditing
-                                                        ? 'bg-white/30 text-white ring-2 ring-white/50'
-                                                        : 'bg-white/10 hover:bg-white/20 text-white/90 hover:text-white'}`}
+                                                          transition-all duration-200 backdrop-blur-sm
+                                                          border border-stroke-subtle group
+                                                          ${isEditing
+                                                        ? 'bg-accent-primary text-white ring-2 ring-accent-primary/50'
+                                                        : 'bg-surface-tertiary hover:bg-interactive-hover text-content-primary'}`}
                                             >
                                                 <Pen className="w-3.5 h-3.5" />
                                             </button>
@@ -1101,10 +1102,10 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                                         <button
                                             onClick={handleRevertClick}
                                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg 
-                                                     bg-white/10 hover:bg-white/20 active:bg-white/30 
-                                                     text-white/90 hover:text-white 
+                                                     bg-surface-tertiary hover:bg-interactive-hover
+                                                     text-content-primary
                                                      transition-all duration-200 backdrop-blur-sm
-                                                     border border-white/10 group
+                                                     border border-stroke-subtle group
                                                      cursor-pointer"
                                         >
                                             <svg
@@ -1139,8 +1140,8 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                         transitionProperty: 'opacity, transform, width',
                     }}
                 >
-                    <div className="w-8 h-8 rounded-full bg-surface-tertiary flex items-center justify-center mt-1">
-                        <User className="w-5 h-5 text-content-primary" />
+                    <div className="w-9 h-9 rounded-xl bg-surface-tertiary/50 border border-white/5 flex items-center justify-center mt-1 shadow-sm">
+                        <User className="w-5 h-5 text-content-secondary" />
                     </div>
                 </div>
             )}

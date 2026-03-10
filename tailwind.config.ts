@@ -75,8 +75,8 @@ const config: Config = {
             backgroundImage: {
                 "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
                 "gradient-conic": "conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))",
-                "gradient-premium": "linear-gradient(to bottom right, #a855f7, #4f46e5)",
-                "gradient-accent": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+                "gradient-premium": "linear-gradient(to bottom right, rgb(var(--accent-primary)), rgb(var(--accent-secondary)))",
+                "gradient-accent": "linear-gradient(135deg, rgb(var(--accent-primary)) 0%, rgb(var(--accent-secondary)) 100%)",
             },
             animation: {
                 "fade-in": "fadeIn 0.5s ease-in-out",

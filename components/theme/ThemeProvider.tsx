@@ -2,17 +2,17 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 
-export type Theme = 'light' | 'dark' | 'system';
-export type ResolvedTheme = 'light' | 'dark';
+export type Theme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'system' | 'light' | 'dark';
+export type ResolvedTheme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate';
 
 interface ThemeContextType {
     /** User's selected theme preference */
     theme: Theme;
-    /** Actual applied theme (resolves 'system' to light/dark) */
+    /** Actual applied theme (resolves 'system' or legacy 'light'/'dark') */
     resolvedTheme: ResolvedTheme;
     /** Update theme preference */
     setTheme: (theme: Theme) => void;
-    /** Check if dark mode is active */
+    /** Check if a dark-based theme is active */
     isDark: boolean;
 }
 
@@ -21,23 +21,26 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = 'prism-theme';
 
 function getSystemTheme(): ResolvedTheme {
-    if (typeof window === 'undefined') return 'light';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    if (typeof window === 'undefined') return 'modern-light';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'modern-dark' : 'modern-light';
 }
 
 function resolveTheme(theme: Theme): ResolvedTheme {
-    return theme === 'system' ? getSystemTheme() : theme;
+    if (theme === 'system') return getSystemTheme();
+    if (theme === 'light') return 'modern-light';
+    if (theme === 'dark') return 'modern-dark';
+    return theme as ResolvedTheme;
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const [theme, setThemeState] = useState<Theme>('system');
-    const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light');
+    const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('modern-dark');
     const [mounted, setMounted] = useState(false);
 
     // Load saved theme preference on mount
     useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
-        if (saved && ['light', 'dark', 'system'].includes(saved)) {
+        if (saved) {
             setThemeState(saved);
         }
         setMounted(true);
@@ -53,6 +56,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
             const resolved = resolveTheme(theme);
             setResolvedTheme(resolved);
             document.documentElement.setAttribute('data-theme', resolved);
+
+            // Legacy support for 'dark' class if needed by some external libs
+            if (resolved.includes('dark') || resolved === 'oceanic-neon' || resolved === 'midnight-slate') {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
         };
 
         updateTheme();
@@ -73,7 +83,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         theme,
         resolvedTheme,
         setTheme,
-        isDark: resolvedTheme === 'dark',
+        isDark: resolvedTheme !== 'modern-light',
     };
 
     return (
