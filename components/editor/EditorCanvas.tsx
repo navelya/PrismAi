@@ -377,11 +377,9 @@ function EditorCanvasInner({
                     style: edgeStyle,
                 }))}
                 onNodesChange={(changes) => {
-                    touchInteraction();
                     onNodesChange(changes);
                 }}
                 onEdgesChange={(changes) => {
-                    touchInteraction();
                     onEdgesChange(changes);
                 }}
                 onConnect={(connection) => {

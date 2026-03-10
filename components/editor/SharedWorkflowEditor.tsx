@@ -122,42 +122,37 @@ export default function SharedWorkflowEditor({
     // Sync workflow changes to Zustand store (creates history snapshots)
     useEffect(() => {
         if (nodes.length > 0 || edges.length > 0) {
+            // 👑 PERFORMANCE FIX: Exit early if dragging to avoid expensive serialization on every frame
+            if (isDragging) return;
+
             const workflow = getCurrentWorkflow();
 
-            // Only update if not dragging and workflow has changed
-            if (!isDragging) {
-                // Create a stable serialization for comparison
-                const currentStateString = stableStringify({
-                    nodes: workflow.nodes.map(n => ({ id: n.id, data: n.data, position: n.position })),
-                    edges: workflow.edges,
-                    name: workflow.name
-                });
+            // Create a stable serialization for comparison
+            const currentStateString = stableStringify({
+                nodes: workflow.nodes.map(n => ({ id: n.id, data: n.data, position: n.position })),
+                edges: workflow.edges,
+                name: workflow.name
+            });
 
-                if (currentStateString !== lastSavedStateRef.current) {
+            if (currentStateString !== lastSavedStateRef.current) {
+                lastSavedStateRef.current = currentStateString;
 
-                    lastSavedStateRef.current = currentStateString;
-
-                    // Clear existing timer
-                    if (debounceTimerRef.current) {
-                        clearTimeout(debounceTimerRef.current);
-                    }
-
-                    // Debounce the update to prevent rapid-fire loops
-                    // ⚠️ CRITICAL: Check isMountedRef AND activeSessionId to prevent stale updates
-                    debounceTimerRef.current = setTimeout(() => {
-                        // Ensure we are still the active session (or there IS an active session)
-                        // This prevents the old editor from writing back to store after "New Chat" clears the session
-                        const currentActiveId = useAppStore.getState().activeSessionId;
-
-
-                        if (isMountedRef.current && currentActiveId) {
-                            setCurrentWorkflow(workflow);
-                        } else {
-                            // Session changed or cleared
-                        }
-                    }, 300);
+                // Clear existing timer
+                if (debounceTimerRef.current) {
+                    clearTimeout(debounceTimerRef.current);
                 }
-            } else {
+
+                // Debounce the update to prevent rapid-fire loops
+                // ⚠️ CRITICAL: Check isMountedRef AND activeSessionId to prevent stale updates
+                debounceTimerRef.current = setTimeout(() => {
+                    // Ensure we are still the active session (or there IS an active session)
+                    // This prevents the old editor from writing back to store after "New Chat" clears the session
+                    const currentActiveId = useAppStore.getState().activeSessionId;
+
+                    if (isMountedRef.current && currentActiveId) {
+                        setCurrentWorkflow(workflow);
+                    }
+                }, 300);
             }
 
             // Also notify parent component
@@ -172,8 +167,7 @@ export default function SharedWorkflowEditor({
                 clearTimeout(debounceTimerRef.current);
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [nodes, edges, workflowName, isDragging]);
+    }, [nodes, edges, workflowName, isDragging, onWorkflowChange, getCurrentWorkflow, setCurrentWorkflow]);
 
     const handleNodeClick = (_event: any, node: any) => {
         if (readOnly) return;

@@ -176,12 +176,17 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
         }
     }, [initialWorkflow, setEditorState, resetEditorState]);
 
+    const isDragging = useAppStore((state) => state.isDragging);
+
     // 👑 SYNC OUTPUTS: Watch the global store for node outputs (thumbnails/results) 
     // and sync them into the local 'nodes' array data. This is CRITICAL for 
     // persistence, as the editor's auto-save uses this local data. 
     // We specifically do NOT sync 'nodeStatuses' here to avoid the rendering 
     // feedback loop bug — status is handled directly by CustomNode.tsx.
     useEffect(() => {
+        // PERFORMANCE: Skip sync during active dragging to keep UI responsive
+        if (isDragging) return;
+
         const outputIds = Object.keys(nodeOutputs);
         if (outputIds.length === 0) return;
 
@@ -219,7 +224,13 @@ export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
     const onNodesChange = useCallback((changes: NodeChange[]) => {
         setEditorState((prev) => {
             const nextNodes = applyNodeChanges(changes, prev.nodes);
-            // 🛡️ SANITY CHECK: Ensure no node lost its position during change
+            // 🛡️ SANITY CHECK: Only validate if nodes were added or modified
+            // For simple position changes, React Flow ensures positions are valid.
+            const hasStructuralChanges = changes.some(c => c.type === 'add' || c.type === 'reset');
+            if (!hasStructuralChanges) {
+                return { ...prev, nodes: nextNodes };
+            }
+
             const validatedNodes = nextNodes.map(n => !n.position ? { ...n, position: { x: 0, y: 0 } } : n);
             return {
                 ...prev,

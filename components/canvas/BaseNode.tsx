@@ -106,7 +106,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             ref={ref}
             className={cn(
                 "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40",
-                "transition-all duration-500 ease-out",
+                "transition-[border-color,box-shadow,background-color] duration-500 ease-out",
                 selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] ring-1 ring-accent-primary/20" : "border-stroke-subtle shadow-xl",
                 "hover:border-stroke-strong hover:bg-surface-elevated/50 hover:shadow-2xl",
                 typeof width === 'string' ? width : '',
@@ -114,6 +114,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             )}
             style={{
                 width: typeof width === 'number' ? width : undefined,
+                willChange: 'transform',
                 ...props.style
             }}
             {...props}
