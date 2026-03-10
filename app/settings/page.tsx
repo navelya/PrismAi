@@ -28,6 +28,13 @@ import {
     Plug,
     ChevronRight,
     ArrowLeft,
+    Menu,
+    Sparkles,
+    X,
+    Trash2,
+    Loader2,
+    LogOut,
+    Plus,
 } from 'lucide-react';
 
 // =============================================================================
@@ -486,10 +493,12 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
 
     const themes = [
         { id: 'modern-light', name: 'Modern Light', icon: <Sun className="w-4 h-4" />, description: 'Clean, professional light mode' },
-        { id: 'modern-dark', name: 'Modern Dark', icon: <Moon className="w-4 h-4" />, description: 'The new standard balanced dark mode' },
+        { id: 'modern-dark', name: 'Modern Dark', icon: <Moon className="w-4 h-4" />, description: 'Balanced high-contrast dark mode' },
         { id: 'system', name: 'System', icon: <Monitor className="w-4 h-4" />, description: 'Follow your system preference' },
-        { id: 'oceanic-neon', name: 'Oceanic Neon', icon: <Zap className="w-4 h-4" />, description: 'Vibrant legacy cyan/teal highlights' },
         { id: 'midnight-slate', name: 'Midnight Slate', icon: <Database className="w-4 h-4" />, description: 'Deep slate with high-contrast text' },
+        { id: 'emerald-aurora', name: 'Emerald Aurora', icon: <Sparkles className="w-4 h-4" />, description: 'Deep forest shades with emerald accents' },
+        { id: 'sunset-vibe', name: 'Sunset Vibe', icon: <Sun className="w-4 h-4" />, description: 'Warm purple, orange and gold tones' },
+        { id: 'oceanic-neon', name: 'Oceanic Neon', icon: <Zap className="w-4 h-4" />, description: 'Vibrant legacy cyan/teal highlights' },
     ];
 
     const handleSave = async () => {

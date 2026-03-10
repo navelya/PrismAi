@@ -6,8 +6,55 @@
    Usage: rgb(var(--token-name)) or rgb(var(--token-name) / 0.5) for opacity
 ============================================ */
 
-/* === DEFAULT: MODERN MINIMAL DARK === */
+/* === DEFAULT: MIDNIGHT SLATE (Standard) === */
 :root,
+[data-theme="midnight-slate"] {
+  --bg-primary: 2 6 23;
+  /* slate-950 */
+  --bg-secondary: 15 23 42;
+  /* slate-900 */
+  --bg-tertiary: 30 41 59;
+  /* slate-800 */
+  --bg-elevated: 15 23 42;
+
+  --text-primary: 241 245 249;
+  --text-secondary: 148 163 184;
+  --text-tertiary: 71 85 105;
+  --text-inverted: 2 6 23;
+
+  --accent-primary: 56 189 248;
+  /* sky-400 */
+  --accent-secondary: 129 140 248;
+  /* indigo-400 */
+  --accent-success: 16 185 129;
+  --accent-error: 239 68 68;
+  --accent-warning: 245 158 11;
+
+  --border-subtle: 30 41 59;
+  /* slate-800 */
+  --border-default: 51 65 85;
+  /* slate-700 */
+  --border-strong: 100 116 139;
+  /* slate-500 */
+
+  --interactive-hover: 30 41 59;
+  --interactive-active: 51 65 85;
+
+  --canvas-bg: 2 6 23;
+  --canvas-dots: 30 41 59;
+  --canvas-node-bg: 15 23 42;
+  --canvas-node-text: 241 245 249;
+  --canvas-node-subtext: 148 163 184;
+  --canvas-edge: 56 189 248;
+  --canvas-handle: 56 189 248;
+
+  --glass-bg: 15 23 42;
+  --glass-opacity: 0.7;
+  --checker-1: 15 23 42;
+  --checker-2: 30 41 59;
+}
+
+/* === MODERN MINIMAL DARK === */
 [data-theme="modern-dark"],
 [data-theme="dark"] {
   /* Surfaces */
@@ -60,6 +107,8 @@
   /* Glassmorphism */
   --glass-bg: 24 24 27;
   --glass-opacity: 0.6;
+  --checker-1: 9 9 11;
+  --checker-2: 24 24 27;
 }
 
 /* === MODERN MINIMAL LIGHT === */
@@ -110,8 +159,10 @@
   --canvas-handle: 79 70 229;
 
   /* Glassmorphism */
-  --glass-bg: 255 255 255;
-  --glass-opacity: 0.8;
+  --glass-bg: 248 250 252;
+  --glass-opacity: 0.4;
+  --checker-1: 241 245 249;
+  --checker-2: 255 255 255;
 }
 
 /* === PRO: OCEANIC NEON (Legacy) === */
@@ -132,26 +183,70 @@
   --canvas-edge: 6 182 212;
   --glass-bg: 10 15 25;
   --glass-opacity: 0.6;
+  --checker-1: 5 7 10;
+  --checker-2: 10 15 25;
 }
 
-/* === PRO: MIDNIGHT SLATE === */
-[data-theme="midnight-slate"] {
-  --bg-primary: 2 6 23;
-  /* slate-950 */
-  --bg-secondary: 15 23 42;
-  /* slate-900 */
-  --bg-tertiary: 30 41 59;
-  /* slate-800 */
-  --bg-elevated: 15 23 42;
-  --text-primary: 241 245 249;
-  --text-secondary: 148 163 184;
-  --accent-primary: 56 189 248;
-  /* sky-400 */
-  --accent-secondary: 129 140 248;
-  /* indigo-400 */
-  --border-subtle: 30 41 59;
-  --canvas-bg: 2 6 23;
-  --canvas-edge: 56 189 248;
-  --glass-bg: 15 23 42;
-  --glass-opacity: 0.7;
+/* === PRO: EMERALD AURORA === */
+[data-theme="emerald-aurora"] {
+  --bg-primary: 2 15 12;
+  --bg-secondary: 4 25 20;
+  --bg-elevated: 6 35 28;
+  --interactive-hover: 10 45 35;
+
+  /* Text / Icons */
+  --text-primary: 236 253 245;
+  --text-secondary: 167 243 208;
+  --text-tertiary: 52 211 153;
+  --content-inverted: 2 15 12;
+
+  /* Accents */
+  --accent-primary: 16 185 129;
+  --accent-secondary: 5 150 105;
+  --accent-error: 248 113 113;
+
+  /* Borders / Canvas */
+  --border-subtle: 6 78 59;
+  --border-strong: 16 185 129;
+  --canvas-bg: 2 15 12;
+  --canvas-edge: 16 185 129;
+  --canvas-handle: 16 185 129;
+
+  /* Glassmorphism */
+  --glass-bg: 4 25 20;
+  --glass-opacity: 0.6;
+  --checker-1: 1 10 8;
+  --checker-2: 4 25 20;
+}
+
+/* === PRO: SUNSET VIBE === */
+[data-theme="sunset-vibe"] {
+  --bg-primary: 24 10 32;
+  --bg-secondary: 40 15 50;
+  --bg-elevated: 55 20 70;
+  --interactive-hover: 75 30 90;
+
+  /* Text / Icons */
+  --text-primary: 255 245 240;
+  --text-secondary: 255 210 200;
+  --text-tertiary: 251 146 60;
+  --content-inverted: 24 10 32;
+
+  /* Accents */
+  --accent-primary: 251 146 60;
+  --accent-secondary: 192 38 211;
+  --accent-error: 248 113 113;
+
+  /* Borders / Canvas */
+  --border-subtle: 80 30 100;
+  --border-strong: 251 146 60;
+  --canvas-bg: 24 10 32;
+  --canvas-edge: 251 146 60;
+  --canvas-handle: 251 146 60;
+
+  /* Glassmorphism */
+  --glass-bg: 40 15 50;
+  --glass-opacity: 0.6;
+  --checker-1: 15 5 20;
+  --checker-2: 40 15 50;
 }

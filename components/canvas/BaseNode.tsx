@@ -107,8 +107,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             className={cn(
                 "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40",
                 "transition-all duration-500 ease-out",
-                selected ? "border-accent-primary shadow-[0_0_20px_rgba(6,182,212,0.15)] ring-1 ring-accent-primary/20" : "border-white/5 shadow-xl",
-                "hover:border-white/20 hover:bg-surface-elevated/50 hover:shadow-2xl",
+                selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] ring-1 ring-accent-primary/20" : "border-stroke-subtle shadow-xl",
+                "hover:border-stroke-strong hover:bg-surface-elevated/50 hover:shadow-2xl",
                 typeof width === 'string' ? width : '',
                 className
             )}
@@ -153,10 +153,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 <button
                     onClick={handleDelete}
                     className="w-6 h-6 rounded-lg bg-accent-error/10 border border-accent-error/20 backdrop-blur-md
-                               flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-white transition-all duration-200 group/del"
+                               flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
                     title="Delete node"
                 >
-                    <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-white" />
+                    <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-content-inverted" />
                 </button>
             </div>
 
@@ -195,7 +195,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     position={Position.Left}
                                     id={input.id}
                                     className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                              before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
+                                              before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[4] before:scale-y-[2.5] before:rounded-full"
                                     style={{
                                         background: input.color || nodeColor,
                                         boxShadow: `0 0 10px ${input.color || nodeColor}40`,

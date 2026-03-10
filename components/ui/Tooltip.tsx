@@ -19,8 +19,8 @@ export function Tooltip({ content, children, position = 'top', className, popupC
 
             {content && (
                 <div className={cn(
-                    "absolute px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-2xl pointer-events-none transition-all duration-300 z-50 whitespace-nowrap",
-                    "bg-bg-primary/90 text-content-primary border border-white/10 backdrop-blur-md opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 shadow-[0_0_30px_rgba(0,0,0,0.5)]",
+                    "absolute px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-premium pointer-events-none transition-all duration-300 z-50 whitespace-nowrap",
+                    "bg-surface-secondary/95 text-content-primary border border-stroke-subtle backdrop-blur-md opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100",
                     // Center positions
                     position === 'top' && "bottom-full mb-2 origin-bottom left-1/2 -translate-x-1/2",
                     position === 'bottom' && "top-full mt-2 origin-top left-1/2 -translate-x-1/2",
@@ -36,7 +36,7 @@ export function Tooltip({ content, children, position = 'top', className, popupC
                     {content}
                     {/* Arrow */}
                     <div className={cn(
-                        "absolute w-2 h-2 bg-bg-primary border-l border-t border-white/10 rotate-45",
+                        "absolute w-2 h-2 bg-surface-secondary border-l border-t border-stroke-subtle rotate-45",
                         // Center Arrows
                         position === 'top' && "bottom-[-4px] left-1/2 -translate-x-1/2",
                         position === 'bottom' && "top-[-4px] left-1/2 -translate-x-1/2",

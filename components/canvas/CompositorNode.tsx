@@ -103,10 +103,10 @@ const PreviewImage = memo(({ layer, imageUrl }: { layer: CompositorLayer, imageU
 
 // Professional CSS Checkerboard to indicate transparent areas
 const checkerboardStyle = {
-    backgroundImage: 'repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a), repeating-linear-gradient(45deg, #1a1a1a 25%, transparent 25%, transparent 75%, #1a1a1a 75%, #1a1a1a)',
+    backgroundImage: 'repeating-linear-gradient(45deg, rgb(var(--checker-1)) 25%, transparent 25%, transparent 75%, rgb(var(--checker-1)) 75%, rgb(var(--checker-1))), repeating-linear-gradient(45deg, rgb(var(--checker-1)) 25%, transparent 25%, transparent 75%, rgb(var(--checker-1)) 75%, rgb(var(--checker-1)))',
     backgroundPosition: '0 0, 8px 8px',
     backgroundSize: '16px 16px',
-    backgroundColor: '#222'
+    backgroundColor: 'rgb(var(--checker-2))'
 };
 
 // 2. Dynamic Auto-Scaling Live Preview WITH TRANSPARENCY FIX
@@ -143,7 +143,7 @@ function LivePreview({
     return (
         <div
             ref={containerRef}
-            className="w-full relative overflow-hidden flex items-center justify-center rounded-xl border border-white/10 shadow-2xl"
+            className="w-full relative overflow-hidden flex items-center justify-center rounded-xl border border-stroke-subtle shadow-2xl"
             style={{
                 ...checkerboardStyle,
                 aspectRatio: `${canvasWidth} / ${canvasHeight}`
@@ -350,7 +350,7 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                             />
                         </div>
                     ) : (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-content-tertiary border border-white/5 rounded-xl bg-white/5 m-1">
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-content-tertiary border border-stroke-subtle rounded-xl bg-surface-secondary/50 m-1">
                             <Plus className="w-8 h-8 opacity-20" />
                             <span className="text-[10px] font-medium uppercase tracking-wider opacity-40">Connect Inputs</span>
                         </div>
@@ -358,16 +358,16 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
 
                     {/* Quick Edit Overlay */}
                     <div className="absolute inset-x-0 bottom-0 p-3 translate-y-2 opacity-0 group-hover/compositor:translate-y-0 group-hover/compositor:opacity-100 transition-all duration-300 pointer-events-none">
-                        <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-lg p-2 flex items-center justify-between pointer-events-auto">
+                        <div className="bg-surface-primary/80 backdrop-blur-xl border border-stroke-subtle rounded-lg p-2 flex items-center justify-between pointer-events-auto">
                             <div className="flex flex-col">
-                                <span className="text-[9px] font-bold text-white/50 px-1 uppercase tracking-tighter">
+                                <span className="text-[9px] font-bold text-content-tertiary px-1 uppercase tracking-tighter">
                                     {canvasW}x{canvasH}
                                 </span>
-                                <span className="text-[7px] text-white/30 px-1 uppercase leading-none">Composition</span>
+                                <span className="text-[7px] text-content-tertiary/70 px-1 uppercase leading-none">Composition</span>
                             </div>
                             <button
                                 onClick={openEditor}
-                                className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[9px] font-bold text-white uppercase transition-colors"
+                                className="px-2 py-1 rounded-md bg-accent-primary/10 hover:bg-accent-primary/20 text-[9px] font-bold text-accent-primary uppercase transition-colors"
                             >
                                 Open Editor
                             </button>

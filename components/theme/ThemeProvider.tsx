@@ -1,6 +1,9 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { usePathname } from 'next/navigation';
+import { userApi } from '@/lib/api/client';
+import { createClient } from '@/lib/supabase/client';
 
 export type Theme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate';
@@ -21,7 +24,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = 'prism-theme';
 
 function getSystemTheme(): ResolvedTheme {
-    if (typeof window === 'undefined') return 'modern-light';
+    if (typeof window === 'undefined') return 'midnight-slate';
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'modern-dark' : 'modern-light';
 }
 
@@ -33,31 +36,58 @@ function resolveTheme(theme: Theme): ResolvedTheme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const [theme, setThemeState] = useState<Theme>('system');
-    const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('modern-dark');
-    const [mounted, setMounted] = useState(false);
+    const pathname = usePathname();
+    const isHomePage = pathname === '/';
 
-    // Load saved theme preference on mount
+    const [theme, setThemeState] = useState<Theme>('midnight-slate');
+    const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('midnight-slate');
+    const [mounted, setMounted] = useState(false);
+    const [user, setUser] = useState<any>(null);
+
+    // Initial load from localStorage (fastest)
     useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
         if (saved) {
             setThemeState(saved);
         }
         setMounted(true);
+
+        // Fetch user profile from DB to sync theme preference
+        const syncProfile = async () => {
+            try {
+                const { user: userData } = await userApi.me();
+                if (userData) {
+                    setUser(userData);
+                    const dbTheme = userData.profile?.preferences?.theme;
+                    if (dbTheme) {
+                        setThemeState(dbTheme);
+                        localStorage.setItem(STORAGE_KEY, dbTheme);
+                    }
+                }
+            } catch (err) {
+                // Not logged in or error
+            }
+        };
+        syncProfile();
     }, []);
 
-    // Apply theme to document and listen for system changes
+    // Apply theme to document
     useEffect(() => {
         if (!mounted) return;
 
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
         const updateTheme = () => {
-            const resolved = resolveTheme(theme);
+            // HOME PAGE OVERRIDE: Always use midnight-slate
+            let resolved = resolveTheme(theme);
+            if (isHomePage) {
+                resolved = 'midnight-slate';
+            }
+
             setResolvedTheme(resolved);
             document.documentElement.setAttribute('data-theme', resolved);
 
-            // Legacy support for 'dark' class if needed by some external libs
+            // Legacy support for 'dark' class
             if (resolved.includes('dark') || resolved === 'oceanic-neon' || resolved === 'midnight-slate') {
                 document.documentElement.classList.add('dark');
             } else {
@@ -67,17 +97,34 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
         updateTheme();
 
-        // Only listen for system changes if theme is 'system'
-        if (theme === 'system') {
+        if (theme === 'system' && !isHomePage) {
             mediaQuery.addEventListener('change', updateTheme);
             return () => mediaQuery.removeEventListener('change', updateTheme);
         }
-    }, [theme, mounted]);
+    }, [theme, mounted, isHomePage]);
 
-    const setTheme = useCallback((newTheme: Theme) => {
+    const setTheme = useCallback(async (newTheme: Theme) => {
         setThemeState(newTheme);
         localStorage.setItem(STORAGE_KEY, newTheme);
-    }, []);
+
+        // PERSIST TO DATABASE
+        if (user?.id) {
+            try {
+                const supabase = createClient();
+                const newPrefs = {
+                    ...(user.profile?.preferences || {}),
+                    theme: newTheme
+                };
+
+                await supabase.from('profiles').upsert({
+                    id: user.id,
+                    preferences: newPrefs,
+                });
+            } catch (err) {
+                console.error('[ThemeProvider] Failed to persist theme to DB:', err);
+            }
+        }
+    }, [user]);
 
     const value: ThemeContextType = {
         theme,

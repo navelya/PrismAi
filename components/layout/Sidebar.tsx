@@ -170,7 +170,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 {/* Backdrop */}
                 {isOpen && (
                     <div
-                        className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
+                        className="fixed inset-0 bg-surface-primary/60 z-40 transition-opacity duration-300"
                         onClick={onClose}
                     />
                 )}
@@ -183,7 +183,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     {/* Drawer Header */}
                     <div className="flex items-center justify-between p-4 border-b border-stroke-subtle">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-accent-primary/20 border border-accent-primary/20 flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.2)]">
+                            <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center shadow-lg">
                                 <Sparkles className="w-5 h-5 text-accent-primary" />
                             </div>
                             <div>
@@ -422,7 +422,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                         </span>
 
                                         {isActive && (
-                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-primary rounded-r-full shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-primary rounded-r-full shadow-[0_0_8px_rgb(var(--accent-primary)/0.6)]" />
                                         )}
 
                                         {!isExpanded && (
@@ -638,8 +638,8 @@ function SidebarSessionItem({
                     group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer
                     transition-all duration-200 select-none
                     ${isActive
-                        ? 'bg-accent-primary/10 text-accent-primary font-bold border border-accent-primary/10 shadow-[inset_0_0_10px_rgba(6,182,212,0.05)]'
-                        : 'text-content-secondary hover:bg-accent-primary/5 hover:text-content-primary'
+                        ? 'bg-accent-primary/10 text-accent-primary font-bold border border-accent-primary/10 shadow-sm'
+                        : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
                     }
                 `}
             >
@@ -688,8 +688,8 @@ function SidebarSessionItem({
                     group relative flex items-center gap-3 px-3 py-2 rounded-lg
                     transition-all duration-200
                     ${isActive
-                    ? 'bg-accent-primary/10 text-accent-primary font-bold border border-accent-primary/10 shadow-[inset_0_0_10px_rgba(6,182,212,0.05)]'
-                    : 'text-content-secondary hover:bg-accent-primary/5 hover:text-content-primary'
+                    ? 'bg-accent-primary/10 text-accent-primary font-bold border border-accent-primary/10 shadow-sm'
+                    : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
                 }
                 `}
         >

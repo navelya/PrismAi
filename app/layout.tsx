@@ -36,7 +36,14 @@ export const viewport = {
 const themeScript = `
 (function() {
   try {
-    const theme = localStorage.getItem('prism-theme') || 'system';
+    const isHome = window.location.pathname === '/';
+    if (isHome) {
+      document.documentElement.setAttribute('data-theme', 'midnight-slate');
+      document.documentElement.classList.add('dark');
+      return;
+    }
+
+    const theme = localStorage.getItem('prism-theme') || 'midnight-slate';
     let resolved = theme;
     if (theme === 'system') {
       resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'modern-dark' : 'modern-light';
