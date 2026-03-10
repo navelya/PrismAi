@@ -70,7 +70,7 @@ export function ThemeToggle({ showLabels = false, compact = false, className = '
  * Simple icon-only toggle for compact spaces (e.g., sidebar)
  */
 export function ThemeIconToggle({ className = '' }: { className?: string }) {
-    const { resolvedTheme, setTheme, theme } = useTheme();
+    const { isDark, setTheme, theme } = useTheme();
 
     // Cycle through themes on click
     const cycleTheme = () => {
@@ -80,7 +80,7 @@ export function ThemeIconToggle({ className = '' }: { className?: string }) {
         setTheme(order[nextIndex]);
     };
 
-    const Icon = resolvedTheme === 'dark' ? Moon : Sun;
+    const Icon = isDark ? Moon : Sun;
     const isSystem = theme === 'system';
 
     return (
