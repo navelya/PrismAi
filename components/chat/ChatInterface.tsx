@@ -220,7 +220,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const [isMultiLine, setIsMultiLine] = useState(false);
 
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
-    const lastScrollTop = useRef(0);
+    const lastScrollTopRef = useRef(0);
+    const isTransitioningRef = useRef(false);
 
     const handleScroll = useCallback(() => {
         const container = scrollContainerRef.current;
@@ -229,11 +230,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         const { scrollTop, scrollHeight, clientHeight } = container;
         const isNearBottom = scrollHeight - scrollTop - clientHeight < 50;
 
-        // Sync scroll position to global store for persistence across views
-        setChatScrollTop(scrollTop);
+        // Skip syncing during mode transitions to prevent "crawling" position shift
+        if (!isTransitioningRef.current) {
+            setChatScrollTop(scrollTop);
+        }
 
         // If we are currently loading (AI is typing) and user scrolls UP, disable auto-scroll
-        if (isLoading && scrollTop < lastScrollTop.current && !isNearBottom) {
+        if (isLoading && scrollTop < lastScrollTopRef.current && !isNearBottom) {
             setAutoScrollEnabled(false);
         }
 
@@ -242,16 +245,36 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             setAutoScrollEnabled(true);
         }
 
-        lastScrollTop.current = scrollTop;
+        lastScrollTopRef.current = scrollTop;
     }, [isLoading, setChatScrollTop]);
 
     // RESTORE scroll position instantly on mount (avoid eye-jump)
     useLayoutEffect(() => {
         if (scrollContainerRef.current) {
             scrollContainerRef.current.scrollTop = chatScrollTop;
-            lastScrollTop.current = chatScrollTop;
+            lastScrollTopRef.current = chatScrollTop;
         }
     }, []); // Only on mount
+
+    // 🛡️ MODE TOGGLE GUARD: Preserve "Pinned to bottom" state during transitions
+    useEffect(() => {
+        isTransitioningRef.current = true;
+
+        if (autoScrollEnabled) {
+            // Force re-pin to bottom if we were already there
+            const container = scrollContainerRef.current;
+            if (container) {
+                container.scrollTop = 9999999;
+                lastScrollTopRef.current = 9999999;
+            }
+        }
+
+        const timeout = setTimeout(() => {
+            isTransitioningRef.current = false;
+        }, 500); // Wait for RESIZE_TRANSITION (250ms) + message animations (300ms)
+
+        return () => clearTimeout(timeout);
+    }, [isCanvasMode, autoScrollEnabled]);
 
     // Reset auto-scroll and position memory when a new request starts
     useEffect(() => {
