@@ -174,6 +174,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
     const lastScrollTime = useRef<number>(0);
 
     const {
@@ -221,7 +222,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
     const lastScrollTopRef = useRef(0);
-    const isTransitioningRef = useRef(false);
 
     const handleScroll = useCallback(() => {
         const container = scrollContainerRef.current;
@@ -230,20 +230,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         const { scrollTop, scrollHeight, clientHeight } = container;
         const isNearBottom = scrollHeight - scrollTop - clientHeight < 50;
 
-        // Skip syncing during mode transitions to prevent "crawling" position shift
-        if (!isTransitioningRef.current) {
-            setChatScrollTop(scrollTop);
-        }
+        // Sync scroll position to global store for persistence across views
+        setChatScrollTop(scrollTop);
 
-        // If we are currently loading (AI is typing) and user scrolls UP, disable auto-scroll
-        if (isLoading && scrollTop < lastScrollTopRef.current && !isNearBottom) {
-            setAutoScrollEnabled(false);
-        }
-
-        // If user manually scrolls back to the very bottom, re-enable auto-scroll
-        if (isNearBottom) {
-            setAutoScrollEnabled(true);
-        }
+        // Strictly tie auto-scroll to whether the user is at the bottom
+        setAutoScrollEnabled(isNearBottom);
 
         lastScrollTopRef.current = scrollTop;
     }, [isLoading, setChatScrollTop]);
@@ -256,25 +247,23 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, []); // Only on mount
 
-    // 🛡️ MODE TOGGLE GUARD: Preserve "Pinned to bottom" state during transitions
+    // 🛡️ ROBUST PINNING: Use ResizeObserver to stay at bottom during any layout shift
     useEffect(() => {
-        isTransitioningRef.current = true;
+        const content = contentRef.current;
+        const container = scrollContainerRef.current;
+        if (!content || !container) return;
 
-        if (autoScrollEnabled) {
-            // Force re-pin to bottom if we were already there
-            const container = scrollContainerRef.current;
-            if (container) {
-                container.scrollTop = 9999999;
-                lastScrollTopRef.current = 9999999;
+        const resizeObserver = new ResizeObserver(() => {
+            if (autoScrollEnabled) {
+                container.scrollTop = container.scrollHeight;
+                lastScrollTopRef.current = container.scrollTop;
             }
-        }
+        });
 
-        const timeout = setTimeout(() => {
-            isTransitioningRef.current = false;
-        }, 500); // Wait for RESIZE_TRANSITION (250ms) + message animations (300ms)
+        resizeObserver.observe(content);
+        return () => resizeObserver.disconnect();
+    }, [autoScrollEnabled]);
 
-        return () => clearTimeout(timeout);
-    }, [isCanvasMode, autoScrollEnabled]);
 
     // Reset auto-scroll and position memory when a new request starts
     useEffect(() => {
@@ -889,8 +878,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
                 className={`flex-1 overflow-y-auto ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
+                style={{ overflowAnchor: 'auto' }}
             >
-                <div className="max-w-3xl mx-auto space-y-6 pb-2">
+                <div ref={contentRef} className="max-w-3xl mx-auto space-y-6 pb-2">
                     {messages.map((message, index) => {
                         let undoSnapshotId: string | undefined;
                         if (message.type === 'user') {
