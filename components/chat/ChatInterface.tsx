@@ -1170,7 +1170,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                     {message.content ? (
                         <ChatMessageContent
                             message={message}
-                            isGenerating={isGenerating}
+                            isGenerating={!!isGenerating}
                             isCanvasMode={isCanvasMode}
                         />
                     ) : message.type === 'assistant' && !message.result && (
