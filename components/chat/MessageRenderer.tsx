@@ -1,8 +1,23 @@
 'use client';
 
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { ImageObject } from '@/lib/nodes/types';
-import { FileText, ImageIcon, LayoutDashboard } from 'lucide-react';
+import {
+    FileText,
+    ImageIcon,
+    LayoutDashboard,
+    Bot,
+    ChevronDown,
+    ChevronUp,
+    ExternalLink,
+    Layers,
+    Maximize2,
+    Settings2,
+    Wand2
+} from 'lucide-react';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 
 interface MessageRendererProps {
@@ -206,9 +221,54 @@ function DataTable({ data }: { data: any[] }) {
 }
 
 function TextRenderer({ text }: { text: string }) {
+    const [isExpanded, setIsExpanded] = React.useState(false);
+    const contentRef = React.useRef<HTMLDivElement>(null);
+    const [isClamped, setIsClamped] = React.useState(false);
+
+    React.useLayoutEffect(() => {
+        if (contentRef.current) {
+            // Check if the actual content is taller than our collapsed max-height (e.g., 100px)
+            const hasOverflow = contentRef.current.scrollHeight > 100;
+            if (!isExpanded) {
+                setIsClamped(hasOverflow);
+            }
+        }
+    }, [text, isExpanded]);
+
     return (
-        <div className="prose prose-sm max-w-none dark:prose-invert">
-            <p className="text-content-primary whitespace-pre-wrap">{text}</p>
+        <div className="space-y-2">
+            <div
+                // Removed line-clamp. Using strict max-height for the collapsed state.
+                className={`prose prose-sm max-w-none dark:prose-invert transition-all duration-300 relative
+                          ${!isExpanded ? 'max-h-[100px] overflow-hidden' : ''}`}
+            >
+                {/* The div wrapping ReactMarkdown ensures the prose classes 
+                  target the markdown HTML correctly.
+                */}
+                <div ref={contentRef}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                        {text}
+                    </ReactMarkdown>
+                </div>
+
+                {/* The Fade-out Gradient */}
+                {!isExpanded && isClamped && (
+                    <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-surface-primary to-transparent pointer-events-none" />
+                )}
+            </div>
+
+            {(isClamped || isExpanded) && (
+                <button
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="text-[10px] font-black uppercase tracking-widest text-accent-primary hover:text-accent-hover transition-colors flex items-center gap-1"
+                >
+                    {isExpanded ? (
+                        <>Show Less <ChevronUp className="w-3 h-3" /></>
+                    ) : (
+                        <>Show More <ChevronDown className="w-3 h-3" /></>
+                    )}
+                </button>
+            )}
         </div>
     );
 }

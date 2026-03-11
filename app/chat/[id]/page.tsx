@@ -27,23 +27,19 @@ export default function ActiveSessionPage({ params }: { params: { id: string } }
 
         const store = useAppStore.getState();
 
-        // Warm Load Optimistic Bypass
-        // If the store already specifically holds this sessionId, we just navigated here optimistically.
-        if (store.activeSessionId === sessionId) {
-            setIsSessionReady(true);
-            return;
+        // Ghost Message Prevention => Wipe stale state IF the ID is different from what's currently in store.
+        if (store.activeSessionId !== sessionId) {
+            console.log('[DEBUG] Session ID changed, clearing all state');
+            store.clearAllState();
+            store.setActiveSessionId(sessionId);
         }
 
-        // Ghost Message Prevention => Wipe stale state BEFORE fetching.
-        store.clearAllState();
-        store.setActiveSessionId(sessionId); // set synchronously so Next render sees it
-
-        // Cold Load
+        // Always reset ready state and load when ID changes
         setIsSessionReady(false);
         loadSession(sessionId).then(() => {
             setIsSessionReady(true);
         });
-    }, [sessionId, loadSession]);
+    }, [sessionId, loadSession]); // Removed isSessionReady from deps
 
     const shouldShowLoader = isLoading || !isSessionReady || !!error;
 

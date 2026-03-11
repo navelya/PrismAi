@@ -2,7 +2,11 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen, AlertTriangle } from 'lucide-react';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen, AlertTriangle, Maximize2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { TableModal } from '@/components/ui/TableModal';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import MessageRenderer from './MessageRenderer';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
@@ -30,6 +34,7 @@ interface Message {
     result?: any;
     workflow?: Workflow;
     timestamp: Date;
+    status?: 'running' | 'completed' | 'error';
     executionResult?: any;
 }
 
@@ -40,6 +45,97 @@ interface ChatInterfaceProps {
     userName?: string;
     sessionId?: string | null;
 }
+
+const ChatMessageContent = ({
+    message,
+    isGenerating,
+    isCanvasMode
+}: {
+    message: Message,
+    isGenerating: boolean,
+    isCanvasMode: boolean
+}) => {
+    const TAIL_LENGTH = 15;
+    const isActuallyStreaming = isGenerating && message.content.length > TAIL_LENGTH;
+    const stableText = isActuallyStreaming ? message.content.slice(0, -TAIL_LENGTH) : message.content;
+    const tailText = isActuallyStreaming ? message.content.slice(-TAIL_LENGTH) : "";
+
+    const [isTableModalOpen, setIsTableModalOpen] = useState(false);
+
+    return (
+        <div
+            className={`prose prose-sm max-w-full overflow-hidden dark:prose-invert
+                      ${message.type === 'user' ? 'text-content-primary font-medium prose-p:my-0' : 'text-content-primary'}
+                      prose-strong:text-content-primary prose-headings:text-content-primary
+                      prose-th:text-content-primary prose-td:text-content-primary prose-thead:text-content-primary
+                      prose-tr:text-content-primary prose-tbody:text-content-primary prose-em:text-content-primary
+                      prose-table:border-collapse prose-table:border prose-table:border-stroke-subtle
+                      prose-th:border prose-th:border-stroke-subtle prose-th:px-3 prose-th:py-2 prose-th:bg-surface-tertiary
+                      prose-td:border prose-td:border-stroke-subtle prose-td:px-3 prose-td:py-2
+                      prose-code:text-content-primary prose-code:before:content-none prose-code:after:content-none
+                      ${message.type === 'user' ? 'font-medium prose-p:my-0' : ''}
+                      ${isCanvasMode
+                    ? 'prose-p:text-[13px] prose-p:leading-[1.4] prose-li:text-[13px] prose-ul:text-[13px] prose-ol:text-[13px] prose-strong:text-[13px] prose-headings:text-[14px] prose-table:text-[12px]'
+                    : 'prose-p:text-[15px] prose-p:leading-relaxed'}`}
+        >
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkBreaks]}
+                components={{
+                    table: ({ children }) => (
+                        <div className="group/table relative my-4 max-w-full">
+                            {isCanvasMode && (
+                                <div className="sticky top-2 left-2 h-0 z-10">
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsTableModalOpen(true);
+                                        }}
+                                        className="p-1.5 bg-surface-primary/90 backdrop-blur-md border border-stroke-subtle rounded-lg 
+                                                   opacity-0 group-hover/table:opacity-100 
+                                                   hover:bg-accent-primary hover:text-white transition-all shadow-lg text-content-secondary"
+                                        title="Expand Table"
+                                    >
+                                        <Maximize2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
+                            <div className="overflow-x-auto rounded-xl border border-stroke-subtle shadow-sm bg-surface-secondary/30
+                                            scrollbar-hide [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                                <table className="min-w-full divide-y divide-stroke-subtle !my-0">
+                                    {children}
+                                </table>
+                            </div>
+                        </div>
+                    )
+                }}
+            >
+                {stableText}
+            </ReactMarkdown>
+
+            <TableModal
+                isOpen={isTableModalOpen}
+                onClose={() => setIsTableModalOpen(false)}
+                title="Data Table"
+            >
+                <div className="prose prose-sm max-w-none dark:prose-invert prose-code:text-accent-primary">
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                        {stableText}
+                    </ReactMarkdown>
+                </div>
+            </TableModal>
+            {isActuallyStreaming && (
+                <span className="inline-block">
+                    {tailText.split('').map((char, index) => (
+                        <span key={index} style={{ opacity: (TAIL_LENGTH - index) / TAIL_LENGTH }}>
+                            {char}
+                        </span>
+                    ))}
+                </span>
+            )}
+        </div>
+    );
+};
 
 export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady, userName: initialUserName, sessionId: propSessionId }: ChatInterfaceProps) {
     const params = useParams();
@@ -190,14 +286,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     } = useFileUpload();
 
     const { createNewSession } = useSession();
-
     const {
         editingMessageId,
         setEditingMessageId,
         saveMessageToDb,
         handleRevert,
         handleStop,
-        handleSend: sendMessage
+        handleSend: sendMessage,
+        retryLast
     } = useChatMessages({
         sessionId: effectiveSessionId || undefined,
         onWorkflowGenerated,
@@ -877,7 +973,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             <div
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
-                className={`flex-1 overflow-y-auto ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
+                className={`flex-1 overflow-y-auto overflow-x-hidden ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
                 style={{ overflowAnchor: 'auto' }}
             >
                 <div ref={contentRef} className="max-w-3xl mx-auto space-y-6 pb-2">
@@ -909,6 +1005,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 message={message}
                                 onRevert={handleRevert}
                                 onEdit={handleEdit}
+                                onRetry={retryLast}
                                 undoSnapshotId={undoSnapshotId}
                                 isDisabled={isDisabled}
                                 isEditing={isEditing}
@@ -990,6 +1087,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
     serverStatus,
     isCanvasMode = false,
     isGenerating,
+    onRetry,
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -1000,6 +1098,7 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
     serverStatus?: string | null;
     isCanvasMode?: boolean;
     isGenerating?: boolean;
+    onRetry?: () => void;
 }) {
     const [timeString, setTimeString] = React.useState('');
 
@@ -1026,20 +1125,38 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                 ${isEditing ? 'z-10 relative' : ''}`}
         >
             {message.type === 'assistant' && (
-                <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-9 h-9'} rounded-xl bg-accent-primary/5 border border-accent-primary/10 flex items-center justify-center mt-1`}>
-                    <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-accent-primary`} />
+                <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-9 h-9'} flex items-center justify-center mt-1`}>
+                    <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-accent-primary opacity-80`} />
                 </div>
             )}
 
-            <div className={`relative ${isCanvasMode ? 'max-w-[90%]' : 'max-w-[85%]'} ${message.type === 'user' ? (isCanvasMode ? 'min-w-[120px]' : 'min-w-[200px]') : ''}`}>
+            <div className={`relative max-w-full overflow-hidden ${isCanvasMode ? 'max-w-[90%]' : 'max-w-[85%]'} ${message.type === 'user' ? (isCanvasMode ? 'min-w-[120px]' : 'min-w-[200px]') : ''}`}>
                 <div
-                    className={`flex flex-col overflow-visible transition-all duration-500 rounded-2xl ${message.type === 'user'
+                    className={`flex flex-col overflow-hidden transition-all duration-500 rounded-2xl ${message.type === 'user'
                         ? `bg-accent-primary/5 border border-accent-primary/10 rounded-tr-sm relative
                            ${isCanvasMode ? 'px-3.5 py-2.5 space-y-1' : 'px-5 py-4 space-y-2'}`
-                        : `bg-surface-secondary/50 border border-stroke-subtle rounded-tl-sm
-                           ${isCanvasMode ? 'px-3.5 py-2.5 space-y-1' : 'px-5 py-4 space-y-2'}`
+                        : `bg-transparent border-none rounded-tl-sm
+                           ${isCanvasMode ? 'py-1 space-y-1' : 'py-2 space-y-2'}`
                         }`}
                 >
+                    {message.status === 'error' && (
+                        <div className="flex items-center gap-3 mb-2 p-2 bg-accent-error/10 border border-accent-error/20 rounded-xl">
+                            <div className="flex items-center gap-2 text-accent-error text-xs font-bold uppercase tracking-wider">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                <span>Failed</span>
+                            </div>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (onRetry) onRetry();
+                                }}
+                                className="px-3 py-1 bg-accent-error text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-accent-error/90 transition-colors shadow-sm"
+                            >
+                                Try Again
+                            </button>
+                        </div>
+                    )}
+
                     {message.type === 'user' && message.images && message.images.length > 0 && (
                         <div className="flex gap-2 flex-wrap mb-1">
                             {message.images.map((img, index) => (
@@ -1050,23 +1167,13 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                         </div>
                     )}
 
-                    {message.content ? (() => {
-                        const TAIL_LENGTH = 15;
-                        const isActuallyStreaming = isGenerating && message.content.length > TAIL_LENGTH;
-                        const stableText = isActuallyStreaming ? message.content.slice(0, -TAIL_LENGTH) : message.content;
-                        const tailText = isActuallyStreaming ? message.content.slice(-TAIL_LENGTH) : "";
-
-                        return (
-                            <p className={`${isCanvasMode ? 'text-[13px] leading-[1.4]' : 'text-[15px] max-w-none leading-relaxed'} ${message.type === 'user' ? 'text-content-primary font-medium' : 'text-content-primary'}`}>
-                                {stableText}
-                                {isActuallyStreaming && tailText.split('').map((char, index) => (
-                                    <span key={index} style={{ opacity: (TAIL_LENGTH - index) / TAIL_LENGTH }}>
-                                        {char}
-                                    </span>
-                                ))}
-                            </p>
-                        );
-                    })() : message.type === 'assistant' && !message.result && (
+                    {message.content ? (
+                        <ChatMessageContent
+                            message={message}
+                            isGenerating={isGenerating}
+                            isCanvasMode={isCanvasMode}
+                        />
+                    ) : message.type === 'assistant' && !message.result && (
                         <div className="flex items-center gap-2 text-content-primary py-1">
                             <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
                             <ExecutionUserFeedback serverStatus={serverStatus} />
@@ -1142,22 +1249,24 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                 </div>
             </div>
 
-            {message.type === 'user' && (
-                <div
-                    className="flex-shrink-0 transition-all duration-300 ease-in-out"
-                    style={{
-                        opacity: isCanvasMode ? 0 : 1,
-                        transform: isCanvasMode ? 'scale(0.5)' : 'scale(1)',
-                        width: isCanvasMode ? 0 : undefined,
-                        overflow: 'hidden',
-                        transitionProperty: 'opacity, transform, width',
-                    }}
-                >
-                    <div className="w-9 h-9 rounded-xl bg-surface-tertiary/50 border border-white/5 flex items-center justify-center mt-1 shadow-sm">
-                        <User className="w-5 h-5 text-content-secondary" />
+            {
+                message.type === 'user' && (
+                    <div
+                        className="flex-shrink-0 transition-all duration-300 ease-in-out"
+                        style={{
+                            opacity: isCanvasMode ? 0 : 1,
+                            transform: isCanvasMode ? 'scale(0.5)' : 'scale(1)',
+                            width: isCanvasMode ? 0 : undefined,
+                            overflow: 'hidden',
+                            transitionProperty: 'opacity, transform, width',
+                        }}
+                    >
+                        <div className="w-9 h-9 rounded-xl bg-surface-tertiary/50 border border-white/5 flex items-center justify-center mt-1 shadow-sm">
+                            <User className="w-5 h-5 text-content-secondary" />
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 });

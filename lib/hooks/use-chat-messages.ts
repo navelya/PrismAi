@@ -3,6 +3,7 @@ import { useRouter } from 'next/navigation';
 import { Workflow, NodeStatus } from '@/lib/nodes/types';
 import { Message } from '@/lib/store/app-store';
 import { useAppStore } from '@/lib/store/app-store';
+import { useShallow } from 'zustand/react/shallow';
 import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 
@@ -19,7 +20,9 @@ export function useChatMessages({
     abortControllerRef
 }: UseChatMessagesProps) {
     const router = useRouter();
-    const messages = useAppStore((state) => state.chatMessages);
+    const messages = useAppStore(useShallow((state) =>
+        sessionId ? state.chatMessages.filter(m => m.sessionId === sessionId) : state.chatMessages
+    ));
     const addMessage = useAppStore((state) => state.addMessage);
     const isLoading = useAppStore((state) => state.isLoading);
     const setIsLoading = useAppStore((state) => state.setIsLoading);
@@ -145,7 +148,27 @@ export function useChatMessages({
         clearAttachments();
         setInput('');
 
-        // 👑 החזרנו את העדכון המיידי של ה-UI לראש הפונקציה! (לפני ה-await)
+        // --- Initial Session Check (CRITICAL: Before adding messages) ---
+        let activeSessionId = sessionId || useAppStore.getState().activeSessionId;
+
+        if (!activeSessionId) {
+            activeSessionId = crypto.randomUUID();
+            useAppStore.getState().setActiveSessionId(activeSessionId);
+
+            // Background initialization
+            sessionsApi.create('', activeSessionId).catch(err => console.error("[Session Create] Error:", err));
+            sessionsApi.generateTitle({
+                sessionId: activeSessionId,
+                message: trimmedInput
+            }).catch(err => console.error('[TitleGen] Error:', err));
+
+            // Smooth background transition (URL change only)
+            startTransition(() => {
+                router.replace(`/chat/${activeSessionId}`, { scroll: false });
+            });
+        }
+
+        // 👑 Immediate UI update with guaranteed activeSessionId in store
         const userMsgId = `user-${Date.now()}`;
         const assistantMsgId = `assistant-${Date.now()}`;
 
@@ -161,35 +184,12 @@ export function useChatMessages({
             id: assistantMsgId,
             type: 'assistant',
             content: '',
+            status: 'running',
             timestamp: new Date(),
         });
 
         setIsLoading(true);
         setStatusMessage('Prism is thinking...');
-
-        let activeSessionId = sessionId || useAppStore.getState().activeSessionId;
-
-        if (!activeSessionId) {
-            activeSessionId = crypto.randomUUID();
-            useAppStore.getState().setActiveSessionId(activeSessionId);
-
-            // 👑 התיקון נגד ההבהוב! מעבר חלק לגמרי ברקע בלי להרוס את המסך
-            startTransition(() => {
-                router.replace(`/chat/${activeSessionId}`, { scroll: false });
-            });
-
-            try {
-                // רק עכשיו מחכים לשרת!
-                await sessionsApi.create('', activeSessionId);
-
-                sessionsApi.generateTitle({
-                    sessionId: activeSessionId,
-                    message: trimmedInput
-                }).catch(err => console.error('[TitleGen] Error:', err));
-            } catch (err) {
-                console.error("[Session Create] Error:", err);
-            }
-        }
 
         // --- קריאה לשרת הסטרימינג ---
         try {
@@ -275,6 +275,13 @@ export function useChatMessages({
 
                     if (onWorkflowGenerated) onWorkflowGenerated(safeWorkflow);
                 }
+                else if (parsed.type === 'error') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        content: parsed.content,
+                        status: 'error'
+                    });
+                    throw new Error(parsed.content);
+                }
             };
 
             while (true) {
@@ -307,12 +314,24 @@ export function useChatMessages({
         }
     };
 
+    /**
+     * Finds the last user message and resubmits it.
+     */
+    const retryLast = async () => {
+        const lastUserMsg = [...messages].reverse().find(m => m.type === 'user');
+        if (!lastUserMsg) return;
+
+        // Reset the assistant's previous error state by simply sending again
+        handleSend(lastUserMsg.content, [], lastUserMsg.images || [], () => { }, () => { });
+    };
+
     return {
         editingMessageId,
         setEditingMessageId,
         saveMessageToDb,
         handleRevert,
         handleStop,
-        handleSend
+        handleSend,
+        retryLast
     };
 }

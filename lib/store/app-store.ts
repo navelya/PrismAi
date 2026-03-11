@@ -13,6 +13,8 @@ export interface Message {
     workflow?: Workflow;
     images?: string[];
     timestamp: Date;
+    sessionId?: string; // Track which session this message belongs to
+    status?: 'running' | 'completed' | 'error';
 }
 
 // Editor state interface
@@ -330,7 +332,10 @@ export const useAppStore = create<AppState>()(
             // Chat Actions
             addMessage: (message) =>
                 set((state) => ({
-                    chatMessages: [...state.chatMessages, message],
+                    chatMessages: [
+                        ...state.chatMessages,
+                        { ...message, sessionId: message.sessionId || state.activeSessionId || undefined }
+                    ],
                 })),
 
             updateMessage: (id, updates) =>
@@ -496,6 +501,11 @@ export const useAppStore = create<AppState>()(
     )
 );
 
+import { useShallow } from 'zustand/react/shallow';
+
 export const useCurrentWorkflow = () => useAppStore((state) => state.currentWorkflow);
-export const useChatMessages = () => useAppStore((state) => state.chatMessages);
+export const useChatMessages = () => useAppStore(useShallow((state) => {
+    if (!state.activeSessionId) return state.chatMessages;
+    return state.chatMessages.filter(m => m.sessionId === state.activeSessionId);
+}));
 export const useEditorState = () => useAppStore((state) => state.editorState);
