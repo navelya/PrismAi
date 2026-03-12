@@ -24,6 +24,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network, Trash2, Copy, Hand, Minus, Plus, Maximize2 } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
+import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
 
 interface EditorCanvasProps {
@@ -52,22 +53,7 @@ interface EditorCanvasProps {
     onPaste?: () => void;
 }
 
-// 🛡️ STABILITY FIX: Create the base node types once outside the component
-const baseNodeTypes = Object.entries(clientRegistry).reduce((acc, [type, def]) => {
-    if (def.component) {
-        acc[type] = def.component;
-    }
-    return acc;
-}, {} as Record<string, React.ComponentType<any>>);
 
-// 🛡️ NO PROXY: Plain object for maximum compatibility with React Flow lookup.
-// We use a generic 'legacy' key. Unknown nodes are remapped to this in useWorkflowEditor.ts.
-export const nodeTypes: Record<string, React.ComponentType<any>> = {
-    ...baseNodeTypes,
-    legacy: FallbackNode,
-};
-
-export const edgeTypes = {};
 
 
 function EditorCanvasInner({
@@ -131,9 +117,9 @@ function EditorCanvasInner({
         style: edgeStyle,
     })), [edges, edgeStyle]);
 
-    // 🛡️ STABILITY REINFORCEMENT: Memoize references to satisfies React Flow's strict identity checks.
-    const memoizedNodeTypes = useMemo(() => nodeTypes, []);
-    const memoizedEdgeTypes = useMemo(() => edgeTypes, []);
+    // 🛡️ STABILITY REINFORCEMENT: Pass module-level constants directly.
+    // Using useMemo creates a new reference on every mount, which triggers #002 warnings
+    // during session switches. React Flow requires these to be truly global constants.
 
     const touchInteraction = useAppStore((state) => state.touchInteraction);
 
@@ -413,8 +399,8 @@ function EditorCanvasInner({
                 onInit={setReactFlowInstance}
                 onDrop={onDropHandler}
                 onDragOver={onDragOver}
-                nodeTypes={memoizedNodeTypes}
-                edgeTypes={memoizedEdgeTypes}
+                nodeTypes={stableNodeTypes}
+                edgeTypes={stableEdgeTypes}
 
                 defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                 fitView

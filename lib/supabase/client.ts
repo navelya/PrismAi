@@ -1,20 +1,19 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-const globalForSupabase = globalThis as unknown as {
-    supabaseBrowserClient: ReturnType<typeof createBrowserClient> | undefined;
-};
+// 🛡️ STABILITY FIX: Use a module-scoped variable to cache the browser client.
+// This prevents "Multiple GoTrueClient instances detected" warnings caused by
+// calling createBrowserClient multiple times in different components across the app.
+let browserClient: ReturnType<typeof createBrowserClient> | undefined;
 
 export const createClient = () => {
-    if (globalForSupabase.supabaseBrowserClient) return globalForSupabase.supabaseBrowserClient;
+    // Return existing instance if it already exists
+    if (browserClient) return browserClient;
 
-    const client = createBrowserClient(
+    // Create new instance and cache it
+    browserClient = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    if (process.env.NODE_ENV !== 'production') {
-        globalForSupabase.supabaseBrowserClient = client;
-    }
-
-    return client;
+    return browserClient;
 };
