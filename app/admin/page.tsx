@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 
 // =============================================================================
@@ -64,8 +65,9 @@ const COMPONENT_DICTIONARY = [
     { id: 'negative_prompt', label: 'Negative Prompt', type: 'string', default_value: '' },
     { id: 'aspect_ratio', label: 'Aspect Ratio', type: 'string', default_value: '1:1' },
     { id: 'resolution', label: 'Resolution', type: 'string', default_value: '1024x1024' },
-    { id: 'audio_upload', label: 'Audio File Upload', type: 'string', default_value: '' },
-    { id: 'image_upload', label: 'Image File Upload', type: 'string', default_value: '' },
+    { id: 'format', label: 'Format', type: 'string', default_value: '' },
+    { id: 'reverse', label: 'Reverse', type: 'string', default_value: '' },
+    { id: 'threshold', label: 'Threshold', type: 'number', default_value: 0 },
 ];
 
 const WIRE_TYPES = ['image', 'video', 'text', 'audio', 'any'];
@@ -102,8 +104,8 @@ export default function AdminPage() {
 
     // Visual Schema States
     const [visualControls, setVisualControls] = useState<Array<{ id: string, component_id: string, api_key: string, default_value: any }>>([]);
-    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, type: string }>>([]);
-    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, type: string }>>([]);
+    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_key: string, type: string, is_array: boolean }>>([]);
+    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, type: string, is_array: boolean }>>([]);
 
     const [modelSubmitting, setModelSubmitting] = useState(false);
 
@@ -157,7 +159,7 @@ export default function AdminPage() {
 
         // Compile Visual State to JSON
         const compiledInputs = {
-            handles: visualInputWires.map(wire => ({ name: wire.name, type: wire.type })),
+            handles: visualInputWires.map(wire => ({ name: wire.name, api_key: wire.api_key, type: wire.type, is_array: wire.is_array })),
             controls: visualControls.map(ctrl => {
                 const dictItem = COMPONENT_DICTIONARY.find(d => d.id === ctrl.component_id);
                 return {
@@ -170,7 +172,7 @@ export default function AdminPage() {
         };
 
         const compiledOutputs = {
-            handles: visualOutputWires.map(wire => ({ name: wire.name, type: wire.type }))
+            handles: visualOutputWires.map(wire => ({ name: wire.name, type: wire.type, is_array: wire.is_array }))
         };
 
         // Basic sanity check
@@ -415,14 +417,14 @@ export default function AdminPage() {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setVisualInputWires([...visualInputWires, { id: Math.random().toString(), name: 'input', type: 'image' }])}
+                                        onClick={() => setVisualInputWires([...visualInputWires, { id: Math.random().toString(), name: 'input', api_key: '', type: 'image', is_array: false }])}
                                         className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         <Link2 className="w-4 h-4" /> In Wire
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setVisualOutputWires([...visualOutputWires, { id: Math.random().toString(), name: 'output', type: 'image' }])}
+                                        onClick={() => setVisualOutputWires([...visualOutputWires, { id: Math.random().toString(), name: 'output', type: 'image', is_array: false }])}
                                         className="flex items-center gap-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         <Link2 className="w-4 h-4" /> Out Wire
@@ -449,6 +451,17 @@ export default function AdminPage() {
                                                         }}
                                                         placeholder="e.g. image"
                                                     />
+                                                    <Input
+                                                        label="Replicate API Key"
+                                                        value={wire.api_key}
+                                                        onChange={e => {
+                                                            const newWires = [...visualInputWires];
+                                                            newWires[idx].api_key = e.target.value;
+                                                            setVisualInputWires(newWires);
+                                                        }}
+                                                        placeholder="e.g. prompt, image"
+                                                        required
+                                                    />
                                                     <Select
                                                         label="Type"
                                                         value={wire.type}
@@ -460,6 +473,17 @@ export default function AdminPage() {
                                                             setVisualInputWires(newWires);
                                                         }}
                                                     />
+                                                    <div className="pt-6">
+                                                        <Checkbox
+                                                            label="Is Array"
+                                                            checked={wire.is_array}
+                                                            onCheckedChange={(checked) => {
+                                                                const newWires = [...visualInputWires];
+                                                                newWires[idx].is_array = checked;
+                                                                setVisualInputWires(newWires);
+                                                            }}
+                                                        />
+                                                    </div>
                                                     <button type="button" onClick={() => setVisualInputWires(visualInputWires.filter(w => w.id !== wire.id))} className="p-2 text-content-tertiary hover:text-red-500 mt-5">
                                                         <Trash2 className="w-5 h-5" />
                                                     </button>
@@ -554,6 +578,17 @@ export default function AdminPage() {
                                                             setVisualOutputWires(newWires);
                                                         }}
                                                     />
+                                                    <div className="pt-6">
+                                                        <Checkbox
+                                                            label="Is Array"
+                                                            checked={wire.is_array}
+                                                            onCheckedChange={(checked) => {
+                                                                const newWires = [...visualOutputWires];
+                                                                newWires[idx].is_array = checked;
+                                                                setVisualOutputWires(newWires);
+                                                            }}
+                                                        />
+                                                    </div>
                                                     <button type="button" onClick={() => setVisualOutputWires(visualOutputWires.filter(w => w.id !== wire.id))} className="p-2 text-content-tertiary hover:text-red-500 mt-5">
                                                         <Trash2 className="w-5 h-5" />
                                                     </button>
