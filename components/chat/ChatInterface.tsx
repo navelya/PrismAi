@@ -140,19 +140,21 @@ const ChatMessageContent = ({
 export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady, userName: initialUserName, sessionId: propSessionId }: ChatInterfaceProps) {
     const params = useParams();
     const router = useRouter();
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
     const sessionId = (propSessionId || params?.sessionId || params?.id) as string;
 
     // 👑 STABILITY FIX: מוחק את הזיכרון ברגע שחוזרים לעמוד ריק (New Chat)
     const [prevSessionId, setPrevSessionId] = useState(sessionId);
-    if (sessionId !== prevSessionId) {
-        setPrevSessionId(sessionId);
-        if (!sessionId) {
-            useAppStore.getState().setActiveSessionId(null);
-            useAppStore.getState().clearMessages();
-            useAppStore.getState().setCurrentWorkflow(null);
+    useEffect(() => {
+        if (sessionId !== prevSessionId) {
+            setPrevSessionId(sessionId);
+            if (!sessionId) {
+                useAppStore.getState().setActiveSessionId(null);
+                useAppStore.getState().clearMessages();
+                useAppStore.getState().setCurrentWorkflow(null);
+            }
         }
-    }
+    }, [sessionId, prevSessionId]);
 
     const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
     const isCanvasMode = useAppStore((state) => state.isCanvasMode);

@@ -150,13 +150,14 @@ export function useChatMessages({
 
         // --- Initial Session Check (CRITICAL: Before adding messages) ---
         let activeSessionId = sessionId || useAppStore.getState().activeSessionId;
+        let sessionCreationPromise: Promise<any> | null = null;
 
         if (!activeSessionId) {
             activeSessionId = crypto.randomUUID();
             useAppStore.getState().setActiveSessionId(activeSessionId);
 
             // Background initialization
-            sessionsApi.create('', activeSessionId).catch(err => console.error("[Session Create] Error:", err));
+            sessionCreationPromise = sessionsApi.create('', activeSessionId).catch(err => console.error("[Session Create] Error:", err));
             sessionsApi.generateTitle({
                 sessionId: activeSessionId,
                 message: trimmedInput
@@ -193,6 +194,12 @@ export function useChatMessages({
 
         // --- קריאה לשרת הסטרימינג ---
         try {
+            if (sessionCreationPromise) {
+                // Ensure the database has the session row BEFORE hitting the stream API
+                // so the user message insert doesn't fail due to foreign key constraints!
+                await sessionCreationPromise;
+            }
+
             const userMsg: Message = {
                 id: userMsgId,
                 type: 'user',

@@ -25,11 +25,11 @@ export function isModificationCommand(message: string): boolean {
 
     const modificationKeywords = [
         'add', 'remove', 'delete', 'change', 'update', 'modify',
-        'set', 'adjust', 'increase', 'decrease', 'filter', 'sort'
+        'set', 'adjust', 'increase', 'decrease'
     ];
 
     const nodeKeywords = [
-        'node', 'cube', 'scrape', 'background', 'filter', 'sort', 'generate'
+        'node', 'cube', 'generate', 'prompt', 'upload', 'compositor'
     ];
 
     const hasModKeyword = modificationKeywords.some(kw => lowerMessage.includes(kw));
@@ -91,7 +91,7 @@ Return ONLY valid JSON with this structure:
 {
   "isModification": boolean,
   "type": "add_node" | "remove_node" | "update_config" | "new_workflow",
-  "nodeType": "scrape_images" | "remove_background" | "filter_sort" | "ai_generate_image" (if adding),
+  "nodeType": "ai_generate_image" | "prompt" | "media_input" | "compositor" (if adding),
   "nodeId": "id of node to modify/remove" (if updating/removing),
   "config": {partial config object} (if updating config),
   "shouldExecute": true/false (whether to auto-run after modification)
@@ -138,14 +138,10 @@ function parseFallback(
     if (lowerCommand.includes('add')) {
         let nodeType: NodeType | undefined;
 
-        if (lowerCommand.includes('filter') || lowerCommand.includes('sort')) {
-            nodeType = 'filter_sort';
-        } else if (lowerCommand.includes('background') || lowerCommand.includes('bg')) {
-            nodeType = 'remove_background';
-        } else if (lowerCommand.includes('scrape') || lowerCommand.includes('search') || lowerCommand.includes('find')) {
-            nodeType = 'scrape_images';
-        } else if (lowerCommand.includes('generate') || lowerCommand.includes('ai') || lowerCommand.includes('create')) {
+        if (lowerCommand.includes('generate') || lowerCommand.includes('ai') || lowerCommand.includes('create')) {
             nodeType = 'ai_generate_image';
+        } else if (lowerCommand.includes('prompt')) {
+            nodeType = 'prompt';
         }
 
         if (nodeType) {
@@ -164,12 +160,10 @@ function parseFallback(
         let nodeId: string | undefined;
 
         // Find node to remove based on type mention
-        if (lowerCommand.includes('background') || lowerCommand.includes('bg')) {
-            nodeId = currentWorkflow.nodes.find(n => n.type === 'remove_background')?.id;
-        } else if (lowerCommand.includes('filter') || lowerCommand.includes('sort')) {
-            nodeId = currentWorkflow.nodes.find(n => n.type === 'filter_sort')?.id;
-        } else if (lowerCommand.includes('scrape') || lowerCommand.includes('search')) {
-            nodeId = currentWorkflow.nodes.find(n => n.type === 'scrape_images')?.id;
+        if (lowerCommand.includes('generate') || lowerCommand.includes('ai')) {
+            nodeId = currentWorkflow.nodes.find(n => n.type === 'ai_generate_image')?.id;
+        } else if (lowerCommand.includes('prompt')) {
+            nodeId = currentWorkflow.nodes.find(n => n.type === 'prompt')?.id;
         }
 
         if (nodeId) {
@@ -185,20 +179,11 @@ function parseFallback(
 
     // UPDATE CONFIG
     if (lowerCommand.includes('change') || lowerCommand.includes('set') || lowerCommand.includes('update')) {
-        // Try to extract number for limit changes
-        const numberMatch = lowerCommand.match(/\d+/);
-        if (numberMatch && (lowerCommand.includes('limit') || lowerCommand.includes('images'))) {
-            const newLimit = parseInt(numberMatch[0]);
-            const scrapeNode = currentWorkflow.nodes.find(n => n.type === 'scrape_images');
-
-            if (scrapeNode) {
-                const updatedWorkflow = updateNodeConfig(currentWorkflow, scrapeNode.id, { limit: newLimit });
-                return {
-                    isModification: true,
-                    modification: { type: 'update_config', nodeId: scrapeNode.id, config: { limit: newLimit } },
-                    updatedWorkflow,
-                    shouldExecute: true,
-                };
+        // AI Generate Image updates
+        if (lowerCommand.includes('prompt')) {
+            const generateNode = currentWorkflow.nodes.find(n => n.type === 'ai_generate_image');
+            if (generateNode) {
+                // Logic would go here
             }
         }
     }

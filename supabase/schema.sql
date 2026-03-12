@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   position_y FLOAT NOT NULL DEFAULT 0,
   config JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  CONSTRAINT valid_node_type CHECK (node_type IN ('scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image'))
+   CONSTRAINT valid_node_type CHECK (node_type IN ('scrape_images', 'remove_background', 'filter_sort', 'ai_generate_image'))
 );
 
 -- Table: edges

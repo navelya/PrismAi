@@ -34,6 +34,15 @@ export default function ActiveSessionPage({ params }: { params: { id: string } }
             store.setActiveSessionId(sessionId);
         }
 
+        // If the store already has messages for this exact session, we likely JUST created it 
+        // optimistically (or soft-navigated back). Skip loading to preserve optimistic UI.
+        const hasMessages = useAppStore.getState().chatMessages.some(m => m.sessionId === sessionId);
+        if (hasMessages) {
+            console.log('[DEBUG] Store already has messages for session, skipping load to preserve optimistic UI');
+            setIsSessionReady(true);
+            return;
+        }
+
         // Always reset ready state and load when ID changes
         setIsSessionReady(false);
         loadSession(sessionId).then(() => {

@@ -80,13 +80,10 @@ export async function POST(request: NextRequest) {
                 let completedNodeCount = 0;
 
                 const actionDescriptions: Record<string, string> = {
-                    scrape_images: 'Searching for images',
-                    remove_background: 'Removing background',
-                    filter_sort: 'Filtering results',
                     ai_generate_image: 'Generating AI image',
-                    upscale_image: 'Upscaling image',
                     media_input: 'Processing upload',
                     compositor: 'Compositing layers',
+                    prompt: 'Setting prompt',
                 };
 
                 // ── Execution broadcast channel ───────────────────────────────
@@ -176,7 +173,7 @@ export async function POST(request: NextRequest) {
                     isLeafNode: boolean = false,
                     forceOverwrite: boolean = false
                 ) => {
-                    // GENERIC BYPASS: If a node is marked as ephemeral (e.g. Filter & Sort, Compositor)
+                    // GENERIC BYPASS: If a node is marked as ephemeral (e.g. Compositor)
                     // it means it just reorganizes/displays existing data. We completely skip Supabase 
                     // storage uploads and cache DB inserts, and instantly pipe the live data back 
                     // to the engine so the UI sees it.

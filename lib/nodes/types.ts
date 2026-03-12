@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'scrape_images' | 'remove_background' | 'filter_sort' | 'ai_generate_image' | 'upscale_image' | 'media_input' | 'compositor' | 'prompt';
+export type NodeType = 'ai_generate_image' | 'media_input' | 'compositor' | 'prompt';
 
 /**
  * Node execution status for real-time updates
@@ -28,40 +28,14 @@ export interface ImageObject {
         prompt?: string;
     };
 }
-
 /**
  * Node configuration types
  */
-export interface ScrapeImagesConfig {
-    searchTerm: string;
-    limit: number;
-    sources?: string[];  // Optional website domains to search from
-    imageSize?: 'small' | 'medium' | 'large' | 'xlarge' | 'any';
-    imageType?: 'photo' | 'clipart' | 'lineart' | 'face' | 'any';
-    colorType?: 'color' | 'gray' | 'mono' | 'any';
-    safeSearch?: 'off' | 'medium' | 'high';
-}
-
-export interface RemoveBackgroundConfig {
-    format?: 'png' | 'webp';
-}
-
-export interface FilterSortConfig {
-    criteria: 'resolution' | 'size' | 'format';
-    order: 'asc' | 'desc';
-    limit?: number;
-}
-
 export interface AIGenerateImageConfig {
     prompt: string;
     model?: 'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview' | 'pollinations' | 'huggingface' | 'gemini';
     aspectRatio?: '1:1' | '16:9' | '4:3';
 }
-
-export interface UpscaleImageConfig {
-    scale: 2 | 3 | 4 | 8;  // Upscale factor
-}
-
 
 /**
  * Layer transformation data for Compositor
@@ -134,11 +108,7 @@ export interface PromptConfig {
 }
 
 export type NodeConfig =
-    | ScrapeImagesConfig
-    | RemoveBackgroundConfig
-    | FilterSortConfig
     | AIGenerateImageConfig
-    | UpscaleImageConfig
     | MediaInputConfig
     | CompositorConfig
     | PromptConfig;

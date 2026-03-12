@@ -12,28 +12,10 @@ export function createNodeFromType(
 
     // Default configurations for each node type
     const defaultConfigs: Record<NodeType, NodeConfig> = {
-        scrape_images: {
-            searchTerm: 'images',
-            limit: 10,
-            imageSize: 'any',
-            imageType: 'any',
-            colorType: 'any',
-            safeSearch: 'medium',
-        },
-        remove_background: {
-            format: 'png' as const,
-        },
-        filter_sort: {
-            criteria: 'resolution' as const,
-            order: 'asc' as const,
-        },
         ai_generate_image: {
             prompt: 'A beautiful image',
             model: 'gemini-2.5-flash-image' as const,
             aspectRatio: '1:1' as const,
-        },
-        upscale_image: {
-            scale: 4 as const,
         },
         media_input: {
             images: [],

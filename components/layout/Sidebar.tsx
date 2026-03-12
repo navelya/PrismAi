@@ -34,7 +34,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const urlSessionId = match ? match[1] : null;
     const isMobile = useIsMobile();
     const [user, setUser] = React.useState<any>(null);
-    const supabase = createClient();
+    const supabase = React.useMemo(() => createClient(), []);
     const router = useRouter();
 
     React.useEffect(() => {
@@ -597,7 +597,7 @@ function SidebarSessionItem({
         checkExecutionStatus();
 
         channel = supabase.channel(`sidebar-session-${session.id}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `session_id=eq.${session.id}` }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `session_id=eq.${session.id}` }, (payload: any) => {
                 if (payload.new && 'status' in payload.new) {
                     if (payload.new.status === 'processing') setIsExecuting(true);
                     else if (payload.new.status === 'completed' || payload.new.status === 'failed') setIsExecuting(false);

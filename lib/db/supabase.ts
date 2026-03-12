@@ -8,9 +8,27 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 // For server-side routes that need user-scoped access, use lib/supabase/server.ts instead.
 // TODO (Phase 3): Migrate all client-side callers to use the BFF API layer,
 // then replace this with a server-only import.
-export const supabase = supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey)
-    : null as any;
+// Singleton instance using globalThis to survive Next.js HMR
+const globalForSupabase = globalThis as unknown as {
+    supabaseClient: any;
+};
+
+export const supabase = globalForSupabase.supabaseClient || (() => {
+    if (supabaseUrl && supabaseAnonKey) {
+        const client = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false,
+            }
+        });
+        if (process.env.NODE_ENV !== 'production') {
+            globalForSupabase.supabaseClient = client;
+        }
+        return client;
+    }
+    return null as any;
+})();
 
 /**
  * Database types matching our schema

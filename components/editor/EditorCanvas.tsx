@@ -59,6 +59,8 @@ const nodeTypes = Object.entries(clientRegistry).reduce((acc, [type, def]) => {
     return acc;
 }, {} as Record<string, React.ComponentType<any>>);
 
+const edgeTypes = {};
+
 function EditorCanvasInner({
     nodes,
     edges,
@@ -394,6 +396,7 @@ function EditorCanvasInner({
                 onDrop={onDropHandler}
                 onDragOver={onDragOver}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
                 defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                 fitView
                 fitViewOptions={{ padding: 0.3, maxZoom: 0.8 }}

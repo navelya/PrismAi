@@ -122,7 +122,7 @@ const LayerListItem = React.memo(({
     if (type === 'prompt') Icon = MessageSquare;
     if (type === 'ai_generate_image') Icon = ImageIcon;
     if (type === 'media_input') Icon = Smartphone;
-    if (type === 'remove_background') Icon = Crop;
+    if (type === 'remove_background') Icon = ImageIcon; // Fallback since it's being purged
 
     return (
         <Reorder.Item
