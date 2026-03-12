@@ -29,6 +29,7 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const [isExpanded, setIsExpanded] = React.useState(false);
+    const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
     const pathname = usePathname();
     const match = pathname?.match(/^\/chat\/([a-zA-Z0-9_-]+)/);
     const urlSessionId = match ? match[1] : null;
@@ -479,41 +480,82 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             </div>
 
             {/* Logo at Bottom (Replaced by Profile for Authenticated Users) */}
-            <div className="border-t border-stroke-subtle bg-surface-secondary">
+            <div className="border-t border-stroke-subtle bg-surface-secondary relative">
                 {user ? (
                     <div className="p-3">
-                        <div className={`flex items-center gap-3 ${!isExpanded && 'justify-center'}`}>
-                            {/* Avatar */}
-                            <div className="relative group">
-                                <UserAvatar
-                                    user={user}
-                                    className={isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}
-                                    showStatus={Object.keys(user).length > 0}
-                                />
-                            </div>
-
-                            <div
-                                className={`
-                                        flex-1 min-w-0 flex items-center justify-between overflow-hidden transition-all duration-300 ease-in-out
-                                        ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
-                                    `}
+                        <div className="relative">
+                            <button
+                                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                                className={`flex items-center gap-3 w-full hover:bg-interactive-hover p-1.5 rounded-lg transition-colors ${!isExpanded ? 'justify-center' : ''}`}
                             >
-                                <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-content-primary truncate whitespace-nowrap">
-                                        {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
-                                    </p>
-                                    <p className="text-xs text-content-tertiary truncate whitespace-nowrap">
-                                        {user.email}
-                                    </p>
+                                {/* Avatar */}
+                                <div className="relative group">
+                                    <UserAvatar
+                                        user={user}
+                                        className={isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}
+                                        showStatus={Object.keys(user).length > 0}
+                                    />
                                 </div>
-                                <button
-                                    onClick={handleLogout}
-                                    className="p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0"
-                                    title="Sign out"
+
+                                <div
+                                    className={`
+                                            flex-1 min-w-0 flex items-center justify-between overflow-hidden transition-all duration-300 ease-in-out
+                                            ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
+                                        `}
                                 >
-                                    <LogOut className="w-4 h-4" />
-                                </button>
-                            </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-content-primary truncate whitespace-nowrap text-left">
+                                            {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
+                                        </p>
+                                        <p className="text-xs text-content-tertiary truncate whitespace-nowrap text-left">
+                                            {user.email}
+                                        </p>
+                                    </div>
+                                    <div className="text-content-tertiary hidden md:block">
+                                        <Settings className={`w-4 h-4 transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-90' : ''}`} />
+                                    </div>
+                                </div>
+                            </button>
+
+                            {/* Profile Context Menu */}
+                            <AnimatePresence>
+                                {isProfileMenuOpen && (
+                                    <motion.div
+                                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                        className={`
+                                            absolute bottom-full mb-2 left-0 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]
+                                            ${!isExpanded ? 'ml-2' : ''}
+                                        `}
+                                    >
+                                        <Link
+                                            href="/settings"
+                                            onClick={() => setIsProfileMenuOpen(false)}
+                                            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
+                                        >
+                                            <Settings className="w-4 h-4 text-content-tertiary" />
+                                            <span>Settings</span>
+                                        </Link>
+                                        <Link
+                                            href="/admin"
+                                            onClick={() => setIsProfileMenuOpen(false)}
+                                            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
+                                        >
+                                            <Boxes className="w-4 h-4 text-content-tertiary" />
+                                            <span>Admin Panel</span>
+                                        </Link>
+                                        <div className="h-px bg-stroke-subtle my-1.5 mx-1" />
+                                        <button
+                                            onClick={handleLogout}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                                        >
+                                            <LogOut className="w-4 h-4" />
+                                            <span>Sign out</span>
+                                        </button>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
                     </div>
                 ) : (
