@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
+import React from 'react';
 import { Inter, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import AppLayout from '@/components/layout/AppLayout';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
+import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { Analytics } from '@vercel/analytics/next';
 
@@ -10,26 +12,26 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space' });
 
 export const metadata: Metadata = {
-    title: 'Prism AI - Chat-First Automation Platform',
-    description: 'Transform natural language commands into powerful automation workflows for graphic design',
-    keywords: ['automation', 'AI', 'workflow', 'graphic design', 'no-code'],
-    manifest: '/manifest.json',
-    appleWebApp: {
-        capable: true,
-        statusBarStyle: 'default',
-        title: 'Prism AI',
-    },
-    other: {
-        'mobile-web-app-capable': 'yes',
-    },
+  title: 'Prism AI - Chat-First Automation Platform',
+  description: 'Transform natural language commands into powerful automation workflows for graphic design',
+  keywords: ['automation', 'AI', 'workflow', 'graphic design', 'no-code'],
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Prism AI',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+  },
 };
 
 export const viewport = {
-    themeColor: '#05070a',
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
+  themeColor: '#05070a',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 // Anti-flash script - runs before React hydration to prevent theme flash
@@ -61,24 +63,26 @@ const themeScript = `
 `;
 
 export default function RootLayout({
-    children,
+  children,
 }: {
-    children: React.ReactNode;
+  children: React.ReactNode;
 }) {
-    return (
-        <html lang="en" suppressHydrationWarning>
-            <head>
-                <script
-                    dangerouslySetInnerHTML={{ __html: themeScript }}
-                />
-            </head>
-            <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans`}>
-                <ThemeProvider>
-                    <AppLayout>{children}</AppLayout>
-                </ThemeProvider>
-                <SpeedInsights />
-                <Analytics />
-            </body>
-        </html>
-    );
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: themeScript }}
+        />
+      </head>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans`}>
+        <ThemeProvider>
+          <TooltipProvider delayDuration={400} skipDelayDuration={100}>
+            <AppLayout>{children}</AppLayout>
+          </TooltipProvider>
+        </ThemeProvider>
+        <SpeedInsights />
+        <Analytics />
+      </body>
+    </html>
+  );
 }

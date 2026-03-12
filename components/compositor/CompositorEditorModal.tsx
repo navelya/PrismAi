@@ -13,6 +13,7 @@ import {
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { NumberInput } from '@/components/ui/NumberInput';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
 
 const DEFAULT_TRANSFORM: LayerTransform = {
@@ -644,22 +645,26 @@ export default function CompositorEditorModal({
 
                                 <div className="space-y-4">
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div className="space-y-1">
-                                            <span className="text-[8px] text-white/20 uppercase font-bold ml-1">X Position</span>
-                                            <input type="number" value={Math.round(selectedLayer.transform.x)} onChange={(e) => updateTransform(selectedLayerId!, { x: Number(e.target.value) })} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] focus:border-accent-primary/50 outline-none" />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <span className="text-[8px] text-white/20 uppercase font-bold ml-1">Y Position</span>
-                                            <input type="number" value={Math.round(selectedLayer.transform.y)} onChange={(e) => updateTransform(selectedLayerId!, { y: Number(e.target.value) })} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] focus:border-accent-primary/50 outline-none" />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <span className="text-[8px] text-white/20 uppercase font-bold ml-1">Width</span>
-                                            <input type="number" value={Math.round(selectedLayer.transform.width)} onChange={(e) => updateTransform(selectedLayerId!, { width: Number(e.target.value) })} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] focus:border-accent-primary/50 outline-none" />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <span className="text-[8px] text-white/20 uppercase font-bold ml-1">Height</span>
-                                            <input type="number" value={Math.round(selectedLayer.transform.height)} onChange={(e) => updateTransform(selectedLayerId!, { height: Number(e.target.value) })} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-[10px] focus:border-accent-primary/50 outline-none" />
-                                        </div>
+                                        <NumberInput
+                                            label="X Position"
+                                            value={Math.round(selectedLayer.transform.x)}
+                                            onChange={(e) => updateTransform(selectedLayerId!, { x: Number(e.target.value) })}
+                                        />
+                                        <NumberInput
+                                            label="Y Position"
+                                            value={Math.round(selectedLayer.transform.y)}
+                                            onChange={(e) => updateTransform(selectedLayerId!, { y: Number(e.target.value) })}
+                                        />
+                                        <NumberInput
+                                            label="Width"
+                                            value={Math.round(selectedLayer.transform.width)}
+                                            onChange={(e) => updateTransform(selectedLayerId!, { width: Number(e.target.value) })}
+                                        />
+                                        <NumberInput
+                                            label="Height"
+                                            value={Math.round(selectedLayer.transform.height)}
+                                            onChange={(e) => updateTransform(selectedLayerId!, { height: Number(e.target.value) })}
+                                        />
                                     </div>
                                 </div>
 
@@ -694,14 +699,16 @@ export default function CompositorEditorModal({
                                     <div className="space-y-3">
                                         <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter">Custom Size</label>
                                         <div className="grid grid-cols-2 gap-3">
-                                            <div className="space-y-1">
-                                                <span className="text-[9px] text-white/30 uppercase font-bold ml-1">Width</span>
-                                                <input type="number" value={localCanvasWidth} onChange={(e) => setLocalCanvasWidth(Math.max(100, Number(e.target.value)))} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm focus:border-accent-primary/50 outline-none transition-all" />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <span className="text-[9px] text-white/30 uppercase font-bold ml-1">Height</span>
-                                                <input type="number" value={localCanvasHeight} onChange={(e) => setLocalCanvasHeight(Math.max(100, Number(e.target.value)))} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm focus:border-accent-primary/50 outline-none transition-all" />
-                                            </div>
+                                            <NumberInput
+                                                label="Width"
+                                                value={localCanvasWidth}
+                                                onChange={(e) => setLocalCanvasWidth(Math.max(100, Number(e.target.value)))}
+                                            />
+                                            <NumberInput
+                                                label="Height"
+                                                value={localCanvasHeight}
+                                                onChange={(e) => setLocalCanvasHeight(Math.max(100, Number(e.target.value)))}
+                                            />
                                         </div>
                                     </div>
 

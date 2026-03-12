@@ -23,6 +23,8 @@ import { modelsAdminApi } from '@/lib/api/admin';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { NumberInput } from '@/components/ui/NumberInput';
+import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 
 // =============================================================================
 // UI COMPONENTS
@@ -64,8 +66,6 @@ const COMPONENT_DICTIONARY = [
     { id: 'resolution', label: 'Resolution', type: 'string', default_value: '1024x1024' },
     { id: 'audio_upload', label: 'Audio File Upload', type: 'string', default_value: '' },
     { id: 'image_upload', label: 'Image File Upload', type: 'string', default_value: '' },
-    { id: 'steps', label: 'Inference Steps', type: 'number', default_value: 20 },
-    { id: 'guidance', label: 'Guidance Scale', type: 'number', default_value: 7.5 },
 ];
 
 const WIRE_TYPES = ['image', 'video', 'text', 'audio', 'any'];
@@ -366,10 +366,9 @@ export default function AdminPage() {
                             description="Economy and visibility."
                         >
                             <div className="flex items-center gap-8">
-                                <Input
+                                <NumberInput
                                     label="Credit Cost"
                                     name="credit_cost"
-                                    type="number"
                                     value={modelForm.credit_cost}
                                     onChange={e => setModelForm({ ...modelForm, credit_cost: Number(e.target.value) })}
                                     className="max-w-[150px]"

@@ -703,7 +703,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 <div className={`flex w-full items-center justify-between px-2 pb-2
                                 ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}>
                     <div className="relative z-10">
-                        <Tooltip content="Add attachment" position={isCanvasMode ? "top-start" : "top"}>
+                        <Tooltip content="Add attachment" position="top">
                             <button
                                 type="button"
                                 onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
@@ -738,7 +738,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
                     <div className="flex items-center gap-1 z-10">
                         {!isLoading && (
-                            <Tooltip content={isListening ? 'Stop listening' : 'Voice input'} position={isCanvasMode ? "top-end" : "top"}>
+                            <Tooltip content={isListening ? 'Stop listening' : 'Voice input'} position="top">
                                 <button
                                     type="button"
                                     onClick={toggleListening}
@@ -764,7 +764,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 </button>
                             </Tooltip>
                         ) : (
-                            <Tooltip content="Send message" position={isCanvasMode ? "top-end" : "top"}>
+                            <Tooltip content="Send message" position="top">
                                 <button
                                     type="submit"
                                     disabled={!input.trim() && attachedImages.length === 0}

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
+import * as RadixDialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { createPortal } from 'react-dom';
 
 interface MobileActionSheetProps {
     isOpen: boolean;
@@ -15,71 +15,43 @@ export function MobileActionSheet({
     isOpen,
     onClose,
     title,
-    children
+    children,
 }: MobileActionSheetProps) {
-    const [isVisible, setIsVisible] = useState(false);
-    const [mounted, setMounted] = useState(false);
+    return (
+        <RadixDialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <RadixDialog.Portal>
+                {/* Backdrop */}
+                <RadixDialog.Overlay className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
 
-    useEffect(() => {
-        setMounted(true);
-    }, []);
+                {/* Sheet */}
+                <RadixDialog.Content
+                    className="fixed bottom-0 left-0 right-0 z-[60] w-full bg-surface-elevated rounded-t-2xl shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom outline-none"
+                    onPointerDownOutside={onClose}
+                >
+                    {/* Handle bar */}
+                    <div className="flex justify-center pt-3 pb-1 cursor-pointer" onClick={onClose}>
+                        <div className="w-12 h-1.5 rounded-full bg-stroke-subtle" />
+                    </div>
 
-    useEffect(() => {
-        if (isOpen) {
-            setIsVisible(true);
-            // Prevent body scroll
-            document.body.style.overflow = 'hidden';
-        } else {
-            const timer = setTimeout(() => setIsVisible(false), 300); // Wait for animation
-            document.body.style.overflow = 'unset';
-            return () => clearTimeout(timer);
-        }
-    }, [isOpen]);
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-stroke-subtle">
+                        <RadixDialog.Title className="font-semibold text-content-primary">
+                            {title || 'Options'}
+                        </RadixDialog.Title>
+                        <RadixDialog.Close asChild>
+                            <button className="p-2 text-content-tertiary hover:text-content-primary rounded-full hover:bg-surface-tertiary transition-colors">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </RadixDialog.Close>
+                    </div>
 
-    if (!isVisible && !isOpen) return null;
-    if (!mounted) return null;
-
-    return createPortal(
-        <div className="fixed inset-0 z-[60] flex items-end justify-center">
-            {/* Backdrop */}
-            <div
-                className={`
-                    absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300
-                    ${isOpen ? 'opacity-100' : 'opacity-0'}
-                `}
-                onClick={onClose}
-            />
-
-            {/* Sheet */}
-            <div
-                className={`
-                    relative w-full bg-surface-elevated rounded-t-2xl shadow-xl transform transition-transform duration-300 ease-out
-                    ${isOpen ? 'translate-y-0' : 'translate-y-full'}
-                `}
-            >
-                {/* Handle bar for visual affordance */}
-                <div className="flex justify-center pt-3 pb-1" onClick={onClose}>
-                    <div className="w-12 h-1.5 rounded-full bg-stroke-subtle" />
-                </div>
-
-                {/* Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-stroke-subtle">
-                    <h3 className="font-semibold text-content-primary">{title || 'Options'}</h3>
-                    <button
-                        onClick={onClose}
-                        className="p-2 text-content-tertiary hover:text-content-primary rounded-full hover:bg-surface-tertiary transition-colors"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="p-4 safe-area-bottom">
-                    {children}
-                </div>
-            </div>
-        </div>,
-        document.body
+                    {/* Content */}
+                    <div className="p-4 safe-area-bottom">
+                        {children}
+                    </div>
+                </RadixDialog.Content>
+            </RadixDialog.Portal>
+        </RadixDialog.Root>
     );
 }
 
