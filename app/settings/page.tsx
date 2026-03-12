@@ -113,40 +113,40 @@ interface SettingCardProps {
 function SettingCard({ title, description, children, disabled = false, layout = 'stacked' }: SettingCardProps) {
     return (
         <div className={`
-            py-8 border-b border-stroke-subtle last:border-0 transition-all duration-200
-            ${disabled ? 'opacity-50 grayscale-[0.5] pointer-events-none' : ''}
+            py-8 border-b border-white/5 last:border-0 transition-all duration-300
+            ${disabled ? 'opacity-40 grayscale-[0.8] pointer-events-none' : ''}
         `}>
             {layout === 'stacked' ? (
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-5">
                     <div>
                         <div className="flex items-center gap-3">
-                            <h3 className="font-medium text-content-primary">{title}</h3>
+                            <h3 className="font-bold text-content-primary text-sm uppercase tracking-tight">{title}</h3>
                             {disabled && (
-                                <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase bg-surface-secondary border border-stroke-subtle text-content-tertiary rounded-full">
+                                <span className="px-2 py-0.5 text-[9px] font-black tracking-[0.15em] uppercase bg-white/5 border border-white/10 text-content-tertiary rounded-full">
                                     Soon
                                 </span>
                             )}
                         </div>
-                        <p className="text-sm mt-1 text-content-secondary">{description}</p>
+                        <p className="text-xs mt-2 text-content-tertiary leading-relaxed opacity-70">{description}</p>
                     </div>
                     <div className="w-full">
                         {children}
                     </div>
                 </div>
             ) : (
-                <div className="flex items-start sm:items-center justify-between gap-6">
+                <div className="flex items-start sm:items-center justify-between gap-8">
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3">
-                            <h3 className="font-medium text-content-primary">{title}</h3>
+                            <h3 className="font-bold text-content-primary text-sm uppercase tracking-tight">{title}</h3>
                             {disabled && (
-                                <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase bg-surface-secondary border border-stroke-subtle text-content-tertiary rounded-full">
+                                <span className="px-2 py-0.5 text-[9px] font-black tracking-[0.15em] uppercase bg-white/5 border border-white/10 text-content-tertiary rounded-full">
                                     Soon
                                 </span>
                             )}
                         </div>
-                        <p className="text-sm mt-1 text-content-secondary">{description}</p>
+                        <p className="text-xs mt-2 text-content-tertiary leading-relaxed opacity-70">{description}</p>
                     </div>
-                    <div className="shrink-0 mt-2 sm:mt-0">
+                    <div className="shrink-0">
                         {children}
                     </div>
                 </div>
@@ -171,38 +171,37 @@ function SelectOption({ value, label, description, selected, disabled, onSelect,
             onClick={onSelect}
             disabled={disabled}
             className={`
-                w-full p-3 py-3.5 rounded-lg border-2 text-left transition-all duration-200 flex items-start gap-3 justify-between
-                ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+                w-full p-4 py-5 rounded-2xl border transition-all duration-300 flex items-start gap-4 justify-between group
+                ${disabled ? 'cursor-not-allowed opacity-40 grayscale' : 'cursor-pointer hover:scale-[1.02] active:scale-[0.98]'}
                 ${selected
-                    ? 'border-accent-primary bg-accent-primary/5'
-                    : 'border-stroke-subtle hover:border-stroke-strong bg-surface-primary'
+                    ? 'border-accent-primary bg-accent-primary/5 shadow-[0_0_20px_rgba(var(--accent-primary-rgb),0.1)]'
+                    : 'border-white/10 hover:border-white/20 bg-white/5 shadow-xl'
                 }
             `}
         >
-            <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div className="flex items-start gap-4 min-w-0 flex-1">
                 {icon && (
-                    <div className={`shrink-0 mt-0.5 ${selected ? 'text-accent-primary' : 'text-content-secondary'}`}>
+                    <div className={`shrink-0 mt-1 transition-colors ${selected ? 'text-accent-primary' : 'text-content-tertiary group-hover:text-content-secondary'}`}>
                         {icon}
                     </div>
                 )}
                 <div className="min-w-0">
-                    <div className={`font-medium text-sm ${selected ? 'text-accent-primary' : 'text-content-primary'}`}>
+                    <div className={`font-bold text-sm uppercase tracking-tight ${selected ? 'text-accent-primary' : 'text-content-primary opacity-90'}`}>
                         {label}
                     </div>
                     {description && (
-                        <div className={`text-xs mt-1 leading-relaxed ${selected ? 'text-accent-primary/80' : 'text-content-secondary'}`}>
+                        <div className={`text-[10px] mt-2 leading-relaxed font-medium transition-opacity ${selected ? 'text-accent-primary/70' : 'text-content-tertiary group-hover:opacity-100 opacity-60'}`}>
                             {description}
                         </div>
                     )}
                 </div>
             </div>
-            {/* Always render a 20x20 slot so text wrapping doesn't change upon selection */}
             {selected ? (
-                <div className="w-5 h-5 shrink-0 rounded-full bg-accent-primary flex items-center justify-center mt-0.5 shadow-sm">
-                    <Check className="w-3 h-3 text-content-inverted" strokeWidth={3} />
+                <div className="w-6 h-6 shrink-0 rounded-full bg-accent-primary flex items-center justify-center mt-1 shadow-premium">
+                    <Check className="w-3.5 h-3.5 text-white" strokeWidth={4} />
                 </div>
             ) : (
-                <div className="w-5 h-5 shrink-0" />
+                <div className="w-6 h-6 shrink-0 rounded-full border border-white/10 group-hover:border-white/20 mt-1 transition-colors" />
             )}
         </button>
     );
@@ -214,15 +213,17 @@ function SelectOption({ value, label, description, selected, disabled, onSelect,
 
 function ComingSoonView({ title, description }: { title: string; description: string }) {
     return (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-surface-tertiary flex items-center justify-center mb-5">
-                <Lock className="w-7 h-7 text-content-tertiary" />
+        <div className="flex flex-col items-center justify-center py-24 text-center animate-in fade-in zoom-in-95 duration-500">
+            <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center mb-8 border border-white/10 shadow-2xl relative group">
+                <div className="absolute inset-0 bg-accent-primary/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <Lock className="w-8 h-8 text-content-tertiary relative z-10" />
             </div>
-            <h3 className="text-xl font-semibold text-content-primary mb-2">{title}</h3>
-            <p className="text-content-secondary text-sm max-w-sm">{description}</p>
-            <span className="mt-4 px-3 py-1 text-xs font-medium bg-surface-tertiary text-content-tertiary rounded-full">
-                Planned for a future update
-            </span>
+            <h3 className="text-2xl font-black text-content-primary mb-3 uppercase tracking-tighter">{title}</h3>
+            <p className="text-content-tertiary text-xs max-w-sm leading-relaxed font-medium opacity-70">{description}</p>
+            <div className="mt-8 flex items-center gap-3 px-4 py-2 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black text-content-tertiary uppercase tracking-widest">
+                <Sparkles className="w-3 h-3 text-accent-primary" />
+                Feature Roadmap
+            </div>
         </div>
     );
 }
@@ -443,31 +444,29 @@ function AccountProfileView({ user, onProfileUpdated }: { user: any, onProfileUp
                     description="Your name as it appears across the platform."
                     layout="stacked"
                 >
-                    <div className="space-y-2">
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            <input
-                                type="text"
-                                value={displayName}
-                                onChange={(e) => {
-                                    setDisplayName(e.target.value);
-                                    if (nameError) setNameError(null);
-                                }}
-                                disabled={savingName}
-                                className="w-full sm:w-80 px-4 py-2 bg-surface-tertiary border border-stroke-subtle flex-1 sm:flex-none rounded-lg text-content-primary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 transition-all disabled:opacity-50"
-                                placeholder="Enter your display name"
-                            />
-                            <button
-                                onClick={handleSaveName}
-                                disabled={savingName || displayName.trim() === initialName || displayName.trim().length < 2}
-                                className="px-5 py-2 bg-surface-tertiary hover:bg-interactive-hover text-content-primary rounded-lg font-medium text-sm transition-colors disabled:opacity-50 whitespace-nowrap"
-                            >
-                                {savingName ? 'Saving...' : 'Update Name'}
-                            </button>
-                        </div>
-                        {nameError && (
-                            <p className="text-xs text-red-500">{nameError}</p>
-                        )}
+                    <div className="flex flex-col sm:flex-row gap-4">
+                        <input
+                            type="text"
+                            value={displayName}
+                            onChange={(e) => {
+                                setDisplayName(e.target.value);
+                                if (nameError) setNameError(null);
+                            }}
+                            disabled={savingName}
+                            className="w-full sm:w-80 px-5 py-3 bg-white/5 border border-white/10 flex-1 sm:flex-none rounded-xl text-content-primary text-sm placeholder:text-content-tertiary/30 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all disabled:opacity-50"
+                            placeholder="Enter your display name"
+                        />
+                        <button
+                            onClick={handleSaveName}
+                            disabled={savingName || displayName.trim() === initialName || displayName.trim().length < 2}
+                            className="px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-content-primary rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all disabled:opacity-50 whitespace-nowrap hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                            {savingName ? 'Saving...' : 'Update Name'}
+                        </button>
                     </div>
+                    {nameError && (
+                        <p className="text-xs text-red-500">{nameError}</p>
+                    )}
                 </SettingCard>
             </div>
         </div>
@@ -617,14 +616,17 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
 
             {/* Save Changes Floating Action Bar */}
             {hasChanges && (
-                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:right-8 md:translate-x-0 bg-surface-primary border border-stroke-subtle shadow-2xl rounded-2xl p-3 flex items-center gap-4 animate-in slide-in-from-bottom-5">
-                    <span className="text-sm text-content-secondary pl-2 whitespace-nowrap">Unsaved changes</span>
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 md:left-auto md:right-12 md:translate-x-0 glassmorphism shadow-2xl rounded-3xl p-4 flex items-center gap-6 animate-in slide-in-from-bottom-10 duration-500 z-50">
+                    <div className="flex items-center gap-3 pl-2">
+                        <div className="w-2 h-2 rounded-full bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(var(--accent-primary-rgb),0.5)]"></div>
+                        <span className="text-[10px] font-black text-content-primary uppercase tracking-widest whitespace-nowrap">Unsaved modifications</span>
+                    </div>
                     <button
                         onClick={handleSave}
                         disabled={saving}
-                        className="px-5 py-2 bg-gradient-premium text-white font-medium rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50"
+                        className="px-8 py-3 bg-gradient-premium text-white font-black uppercase tracking-widest text-[10px] rounded-2xl hover:opacity-90 transition-all disabled:opacity-50 shadow-premium hover:scale-[1.05] active:scale-[0.95]"
                     >
-                        {saving ? 'Saving...' : 'Save Changes'}
+                        {saving ? 'Synchronizing...' : 'Commit Changes'}
                     </button>
                 </div>
             )}
@@ -709,52 +711,52 @@ function SettingsContent() {
     const activeItem = navSections.flatMap(s => s.items).find(i => i.id === activeTab);
 
     return (
-        <div className="w-full h-full flex bg-surface-secondary">
+        <div className="w-full h-full flex bg-surface-primary mesh-gradient overflow-hidden">
             {/* Sidebar Navigation — full width on mobile, fixed 264px on desktop */}
             <aside className={`
-                md:w-64 md:shrink-0 md:border-r md:border-stroke-subtle md:bg-surface-primary md:overflow-y-auto md:block
+                md:w-72 md:shrink-0 md:border-r md:border-white/5 bg-surface-primary/60 backdrop-blur-3xl md:overflow-y-auto md:block shadow-2xl z-20 transition-all duration-300
                 ${mobileShowContent ? 'hidden' : 'w-full bg-surface-primary overflow-y-auto'}
             `}>
-                <div className="p-6">
-                    <div className="flex items-center gap-3 mb-8">
-                        <div className="p-2 rounded-xl bg-gradient-premium text-white shadow-lg">
+                <div className="p-8">
+                    <div className="flex items-center gap-4 mb-10">
+                        <div className="w-10 h-10 rounded-2xl bg-gradient-premium flex items-center justify-center text-white shadow-premium ring-4 ring-white/5">
                             <Settings className="w-5 h-5" />
                         </div>
-                        <h1 className="text-lg font-bold text-content-primary">Settings</h1>
+                        <div>
+                            <h1 className="text-xl font-black text-content-primary uppercase tracking-tighter">Settings</h1>
+                            <p className="text-[10px] font-bold text-content-tertiary uppercase tracking-widest mt-0.5 opacity-60">Preferences Hub</p>
+                        </div>
                     </div>
 
-                    <nav className="space-y-6">
+                    <nav className="space-y-8">
                         {navSections.map((section) => (
                             <div key={section.title}>
-                                <h3 className="text-[11px] font-semibold text-content-tertiary uppercase tracking-wider mb-2 px-3">
+                                <h3 className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.2em] mb-4 px-3 opacity-60">
                                     {section.title}
                                 </h3>
-                                <div className="space-y-0.5">
+                                <div className="space-y-1.5">
                                     {section.items.map((item) => (
                                         <button
                                             key={item.id}
                                             onClick={() => handleTabSelect(item.id)}
                                             className={`
-                                                w-full flex items-center gap-3 px-3 py-2.5 md:py-2 rounded-lg text-sm transition-all duration-150
+                                                w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all duration-300 border
                                                 ${activeTab === item.id
-                                                    ? 'bg-accent-primary/10 text-accent-primary font-medium'
-                                                    : 'text-content-secondary hover:bg-surface-tertiary hover:text-content-primary'
+                                                    ? 'bg-white/10 text-accent-primary border-white/10 shadow-premium ring-1 ring-white/10'
+                                                    : 'text-content-tertiary border-transparent hover:bg-white/5 hover:text-content-primary hover:border-white/5'
                                                 }
                                             `}
                                         >
-                                            <span className={`shrink-0 ${activeTab === item.id ? 'text-accent-primary' : 'text-content-tertiary'}`}>
+                                            <span className={`shrink-0 transition-colors ${activeTab === item.id ? 'text-accent-primary' : 'text-content-tertiary group-hover:text-content-secondary'}`}>
                                                 {item.icon}
                                             </span>
                                             <span className="flex-1 text-left truncate">{item.label}</span>
                                             {item.comingSoon && (
-                                                <span className="px-1.5 py-0.5 text-[9px] font-medium bg-surface-tertiary text-content-tertiary rounded-full shrink-0">
+                                                <span className="px-2 py-0.5 text-[8px] font-black bg-white/5 text-content-tertiary rounded-full shrink-0 border border-white/10">
                                                     Soon
                                                 </span>
                                             )}
-                                            <ChevronRight className={`w-3.5 h-3.5 shrink-0 md:hidden text-content-tertiary`} />
-                                            {!item.comingSoon && activeTab === item.id && (
-                                                <ChevronRight className="w-3.5 h-3.5 text-accent-primary shrink-0 hidden md:block" />
-                                            )}
+                                            <ChevronRight className={`w-4 h-4 shrink-0 transition-transform ${activeTab === item.id ? 'translate-x-1 opacity-100' : 'opacity-0'}`} />
                                         </button>
                                     ))}
                                 </div>
@@ -764,36 +766,52 @@ function SettingsContent() {
                 </div>
 
                 {/* Footer */}
-                <div className="p-6 border-t border-stroke-subtle mt-4">
-                    <p className="text-[11px] text-content-tertiary text-center">
-                        PrismAI v1.0.0
-                    </p>
+                <div className="p-8 border-t border-white/5 mt-8 bg-black/10">
+                    <div className="flex items-center justify-center gap-2 opacity-40">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                        <p className="text-[9px] font-black text-content-tertiary uppercase tracking-[0.3em]">
+                            System v1.0.0
+                        </p>
+                    </div>
                 </div>
             </aside>
 
             {/* Main Content Area — hidden on mobile until a tab is selected */}
             <main className={`
-                flex-1 overflow-y-auto
+                flex-1 overflow-y-auto custom-scrollbar relative
                 ${mobileShowContent ? 'block' : 'hidden md:block'}
             `}>
-                <div className="max-w-3xl mx-auto py-6 md:py-10 px-4 md:px-8">
+                <div className="max-w-4xl mx-auto py-12 md:py-20 px-8 md:px-12 relative z-10">
                     {/* Mobile Back Button + Header */}
                     {activeItem && (
-                        <div className="mb-8">
+                        <div className="mb-12">
                             <button
                                 onClick={() => setMobileShowContent(false)}
-                                className="md:hidden flex items-center gap-2 text-sm text-content-secondary hover:text-content-primary mb-4 transition-colors"
+                                className="md:hidden flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-content-tertiary hover:text-content-primary mb-6 transition-all"
                             >
                                 <ArrowLeft className="w-4 h-4" />
-                                <span>Back to Settings</span>
+                                <span>Return to Terminal</span>
                             </button>
-                            <h2 className="text-2xl font-bold text-content-primary">{activeItem.label}</h2>
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10 shadow-2xl">
+                                    <span className="text-accent-primary">{activeItem.icon}</span>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-accent-primary uppercase tracking-[0.3em] mb-1">Preference Section</p>
+                                    <h2 className="text-4xl font-black text-content-primary uppercase tracking-tighter italic">{activeItem.label}</h2>
+                                </div>
+                            </div>
                         </div>
                     )}
 
                     {/* Dynamic Content */}
-                    {renderContent()}
+                    <div className="relative">
+                        {renderContent()}
+                    </div>
                 </div>
+
+                {/* Decorative mesh detail */}
+                <div className="absolute top-0 right-0 w-96 h-96 bg-accent-primary/5 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
             </main>
         </div>
     );

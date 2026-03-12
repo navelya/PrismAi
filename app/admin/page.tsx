@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     Boxes,
@@ -16,9 +16,13 @@ import {
     Activity,
     Trash2,
     Settings2,
-    Link2
+    Link2,
+    ChevronDown
 } from 'lucide-react';
 import { modelsAdminApi } from '@/lib/api/admin';
+import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 
 // =============================================================================
 // UI COMPONENTS
@@ -32,15 +36,15 @@ interface FormSectionProps {
 
 function FormSection({ title, description, children }: FormSectionProps) {
     return (
-        <div className="py-8 border-b border-stroke-subtle last:border-0">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="py-8 border-b border-white/5 last:border-0">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="md:col-span-1">
-                    <h3 className="font-medium text-content-primary inline-flex items-center gap-2">
+                    <h3 className="font-bold text-content-primary inline-flex items-center gap-2 text-sm tracking-tight uppercase">
                         {title}
                     </h3>
-                    <p className="text-sm mt-1 text-content-secondary">{description}</p>
+                    <p className="text-xs mt-2 text-content-tertiary leading-relaxed opacity-70">{description}</p>
                 </div>
-                <div className="md:col-span-2 space-y-4">
+                <div className="md:col-span-2 space-y-5">
                     {children}
                 </div>
             </div>
@@ -48,26 +52,6 @@ function FormSection({ title, description, children }: FormSectionProps) {
     );
 }
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-    label: string;
-    error?: string;
-}
-
-function Input({ label, error, className = '', ...props }: InputProps) {
-    return (
-        <div className="space-y-1.5 flex-1">
-            <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1 flex items-center gap-1.5">
-                {label}
-                {props.required && <span className="text-red-500">*</span>}
-            </label>
-            <input
-                {...props}
-                className={`w-full px-4 py-2.5 bg-surface-tertiary border border-stroke-subtle rounded-lg text-content-primary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 transition-all ${error ? 'border-red-500' : ''} ${className}`}
-            />
-            {error && <p className="text-xs text-red-500 pl-1">{error}</p>}
-        </div>
-    );
-}
 
 // =============================================================================
 // VISUAL BUILDER DICTIONARY
@@ -76,9 +60,8 @@ function Input({ label, error, className = '', ...props }: InputProps) {
 const COMPONENT_DICTIONARY = [
     { id: 'prompt_textarea', label: 'Prompt (Textarea)', type: 'string', default_value: '' },
     { id: 'negative_prompt', label: 'Negative Prompt', type: 'string', default_value: '' },
-    { id: 'aspect_ratio', label: 'Aspect Ratio Dropdown', type: 'string', default_value: '1:1' },
-    { id: 'seed_input', label: 'Seed Number', type: 'number', default_value: 0 },
-    { id: 'resolution', label: 'Image Resolution (W x H)', type: 'string', default_value: '1024x1024' },
+    { id: 'aspect_ratio', label: 'Aspect Ratio', type: 'string', default_value: '1:1' },
+    { id: 'resolution', label: 'Resolution', type: 'string', default_value: '1024x1024' },
     { id: 'audio_upload', label: 'Audio File Upload', type: 'string', default_value: '' },
     { id: 'image_upload', label: 'Image File Upload', type: 'string', default_value: '' },
     { id: 'steps', label: 'Inference Steps', type: 'number', default_value: 20 },
@@ -262,56 +245,63 @@ export default function AdminPage() {
 
 
     return (
-        <div className="w-full h-full flex flex-col bg-surface-secondary overflow-y-auto">
+        <div className="w-full h-full flex flex-col bg-surface-primary mesh-gradient overflow-y-auto custom-scrollbar">
             {/* Header */}
-            <header className="sticky top-0 z-30 bg-surface-primary border-b border-stroke-subtle px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
+            <header className="sticky top-0 z-30 bg-surface-primary/60 backdrop-blur-xl border-b border-white/5 px-8 py-5 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-2xl">
+                <div className="flex items-center gap-5">
                     <button
                         onClick={() => router.back()}
-                        className="p-2 -ml-2 rounded-lg hover:bg-surface-tertiary transition-colors text-content-secondary"
+                        className="p-2.5 -ml-2 rounded-xl hover:bg-white/5 transition-all text-content-secondary hover:text-content-primary border border-transparent hover:border-white/10"
                     >
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                     <div>
-                        <div className="flex items-center gap-2">
-                            <Database className="w-5 h-5 text-accent-primary" />
-                            <h1 className="text-xl font-bold text-content-primary">Admin Registry</h1>
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-accent-primary/10 flex items-center justify-center border border-accent-primary/20 shadow-inner">
+                                <Database className="w-4 h-4 text-accent-primary" />
+                            </div>
+                            <h1 className="text-xl font-black text-content-primary uppercase tracking-tighter">Admin Registry</h1>
                         </div>
-                        <p className="text-xs text-content-tertiary">Headless CMS for Node Definitions</p>
+                        <p className="text-[10px] font-bold text-content-tertiary uppercase tracking-widest mt-0.5 opacity-60">System Model Controller</p>
                     </div>
                 </div>
 
                 {/* Segmented Control */}
-                <div className="flex items-center bg-surface-tertiary p-1 rounded-xl border border-stroke-subtle shrink-0">
+                <div className="flex items-center bg-white/5 p-1 rounded-2xl border border-white/10 shrink-0 backdrop-blur-md">
                     <button
                         onClick={() => setActiveTab('models')}
-                        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'models'
-                                ? 'bg-surface-primary text-content-primary shadow-sm ring-1 ring-stroke-subtle'
-                                : 'text-content-tertiary hover:text-content-secondary'
+                        className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'models'
+                            ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
+                            : 'text-content-tertiary hover:text-content-secondary'
                             }`}
                     >
-                        Manage AI Models
+                        Registry
                     </button>
                     <button
                         onClick={() => setActiveTab('nodes')}
-                        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'nodes'
-                                ? 'bg-surface-primary text-content-primary shadow-sm ring-1 ring-stroke-subtle'
-                                : 'text-content-tertiary hover:text-content-secondary'
+                        className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'nodes'
+                            ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
+                            : 'text-content-tertiary hover:text-content-secondary'
                             }`}
                     >
-                        Manage Node Types
+                        Definitions
                     </button>
                 </div>
             </header>
 
-            <main className="flex-1 max-w-5xl mx-auto w-full p-6 md:p-10">
+            <main className="flex-1 max-w-6xl mx-auto w-full p-8 md:p-12">
                 {status && (
-                    <div className={`mb-8 p-4 rounded-xl border flex items-start gap-3 animate-in fade-in slide-in-from-top-4 ${status.type === 'success'
-                            ? 'bg-green-500/10 border-green-500/20 text-green-600'
-                            : 'bg-red-500/10 border-red-500/20 text-red-600'
-                        }`}>
-                        {status.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <AlertCircle className="w-5 h-5 shrink-0" />}
-                        <p className="text-sm font-medium">{status.message}</p>
+                    <div className={cn(
+                        "mb-10 p-5 rounded-2xl border backdrop-blur-md flex items-start gap-4 animate-in fade-in slide-in-from-top-4 shadow-xl",
+                        status.type === 'success'
+                            ? 'bg-green-500/5 border-green-500/20 text-green-400'
+                            : 'bg-red-500/5 border-red-500/20 text-red-400'
+                    )}>
+                        {status.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
+                        <div className="flex-1">
+                            <p className="text-sm font-bold tracking-tight">{status.type === 'success' ? 'Success' : 'Action Required'}</p>
+                            <p className="text-xs opacity-80 mt-1 leading-relaxed font-medium">{status.message}</p>
+                        </div>
                     </div>
                 )}
 
@@ -348,39 +338,26 @@ export default function AdminPage() {
                             title="Classification"
                             description="Determines where this model sits in the library."
                         >
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1">Category</label>
-                                    <select
-                                        value={modelForm.category_id}
-                                        onChange={e => setModelForm({ ...modelForm, category_id: e.target.value })}
-                                        className="w-full px-4 py-2.5 bg-surface-tertiary border border-stroke-subtle rounded-lg text-content-primary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 appearance-none"
-                                    >
-                                        {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.display_name}</option>)}
-                                    </select>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1">Node Type (Filtered)</label>
-                                    <select
-                                        value={modelForm.node_type_id}
-                                        onChange={e => setModelForm({ ...modelForm, node_type_id: e.target.value })}
-                                        disabled={!modelForm.category_id || filteredNodeTypes.length === 0}
-                                        className="w-full px-4 py-2.5 bg-surface-tertiary border border-stroke-subtle rounded-lg text-content-primary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 appearance-none disabled:opacity-50"
-                                    >
-                                        {filteredNodeTypes.length === 0 ? <option value="">No types available</option> : null}
-                                        {filteredNodeTypes.map(nt => <option key={nt.id} value={nt.id}>{nt.display_name}</option>)}
-                                    </select>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1">Node Archetype</label>
-                                    <select
-                                        value={modelForm.archetype_id}
-                                        onChange={e => setModelForm({ ...modelForm, archetype_id: e.target.value })}
-                                        className="w-full px-4 py-2.5 bg-surface-tertiary border border-stroke-subtle rounded-lg text-content-primary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/20 appearance-none"
-                                    >
-                                        {archetypes.map(arch => <option key={arch.id} value={arch.id}>{arch.component_name}</option>)}
-                                    </select>
-                                </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                                <Select
+                                    label="Category"
+                                    value={modelForm.category_id}
+                                    options={categories}
+                                    onChange={e => setModelForm({ ...modelForm, category_id: e.target.value })}
+                                />
+                                <Select
+                                    label="Node Type (Filtered)"
+                                    value={modelForm.node_type_id}
+                                    options={filteredNodeTypes}
+                                    onChange={e => setModelForm({ ...modelForm, node_type_id: e.target.value })}
+                                    disabled={!modelForm.category_id || filteredNodeTypes.length === 0}
+                                />
+                                <Select
+                                    label="Node Archetype"
+                                    value={modelForm.archetype_id}
+                                    options={archetypes.map(a => ({ id: a.id, display_name: a.component_name }))}
+                                    onChange={e => setModelForm({ ...modelForm, archetype_id: e.target.value })}
+                                />
                             </div>
                         </FormSection>
 
@@ -416,36 +393,38 @@ export default function AdminPage() {
                         </FormSection>
 
                         {/* VISUAL SCHEMA BUILDER */}
-                        <div className="pt-8 border-b border-stroke-subtle pb-8">
-                            <div className="mb-6 flex justify-between items-center bg-surface-tertiary p-4 rounded-xl border border-stroke-subtle">
+                        <div className="pt-12 border-b border-white/5 pb-12">
+                            <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl gap-6">
                                 <div>
-                                    <h3 className="font-semibold text-content-primary text-base inline-flex items-center gap-2 decoration-accent-primary">
-                                        <Layers className="w-5 h-5 text-accent-primary" />
+                                    <h3 className="font-black text-content-primary text-base inline-flex items-center gap-3 uppercase tracking-tighter">
+                                        <div className="w-8 h-8 rounded-xl bg-accent-primary/10 flex items-center justify-center border border-accent-primary/30">
+                                            <Layers className="w-4 h-4 text-accent-primary" />
+                                        </div>
                                         Visual Schema Builder
                                     </h3>
-                                    <p className="text-sm text-content-secondary mt-1 max-w-lg">
+                                    <p className="text-xs text-content-tertiary mt-2 max-w-lg leading-relaxed font-medium">
                                         Design the node's UI controls and data flow handles. This automatically compiles to JSON on save.
                                     </p>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-3">
                                     <button
                                         type="button"
                                         onClick={() => setVisualControls([...visualControls, { id: Math.random().toString(), component_id: COMPONENT_DICTIONARY[0].id, api_key: '', default_value: COMPONENT_DICTIONARY[0].default_value }])}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-surface-primary hover:bg-interactive-hover border border-stroke-subtle text-content-primary text-sm font-medium rounded-lg transition-colors"
+                                        className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-content-primary text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         <Settings2 className="w-4 h-4" /> Property
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => setVisualInputWires([...visualInputWires, { id: Math.random().toString(), name: 'input', type: 'image' }])}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-600 text-sm font-medium rounded-lg transition-colors"
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         <Link2 className="w-4 h-4" /> In Wire
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => setVisualOutputWires([...visualOutputWires, { id: Math.random().toString(), name: 'output', type: 'image' }])}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-600 text-sm font-medium rounded-lg transition-colors"
+                                        className="flex items-center gap-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         <Link2 className="w-4 h-4" /> Out Wire
                                     </button>
@@ -455,12 +434,12 @@ export default function AdminPage() {
                             <div className="space-y-4">
                                 {/* Input Wires */}
                                 {visualInputWires.length > 0 && (
-                                    <div className="bg-surface-primary border border-blue-500/20 rounded-xl p-4 shadow-sm relative overflow-hidden">
+                                    <div className="bg-surface-primary border border-blue-500/20 rounded-xl p-4 shadow-sm relative">
                                         <div className="absolute top-0 left-0 w-1 h-full bg-blue-500/50"></div>
-                                        <h4 className="text-xs font-bold text-blue-500 uppercase tracking-wider mb-4 pl-2">Input Wires (Handles)</h4>
-                                        <div className="space-y-3">
+                                        <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-6 pl-2">Input Wires (Handles)</h4>
+                                        <div className="space-y-4">
                                             {visualInputWires.map((wire, idx) => (
-                                                <div key={wire.id} className="flex items-center gap-3 bg-surface-tertiary p-2 rounded-lg border border-stroke-subtle">
+                                                <div key={wire.id} className="flex items-start gap-5 bg-white/5 p-4 rounded-2xl border border-white/5 group transition-all hover:bg-white/10">
                                                     <Input
                                                         label="Handle Name"
                                                         value={wire.name}
@@ -471,20 +450,17 @@ export default function AdminPage() {
                                                         }}
                                                         placeholder="e.g. image"
                                                     />
-                                                    <div className="space-y-1.5 flex-1 max-w-[150px]">
-                                                        <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1">Type</label>
-                                                        <select
-                                                            value={wire.type}
-                                                            onChange={e => {
-                                                                const newWires = [...visualInputWires];
-                                                                newWires[idx].type = e.target.value;
-                                                                setVisualInputWires(newWires);
-                                                            }}
-                                                            className="w-full px-3 py-2.5 bg-surface-primary border border-stroke-subtle rounded-lg text-sm text-content-primary appearance-none focus:outline-none focus:border-accent-primary"
-                                                        >
-                                                            {WIRE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                                        </select>
-                                                    </div>
+                                                    <Select
+                                                        label="Type"
+                                                        value={wire.type}
+                                                        className="max-w-[150px]"
+                                                        options={WIRE_TYPES.map(t => ({ id: t, display_name: t }))}
+                                                        onChange={e => {
+                                                            const newWires = [...visualInputWires];
+                                                            newWires[idx].type = e.target.value;
+                                                            setVisualInputWires(newWires);
+                                                        }}
+                                                    />
                                                     <button type="button" onClick={() => setVisualInputWires(visualInputWires.filter(w => w.id !== wire.id))} className="p-2 text-content-tertiary hover:text-red-500 mt-5">
                                                         <Trash2 className="w-5 h-5" />
                                                     </button>
@@ -496,29 +472,26 @@ export default function AdminPage() {
 
                                 {/* UI Controls */}
                                 {visualControls.length > 0 && (
-                                    <div className="bg-surface-primary border border-stroke-subtle rounded-xl p-4 shadow-sm relative overflow-hidden">
+                                    <div className="bg-surface-primary border border-stroke-subtle rounded-xl p-4 shadow-sm relative">
                                         <div className="absolute top-0 left-0 w-1 h-full bg-accent-primary/50"></div>
-                                        <h4 className="text-xs font-bold text-content-secondary uppercase tracking-wider mb-4 pl-2">UI Properties (Controls)</h4>
-                                        <div className="space-y-3">
+                                        <h4 className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.2em] mb-6 pl-2">UI Properties (Controls)</h4>
+                                        <div className="space-y-4">
                                             {visualControls.map((ctrl, idx) => (
-                                                <div key={ctrl.id} className="flex flex-col sm:flex-row sm:items-center gap-3 bg-surface-tertiary p-3 rounded-lg border border-stroke-subtle">
+                                                <div key={ctrl.id} className="flex flex-col md:flex-row items-start gap-5 bg-white/5 p-4 rounded-2xl border border-white/5 group transition-all hover:bg-white/10">
 
-                                                    <div className="space-y-1.5 flex-1 min-w-[200px]">
-                                                        <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1">UI Component</label>
-                                                        <select
-                                                            value={ctrl.component_id}
-                                                            onChange={e => {
-                                                                const newCtrls = [...visualControls];
-                                                                const dictItem = COMPONENT_DICTIONARY.find(d => d.id === e.target.value);
-                                                                newCtrls[idx].component_id = e.target.value;
-                                                                newCtrls[idx].default_value = dictItem?.default_value;
-                                                                setVisualControls(newCtrls);
-                                                            }}
-                                                            className="w-full px-3 py-2.5 bg-surface-primary border border-stroke-subtle rounded-lg text-sm text-content-primary appearance-none font-medium focus:outline-none focus:border-accent-primary"
-                                                        >
-                                                            {COMPONENT_DICTIONARY.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                                                        </select>
-                                                    </div>
+                                                    <Select
+                                                        label="UI Component"
+                                                        value={ctrl.component_id}
+                                                        className="min-w-[200px]"
+                                                        options={COMPONENT_DICTIONARY.map(c => ({ id: c.id, display_name: c.label }))}
+                                                        onChange={e => {
+                                                            const newCtrls = [...visualControls];
+                                                            const dictItem = COMPONENT_DICTIONARY.find(d => d.id === e.target.value);
+                                                            newCtrls[idx].component_id = e.target.value;
+                                                            newCtrls[idx].default_value = dictItem?.default_value;
+                                                            setVisualControls(newCtrls);
+                                                        }}
+                                                    />
 
                                                     <Input
                                                         label="Replicate API Key"
@@ -555,12 +528,12 @@ export default function AdminPage() {
 
                                 {/* Output Wires */}
                                 {visualOutputWires.length > 0 && (
-                                    <div className="bg-surface-primary border border-green-500/20 rounded-xl p-4 shadow-sm relative overflow-hidden">
+                                    <div className="bg-surface-primary border border-green-500/20 rounded-xl p-4 shadow-sm relative">
                                         <div className="absolute top-0 left-0 w-1 h-full bg-green-500/50"></div>
-                                        <h4 className="text-xs font-bold text-green-600 uppercase tracking-wider mb-4 pl-2">Output Wires (Handles)</h4>
-                                        <div className="space-y-3">
+                                        <h4 className="text-[10px] font-black text-green-500 uppercase tracking-[0.2em] mb-6 pl-2">Output Wires (Handles)</h4>
+                                        <div className="space-y-4">
                                             {visualOutputWires.map((wire, idx) => (
-                                                <div key={wire.id} className="flex items-center gap-3 bg-surface-tertiary p-2 rounded-lg border border-stroke-subtle">
+                                                <div key={wire.id} className="flex items-start gap-5 bg-white/5 p-4 rounded-2xl border border-white/5 group transition-all hover:bg-white/10">
                                                     <Input
                                                         label="Handle Name"
                                                         value={wire.name}
@@ -571,20 +544,17 @@ export default function AdminPage() {
                                                         }}
                                                         placeholder="e.g. output"
                                                     />
-                                                    <div className="space-y-1.5 flex-1 max-w-[150px]">
-                                                        <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1">Type</label>
-                                                        <select
-                                                            value={wire.type}
-                                                            onChange={e => {
-                                                                const newWires = [...visualOutputWires];
-                                                                newWires[idx].type = e.target.value;
-                                                                setVisualOutputWires(newWires);
-                                                            }}
-                                                            className="w-full px-3 py-2.5 bg-surface-primary border border-stroke-subtle rounded-lg text-sm text-content-primary appearance-none focus:outline-none focus:border-accent-primary"
-                                                        >
-                                                            {WIRE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                                        </select>
-                                                    </div>
+                                                    <Select
+                                                        label="Type"
+                                                        value={wire.type}
+                                                        className="max-w-[150px]"
+                                                        options={WIRE_TYPES.map(t => ({ id: t, display_name: t }))}
+                                                        onChange={e => {
+                                                            const newWires = [...visualOutputWires];
+                                                            newWires[idx].type = e.target.value;
+                                                            setVisualOutputWires(newWires);
+                                                        }}
+                                                    />
                                                     <button type="button" onClick={() => setVisualOutputWires(visualOutputWires.filter(w => w.id !== wire.id))} className="p-2 text-content-tertiary hover:text-red-500 mt-5">
                                                         <Trash2 className="w-5 h-5" />
                                                     </button>
@@ -595,23 +565,26 @@ export default function AdminPage() {
                                 )}
 
                                 {visualControls.length === 0 && visualInputWires.length === 0 && visualOutputWires.length === 0 && (
-                                    <div className="text-center py-10 bg-surface-tertiary rounded-xl border border-dashed border-stroke-subtle">
-                                        <Layers className="w-10 h-10 text-content-tertiary mx-auto mb-3 opacity-50" />
-                                        <p className="text-content-secondary text-sm">No schema defined yet.</p>
-                                        <p className="text-content-tertiary text-xs mt-1">Add properties or wires using the buttons above.</p>
+                                    <div className="text-center py-16 bg-white/5 rounded-3xl border border-dashed border-white/10 backdrop-blur-sm">
+                                        <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-6 border border-white/10 shadow-2xl">
+                                            <Layers className="w-8 h-8 text-content-tertiary opacity-40" />
+                                        </div>
+                                        <p className="text-content-primary text-sm font-bold uppercase tracking-tight">No schema defined yet</p>
+                                        <p className="text-content-tertiary text-[10px] mt-2 max-w-[200px] mx-auto leading-relaxed font-medium opacity-60">Add properties or wires using the action bar above to start building.</p>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        <div className="pt-6 flex justify-end">
+                        <div className="pt-12 flex justify-end">
                             <button
                                 type="submit"
                                 disabled={modelSubmitting || loading}
-                                className="px-8 py-3 bg-gradient-premium text-white font-bold rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 shadow-xl shadow-accent-primary/30 flex items-center gap-2"
+                                className="px-10 py-4 bg-gradient-premium text-white font-black uppercase tracking-widest text-xs rounded-2xl hover:opacity-90 transition-all disabled:opacity-50 shadow-2xl shadow-accent-primary/40 flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98]"
                             >
                                 {modelSubmitting && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-                                Compile JSON & Register Model
+                                <Save className="w-4 h-4" />
+                                Register Asset
                             </button>
                         </div>
                     </form>
@@ -622,12 +595,13 @@ export default function AdminPage() {
                 {/* MANAGE NODE TYPES VIEW */}
                 {/* ========================================================= */}
                 {activeTab === 'nodes' && (
-                    <div className="space-y-6 animate-in fade-in">
-                        <div className="bg-surface-primary border border-stroke-subtle rounded-xl p-6 shadow-sm">
-                            <div>
-                                <h3 className="text-lg font-bold text-content-primary mb-1">Create New Node Type</h3>
-                                <p className="text-sm text-content-secondary mb-6">
-                                    Node Types define sub-categories (like 'Image to Image') and appear dynamically based on their parent categories.
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="glassmorphism rounded-3xl p-10 shadow-2xl relative overflow-hidden group">
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-premium opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                            <div className="mb-10">
+                                <h3 className="text-2xl font-black text-content-primary uppercase tracking-tighter mb-2">New Type Definition</h3>
+                                <p className="text-xs text-content-tertiary font-medium opacity-80 leading-relaxed max-w-xl">
+                                    Node Types define sub-categories and appear dynamically based on their parent categories. Use these to organize models into logical functional groups.
                                 </p>
                             </div>
 
@@ -650,16 +624,16 @@ export default function AdminPage() {
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-semibold text-content-tertiary uppercase tracking-wider pl-1 block mb-3">
-                                        Parent Categories <span className="text-red-500">*</span>
+                                    <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.2em] pl-1 block mb-4">
+                                        Parent Categories <span className="text-accent-primary">*</span>
                                     </label>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-surface-tertiary p-4 rounded-xl border border-stroke-subtle">
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-white/5 p-6 rounded-2xl border border-white/5 backdrop-blur-sm">
                                         {categories.map(cat => (
-                                            <label key={cat.id} className="flex items-center gap-3 cursor-pointer group">
-                                                <div className="relative flex items-center justify-center w-5 h-5">
+                                            <label key={cat.id} className="flex items-center gap-3 cursor-pointer group select-none">
+                                                <div className="relative flex items-center justify-center w-5 h-5 transition-transform group-active:scale-95">
                                                     <input
                                                         type="checkbox"
-                                                        className="peer appearance-none w-5 h-5 border-2 border-stroke-subtle rounded bg-surface-primary checked:bg-accent-primary checked:border-accent-primary transition-colors cursor-pointer"
+                                                        className="peer appearance-none w-5 h-5 border-2 border-white/10 rounded-lg bg-white/5 checked:bg-accent-primary checked:border-accent-primary transition-all cursor-pointer group-hover:border-white/20"
                                                         checked={nodeForm.parent_categories.includes(cat.id)}
                                                         onChange={(e) => {
                                                             if (e.target.checked) {
@@ -669,25 +643,30 @@ export default function AdminPage() {
                                                             }
                                                         }}
                                                     />
-                                                    <CheckCircle2 className="w-3.5 h-3.5 text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" />
+                                                    <CheckCircle2 className="w-3 h-3 text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-all scale-50 peer-checked:scale-100" />
                                                 </div>
-                                                <span className="text-sm text-content-secondary group-hover:text-content-primary transition-colors">
+                                                <span className="text-xs font-bold text-content-tertiary group-hover:text-content-primary transition-colors uppercase tracking-tight">
                                                     {cat.display_name}
                                                 </span>
                                             </label>
                                         ))}
                                     </div>
-                                    {categories.length === 0 && <p className="text-xs text-red-500 mt-2">No categories available to select.</p>}
+                                    {categories.length === 0 && (
+                                        <div className="flex items-center gap-2 mt-4 px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl">
+                                            <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                                            <p className="text-[10px] text-red-400 font-bold uppercase tracking-wider">No categories available to select.</p>
+                                        </div>
+                                    )}
                                 </div>
 
-                                <div className="pt-4 border-t border-stroke-subtle flex justify-end">
+                                <div className="pt-8 border-t border-white/5 flex justify-end">
                                     <button
                                         type="submit"
                                         disabled={nodeSubmitting || loading}
-                                        className="px-6 py-2.5 bg-content-primary text-surface-primary font-semibold rounded-xl hover:bg-content-secondary transition-colors disabled:opacity-50 flex items-center gap-2"
+                                        className="px-8 py-3 bg-content-primary text-surface-primary font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-content-secondary transition-all disabled:opacity-50 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] shadow-xl"
                                     >
                                         {nodeSubmitting && <div className="w-4 h-4 border-2 border-surface-primary/30 border-t-surface-primary rounded-full animate-spin" />}
-                                        Create Type
+                                        Initialize Type
                                     </button>
                                 </div>
                             </form>

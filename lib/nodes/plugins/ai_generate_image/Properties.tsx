@@ -1,41 +1,43 @@
-import React from 'react';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { AIGenerateImageConfig } from '../../types';
 
 export default function AIGenerateImageProperties({ config, onUpdate }: { config: any, onUpdate: (config: any) => void }) {
     const aiConfig = config as AIGenerateImageConfig;
-    const inputClass = "w-full px-3 py-2 border border-stroke-subtle rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-primary bg-surface-secondary text-content-primary";
-    const labelClass = "block text-sm font-medium text-content-secondary mb-2";
+
+    const aspectRatios = [
+        { id: '1:1', display_name: '1:1 (Square)' },
+        { id: '16:9', display_name: '16:9 (Widescreen)' },
+        { id: '4:3', display_name: '4:3 (Standard)' },
+    ];
+
+    const models = [
+        { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash (Nano Banana)' },
+        { id: 'gemini-3-pro-image-preview', display_name: 'Gemini 3 Pro (Nano Banana Pro)' },
+        { id: 'pollinations', display_name: 'Pollinations.ai' },
+        { id: 'huggingface', display_name: 'Stable Diffusion XL (Hugging Face)' },
+    ];
 
     return (
-        <>
-            <div>
-                <label className={labelClass}>Model</label>
-                <select
-                    value={aiConfig.model || 'gemini'}
-                    onChange={(e) => onUpdate({ ...aiConfig, model: e.target.value as any })}
-                    className={inputClass}
-                >
-                    <option value="gemini-2.5-flash-image">Gemini 2.5 Flash (Nano Banana)</option>
-                    <option value="gemini-3-pro-image-preview">Gemini 3 Pro (Nano Banana Pro)</option>
-                    <option value="pollinations">Pollinations.ai</option>
-                    <option value="huggingface">Stable Diffusion XL (Hugging Face)</option>
-                </select>
+        <div className="space-y-5">
+            <Select
+                label="Model"
+                value={aiConfig.model || 'gemini'}
+                options={models}
+                onChange={(e) => onUpdate({ ...aiConfig, model: e.target.value })}
+            />
+
+            <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[10px] text-content-secondary leading-relaxed font-medium">
+                <span className="font-bold text-blue-400 uppercase tracking-wider block mb-1">Architecture Note</span>
+                Connect a <b className="text-content-primary">Text Input</b> node to the <b className="text-content-primary">Prompt</b> handle to provide the generation prompt.
             </div>
-            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-content-secondary">
-                <span className="font-semibold text-blue-400">Note:</span> Connect a <b>Text Input</b> node to the <b>Prompt</b> handle to provide the generation prompt.
-            </div>
-            <div>
-                <label className={labelClass}>Aspect Ratio</label>
-                <select
-                    value={aiConfig.aspectRatio || '1:1'}
-                    onChange={(e) => onUpdate({ ...aiConfig, aspectRatio: e.target.value as any })}
-                    className={inputClass}
-                >
-                    <option value="1:1">1:1 (Square)</option>
-                    <option value="16:9">16:9 (Widescreen)</option>
-                    <option value="4:3">4:3 (Standard)</option>
-                </select>
-            </div>
-        </>
+
+            <Select
+                label="Aspect Ratio"
+                value={aiConfig.aspectRatio || '1:1'}
+                options={aspectRatios}
+                onChange={(e) => onUpdate({ ...aiConfig, aspectRatio: e.target.value })}
+            />
+        </div>
     );
 }
