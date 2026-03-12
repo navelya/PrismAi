@@ -10,6 +10,8 @@ import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { useUndoRedo } from '@/lib/hooks/use-undo-redo';
 
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+
 import { useAppStore } from '@/lib/store/app-store';
 
 // Types for the internal state of the hook
@@ -19,7 +21,63 @@ interface EditorState {
     name: string;
 }
 
-export function useWorkflowEditor(initialWorkflow?: Workflow | null) {
+/**
+ * Sanitizes workflow data to handle legacy nodes and handles
+ */
+function sanitizeWorkflow(wf: Workflow | null | undefined): Workflow | null {
+    if (!wf) return null;
+
+    const sanitizedNodes = (wf.nodes || []).map(node => {
+        let nodeType = node.type;
+        const nodeData = { ...node.data };
+
+        // 1. General Legacy Node Handling: Check if type exists in shared registry
+        // If not, map to a generic 'legacy' type to catch all unknown/deprecated nodes
+        if (!(nodeType in sharedRegistry)) {
+            nodeData.__originalType = nodeType;
+            nodeType = 'legacy' as NodeType;
+        }
+
+        return {
+            ...node,
+            type: nodeType,
+            data: nodeData,
+            // Ensure position exists
+            position: node.position || { x: 0, y: 0 },
+        };
+    });
+
+    const sanitizedEdges = (wf.edges || []).map(edge => {
+        let targetHandle = edge.targetHandle;
+
+        // 2. Map legacy 'images_in' handle
+        if (targetHandle === 'images_in') {
+            const targetNode = sanitizedNodes.find(n => n.id === edge.target);
+            if (targetNode) {
+                const sharedDef = sharedRegistry[targetNode.type as keyof typeof sharedRegistry];
+                // Map to first available input handle if images_in isn't found in current registry
+                const standardInput = sharedDef?.handles?.inputs?.[0]?.id;
+                targetHandle = standardInput || 'prompt_in';
+            }
+        }
+
+        return {
+            ...edge,
+            targetHandle,
+        };
+    });
+
+    return {
+        ...wf,
+        nodes: sanitizedNodes,
+        edges: sanitizedEdges,
+    };
+}
+
+export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
+    // Sanitize incoming workflow immediately
+    const initialWorkflow = sanitizeWorkflow(initialWorkflowRaw);
+
     const nodeStatuses = useAppStore((state) => state.nodeStatuses);
     const nodeOutputs = useAppStore((state) => state.nodeOutputs);
     const touchInteraction = useAppStore((state) => state.touchInteraction);

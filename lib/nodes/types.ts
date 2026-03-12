@@ -126,6 +126,7 @@ export interface WorkflowNode {
     data: {
         label: string;
         config: NodeConfig;
+        __originalType?: string; // Track original type for legacy/deprecated nodes
     };
     zIndex?: number;
 }

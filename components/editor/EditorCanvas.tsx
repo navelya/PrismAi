@@ -18,7 +18,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { NodeType } from '@/lib/nodes/types';
-import { clientRegistry } from '@/lib/nodes/core/client-registry';
+import { clientRegistry, FallbackNode } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { useAppStore } from '@/lib/store/app-store';
 import { Undo2, Redo2, Network, Trash2, Copy, Hand, Minus, Plus, Maximize2 } from 'lucide-react';
@@ -52,14 +52,23 @@ interface EditorCanvasProps {
     onPaste?: () => void;
 }
 
-const nodeTypes = Object.entries(clientRegistry).reduce((acc, [type, def]) => {
+// 🛡️ STABILITY FIX: Create the base node types once outside the component
+const baseNodeTypes = Object.entries(clientRegistry).reduce((acc, [type, def]) => {
     if (def.component) {
         acc[type] = def.component;
     }
     return acc;
 }, {} as Record<string, React.ComponentType<any>>);
 
-const edgeTypes = {};
+// 🛡️ NO PROXY: Plain object for maximum compatibility with React Flow lookup.
+// We use a generic 'legacy' key. Unknown nodes are remapped to this in useWorkflowEditor.ts.
+export const nodeTypes: Record<string, React.ComponentType<any>> = {
+    ...baseNodeTypes,
+    legacy: FallbackNode,
+};
+
+export const edgeTypes = {};
+
 
 function EditorCanvasInner({
     nodes,
@@ -113,7 +122,21 @@ function EditorCanvasInner({
         cursor: 'pointer',
     }), [resolvedTheme]);
 
+    // 🛡️ PERFORMANCE FIX: Memoize stable edges to prevent React Flow from thinking they changed on every frame.
+    // This resolves the "new nodeTypes or edgeTypes object" warning and lag.
+    const memoizedEdges = useMemo(() => edges.map(e => ({
+        ...e,
+        type: 'default',
+        animated: false,
+        style: edgeStyle,
+    })), [edges, edgeStyle]);
+
+    // 🛡️ STABILITY REINFORCEMENT: Memoize references to satisfies React Flow's strict identity checks.
+    const memoizedNodeTypes = useMemo(() => nodeTypes, []);
+    const memoizedEdgeTypes = useMemo(() => edgeTypes, []);
+
     const touchInteraction = useAppStore((state) => state.touchInteraction);
+
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -372,12 +395,7 @@ function EditorCanvasInner({
             {/* Toolbar now inside ReactFlow via Panel */}
             <ReactFlow
                 nodes={nodes}
-                edges={edges.map(e => ({
-                    ...e,
-                    type: 'default',
-                    animated: false,
-                    style: edgeStyle,
-                }))}
+                edges={memoizedEdges}
                 onNodesChange={(changes) => {
                     onNodesChange(changes);
                 }}
@@ -395,8 +413,9 @@ function EditorCanvasInner({
                 onInit={setReactFlowInstance}
                 onDrop={onDropHandler}
                 onDragOver={onDragOver}
-                nodeTypes={nodeTypes}
-                edgeTypes={edgeTypes}
+                nodeTypes={memoizedNodeTypes}
+                edgeTypes={memoizedEdgeTypes}
+
                 defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                 fitView
                 fitViewOptions={{ padding: 0.3, maxZoom: 0.8 }}
