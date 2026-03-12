@@ -13,6 +13,13 @@ export const modelsAdminApi = {
         return data;
     },
 
+    /** Fetch all node types */
+    listNodeTypes: async () => {
+        const res = await fetch('/api/admin/node-types');
+        if (!res.ok) throw new Error('Failed to fetch node types');
+        return res.json();
+    },
+
     /** Fetch all node archetypes */
     listArchetypes: async () => {
         const supabase = createClient();
@@ -27,8 +34,6 @@ export const modelsAdminApi = {
 
     /** Create a new AI model */
     createModel: async (model: any) => {
-        // This will likely go through a BFF route in production for security, 
-        // but for this internal tool we can go direct or use a route.
         const res = await fetch('/api/admin/models', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -38,5 +43,18 @@ export const modelsAdminApi = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to create model');
         return data.model;
+    },
+
+    /** Create a new Node Type */
+    createNodeType: async (nodeType: any) => {
+        const res = await fetch('/api/admin/node-types', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nodeType),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create node type');
+        return data.nodeType;
     }
 };
