@@ -286,36 +286,8 @@ function EditorCanvasInner({
             // Don't allow self-connections
             if (connection.source === connection.target) return false;
 
-            const sourceNode = nodes.find((node: any) => node.id === connection.source);
             const targetNode = nodes.find((node: any) => node.id === connection.target);
-            if (!sourceNode || !targetNode) return false;
-
-            // Dynamic Validation using Shared Registry Mapping
-            const sourceDef = sharedRegistry[sourceNode.type];
-            const targetDef = sharedRegistry[targetNode.type];
-
-            if (sourceDef && targetDef && sourceDef.handles && targetDef.handles) {
-                // Find specifics for Handles, else assume defaults
-                const sourceOutput = sourceDef.handles.outputs?.find(h => h.id === connection.sourceHandle) || sourceDef.handles.outputs?.[0];
-                const targetInput = targetDef.handles.inputs?.find(h => h.id === connection.targetHandle) || targetDef.handles.inputs?.[0];
-
-                if (sourceOutput && targetInput) {
-                    const sourceType = sourceOutput.dataType;
-                    const expectedType = targetInput.expectedType;
-
-                    if (sourceType !== 'any' && expectedType !== 'any') {
-                        if (Array.isArray(expectedType)) {
-                            if (!expectedType.includes(sourceType as any)) {
-                                return false; // Mismatched specific handles
-                            }
-                        } else if (sourceType !== expectedType) {
-                            return false; // Mismatched specific handles
-                        }
-                    }
-                }
-            }
-
-            // Check if this connection would create a cycle
+            if (!targetNode) return false;
 
             // DFS to check for cycle
             const hasCycle = (node: any, visited = new Set<string>()): boolean => {

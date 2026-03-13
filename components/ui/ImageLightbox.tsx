@@ -62,11 +62,15 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
     const lightbox = (
         <div
             className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
-            onClick={onClose}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
         >
             {/* Close button */}
             <button
-                onClick={onClose}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
                 className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
             >
                 <X className="w-6 h-6" />
@@ -74,6 +78,8 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
 
             {/* Download button */}
             <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); handleDownload(); }}
                 className="absolute top-4 right-16 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
                 title="Download image"
@@ -89,6 +95,8 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
             {/* Previous button */}
             {images.length > 1 && (
                 <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); goToPrevious(); }}
                     className="absolute left-4 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
                 >
@@ -101,12 +109,16 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
                 src={imageSrc}
                 alt={`Image ${currentIndex + 1}`}
                 className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
             />
 
             {/* Next button */}
             {images.length > 1 && (
                 <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); goToNext(); }}
                     className="absolute right-4 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
                 >
@@ -116,7 +128,11 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
 
             {/* Thumbnail strip at bottom */}
             {images.length > 1 && (
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 p-2 bg-black/50 rounded-lg max-w-[80vw] overflow-x-auto">
+                <div 
+                    className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 p-2 bg-black/50 rounded-lg max-w-[80vw] overflow-x-auto"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                >
                     {images.map((img, idx) => (
                         <button
                             key={idx}

@@ -18,8 +18,8 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // Handle controls
     renderInputs?: boolean;
     renderOutput?: boolean;
-    customInputs?: Array<{ id: string; label: string; color: string }>;
-    customOutputs?: Array<{ id: string; label: string; color: string }>;
+    customInputs?: Array<{ id: string; label: string; color: string; type?: string; isArray?: boolean; isMandatory?: boolean }>;
+    customOutputs?: Array<{ id: string; label: string; color: string; type?: string; isArray?: boolean; isMandatory?: boolean }>;
     // Additional styling
     contentClassName?: string;
     badgeCount?: number;
@@ -50,7 +50,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     // Status and Store Actions
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
     const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
-    const { addNodes, getNode, deleteElements } = useReactFlow();
+    const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const edges = useEdges();
 
     // Node Color
@@ -73,9 +73,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         const currentNode = getNode(id);
 
         if (currentNode) {
+            const nodes = getNodes();
+            const maxZ = Math.max(0, ...nodes.map(n => n.zIndex || 0));
+
             const newNode = {
                 ...JSON.parse(JSON.stringify(currentNode)),
                 id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                zIndex: maxZ + 1,
                 position: {
                     x: currentNode.position.x + 50,
                     y: currentNode.position.y + 50,
@@ -197,11 +201,44 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                              before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[4] before:scale-y-[2.5] before:rounded-full"
+                                    isValidConnection={(connection) => {
+                                        if (connection.source === connection.target) return false;
+                                        const sourceNode = getNode(connection.source!);
+                                        if (!sourceNode) return false;
+
+                                        // 1. Type Check
+                                        const sourceOutputId = connection.sourceHandle || 'output';
+                                        let sourceHandle = (sourceNode.data as any)?.outputs_schema?.handles?.find((h: any) => (h.api_mapping_key || 'output') === sourceOutputId);
+                                        if (!sourceHandle) {
+                                            const sourceDef = sharedRegistry[sourceNode.type as keyof typeof sharedRegistry];
+                                            sourceHandle = sourceDef?.handles?.outputs?.find(h => h.id === sourceOutputId);
+                                            // Bridge naming difference (sharedRegistry uses dataType)
+                                            if (sourceHandle && !sourceHandle.type) sourceHandle.type = sourceHandle.dataType;
+                                        }
+
+                                        const targetType = (input as any).type || (input as any).expectedType;
+                                        if (targetType && targetType !== 'any' && sourceHandle?.type && sourceHandle.type !== 'any') {
+                                            if (targetType !== sourceHandle.type) return false;
+                                        }
+
+                                        // 2. Connection Limit
+                                        if (!(input as any).isArray) {
+                                            const existing = edges.filter(e => e.target === id && e.targetHandle === input.id);
+                                            if (existing.length >= 1) return false;
+                                        }
+
+                                        return true;
+                                    }}
+                                    className={cn(
+                                        "w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200",
+                                        "before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full",
+                                        (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id) && "animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.4)]"
+                                    )}
                                     style={{
                                         background: input.color || nodeColor,
-                                        boxShadow: `0 0 10px ${input.color || nodeColor}40`,
+                                        boxShadow: (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id)
+                                            ? `0 0 12px ${input.color || nodeColor}80`
+                                            : `0 0 10px ${input.color || nodeColor}40`,
                                         left: -5,
                                         top: `calc(50% + ${offset}px)`,
                                     }}
@@ -227,8 +264,34 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
+                        isValidConnection={(connection) => {
+                            if (connection.source === connection.target) return false;
+                            const sourceNode = getNode(connection.source!);
+                            if (!sourceNode) return false;
+
+                            const sourceOutputId = connection.sourceHandle || 'output';
+                            let sourceHandle = (sourceNode.data as any)?.outputs_schema?.handles?.find((h: any) => (h.api_mapping_key || 'output') === sourceOutputId);
+                            if (!sourceHandle) {
+                                const sourceDef = sharedRegistry[sourceNode.type as keyof typeof sharedRegistry];
+                                sourceHandle = sourceDef?.handles?.outputs?.find(h => h.id === sourceOutputId);
+                                if (sourceHandle && !sourceHandle.type) sourceHandle.type = sourceHandle.dataType;
+                            }
+
+                            const defaultInput = sharedDef?.handles?.inputs?.[0];
+                            const targetType = defaultInput?.expectedType;
+
+                            if (targetType && targetType !== 'any' && sourceHandle?.type && sourceHandle.type !== 'any') {
+                                if (targetType !== sourceHandle.type) return false;
+                            }
+
+                            // Single handles on static nodes usually only allow 1 connection anyway
+                            const existing = edges.filter(e => e.target === id && (!e.targetHandle || e.targetHandle === defaultInput?.id));
+                            if (existing.length >= 1) return false;
+
+                            return true;
+                        }}
                         className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                  before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[4] before:scale-y-[2.5] before:rounded-full"
+                                  before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{
                             background: nodeColor,
                             boxShadow: `0 0 10px ${nodeColor}40`,
@@ -280,8 +343,29 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 type="source"
                                 position={Position.Right}
                                 id={output.id}
+                                isValidConnection={(connection) => {
+                                    if (connection.source === connection.target) return false;
+                                    const targetNode = getNode(connection.target!);
+                                    if (!targetNode) return false;
+
+                                    // Check if target allows more connections
+                                    const targetHandleId = connection.targetHandle;
+                                    let targetHandle = (targetNode.data as any)?.inputs_schema?.handles?.find((h: any) => h.api_mapping_key === targetHandleId);
+                                    if (!targetHandle) {
+                                        const targetDef = sharedRegistry[targetNode.type as keyof typeof sharedRegistry];
+                                        targetHandle = targetDef?.handles?.inputs?.find(h => h.id === targetHandleId);
+                                        if (targetHandle && !targetHandle.isArray) targetHandle.isArray = false; // Default for static
+                                    }
+
+                                    if (targetHandle && !(targetHandle as any).isArray) {
+                                        const existing = edges.filter(e => e.target === connection.target && e.targetHandle === targetHandleId);
+                                        if (existing.length >= 1) return false;
+                                    }
+
+                                    return true;
+                                }}
                                 className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                          before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
+                                          before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                                 style={{
                                     background: output.color || nodeColor,
                                     boxShadow: `0 0 10px ${output.color || nodeColor}40`,
@@ -300,8 +384,28 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="source"
                         position={Position.Right}
                         id={defaultOutputId}
+                        isValidConnection={(connection) => {
+                            if (connection.source === connection.target) return false;
+                            const targetNode = getNode(connection.target!);
+                            if (!targetNode) return false;
+
+                            const targetHandleId = connection.targetHandle;
+                            let targetHandle = (targetNode.data as any)?.inputs_schema?.handles?.find((h: any) => h.api_mapping_key === targetHandleId);
+                            if (!targetHandle) {
+                                const targetDef = sharedRegistry[targetNode.type as keyof typeof sharedRegistry];
+                                targetHandle = targetDef?.handles?.inputs?.find(h => h.id === targetHandleId);
+                                if (targetHandle && !targetHandle.isArray) targetHandle.isArray = false;
+                            }
+
+                            if (targetHandle && !(targetHandle as any).isArray) {
+                                const existing = edges.filter(e => e.target === connection.target && e.targetHandle === targetHandleId);
+                                if (existing.length >= 1) return false;
+                            }
+
+                            return true;
+                        }}
                         className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                  before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
+                                  before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{
                             background: nodeColor,
                             boxShadow: `0 0 10px ${nodeColor}40`,

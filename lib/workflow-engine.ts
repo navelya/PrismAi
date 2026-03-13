@@ -275,7 +275,21 @@ export async function executeWorkflowFromNode(
                         const handleInputs: Record<string, any> = {};
                         for (const edge of incomingEdges) {
                             const handleId = (edge as any).targetHandle || 'default';
-                            handleInputs[handleId] = nodeOutputs.get(edge.source);
+                            const value = nodeOutputs.get(edge.source);
+                            
+                            if (handleInputs[handleId] === undefined) {
+                                handleInputs[handleId] = value;
+                            } else {
+                                // If already has a value, convert to array and accumulate
+                                if (!Array.isArray(handleInputs[handleId])) {
+                                    handleInputs[handleId] = [handleInputs[handleId]];
+                                }
+                                if (Array.isArray(value)) {
+                                    handleInputs[handleId].push(...value);
+                                } else {
+                                    handleInputs[handleId].push(value);
+                                }
+                            }
                         }
                         input = handleInputs;
                     } else if (parentIds.length === 1) {

@@ -90,8 +90,8 @@ export function ModelForm({
 
     // Visual Schema States
     const [visualControls, setVisualControls] = useState<Array<{ id: string, component_id: string, api_key: string, default_value: any }>>([]);
-    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_key: string, type: string, is_array: boolean }>>([]);
-    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, type: string, is_array: boolean }>>([]);
+    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_key: string, type: string, is_array: boolean, is_mandatory: boolean }>>([]);
+    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_key: string, type: string, is_array: boolean }>>([]);
 
     // -------------------------------------------------------------------------
     // INITIALIZATION (EFFECTS)
@@ -107,7 +107,8 @@ export function ModelForm({
                     name: h.name,
                     api_key: h.api_mapping_key || h.api_key,
                     type: h.type || 'image',
-                    is_array: h.is_array ?? false
+                    is_array: h.is_array ?? false,
+                    is_mandatory: h.is_mandatory ?? false
                 })));
             }
 
@@ -126,6 +127,7 @@ export function ModelForm({
             setVisualOutputWires(initialData.outputs_schema.handles.map((h: any) => ({
                 id: Math.random().toString(),
                 name: h.name,
+                api_key: h.api_mapping_key || '',
                 type: h.type || 'image',
                 is_array: h.is_array ?? false
             })));
@@ -159,7 +161,8 @@ export function ModelForm({
                 name: wire.name,
                 api_mapping_key: wire.api_key,
                 type: wire.type,
-                is_array: wire.is_array
+                is_array: wire.is_array,
+                is_mandatory: wire.is_mandatory
             })),
             controls: visualControls.map(ctrl => {
                 const dictItem = COMPONENT_DICTIONARY.find(d => d.id === ctrl.component_id);
@@ -175,6 +178,7 @@ export function ModelForm({
         const compiledOutputs = {
             handles: visualOutputWires.map(wire => ({
                 name: wire.name,
+                api_mapping_key: wire.api_key,
                 type: wire.type,
                 is_array: wire.is_array
             }))
@@ -295,14 +299,14 @@ export function ModelForm({
                         </button>
                         <button
                             type="button"
-                            onClick={() => setVisualInputWires([...visualInputWires, { id: Math.random().toString(), name: 'input', api_key: '', type: 'image', is_array: false }])}
+                            onClick={() => setVisualInputWires([...visualInputWires, { id: Math.random().toString(), name: 'input', api_key: '', type: 'image', is_array: false, is_mandatory: false }])}
                             className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <Link2 className="w-4 h-4" /> In Wire
                         </button>
                         <button
                             type="button"
-                            onClick={() => setVisualOutputWires([...visualOutputWires, { id: Math.random().toString(), name: 'output', type: 'image', is_array: false }])}
+                            onClick={() => setVisualOutputWires([...visualOutputWires, { id: Math.random().toString(), name: 'output', api_key: '', type: 'image', is_array: false }])}
                             className="flex items-center gap-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <Link2 className="w-4 h-4" /> Out Wire
@@ -351,13 +355,22 @@ export function ModelForm({
                                                 setVisualInputWires(newWires);
                                             }}
                                         />
-                                        <div className="pt-6">
+                                        <div className="pt-6 flex gap-4">
                                             <Checkbox
-                                                label="Is Array"
+                                                label="Array"
                                                 checked={wire.is_array}
                                                 onCheckedChange={(checked) => {
                                                     const newWires = [...visualInputWires];
                                                     newWires[idx].is_array = checked;
+                                                    setVisualInputWires(newWires);
+                                                }}
+                                            />
+                                            <Checkbox
+                                                label="Required"
+                                                checked={wire.is_mandatory}
+                                                onCheckedChange={(checked) => {
+                                                    const newWires = [...visualInputWires];
+                                                    newWires[idx].is_mandatory = checked;
                                                     setVisualInputWires(newWires);
                                                 }}
                                             />
@@ -443,6 +456,16 @@ export function ModelForm({
                                                 setVisualOutputWires(newWires);
                                             }}
                                             placeholder="e.g. output"
+                                        />
+                                        <Input
+                                            label="Replicate API Key"
+                                            value={wire.api_key}
+                                            onChange={e => {
+                                                const newWires = [...visualOutputWires];
+                                                newWires[idx].api_key = e.target.value;
+                                                setVisualOutputWires(newWires);
+                                            }}
+                                            placeholder="e.g. image, text"
                                         />
                                         <Select
                                             label="Type"

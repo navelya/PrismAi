@@ -17,7 +17,7 @@ export function NodeHeader({ icon, label, color, badgeCount, className }: NodeHe
     const IconComponent = (Icons[icon as keyof typeof Icons] as React.ComponentType<any>) || Icons.Box;
 
     return (
-        <div className={cn("flex items-center gap-2 px-3 py-2 border-b border-stroke-subtle", className)}>
+        <div className={cn("flex items-center gap-2 px-3 py-2 border-stroke-subtle", className)}>
             <div
                 className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-accent-primary/10 border border-accent-primary/20"
             >
