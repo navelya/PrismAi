@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'ai_generate_image' | 'media_input' | 'compositor' | 'prompt';
+export type NodeType = 'ai_generate_image' | 'media_input' | 'compositor' | 'prompt' | 'ai_generator';
 
 /**
  * Node execution status for real-time updates

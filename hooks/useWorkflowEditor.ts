@@ -32,8 +32,10 @@ function sanitizeWorkflow(wf: Workflow | null | undefined): Workflow | null {
         const nodeData = { ...node.data };
 
         // 1. General Legacy Node Handling: Check if type exists in shared registry
-        // If not, map to a generic 'legacy' type to catch all unknown/deprecated nodes
-        if (!(nodeType in sharedRegistry)) {
+        // If not in sharedRegistry, also allow types that are registered directly
+        // in stableNodeTypes (e.g. 'ai_generator' which is dynamic and not in sharedRegistry)
+        const DYNAMIC_NODE_TYPES = new Set(['ai_generator']);
+        if (!(nodeType in sharedRegistry) && !DYNAMIC_NODE_TYPES.has(nodeType)) {
             nodeData.__originalType = nodeType;
             nodeType = 'legacy' as NodeType;
         }

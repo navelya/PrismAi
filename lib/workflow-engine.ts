@@ -270,7 +270,7 @@ export async function executeWorkflowFromNode(
                     const parentIds = parents.get(node.id) || [];
                     let input = null;
 
-                    if (node.type === 'compositor') {
+                    if (node.type === 'compositor' || node.type === 'ai_generator') {
                         const incomingEdges = workflow.edges.filter(e => e.target === node.id);
                         const handleInputs: Record<string, any> = {};
                         for (const edge of incomingEdges) {

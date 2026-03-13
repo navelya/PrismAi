@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { NodeType } from '@/lib/nodes/types';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import * as Icons from 'lucide-react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Zap } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 
 interface NodePaletteProps {
@@ -100,6 +100,28 @@ export default function NodePalette({ onDragStart, isCollapsed, setIsCollapsed }
                                     </div>
                                 );
                             })}
+                        </div>
+
+                        {/* AI Generator — Dynamic Node */}
+                        <div className="pt-3 border-t border-stroke-subtle">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary mb-2">Dynamic Nodes</p>
+                            <div
+                                draggable
+                                onDragStart={(e) => {
+                                    e.dataTransfer.setData('application/reactflow', 'ai_generator');
+                                    e.dataTransfer.effectAllowed = 'move';
+                                }}
+                                className="flex items-center gap-3 p-3 border border-accent-primary/30 rounded-lg cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-accent-primary/5"
+                                style={{ borderLeftColor: 'rgb(var(--accent-primary))', borderLeftWidth: '3px' }}
+                            >
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-accent-primary/10">
+                                    <Zap className="w-5 h-5 text-accent-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-sm text-content-primary">AI Generator</div>
+                                    <div className="text-xs text-content-secondary truncate">Dynamic model node</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

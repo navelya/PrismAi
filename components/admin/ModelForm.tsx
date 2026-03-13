@@ -105,7 +105,7 @@ export function ModelForm({
                 setVisualInputWires(inputs.handles.map((h: any) => ({
                     id: Math.random().toString(),
                     name: h.name,
-                    api_key: h.api_key,
+                    api_key: h.api_mapping_key || h.api_key,
                     type: h.type || 'image',
                     is_array: h.is_array ?? false
                 })));
@@ -116,7 +116,7 @@ export function ModelForm({
                 setVisualControls(inputs.controls.map((c: any) => ({
                     id: Math.random().toString(),
                     component_id: c.component,
-                    api_key: c.name,
+                    api_key: c.api_mapping_key || c.name,
                     default_value: c.default_value
                 })));
             }
@@ -157,14 +157,14 @@ export function ModelForm({
         const compiledInputs = {
             handles: visualInputWires.map(wire => ({
                 name: wire.name,
-                api_key: wire.api_key,
+                api_mapping_key: wire.api_key,
                 type: wire.type,
                 is_array: wire.is_array
             })),
             controls: visualControls.map(ctrl => {
                 const dictItem = COMPONENT_DICTIONARY.find(d => d.id === ctrl.component_id);
                 return {
-                    name: ctrl.api_key,
+                    api_mapping_key: ctrl.api_key,
                     type: dictItem?.type || 'string',
                     component: ctrl.component_id,
                     default_value: ctrl.default_value

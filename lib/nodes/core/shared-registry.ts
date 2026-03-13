@@ -12,4 +12,18 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     ai_generate_image: aiGenerateImageSharedDef,
     media_input: mediaInputSharedDef,
     compositor: compositorSharedDef,
+    ai_generator: {
+        type: 'ai_generator',
+        family: 'generative',
+        category: 'generative',
+        meta: {
+            label: 'AI Model',
+            color: 'rgb(var(--accent-primary))',
+            icon: 'Zap',
+        },
+        handles: {
+            inputs: [],
+            outputs: [],
+        },
+    } as any,
 };

@@ -7,6 +7,7 @@ import { promptSharedDef } from '../plugins/prompt';
 import { promptExecutor } from '../plugins/prompt/executor';
 import { compositorSharedDef } from '../plugins/compositor';
 import { compositorExecutor } from '../plugins/compositor/executor';
+import { aiGeneratorExecutor } from './ai-generator-executor';
 
 // The server-side registry mapping definition types
 // Only import this in Node.js/Backend execution environments
@@ -15,4 +16,10 @@ export const serverRegistry: Record<string, NodeServerDef> = {
     ai_generate_image: { ...aiGenerateImageSharedDef, executor: aiGenerateImageExecutor },
     media_input: { ...mediaInputSharedDef, executor: mediaInputExecutor },
     compositor: { ...compositorSharedDef, executor: compositorExecutor },
+    ai_generator: {
+        type: 'ai_generator',
+        family: 'generative',
+        category: 'generative',
+        executor: aiGeneratorExecutor,
+    } as any,
 };

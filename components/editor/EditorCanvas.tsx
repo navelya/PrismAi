@@ -53,9 +53,6 @@ interface EditorCanvasProps {
     onPaste?: () => void;
 }
 
-
-
-
 function EditorCanvasInner({
     nodes,
     edges,
@@ -87,15 +84,9 @@ function EditorCanvasInner({
     // Theme context for dynamic updates
     const { resolvedTheme } = useTheme();
 
-    // Store Actions needed for Copy/Paste/Delete (can these be lifted too? yes but for now keep them or lift them)
-    // The user instruction was "keep the buttons as they are and just replace the logic behind them".
-    // The Toolbar buttons use handleUndo/handleRedo.
-    // The keyboard shortcuts use undo/redo.
     const setIsDragging = useAppStore((state) => state.setIsDragging);
-    // Removed old history actions
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
-
 
     // Get selected nodes
     const selectedNodes = useMemo(() => nodes.filter((n: any) => n.selected), [nodes]);
@@ -108,8 +99,6 @@ function EditorCanvasInner({
         cursor: 'pointer',
     }), [resolvedTheme]);
 
-    // 🛡️ PERFORMANCE FIX: Memoize stable edges to prevent React Flow from thinking they changed on every frame.
-    // This resolves the "new nodeTypes or edgeTypes object" warning and lag.
     const memoizedEdges = useMemo(() => edges.map(e => ({
         ...e,
         type: 'default',
@@ -117,12 +106,7 @@ function EditorCanvasInner({
         style: edgeStyle,
     })), [edges, edgeStyle]);
 
-    // 🛡️ STABILITY REINFORCEMENT: Pass module-level constants directly.
-    // Using useMemo creates a new reference on every mount, which triggers #002 warnings
-    // during session switches. React Flow requires these to be truly global constants.
-
     const touchInteraction = useAppStore((state) => state.touchInteraction);
-
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -173,8 +157,10 @@ function EditorCanvasInner({
             }
         };
 
-        document.addEventListener('keydown', handleKeyDown, true); // Use capture phase
-        return () => document.removeEventListener('keydown', handleKeyDown, true);
+        document.addEventListener('keydown', handleKeyDown, true);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown, true);
+        };
     }, [undo, redo, canUndo, canRedo, nodes, copyNode, pasteNode]);
 
     // Handle node drag start
@@ -211,10 +197,6 @@ function EditorCanvasInner({
 
         // Calculate new positions using selected layout engine
         const newPositions = await autoLayoutNodesAsync(nodes, edges);
-
-        // Log a sample position
-        const firstEntry = Array.from(newPositions.entries())[0];
-
 
         // Update positions directly in the canvas (bypasses store to avoid re-render loop)
         updatePositions(newPositions);
@@ -312,10 +294,10 @@ function EditorCanvasInner({
             const sourceDef = sharedRegistry[sourceNode.type];
             const targetDef = sharedRegistry[targetNode.type];
 
-            if (sourceDef && targetDef) {
+            if (sourceDef && targetDef && sourceDef.handles && targetDef.handles) {
                 // Find specifics for Handles, else assume defaults
-                const sourceOutput = sourceDef.handles.outputs.find(h => h.id === connection.sourceHandle) || sourceDef.handles.outputs[0];
-                const targetInput = targetDef.handles.inputs.find(h => h.id === connection.targetHandle) || targetDef.handles.inputs[0];
+                const sourceOutput = sourceDef.handles.outputs?.find(h => h.id === connection.sourceHandle) || sourceDef.handles.outputs?.[0];
+                const targetInput = targetDef.handles.inputs?.find(h => h.id === connection.targetHandle) || targetDef.handles.inputs?.[0];
 
                 if (sourceOutput && targetInput) {
                     const sourceType = sourceOutput.dataType;
@@ -378,7 +360,6 @@ function EditorCanvasInner({
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full relative" onContextMenu={handleContextMenu}>
-            {/* Toolbar now inside ReactFlow via Panel */}
             <ReactFlow
                 nodes={nodes}
                 edges={memoizedEdges}
@@ -433,10 +414,8 @@ function EditorCanvasInner({
                     color="rgb(var(--canvas-dots))"
                 />
 
-                {/* Unified Floating Bottom Toolbar */}
                 <Panel position="bottom-center" className="!mb-4">
                     <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl">
-                        {/* History Group */}
                         <ToolbarButton
                             icon={Undo2}
                             onClick={handleUndo}
@@ -451,7 +430,6 @@ function EditorCanvasInner({
                         />
                         <ToolbarDivider />
 
-                        {/* Canvas Group */}
                         <ToolbarButton
                             icon={Network}
                             onClick={handleAutoLayout}
@@ -471,7 +449,6 @@ function EditorCanvasInner({
                         />
                         <ToolbarDivider />
 
-                        {/* Zoom Group */}
                         <ToolbarButton
                             icon={Minus}
                             onClick={() => reactFlowInstance?.zoomOut({ duration: 300 })}
@@ -486,9 +463,7 @@ function EditorCanvasInner({
                     </div>
                 </Panel>
 
-                {/* Selection Action Buttons - Positioned relative to selection bounding box */}
                 {multiSelectCount >= 2 && reactFlowInstance && (() => {
-                    // Calculate selection bounding box
                     const NODE_WIDTH = 200;
                     const NODE_HEIGHT = 80;
 
@@ -504,8 +479,6 @@ function EditorCanvasInner({
                     });
 
                     const groupWidth = maxX - minX;
-
-                    // Convert flow position to screen position for button placement
                     const screenPos = reactFlowInstance.flowToScreenPosition({ x: maxX, y: minY });
                     const wrapperRect = reactFlowWrapper.current?.getBoundingClientRect();
                     const left = screenPos.x - (wrapperRect?.left || 0);
@@ -527,14 +500,10 @@ function EditorCanvasInner({
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         e.preventDefault();
-
-                                        // Copy entire group to the RIGHT of the selection box
                                         if (selectedNodes.length > 0) {
                                             const selectedIds = new Set(selectedNodes.map((n: any) => n.id));
                                             const idMap = new Map<string, string>();
                                             const newNodes: any[] = [];
-
-                                            // Offset = group width + 50px gap
                                             const offsetX = groupWidth + 50;
 
                                             selectedNodes.forEach((node: any, index: number) => {
@@ -546,7 +515,7 @@ function EditorCanvasInner({
                                                     selected: false,
                                                     position: {
                                                         x: (node.position?.x || 0) + offsetX,
-                                                        y: (node.position?.y || 0), // Same Y, offset X
+                                                        y: (node.position?.y || 0),
                                                     },
                                                 });
                                             });
@@ -593,17 +562,14 @@ function EditorCanvasInner({
                 })()}
             </ReactFlow>
 
-            {/* Context Menu */}
-            {
-                contextMenu && reactFlowWrapper.current && (
-                    <CanvasContextMenu
-                        position={contextMenu}
-                        canvasBounds={reactFlowWrapper.current.getBoundingClientRect()}
-                        onSelectNode={handleContextMenuNodeSelect}
-                        onClose={() => setContextMenu(null)}
-                    />
-                )
-            }
+            {contextMenu && reactFlowWrapper.current && (
+                <CanvasContextMenu
+                    position={contextMenu}
+                    canvasBounds={reactFlowWrapper.current.getBoundingClientRect()}
+                    onSelectNode={handleContextMenuNodeSelect}
+                    onClose={() => setContextMenu(null)}
+                />
+            )}
         </div >
     );
 }
@@ -615,10 +581,6 @@ export default function EditorCanvas(props: EditorCanvasProps) {
         </ReactFlowProvider>
     );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Toolbar Helper Components
-// ─────────────────────────────────────────────────────────────────────────────
 
 import { Tooltip } from '@/components/ui/Tooltip';
 
@@ -672,4 +634,3 @@ function ZoomDisplay() {
         </span>
     );
 }
-

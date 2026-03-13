@@ -15,6 +15,7 @@ interface PropertyPanelProps {
 
 export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onClose }: PropertyPanelProps) {
     const PropertyComponent = clientRegistry[nodeType]?.propertyPanel;
+    const isAiNode = nodeType === 'ai_generator' || nodeType === 'ai_generate_image';
 
     return (
         <div className="w-80 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-full h-fit">
@@ -22,7 +23,9 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
             <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle">
                 <div className="flex items-center gap-2">
                     <div className="w-1 h-3 bg-accent-primary rounded-full" />
-                    <h3 className="font-bold text-sm text-content-primary">Node Properties</h3>
+                    <h3 className="font-bold text-sm text-content-primary">
+                        {isAiNode ? 'AI Generation' : 'Node Properties'}
+                    </h3>
                 </div>
                 <button
                     onClick={onClose}
@@ -34,10 +37,12 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
 
             <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
                 {/* Node Info - Minimalist Card */}
-                <div className="bg-white/5 border border-stroke-subtle rounded-xl p-3">
-                    <div className="text-[10px] font-bold text-content-tertiary uppercase tracking-widest">Selected ID</div>
-                    <div className="text-xs font-mono text-content-secondary mt-1 opacity-70">{nodeId}</div>
-                </div>
+                {!isAiNode && (
+                    <div className="bg-white/5 border border-stroke-subtle rounded-xl p-3">
+                        <div className="text-[10px] font-bold text-content-tertiary uppercase tracking-widest">Selected ID</div>
+                        <div className="text-xs font-mono text-content-secondary mt-1 opacity-70">{nodeId}</div>
+                    </div>
+                )}
 
                 {/* Form Fields */}
                 <div className="pb-2">

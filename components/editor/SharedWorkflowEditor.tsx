@@ -469,7 +469,7 @@ export default function SharedWorkflowEditor({
                             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                             className="absolute top-[80px] right-4 bottom-4 z-40 pointer-events-none"
                         >
-                            <div className="pointer-events-auto h-full">
+                            <div className="pointer-events-auto h-auto">
                                 <PropertyPanel
                                     nodeId={selectedNodeData.id}
                                     nodeType={selectedNodeData.type}

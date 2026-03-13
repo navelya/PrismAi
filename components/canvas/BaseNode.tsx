@@ -19,6 +19,7 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     renderInputs?: boolean;
     renderOutput?: boolean;
     customInputs?: Array<{ id: string; label: string; color: string }>;
+    customOutputs?: Array<{ id: string; label: string; color: string }>;
     // Additional styling
     contentClassName?: string;
     badgeCount?: number;
@@ -36,6 +37,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     renderInputs = true,
     renderOutput = true,
     customInputs,
+    customOutputs,
     contentClassName = 'p-1',
     className,
     badgeCount,
@@ -53,7 +55,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
-    const displayLabel = metadata?.label || label || 'Node';
+    const displayLabel = label || metadata?.label || 'Node';
 
     // Labels
     const defaultInputLabel = sharedDef?.handles?.inputs?.[0]?.label;
@@ -146,7 +148,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 <button
                     onClick={handleDuplicate}
                     className="w-6 h-6 rounded-lg bg-white/5 border border-white/10 backdrop-blur-md
-                               flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white/10 transition-all duration-200"
+                                flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white/10 transition-all duration-200"
                     title="Duplicate node"
                 >
                     <Copy className="w-3 h-3 text-content-primary" />
@@ -154,7 +156,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 <button
                     onClick={handleDelete}
                     className="w-6 h-6 rounded-lg bg-accent-error/10 border border-accent-error/20 backdrop-blur-md
-                               flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
+                                flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
                     title="Delete node"
                 >
                     <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-content-inverted" />
@@ -226,7 +228,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="target"
                         position={Position.Left}
                         className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                  before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[5] before:scale-y-[3] before:rounded-full"
+                                  before:content-[''] before:absolute before:inset-0 before:origin-left before:scale-x-[4] before:scale-y-[2.5] before:rounded-full"
                         style={{
                             background: nodeColor,
                             boxShadow: `0 0 10px ${nodeColor}40`,
@@ -263,26 +265,56 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 {children}
             </div>
 
-            {/* Output Handle */}
+            {/* Output Handles */}
             {renderOutput && (
-                <Handle
-                    type="source"
-                    position={Position.Right}
-                    id={defaultOutputId}
-                    className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
-                              before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
-                    style={{
-                        background: nodeColor,
-                        boxShadow: `0 0 10px ${nodeColor}40`,
-                        right: -5,
-                    }}
-                >
-                    {defaultOutputLabel && (
-                        <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: nodeColor }}>
-                            {defaultOutputLabel}
-                        </div>
-                    )}
-                </Handle>
+                customOutputs && customOutputs.length > 0 ? (
+                    customOutputs.map((output, index) => {
+                        const totalHandles = customOutputs.length;
+                        const spacing = 36;
+                        const totalHeight = (totalHandles - 1) * spacing;
+                        const offset = (index * spacing) - (totalHeight / 2);
+
+                        return (
+                            <Handle
+                                key={output.id}
+                                type="source"
+                                position={Position.Right}
+                                id={output.id}
+                                className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
+                                          before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
+                                style={{
+                                    background: output.color || nodeColor,
+                                    boxShadow: `0 0 10px ${output.color || nodeColor}40`,
+                                    right: -5,
+                                    top: `calc(50% + ${offset}px)`
+                                }}
+                            >
+                                <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: output.color || nodeColor }}>
+                                    {output.label}
+                                </div>
+                            </Handle>
+                        );
+                    })
+                ) : (
+                    <Handle
+                        type="source"
+                        position={Position.Right}
+                        id={defaultOutputId}
+                        className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
+                                  before:content-[''] before:absolute before:inset-0 before:origin-right before:scale-x-[5] before:scale-y-[3] before:rounded-full"
+                        style={{
+                            background: nodeColor,
+                            boxShadow: `0 0 10px ${nodeColor}40`,
+                            right: -5,
+                        }}
+                    >
+                        {defaultOutputLabel && (
+                            <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: nodeColor }}>
+                                {defaultOutputLabel}
+                            </div>
+                        )}
+                    </Handle>
+                )
             )}
         </div>
     );
