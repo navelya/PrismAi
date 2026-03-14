@@ -38,6 +38,15 @@ export default function SharedWorkflowEditor({
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
     const isDragging = useAppStore((state) => state.isDragging);
+    
+    // Global Catalog State
+    const models = useAppStore(state => state.models);
+    const isModelsLoading = useAppStore(state => state.isModelsLoading);
+    const fetchModelCatalog = useAppStore(state => state.fetchModelCatalog);
+
+    useEffect(() => {
+        fetchModelCatalog();
+    }, [fetchModelCatalog]);
 
     // ⚠️ CRITICAL: Use initialWorkflow prop directly, NOT currentWorkflow from store
     // The store's currentWorkflow is stale during session switches and causes state leakage
@@ -265,6 +274,7 @@ export default function SharedWorkflowEditor({
         } catch (err: any) {
             setExecutionError(err.message || 'Execution failed to start');
             setExecutionResult(null);
+            store.resetNodeStatuses();
         } finally {
             // Decrement counter; only clear button state when ALL runs complete
             activeRunCountRef.current -= 1;
@@ -410,44 +420,53 @@ export default function SharedWorkflowEditor({
                 {/* Canvas Area */}
                 <div className="flex-1 relative bg-surface-primary flex flex-col overflow-hidden">
                     <div className="flex-1 relative z-10">
-                        <EditorCanvas
-                            nodes={nodes}
-                            edges={edges}
-                            onNodesChange={onNodesChange}
-                            onEdgesChange={onEdgesChange}
-                            onConnect={onConnect}
-                            onNodeClick={handleNodeClick}
-                            onDrop={handleDrop}
-                            updatePositions={updatePositions}
-                            selectionMode={selectionMode}
-                            onSelectionToggle={() => setSelectionMode(!selectionMode)}
-                            // New Undo/Redo & Action Props
-                            undo={undo}
-                            redo={redo}
-                            canUndo={canUndo}
-                            canRedo={canRedo}
-                            onNodeDragStart={(e, node, nodes) => {
-                                bringNodeToFront(node.id);
-                                if (onNodeDragStart) onNodeDragStart(e, node, nodes);
-                            }}
-                            onDuplicate={duplicateNodes}
-                            onDelete={deleteNodes}
-                            onCopy={(id) => useAppStore.getState().copyNode(id)}
-                            onPaste={() => {
-                                const copiedNode = useAppStore.getState().copiedNode;
-                                if (copiedNode) {
-                                    const newNode = {
-                                        ...JSON.parse(JSON.stringify(copiedNode)),
-                                        id: `node_${Date.now()}`,
-                                        position: {
-                                            x: copiedNode.position.x + 50,
-                                            y: copiedNode.position.y + 50
-                                        },
-                                    };
-                                    duplicateNodes([newNode], []);
-                                }
-                            }}
-                        />
+                        {isModelsLoading ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-surface-primary gap-4">
+                                <div className="w-12 h-12 border-4 border-accent-primary/20 border-t-accent-primary rounded-full animate-spin" />
+                                <div className="text-xs font-bold tracking-[0.2em] uppercase text-white/30 animate-pulse">
+                                    Synchronizing Neural Catalog...
+                                </div>
+                            </div>
+                        ) : (
+                            <EditorCanvas
+                                nodes={nodes}
+                                edges={edges}
+                                onNodesChange={onNodesChange}
+                                onEdgesChange={onEdgesChange}
+                                onConnect={onConnect}
+                                onNodeClick={handleNodeClick}
+                                onDrop={handleDrop}
+                                updatePositions={updatePositions}
+                                selectionMode={selectionMode}
+                                onSelectionToggle={() => setSelectionMode(!selectionMode)}
+                                // New Undo/Redo & Action Props
+                                undo={undo}
+                                redo={redo}
+                                canUndo={canUndo}
+                                canRedo={canRedo}
+                                onNodeDragStart={(e, node, nodes) => {
+                                    bringNodeToFront(node.id);
+                                    if (onNodeDragStart) onNodeDragStart(e, node, nodes);
+                                }}
+                                onDuplicate={duplicateNodes}
+                                onDelete={deleteNodes}
+                                onCopy={(id) => useAppStore.getState().copyNode(id)}
+                                onPaste={() => {
+                                    const copiedNode = useAppStore.getState().copiedNode;
+                                    if (copiedNode) {
+                                        const newNode = {
+                                            ...JSON.parse(JSON.stringify(copiedNode)),
+                                            id: `node_${Date.now()}`,
+                                            position: {
+                                                x: copiedNode.position.x + 50,
+                                                y: copiedNode.position.y + 50
+                                            },
+                                        };
+                                        duplicateNodes([newNode], []);
+                                    }
+                                }}
+                            />
+                        )}
                     </div>
 
                     {/* Results Panel */}

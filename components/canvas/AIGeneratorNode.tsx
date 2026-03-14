@@ -12,68 +12,9 @@ import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 
 // =============================================================================
-// MODULE-LEVEL SINGLETON — models fetched once for entire app session
+// TYPES - MOVED TO lib/nodes/types.ts
 // =============================================================================
-let cachedModels: AiModel[] | null = null;
-let fetchPromise: Promise<AiModel[]> | null = null;
-
-async function fetchModels(): Promise<AiModel[]> {
-    if (cachedModels) return cachedModels;
-    if (fetchPromise) return fetchPromise;
-
-    fetchPromise = fetch('/api/models/list')
-        .then(r => r.json())
-        .then(data => {
-            cachedModels = data.models || [];
-            return cachedModels!;
-        })
-        .catch(err => {
-            console.error('[AIGeneratorNode] Failed to fetch models:', err);
-            fetchPromise = null;
-            return [];
-        });
-
-    return fetchPromise;
-}
-
-// =============================================================================
-// TYPES
-// =============================================================================
-
-interface AiModel {
-    id: number;
-    replicate_model_id: string;
-    display_name: string;
-    credit_cost: number;
-    is_active: boolean;
-    category_id: string;
-    inputs_schema: InputsSchema | null;
-    outputs_schema: OutputsSchema | null;
-}
-
-interface InputHandle {
-    name: string;
-    api_mapping_key: string;
-    type: string;
-    is_array: boolean;
-    is_mandatory: boolean;
-}
-
-interface OutputHandle {
-    name: string;
-    api_mapping_key: string;
-    type: string;
-    is_array: boolean;
-}
-
-interface InputsSchema {
-    handles?: InputHandle[];
-    controls?: any[];
-}
-
-interface OutputsSchema {
-    handles?: OutputHandle[];
-}
+import { AiModel, InputHandle, OutputHandle, InputsSchema, OutputsSchema } from '@/lib/nodes/types';
 
 const WIRE_TYPE_COLORS: Record<string, string> = {
     image: 'rgb(59, 130, 246)',
@@ -95,7 +36,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     // Fallback to saved output for hydration/reloads
     const output = liveOutput || data.output || data.config?.last_output;
 
-    const [models, setModels] = useState<AiModel[]>([]);
+    const models = useAppStore(state => state.models);
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
@@ -110,27 +51,53 @@ function AIGeneratorNode({ id, data, selected }: any) {
         setLightboxOpen(true);
     };
 
-    // Initial load for caching/lookup
-    useEffect(() => {
-        fetchModels().then(m => {
-            setModels(m);
-            // If no model selected, pick the first active one automatically
-            if (!data.config?.model_id && m.length > 0) {
-                const firstActive = m.find(mod => mod.is_active) || m[0];
-                setNodes(prev => prev.map(n => n.id === id
-                    ? { ...n, data: { ...n.data, config: { ...n.data.config, model_id: firstActive.id, control_values: {} } } }
-                    : n
-                ));
-            }
-        });
-    }, [id, data.config?.model_id, setNodes]);
-
     const selectedModel = models.find(m => m.id === data.config?.model_id) || null;
+
+    // Initial load for auto-selecting if empty
+    useEffect(() => {
+        if (!data.config?.model_id && models.length > 0) {
+            const firstActive = models.find(mod => mod.is_active) || models[0];
+            setNodes(prev => prev.map(n => n.id === id
+                ? { ...n, data: { ...n.data, config: { ...n.data.config, model_id: firstActive.id, control_values: {} } } }
+                : n
+            ));
+        }
+    }, [id, models, data.config?.model_id, setNodes]);
+
+    // ⭐ React Flow Edge Validation — Clean up dangling edges when model/handles change
+    const { getEdges, setEdges } = useReactFlow();
+    useEffect(() => {
+        if (!selectedModel) return;
+
+        const currentEdges = getEdges();
+        const validInputHandles = new Set(selectedModel.inputs_schema?.handles?.map(h => h.api_mapping_key) || []);
+        const validOutputHandles = new Set(selectedModel.outputs_schema?.handles?.map(h => h.api_mapping_key || 'output') || []);
+
+        const invalidEdges = currentEdges.filter(edge => {
+            // If this node is the target, check if targetHandle is still valid
+            if (edge.target === id) {
+                if (!edge.targetHandle) return false; // Default handle is always valid
+                return !validInputHandles.has(edge.targetHandle);
+            }
+            // If this node is the source, check if sourceHandle is still valid
+            if (edge.source === id) {
+                if (!edge.sourceHandle || edge.sourceHandle === 'output') return false; 
+                return !validOutputHandles.has(edge.sourceHandle);
+            }
+            return false;
+        });
+
+        if (invalidEdges.length > 0) {
+            console.warn(`[AIGeneratorNode] Cleaning up ${invalidEdges.length} dangling edges after model switch`);
+            const invalidIds = new Set(invalidEdges.map(e => e.id));
+            setEdges(eds => eds.filter(e => !invalidIds.has(e.id)));
+        }
+    }, [id, selectedModel, getEdges, setEdges]);
     const inputHandles = selectedModel?.inputs_schema?.handles || [];
     const outputHandles = selectedModel?.outputs_schema?.handles || [];
 
     const customInputs = inputHandles.map(h => ({
-        id: h.api_mapping_key,
+        id: h.api_mapping_key || h.name,
         label: h.name,
         color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
         type: h.type,
@@ -139,7 +106,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     }));
 
     const customOutputs = outputHandles.map(h => ({
-        id: h.api_mapping_key || 'output',
+        id: h.api_mapping_key || h.name || 'output',
         label: h.name,
         color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
         type: h.type,
@@ -158,7 +125,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
         <BaseNode
             id={id}
             type="ai_generator"
-            label={selectedModel?.display_name || 'AI Generator'}
+            label={selectedModel ? selectedModel.display_name : (data.config?.model_id ? '⚠️ Unknown Model' : 'AI Generator')}
             selected={selected}
             customInputs={customInputs}
             customOutputs={customOutputs}
@@ -168,7 +135,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 layout
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
-                    "transition-all duration-500 min-h-[180px]"
+                    "transition-all duration-500"
                 )}
             >
                 {/* Frosty Placeholder background */}
@@ -177,7 +144,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 {/* Empty State / Connection Placeholder */}
                 {!output && (
                     <div 
-                        className="absolute inset-0 flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500 cursor-pointer"
+                        className="w-full min-h-[200px] flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500 cursor-pointer"
                         onMouseDown={(e) => e.stopPropagation()}
                         onPointerDown={(e) => e.stopPropagation()}
                     >
@@ -185,7 +152,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                             <Zap className="w-10 h-10 text-white/40" />
                         </div>
                         <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 text-center px-4">
-                            {selectedModel ? `Ready to Run ${selectedModel.display_name}` : 'Select a Model to Start'}
+                            {!data.config?.model_id ? 'Select a Model to Start' : (selectedModel ? `Ready to Run ${selectedModel.display_name}` : 'Model not found in catalog')}
                         </span>
                     </div>
                 )}
@@ -195,23 +162,21 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
                 {/* Content Preview (Matching CustomNode Logic) */}
                 {previewOutput && (
-                    <div className="p-1">
-                        <OutputPreview
-                            output={previewOutput}
-                            type={outputHandles[0]?.type || 'any'}
-                            previewMode={previewMode}
-                            activeImageIndex={activeImageIndex}
-                            onImageClick={(idx: number, e: React.MouseEvent) => {
-                                e.stopPropagation();
-                                setActiveImageIndex(idx);
-                                if (previewMode === 'single') openLightbox(idx);
-                            }}
-                            onPreviewClick={(e: React.MouseEvent) => {
-                                e.stopPropagation();
-                                openLightbox(activeImageIndex);
-                            }}
-                        />
-                    </div>
+                    <OutputPreview
+                        output={previewOutput}
+                        type={outputHandles[0]?.type || 'any'}
+                        previewMode={previewMode}
+                        activeImageIndex={activeImageIndex}
+                        onImageClick={(idx: number, e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            setActiveImageIndex(idx);
+                            if (previewMode === 'single') openLightbox(idx);
+                        }}
+                        onPreviewClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            openLightbox(activeImageIndex);
+                        }}
+                    />
                 )}
 
                 {/* View Toggles (Matching CustomNode) */}
@@ -237,7 +202,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
             {/* Model Info Footer (Refined) */}
             {selectedModel && (
-                <div className="mt-1 px-2.5 py-2 flex items-center justify-between border-t border-white/5 opacity-90 group-hover:opacity-100 transition-opacity bg-white/[0.02]">
+                <div className="mt-1 px-2.5 py-2 flex items-center justify-between opacity-90 group-hover:opacity-100 transition-opacity">
                     <div 
                         className="flex items-center gap-2 min-w-0 cursor-pointer"
                         onClick={(e) => {
@@ -288,6 +253,20 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
     const items = Array.isArray(output) ? output : [output];
     const urls = items.map((o: any) => (typeof o === 'string' ? o : o?.url)).filter(Boolean);
 
+    const [isTransitioning, setIsTransitioning] = useState(false);
+    const lastUrlRef = React.useRef<string | null>(null);
+
+    const MAX_HEIGHT = 800;
+
+    // Track URL changes to trigger blur transition
+    React.useEffect(() => {
+        const url = urls[activeImageIndex] || urls[0];
+        if (url && url !== lastUrlRef.current) {
+            setIsTransitioning(true);
+            lastUrlRef.current = url;
+        }
+    }, [urls, activeImageIndex]);
+
     if (urls.length === 0) {
         return (
             <div className="p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4">
@@ -299,20 +278,28 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
     if (previewMode === 'single') {
         const url = urls[activeImageIndex] || urls[0];
         if (type === 'video') {
-            return <video src={url} controls className="w-full rounded-lg" />;
+            return <video src={url} controls className="w-full" />;
         }
         return (
             <div 
-                className="w-full relative group/img cursor-zoom-in" 
+                className="w-full h-full relative group/preview cursor-zoom-in" 
                 onMouseDown={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => onPreviewClick(e)}
             >
-                <img
+                <motion.img
+                    initial={false}
+                    animate={{ 
+                        opacity: isTransitioning ? 0.4 : 1,
+                        filter: isTransitioning ? 'blur(20px)' : 'blur(0px)',
+                        scale: isTransitioning ? 0.95 : 1
+                    }}
+                    transition={{ duration: 0.8, ease: "easeOut" }}
                     src={url}
                     alt="Output"
-                    className="w-full rounded-lg object-contain bg-black/20 animate-in fade-in zoom-in-95 duration-500 transition-transform group-hover/img:scale-[1.02]"
-                    style={{ maxHeight: 300 }}
+                    className="w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                    onLoad={() => setIsTransitioning(false)}
+                    style={{ maxHeight: MAX_HEIGHT }}
                 />
             </div>
         );
@@ -320,21 +307,31 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
 
     // Grid View
     return (
-        <div className="grid grid-cols-3 gap-1.5 max-h-[240px] overflow-y-auto custom-scrollbar p-1">
-            {urls.map((url: string, i: number) => (
-                <button
-                    key={i}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => onImageClick(i, e)}
-                    className={cn(
-                        "aspect-square rounded-md overflow-hidden border-2 transition-all bg-white/5",
-                        activeImageIndex === i ? "border-accent-primary scale-[0.95]" : "border-transparent"
-                    )}
-                >
-                    <img src={url} alt="" className="w-full h-full object-cover" />
-                </button>
-            ))}
+        <div className="w-full h-full p-2 overflow-y-auto custom-scrollbar">
+            <div className="grid grid-cols-3 gap-2">
+                {urls.map((url: string, i: number) => {
+                    const isActive = activeImageIndex === i;
+                    return (
+                        <button
+                            key={i}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => onImageClick(i, e)}
+                            className={cn(
+                                "relative aspect-square rounded-md overflow-hidden bg-white/5 border-2 transition-all",
+                                isActive ? "border-accent-primary ring-2 ring-accent-primary/20 scale-[0.98]" : "border-white/5 hover:border-white/20"
+                            )}
+                        >
+                            <img src={url} alt="" className="w-full h-full object-cover" />
+                            {isActive && (
+                                <div className="absolute inset-0 bg-accent-primary/10 flex items-center justify-center">
+                                    <Check className="w-4 h-4 text-white drop-shadow-md" />
+                                </div>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
         </div>
     );
 }

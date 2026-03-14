@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useState, useEffect, useCallback } from 'react';
+import React, { memo, useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
@@ -36,14 +36,9 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
 
     // Dynamic sizing logic based on output
     const [aspectRatio, setAspectRatio] = useState<number | null>(null);
-    const [isImageLoading, setIsImageLoading] = useState(false);
+    const [isTransitioning, setIsTransitioning] = useState(false);
+    const lastUrlRef = useRef<string | null>(null);
 
-    // Track when output changes to show loader
-    useEffect(() => {
-        if (output) {
-            setIsImageLoading(true);
-        }
-    }, [output, activeImageIndex]);
     const MAX_WIDTH = 400;
     const MIN_HEIGHT = 180;
     const MAX_HEIGHT = 450;
@@ -52,6 +47,17 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
         setLightboxIndex(index);
         setLightboxOpen(true);
     };
+
+    // Track URL changes to trigger blur transition
+    useEffect(() => {
+        const currentItem = Array.isArray(output) ? output[activeImageIndex] : output;
+        const imageUrl = currentItem?.url || currentItem?.base64 || (typeof currentItem === 'string' ? currentItem : null);
+        
+        if (imageUrl && imageUrl !== lastUrlRef.current) {
+            setIsTransitioning(true);
+            lastUrlRef.current = imageUrl;
+        }
+    }, [output, activeImageIndex]);
 
     return (
         <BaseNode
@@ -87,8 +93,8 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
                     </div>
                 )}
 
-                {/* Modern Glassy Loading Effect - Persists until image satisfies onLoad */}
-                {(status === 'running' || isImageLoading) && <GlassyLoader />}
+                {/* Modern Glassy Loading Effect - Strictly tied to status */}
+                {status === 'running' && <GlassyLoader />}
 
                 {/* Single Image View */}
                 {output && previewMode === 'single' && (
@@ -99,15 +105,20 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
 
                             return imageUrl ? (
                                 <motion.img
-                                    initial={{ opacity: 0, scale: 0.95 }}
-                                    animate={{ opacity: 1, scale: 1 }}
+                                    initial={false}
+                                    animate={{ 
+                                        opacity: isTransitioning ? 0.4 : 1,
+                                        filter: isTransitioning ? 'blur(20px)' : 'blur(0px)',
+                                        scale: isTransitioning ? 0.95 : 1
+                                    }}
+                                    transition={{ duration: 0.8, ease: "easeOut" }}
                                     src={imageUrl}
                                     alt="Preview"
                                     className="w-full h-full object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
                                     onLoad={(e) => {
                                         const img = e.target as HTMLImageElement;
                                         setAspectRatio(img.naturalWidth / img.naturalHeight);
-                                        setIsImageLoading(false);
+                                        setIsTransitioning(false);
                                     }}
                                     style={{
                                         maxHeight: MAX_HEIGHT,

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, useReactFlow, useEdges } from 'reactflow';
+import { Handle, Position, useReactFlow, useEdges, Connection } from 'reactflow';
 import { Play, Copy, X, Loader2, Check, Circle, FastForward } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -104,6 +104,72 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         triggerRunFromNode(id, 'chain');
     };
 
+    // --- DRY Connection Validation ---
+    const models = useAppStore(state => state.models);
+
+    const validateConnection = React.useCallback((connection: Connection) => {
+        if (connection.source === connection.target) return false;
+
+        const sourceNode = getNode(connection.source!);
+        const targetNode = getNode(connection.target!);
+        if (!sourceNode || !targetNode) return false;
+
+        // 1. Resolve Source Handle Metadata
+        let sourceHandleData: any = null;
+        const sourceHandleId = connection.sourceHandle || 'output';
+
+        if (sourceNode.type === 'ai_generator') {
+            const modelId = sourceNode.data?.config?.model_id;
+            const model = models.find(m => m.id === modelId);
+            sourceHandleData = model?.outputs_schema?.handles?.find(h => (h.api_mapping_key || h.name || 'output') === sourceHandleId);
+        } else {
+            const sourceDef = sharedRegistry[sourceNode.type as keyof typeof sharedRegistry];
+            sourceHandleData = sourceDef?.handles?.outputs?.find(h => (h.id || 'output') === sourceHandleId);
+            // Fallback to dynamic schema if any (not used much now but for future-proofing)
+            if (!sourceHandleData) {
+                sourceHandleData = (sourceNode.data as any)?.outputs_schema?.handles?.find((h: any) => (h.api_mapping_key || 'output') === sourceHandleId);
+            }
+        }
+
+        // 2. Resolve Target Handle Metadata
+        let targetHandleData: any = null;
+        const targetHandleId = connection.targetHandle;
+
+        if (targetNode.type === 'ai_generator') {
+            const modelId = targetNode.data?.config?.model_id;
+            const model = models.find(m => m.id === modelId);
+            targetHandleData = model?.inputs_schema?.handles?.find(h => (h.api_mapping_key || h.name) === targetHandleId);
+        } else {
+            const targetDef = sharedRegistry[targetNode.type as keyof typeof sharedRegistry];
+            // Match by ID or treat first handle as default if ID is null/empty
+            targetHandleData = targetDef?.handles?.inputs?.find(h => h.id === targetHandleId) || targetDef?.handles?.inputs?.[0];
+            
+            // Fallback to custom props or dynamic schema
+            if (!targetHandleData && targetNode.id === id && customInputs) {
+                targetHandleData = customInputs.find(h => h.id === targetHandleId);
+            }
+        }
+
+        // 3. Type Validation
+        const sourceType = String(sourceHandleData?.type || sourceHandleData?.dataType || 'any').toLowerCase();
+        const targetType = String(targetHandleData?.type || targetHandleData?.expectedType || 'any').toLowerCase();
+
+        if (sourceType !== 'any' && targetType !== 'any') {
+            const normSource = sourceType.replace('_array', '');
+            const normTarget = targetType.replace('_array', '');
+            if (normSource !== normTarget) return false;
+        }
+
+        // 4. Connection Limit
+        const isTargetArray = targetHandleData?.isArray || targetHandleData?.is_array;
+        if (!isTargetArray) {
+            const existingEdges = edges.filter(e => e.target === connection.target && e.targetHandle === targetHandleId);
+            if (existingEdges.length >= 1) return false;
+        }
+
+        return true;
+    }, [getNode, models, edges, id, customInputs]);
+
     // Determine inputs to render
     const inputsToRender = customInputs || sharedDef?.handles?.inputs;
 
@@ -201,34 +267,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    isValidConnection={(connection) => {
-                                        if (connection.source === connection.target) return false;
-                                        const sourceNode = getNode(connection.source!);
-                                        if (!sourceNode) return false;
-
-                                        // 1. Type Check
-                                        const sourceOutputId = connection.sourceHandle || 'output';
-                                        let sourceHandle = (sourceNode.data as any)?.outputs_schema?.handles?.find((h: any) => (h.api_mapping_key || 'output') === sourceOutputId);
-                                        if (!sourceHandle) {
-                                            const sourceDef = sharedRegistry[sourceNode.type as keyof typeof sharedRegistry];
-                                            sourceHandle = sourceDef?.handles?.outputs?.find(h => h.id === sourceOutputId);
-                                            // Bridge naming difference (sharedRegistry uses dataType)
-                                            if (sourceHandle && !sourceHandle.type) sourceHandle.type = sourceHandle.dataType;
-                                        }
-
-                                        const targetType = (input as any).type || (input as any).expectedType;
-                                        if (targetType && targetType !== 'any' && sourceHandle?.type && sourceHandle.type !== 'any') {
-                                            if (targetType !== sourceHandle.type) return false;
-                                        }
-
-                                        // 2. Connection Limit
-                                        if (!(input as any).isArray) {
-                                            const existing = edges.filter(e => e.target === id && e.targetHandle === input.id);
-                                            if (existing.length >= 1) return false;
-                                        }
-
-                                        return true;
-                                    }}
+                                    isValidConnection={validateConnection}
                                     className={cn(
                                         "w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200",
                                         "before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full",
@@ -264,32 +303,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
-                        isValidConnection={(connection) => {
-                            if (connection.source === connection.target) return false;
-                            const sourceNode = getNode(connection.source!);
-                            if (!sourceNode) return false;
-
-                            const sourceOutputId = connection.sourceHandle || 'output';
-                            let sourceHandle = (sourceNode.data as any)?.outputs_schema?.handles?.find((h: any) => (h.api_mapping_key || 'output') === sourceOutputId);
-                            if (!sourceHandle) {
-                                const sourceDef = sharedRegistry[sourceNode.type as keyof typeof sharedRegistry];
-                                sourceHandle = sourceDef?.handles?.outputs?.find(h => h.id === sourceOutputId);
-                                if (sourceHandle && !sourceHandle.type) sourceHandle.type = sourceHandle.dataType;
-                            }
-
-                            const defaultInput = sharedDef?.handles?.inputs?.[0];
-                            const targetType = defaultInput?.expectedType;
-
-                            if (targetType && targetType !== 'any' && sourceHandle?.type && sourceHandle.type !== 'any') {
-                                if (targetType !== sourceHandle.type) return false;
-                            }
-
-                            // Single handles on static nodes usually only allow 1 connection anyway
-                            const existing = edges.filter(e => e.target === id && (!e.targetHandle || e.targetHandle === defaultInput?.id));
-                            if (existing.length >= 1) return false;
-
-                            return true;
-                        }}
+                        isValidConnection={validateConnection}
                         className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                   before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{
@@ -338,32 +352,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         const offset = (index * spacing) - (totalHeight / 2);
 
                         return (
-                            <Handle
-                                key={output.id}
-                                type="source"
-                                position={Position.Right}
-                                id={output.id}
-                                isValidConnection={(connection) => {
-                                    if (connection.source === connection.target) return false;
-                                    const targetNode = getNode(connection.target!);
-                                    if (!targetNode) return false;
-
-                                    // Check if target allows more connections
-                                    const targetHandleId = connection.targetHandle;
-                                    let targetHandle = (targetNode.data as any)?.inputs_schema?.handles?.find((h: any) => h.api_mapping_key === targetHandleId);
-                                    if (!targetHandle) {
-                                        const targetDef = sharedRegistry[targetNode.type as keyof typeof sharedRegistry];
-                                        targetHandle = targetDef?.handles?.inputs?.find(h => h.id === targetHandleId);
-                                        if (targetHandle && !targetHandle.isArray) targetHandle.isArray = false; // Default for static
-                                    }
-
-                                    if (targetHandle && !(targetHandle as any).isArray) {
-                                        const existing = edges.filter(e => e.target === connection.target && e.targetHandle === targetHandleId);
-                                        if (existing.length >= 1) return false;
-                                    }
-
-                                    return true;
-                                }}
+                                <Handle
+                                    key={output.id}
+                                    type="source"
+                                    position={Position.Right}
+                                    id={output.id}
+                                    isValidConnection={validateConnection}
                                 className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                           before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                                 style={{
@@ -384,26 +378,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="source"
                         position={Position.Right}
                         id={defaultOutputId}
-                        isValidConnection={(connection) => {
-                            if (connection.source === connection.target) return false;
-                            const targetNode = getNode(connection.target!);
-                            if (!targetNode) return false;
-
-                            const targetHandleId = connection.targetHandle;
-                            let targetHandle = (targetNode.data as any)?.inputs_schema?.handles?.find((h: any) => h.api_mapping_key === targetHandleId);
-                            if (!targetHandle) {
-                                const targetDef = sharedRegistry[targetNode.type as keyof typeof sharedRegistry];
-                                targetHandle = targetDef?.handles?.inputs?.find(h => h.id === targetHandleId);
-                                if (targetHandle && !targetHandle.isArray) targetHandle.isArray = false;
-                            }
-
-                            if (targetHandle && !(targetHandle as any).isArray) {
-                                const existing = edges.filter(e => e.target === connection.target && e.targetHandle === targetHandleId);
-                                if (existing.length >= 1) return false;
-                            }
-
-                            return true;
-                        }}
+                        isValidConnection={validateConnection}
                         className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                   before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{

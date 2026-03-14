@@ -9,57 +9,17 @@ import { cn } from '@/lib/utils';
 // TYPES (Synced with AIGeneratorNode)
 // =============================================================================
 
-interface AiModel {
-    id: number;
-    replicate_model_id: string;
-    display_name: string;
-    credit_cost: number;
-    is_active: boolean;
-    category_id: string;
-    inputs_schema: InputsSchema | null;
-    outputs_schema: OutputsSchema | null;
-}
-
-interface InputsSchema {
-    handles?: any[];
-    controls?: Control[];
-}
-
-interface OutputsSchema {
-    handles?: any[];
-}
+// =============================================================================
+// TYPES - MOVED TO lib/nodes/types.ts
+// =============================================================================
+import { AiModel, InputsSchema, OutputsSchema } from '@/lib/nodes/types';
+import { useAppStore } from '@/lib/store/app-store';
 
 interface Control {
     api_mapping_key: string;
     type: string;
     component: string;
     default_value: any;
-}
-
-// =============================================================================
-// CACHING LOGIC
-// =============================================================================
-
-let cachedModels: AiModel[] | null = null;
-let fetchPromise: Promise<AiModel[]> | null = null;
-
-async function fetchModels(): Promise<AiModel[]> {
-    if (cachedModels) return cachedModels;
-    if (fetchPromise) return fetchPromise;
-
-    fetchPromise = fetch('/api/models/list')
-        .then(r => r.json())
-        .then(data => {
-            cachedModels = data.models || [];
-            return cachedModels!;
-        })
-        .catch(err => {
-            console.error('[AIGeneratorProperties] Failed to fetch models:', err);
-            fetchPromise = null;
-            return [];
-        });
-
-    return fetchPromise;
 }
 
 // =============================================================================
@@ -75,20 +35,16 @@ interface AIGeneratorPropertiesProps {
 }
 
 export default function AIGeneratorProperties({ config, onUpdate }: AIGeneratorPropertiesProps) {
-    const [models, setModels] = useState<AiModel[]>([]);
-    const [loading, setLoading] = useState(true);
+    const models = useAppStore(state => state.models);
+    const isModelsLoading = useAppStore(state => state.isModelsLoading);
 
     useEffect(() => {
-        fetchModels().then(m => {
-            setModels(m);
-            // Default model selection if none exists
-            if (m.length > 0 && !config.model_id) {
-                const firstActive = m.find(mod => mod.is_active) || m[0];
-                onUpdate({ ...config, model_id: firstActive.id, control_values: {} });
-            }
-            setLoading(false);
-        });
-    }, [config.model_id, onUpdate]);
+        // Default model selection if none exists (and models have loaded)
+        if (!isModelsLoading && models.length > 0 && !config.model_id) {
+            const firstActive = models.find(mod => mod.is_active) || models[0];
+            onUpdate({ ...config, model_id: firstActive.id, control_values: {} });
+        }
+    }, [isModelsLoading, models, config.model_id, onUpdate]);
 
     const selectedModel = models.find(m => m.id === config.model_id);
     const controls = selectedModel?.inputs_schema?.controls || [];
@@ -113,7 +69,7 @@ export default function AIGeneratorProperties({ config, onUpdate }: AIGeneratorP
         });
     };
 
-    if (loading) {
+    if (isModelsLoading) {
         return (
             <div className="flex flex-col items-center justify-center py-12 text-content-tertiary animate-in fade-in duration-500">
                 <Loader2 className="w-8 h-8 animate-spin mb-4 text-accent-primary opacity-50" />

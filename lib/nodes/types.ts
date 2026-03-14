@@ -3,6 +3,41 @@
  */
 export type NodeType = 'ai_generate_image' | 'media_input' | 'compositor' | 'prompt' | 'ai_generator';
 
+export interface InputHandle {
+    name: string;
+    api_mapping_key: string;
+    type: string;
+    is_array: boolean;
+    is_mandatory: boolean;
+}
+
+export interface OutputHandle {
+    name: string;
+    api_mapping_key: string;
+    type: string;
+    is_array: boolean;
+}
+
+export interface InputsSchema {
+    handles?: InputHandle[];
+    controls?: any[];
+}
+
+export interface OutputsSchema {
+    handles?: OutputHandle[];
+}
+
+export interface AiModel {
+    id: number;
+    replicate_model_id: string;
+    display_name: string;
+    credit_cost: number;
+    is_active: boolean;
+    category_id: string;
+    inputs_schema: InputsSchema | null;
+    outputs_schema: OutputsSchema | null;
+}
+
 /**
  * Node execution status for real-time updates
  */

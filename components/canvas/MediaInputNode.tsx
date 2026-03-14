@@ -25,17 +25,9 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const images = data.config?.images || [];
 
     // Use React Flow hook for direct graph manipulation
-    const { setNodes } = useReactFlow();
     const [isUploading, setIsUploading] = useState(false);
-    const [isImageLoading, setIsImageLoading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
-
-    // Track when images change to show loader
-    useEffect(() => {
-        if (images.length > 0) {
-            setIsImageLoading(true);
-        }
-    }, [images, activeImageIndex]);
+    const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
 
     // Update node config with new images
     const updateImages = useCallback((newImages: Array<{ url: string; path: string } | string>) => {
@@ -185,7 +177,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                     src={getImageUrl(images[activeImageIndex])}
                                     alt=""
                                     className="w-full h-full object-contain"
-                                    onLoad={() => setIsImageLoading(false)}
                                 />
                                 <button
                                     onClick={(e) => removeImage(e, activeImageIndex)}
@@ -206,7 +197,11 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                                 activeImageIndex === index ? "border-accent-primary ring-2 ring-accent-primary/20" : "border-white/5"
                                             )}
                                         >
-                                            <img src={getImageUrl(img)} alt="" className="w-full h-full object-cover" />
+                                            <img 
+                                                src={getImageUrl(img)} 
+                                                alt="" 
+                                                className="w-full h-full object-cover" 
+                                            />
                                             {activeImageIndex === index && (
                                                 <div className="absolute inset-0 bg-accent-primary/20 flex items-center justify-center">
                                                     <Check className="w-3 h-3 text-white" />
@@ -249,7 +244,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                     </>
                 )}
                 {/* Modern Glassy Loading Effect */}
-                {(isUploading || isImageLoading) && <GlassyLoader />}
+                {(isUploading || status === 'running') && <GlassyLoader />}
             </div>
 
             {/* Hidden file input */}

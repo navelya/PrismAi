@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Workflow, WorkflowNode, NodeStatus } from '../nodes/types';
+import { Workflow, WorkflowNode, NodeStatus, AiModel } from '../nodes/types';
 
 import { sharedRegistry } from '../nodes/core/shared-registry';
 
@@ -114,6 +114,11 @@ interface AppState {
     // Interaction Heartbeat (for auto-save de-bounce)
     lastInteraction: number;
     touchInteraction: () => void;
+
+    // Global Model Catalog
+    models: AiModel[];
+    isModelsLoading: boolean;
+    fetchModelCatalog: () => Promise<void>;
 }
 
 const MAX_HISTORY = 50; // Keep last 50 snapshots
@@ -152,6 +157,22 @@ export const useAppStore = create<AppState>()(
             lastInteraction: Date.now(),
             touchInteraction: () => set({ lastInteraction: Date.now() }),
 
+            // Global Model Catalog
+            models: [],
+            isModelsLoading: false,
+            fetchModelCatalog: async () => {
+                if (get().models.length > 0) return;
+                set({ isModelsLoading: true });
+                try {
+                    const response = await fetch('/api/models/list');
+                    const data = await response.json();
+                    set({ models: data.models || [], isModelsLoading: false });
+                } catch (error) {
+                    console.error('Failed to fetch model catalog:', error);
+                    set({ isModelsLoading: false });
+                }
+            },
+
             // Global Reset
             clearAllState: () => {
                 set({
@@ -176,6 +197,8 @@ export const useAppStore = create<AppState>()(
                     isCanvasMode: false,
                     isCopilotMinimized: false,
                     chatScrollTop: 9999999,
+                    models: [],
+                    isModelsLoading: false,
                 });
             },
 
