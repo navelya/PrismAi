@@ -17,7 +17,9 @@ import {
     Trash2,
     Settings2,
     Link2,
-    ChevronDown
+    ChevronDown,
+    Info,
+    ExternalLink
 } from 'lucide-react';
 import { modelsAdminApi } from '@/lib/api/admin';
 import { cn } from '@/lib/utils';
@@ -471,7 +473,7 @@ export default function AdminPage() {
                             </div>
 
                             <form onSubmit={handleNodeTypeSubmit} className="space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <Input
                                         label="Type ID"
                                         value={nodeForm.id}
@@ -486,6 +488,18 @@ export default function AdminPage() {
                                         placeholder="e.g. Video Upscaler"
                                         required
                                     />
+                                    <div className="space-y-2">
+                                        <Input
+                                            label="Icon Name"
+                                            value={nodeForm.icon_reference}
+                                            onChange={e => setNodeForm({ ...nodeForm, icon_reference: e.target.value })}
+                                            placeholder="e.g. Sparkles, Zap, Image..."
+                                        />
+                                        <p className="text-[10px] text-content-tertiary px-1 flex items-center gap-1.5 leading-relaxed font-medium">
+                                            <Info className="w-3 h-3 text-accent-primary" />
+                                            <span>Find icon names in the <a href="https://lucide.dev/icons" target="_blank" rel="noopener noreferrer" className="text-accent-primary hover:underline underline-offset-2 font-bold inline-flex items-center gap-0.5">Lucide Directory <ExternalLink className="w-2.5 h-2.5" /></a></span>
+                                        </p>
+                                    </div>
                                 </div>
 
                                 <div>
