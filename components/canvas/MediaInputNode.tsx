@@ -25,6 +25,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const images = data.config?.images || [];
 
     // Use React Flow hook for direct graph manipulation
+    const { setNodes } = useReactFlow();
     const [isUploading, setIsUploading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');

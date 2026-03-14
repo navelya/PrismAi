@@ -286,7 +286,7 @@ export function useChatRealtime({
                         },
                         handleMessageUpdate
                     )
-                    .subscribe((status, err) => {
+                    .subscribe((status: string, err?: any) => {
                         if (err) console.error('[Realtime] Messages channel error:', err);
                     });
 
@@ -304,7 +304,7 @@ export function useChatRealtime({
                         },
                         handleSessionUpdate
                     )
-                    .subscribe((status, err) => {
+                    .subscribe((status: string, err?: any) => {
                         if (err) console.error('[Realtime] Sessions channel error:', err);
                     });
 

@@ -104,6 +104,6 @@ export async function deleteAllNodeImages(
     );
     if (error || !files || files.length === 0) return;
 
-    const paths = files.map(f => `${prefix}${f.name}`);
+    const paths = files.map((f: any) => `${prefix}${f.name}`);
     await supabase.storage.from(BUCKET).remove(paths);
 }

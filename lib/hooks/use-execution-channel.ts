@@ -60,7 +60,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
         const channel = supabase
             .channel(`execution_${sessionId}`)
             .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast)
-            .subscribe((status, err) => {
+            .subscribe((status: string, err?: any) => {
                 if (err) {
                     console.error('[ExecutionChannel] Subscription error:', err);
                 } else {

@@ -70,6 +70,9 @@ export function createNodeFromType(
         prompt: {
             text: '',
         },
+        ai_generator: {
+            control_values: {},
+        },
     };
 
     const config = defaultConfigs[type];

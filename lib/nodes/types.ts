@@ -142,11 +142,22 @@ export interface PromptConfig {
     text: string;
 }
 
+/**
+ * AI Generator Node Configuration
+ * Dynamic node that adapts based on selected model from the catalog
+ */
+export interface AIGeneratorConfig {
+    model_id?: number;
+    control_values?: Record<string, any>;
+    last_output?: any;
+}
+
 export type NodeConfig =
     | AIGenerateImageConfig
     | MediaInputConfig
     | CompositorConfig
-    | PromptConfig;
+    | PromptConfig
+    | AIGeneratorConfig;
 
 /**
  * Node definition for workflow
