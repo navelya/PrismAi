@@ -107,6 +107,10 @@ function EditorCanvasInner({
     })), [edges, edgeStyle]);
 
     const touchInteraction = useAppStore((state) => state.touchInteraction);
+    
+    // 🛡️ STABILITY FIX: Memoize nodeTypes and edgeTypes at top level to maintain ref identity
+    const nodeTypes = useMemo(() => stableNodeTypes, []);
+    const edgeTypes = useMemo(() => stableEdgeTypes, []);
 
     // Keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -352,8 +356,8 @@ function EditorCanvasInner({
                 onInit={setReactFlowInstance}
                 onDrop={onDropHandler}
                 onDragOver={onDragOver}
-                nodeTypes={stableNodeTypes}
-                edgeTypes={stableEdgeTypes}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
 
                 defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                 fitView

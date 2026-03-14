@@ -45,7 +45,10 @@ export default function SharedWorkflowEditor({
     const fetchModelCatalog = useAppStore(state => state.fetchModelCatalog);
 
     useEffect(() => {
-        fetchModelCatalog();
+        fetchModelCatalog().then(() => {
+            // Only clear booting after the initial fetch attempt finishes
+            setIsBooting(false);
+        });
     }, [fetchModelCatalog]);
 
     // ⚠️ CRITICAL: Use initialWorkflow prop directly, NOT currentWorkflow from store
@@ -78,6 +81,7 @@ export default function SharedWorkflowEditor({
     } = useWorkflowEditor(initialWorkflow);
 
     const [showPropertyPanel, setShowPropertyPanel] = useState(false);
+    const [isBooting, setIsBooting] = useState(true);
     const [executionResult, setExecutionResult] = useState<any>(null);
     // Use a ref-based counter instead of boolean so concurrent runs don't block each other.
     // isExecuting = (activeRunCount > 0) for toolbar display.
@@ -420,7 +424,7 @@ export default function SharedWorkflowEditor({
                 {/* Canvas Area */}
                 <div className="flex-1 relative bg-surface-primary flex flex-col overflow-hidden">
                     <div className="flex-1 relative z-10">
-                        {isModelsLoading ? (
+                        {(isModelsLoading || isBooting) ? (
                             <div className="w-full h-full flex flex-col items-center justify-center bg-surface-primary gap-4">
                                 <div className="w-12 h-12 border-4 border-accent-primary/20 border-t-accent-primary rounded-full animate-spin" />
                                 <div className="text-xs font-bold tracking-[0.2em] uppercase text-white/30 animate-pulse">
