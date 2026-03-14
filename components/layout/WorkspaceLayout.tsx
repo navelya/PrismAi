@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Workflow as WorkflowIcon, MessageSquare, Minimize2, Maximize2, Plus, X, Zap, ChevronLeft, ArrowLeft, Folder, Box } from 'lucide-react';
+import { Workflow as WorkflowIcon, MessageSquare, Minimize2, Maximize2, Plus, X, Zap, ChevronLeft, ArrowLeft, Folder, Box, Building2 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import SharedWorkflowEditor from '@/components/editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
@@ -57,19 +57,28 @@ export default function WorkspaceLayout({
     // Node Library Data & State
     const categories = useAppStore(state => state.categories);
     const nodeTypes = useAppStore(state => state.nodeTypes);
+    const providers = useAppStore(state => state.providers);
+    const models = useAppStore(state => state.models);
+    
     const fetchCategories = useAppStore(state => state.fetchCategories);
     const fetchNodeTypes = useAppStore(state => state.fetchNodeTypes);
+    const fetchProviders = useAppStore(state => state.fetchProviders);
+    const fetchModels = useAppStore(state => state.fetchModels);
     
     const [isNodeLibraryOpen, setIsNodeLibraryOpen] = useState(false);
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+    const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<'categories' | 'providers'>('categories');
 
     // Initial Data Fetch
     useEffect(() => {
         if (isNodeLibraryOpen) {
             fetchCategories();
             fetchNodeTypes();
+            fetchProviders();
+            fetchModels();
         }
-    }, [isNodeLibraryOpen, fetchCategories, fetchNodeTypes]);
+    }, [isNodeLibraryOpen, fetchCategories, fetchNodeTypes, fetchProviders, fetchModels]);
 
     const activeCategory = categories.find(c => c.id === selectedCategoryId);
     const filteredNodeTypes = selectedCategoryId 
@@ -148,9 +157,12 @@ export default function WorkspaceLayout({
                             {/* Header — Hierarchy Aware */}
                             <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle flex-shrink-0">
                                 <div className="flex-1 min-w-0">
-                                    {selectedCategoryId ? (
+                                    {(selectedCategoryId || selectedProviderId) ? (
                                         <button 
-                                            onClick={() => setSelectedCategoryId(null)}
+                                            onClick={() => {
+                                                if (selectedProviderId) setSelectedProviderId(null);
+                                                else setSelectedCategoryId(null);
+                                            }}
                                             className="flex items-center gap-2 text-content-primary hover:text-accent-primary transition-colors group"
                                         >
                                             <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
@@ -167,6 +179,7 @@ export default function WorkspaceLayout({
                                     onClick={() => {
                                         setIsNodeLibraryOpen(false);
                                         setSelectedCategoryId(null);
+                                        setSelectedProviderId(null);
                                     }}
                                     className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group"
                                 >
@@ -176,82 +189,167 @@ export default function WorkspaceLayout({
 
                             {/* Content — Hierarchy Aware */}
                             <div className="flex-1 overflow-y-auto relative">
-                                {/* Level 1: Categories */}
+                                {/* Level 1: View Modes (Categories or Providers) */}
                                 <div className={cn(
-                                    "absolute inset-0 p-4 space-y-4 transition-all duration-300",
-                                    selectedCategoryId ? "-translate-x-full opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
+                                    "absolute inset-0 p-4 space-y-6 transition-all duration-300",
+                                    (selectedCategoryId || selectedProviderId) ? "-translate-x-full opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
                                 )}>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary mb-2">Categories</p>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        {categories.map((category) => {
-                                            const IconComponent = (Icons[category.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Folder;
-                                            return (
-                                                <button
-                                                    key={category.id}
-                                                    onClick={() => setSelectedCategoryId(category.id)}
-                                                    className="flex flex-col items-center justify-center p-4 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm"
-                                                >
-                                                    <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center mb-2 group-hover:bg-accent-primary/10 transition-colors">
-                                                        <IconComponent className="w-5 h-5 text-content-primary group-hover:text-accent-primary transition-colors" />
-                                                    </div>
-                                                    <span className="text-xs font-medium text-center line-clamp-1">{category.display_name}</span>
-                                                </button>
-                                            );
-                                        })}
+                                    <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/10 mb-6">
+                                        <button 
+                                            onClick={() => setViewMode('categories')}
+                                            className={cn(
+                                                "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all",
+                                                viewMode === 'categories' ? "bg-white/10 text-content-primary shadow-sm" : "text-content-tertiary hover:text-content-secondary"
+                                            )}
+                                        >
+                                            By Category
+                                        </button>
+                                        <button 
+                                            onClick={() => setViewMode('providers')}
+                                            className={cn(
+                                                "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all",
+                                                viewMode === 'providers' ? "bg-white/10 text-content-primary shadow-sm" : "text-content-tertiary hover:text-content-secondary"
+                                            )}
+                                        >
+                                            By Provider
+                                        </button>
                                     </div>
-                                    
-                                    {categories.length === 0 && (
-                                        <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
-                                            <Box className="w-8 h-8 mb-2 opacity-20" />
-                                            <span className="text-xs">Loading categories...</span>
+
+                                    {viewMode === 'categories' ? (
+                                        <div className="space-y-4">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary mb-2">Select Category</p>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {categories.map((category) => {
+                                                    const IconComponent = (Icons[category.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Folder;
+                                                    return (
+                                                        <button
+                                                            key={category.id}
+                                                            onClick={() => setSelectedCategoryId(category.id)}
+                                                            className="flex flex-col items-center justify-center p-4 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm"
+                                                        >
+                                                            <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center mb-2 group-hover:bg-accent-primary/10 transition-colors">
+                                                                <IconComponent className="w-5 h-5 text-content-primary group-hover:text-accent-primary transition-colors" />
+                                                            </div>
+                                                            <span className="text-xs font-medium text-center line-clamp-1">{category.display_name}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary mb-2">Select Provider</p>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {providers.map((provider) => (
+                                                    <button
+                                                        key={provider.id}
+                                                        onClick={() => setSelectedProviderId(provider.id)}
+                                                        className="flex flex-col items-center justify-center p-4 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm"
+                                                    >
+                                                        <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center mb-2 group-hover:bg-accent-primary/10 transition-colors overflow-hidden p-1.5">
+                                                            {provider.logo_url ? (
+                                                                <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
+                                                            ) : (
+                                                                <Building2 className="w-5 h-5 text-content-primary group-hover:text-accent-primary transition-colors" />
+                                                            )}
+                                                        </div>
+                                                        <span className="text-xs font-medium text-center line-clamp-1">{provider.name}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
 
-                                {/* Level 2: Node Types */}
+                                {/* Level 2: Drill-down View (Nodes or Models) */}
                                 <div className={cn(
                                     "absolute inset-0 p-4 space-y-3 transition-all duration-300",
-                                    selectedCategoryId ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 pointer-events-none"
+                                    (selectedCategoryId || selectedProviderId) ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 pointer-events-none"
                                 )}>
                                     <div className="mb-4">
-                                        <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">Nodes for</p>
-                                        <h4 className="text-lg font-bold text-content-primary">{activeCategory?.display_name}</h4>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">
+                                            {selectedCategoryId ? "Nodes for Category" : "Models from Provider"}
+                                        </p>
+                                        <h4 className="text-lg font-bold text-content-primary">
+                                            {selectedCategoryId 
+                                                ? categories.find(c => c.id === selectedCategoryId)?.display_name 
+                                                : providers.find(p => p.id === selectedProviderId)?.name
+                                            }
+                                        </h4>
                                     </div>
                                     
-                                    <div className="space-y-2">
-                                        {filteredNodeTypes.map((nt) => {
-                                            const IconComp = (Icons[nt.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Zap;
-                                            return (
-                                                <div
-                                                    key={nt.id}
-                                                    draggable
-                                                    onDragStart={(e) => {
-                                                        const payload = JSON.stringify({
-                                                            type: 'ai_generator',
-                                                            node_type_id: nt.id,
-                                                            archetype_id: nt.archetype_id
-                                                        });
-                                                        e.dataTransfer.setData('application/reactflow', payload);
-                                                        e.dataTransfer.effectAllowed = 'move';
-                                                        setIsNodeLibraryOpen(false);
-                                                    }}
-                                                    className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group"
-                                                >
-                                                    <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
-                                                        <IconComp className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />
+                                    <div className="space-y-2 pb-8">
+                                        {selectedCategoryId ? (
+                                            // Show Node Types for Category
+                                            nodeTypes.filter(nt => nt.parent_categories?.includes(selectedCategoryId)).map((nt) => {
+                                                const IconComp = (Icons[nt.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Zap;
+                                                return (
+                                                    <div
+                                                        key={nt.id}
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            const payload = JSON.stringify({
+                                                                type: 'ai_generator',
+                                                                node_type_id: nt.id,
+                                                                archetype_id: nt.archetype_id
+                                                            });
+                                                            e.dataTransfer.setData('application/reactflow', payload);
+                                                            e.dataTransfer.effectAllowed = 'move';
+                                                            setIsNodeLibraryOpen(false);
+                                                        }}
+                                                        className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group shadow-sm"
+                                                    >
+                                                        <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
+                                                            <IconComp className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="font-bold text-sm text-content-primary">{nt.display_name}</div>
+                                                            <div className="text-[10px] text-content-tertiary uppercase tracking-wider">Dynamic Node</div>
+                                                        </div>
                                                     </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="font-bold text-sm text-content-primary">{nt.display_name}</div>
-                                                        <div className="text-[10px] text-content-tertiary uppercase tracking-wider">Dynamic Node</div>
+                                                );
+                                            })
+                                        ) : (
+                                            // Show specific Models for Provider
+                                            models.filter(m => m.provider_id === selectedProviderId).map((model) => {
+                                                const p = providers.find(prov => prov.id === model.provider_id);
+                                                return (
+                                                    <div
+                                                        key={model.id}
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            const payload = JSON.stringify({
+                                                                type: 'ai_generator',
+                                                                node_type_id: model.node_type_id,
+                                                                model_id: model.id
+                                                            });
+                                                            e.dataTransfer.setData('application/reactflow', payload);
+                                                            e.dataTransfer.effectAllowed = 'move';
+                                                            setIsNodeLibraryOpen(false);
+                                                        }}
+                                                        className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group shadow-sm"
+                                                    >
+                                                        <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors overflow-hidden p-1.5">
+                                                            {p?.logo_url ? (
+                                                                <img src={p.logo_url} alt={p.name} className="w-full h-full object-contain" />
+                                                            ) : (
+                                                                <Box className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />
+                                                            )}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="font-bold text-sm text-content-primary truncate">{model.display_name}</div>
+                                                            <div className="text-[10px] text-content-tertiary uppercase tracking-wider">{model.replicate_model_id.split(':')[0]}</div>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
+                                                );
+                                            })
+                                        )}
                                         
-                                        {filteredNodeTypes.length === 0 && (
+                                        {((selectedCategoryId && nodeTypes.filter(nt => nt.parent_categories?.includes(selectedCategoryId)).length === 0) ||
+                                          (selectedProviderId && models.filter(m => m.provider_id === selectedProviderId).length === 0)) && (
                                             <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
                                                 <Icons.Inbox className="w-8 h-8 mb-2 opacity-20" />
-                                                <span className="text-xs">No models found in this category</span>
+                                                <span className="text-xs">No items found</span>
                                             </div>
                                         )}
                                     </div>

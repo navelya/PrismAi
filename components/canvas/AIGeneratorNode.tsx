@@ -62,6 +62,12 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
     // Initial load for auto-selecting if empty
     useEffect(() => {
+        // If we have a model_id in data.config (from drag), use it
+        if (data.config?.model_id && !selectedModel) {
+            // Wait for models to load or resolve from state
+            return;
+        }
+
         if (!data.config?.model_id && filteredModels.length > 0) {
             const firstActive = filteredModels.find(mod => mod.is_active) || filteredModels[0];
             setNodes(prev => prev.map(n => n.id === id
@@ -69,7 +75,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 : n
             ));
         }
-    }, [id, filteredModels, data.config?.model_id, setNodes]);
+    }, [id, filteredModels, data.config?.model_id, setNodes, selectedModel]);
 
     // ⭐ React Flow Edge Validation — Clean up dangling edges when model/handles change
     const { getEdges, setEdges } = useReactFlow();
@@ -135,6 +141,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
             label={selectedNodeType ? selectedNodeType.display_name : (data.config?.model_id ? 'AI Model' : 'AI Generator')}
             icon={selectedNodeType?.icon_reference}
             selected={selected}
+            providerLogo={selectedModel?.providers?.logo_url || undefined}
             customInputs={customInputs}
             customOutputs={customOutputs}
             width={320}

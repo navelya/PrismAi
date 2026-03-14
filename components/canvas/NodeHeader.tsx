@@ -11,19 +11,24 @@ interface NodeHeaderProps {
     color: string;
     badgeCount?: number;
     className?: string;
+    providerLogo?: string;
 }
 
-export function NodeHeader({ icon, label, color, badgeCount, className }: NodeHeaderProps) {
+export function NodeHeader({ icon, label, color, badgeCount, className, providerLogo }: NodeHeaderProps) {
     const IconComponent = (Icons[icon as keyof typeof Icons] as React.ComponentType<any>) || Icons.Box;
 
     return (
         <div className={cn("flex items-center gap-2 px-3 py-2 border-stroke-subtle", className)}>
             <div
-                className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-accent-primary/10 border border-accent-primary/20"
+                className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-accent-primary/10 border border-accent-primary/20 overflow-hidden"
             >
-                <IconComponent
-                    className="w-3.5 h-3.5 text-accent-primary"
-                />
+                {providerLogo ? (
+                    <img src={providerLogo} alt="" className="w-full h-full object-cover" />
+                ) : (
+                    <IconComponent
+                        className="w-3.5 h-3.5 text-accent-primary"
+                    />
+                )}
             </div>
 
             <div className="flex-1 min-w-0">

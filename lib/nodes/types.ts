@@ -50,6 +50,11 @@ export interface AiModel {
     is_active: boolean;
     category_id: string;
     node_type_id: string | null;
+    provider_id: string | null;
+    providers?: {
+        name: string;
+        logo_url: string | null;
+    } | null;
     inputs_schema: InputsSchema | null;
     outputs_schema: OutputsSchema | null;
 }

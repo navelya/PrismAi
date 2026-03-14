@@ -119,10 +119,13 @@ interface AppState {
     models: AiModel[];
     categories: any[];
     nodeTypes: any[];
+    providers: any[];
     isModelsLoading: boolean;
     fetchModelCatalog: () => Promise<void>;
     fetchCategories: () => Promise<void>;
     fetchNodeTypes: () => Promise<void>;
+    fetchProviders: () => Promise<void>;
+    fetchModels: () => Promise<void>;
 }
 
 const MAX_HISTORY = 50; // Keep last 50 snapshots
@@ -145,6 +148,7 @@ export const useAppStore = create<AppState>()(
             models: [],
             categories: [],
             nodeTypes: [],
+            providers: [],
             isModelsLoading: false,
             executionResults: {},
             nodeStatuses: {}, // Initialize empty status map
@@ -172,10 +176,21 @@ export const useAppStore = create<AppState>()(
                 try {
                     const response = await fetch('/api/models/list');
                     const data = await response.json();
+                    // If backend doesn't support the join yet (select *), it will just return basic models
                     set({ models: data.models || [], isModelsLoading: false });
                 } catch (error) {
                     console.error('Failed to fetch model catalog:', error);
                     set({ isModelsLoading: false });
+                }
+            },
+            fetchModels: async () => {
+                if (get().models.length > 0) return;
+                try {
+                    const response = await fetch('/api/models/list');
+                    const data = await response.json();
+                    set({ models: data.models || [] });
+                } catch (error) {
+                    console.error('Failed to fetch models:', error);
                 }
             },
             fetchCategories: async () => {
@@ -196,6 +211,16 @@ export const useAppStore = create<AppState>()(
                     set({ nodeTypes: data || [] });
                 } catch (error) {
                     console.error('Failed to fetch node types:', error);
+                }
+            },
+            fetchProviders: async () => {
+                if (get().providers.length > 0) return;
+                try {
+                    const { modelsAdminApi } = await import('@/lib/api/admin');
+                    const data = await modelsAdminApi.listProviders();
+                    set({ providers: data || [] });
+                } catch (error) {
+                    console.error('Failed to fetch providers:', error);
                 }
             },
 
@@ -226,6 +251,7 @@ export const useAppStore = create<AppState>()(
                     models: [],
                     categories: [],
                     nodeTypes: [],
+                    providers: [],
                     isModelsLoading: false,
                 });
             },

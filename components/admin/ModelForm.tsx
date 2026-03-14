@@ -64,6 +64,7 @@ interface ModelFormProps {
     categories: any[];
     archetypes: any[];
     nodeTypes: any[];
+    providers: any[];
 }
 
 export function ModelForm({
@@ -73,7 +74,8 @@ export function ModelForm({
     submitting,
     categories,
     archetypes,
-    nodeTypes
+    nodeTypes,
+    providers
 }: ModelFormProps) {
     // -------------------------------------------------------------------------
     // STATE
@@ -83,9 +85,10 @@ export function ModelForm({
         display_name: initialData?.display_name || '',
         credit_cost: initialData?.credit_cost || 0,
         is_active: initialData?.is_active ?? true,
-        category_id: initialData?.category_id || (categories[0]?.id || ''),
+        archetype_id: initialData?.archetype_id || '',
+        provider_id: initialData?.provider_id || '',
+        category_id: initialData?.category_id || '',
         node_type_id: initialData?.node_type_id || '',
-        archetype_id: initialData?.archetype_id || (archetypes[0]?.id || ''),
     });
 
     // Visual Schema States
@@ -96,6 +99,30 @@ export function ModelForm({
     // -------------------------------------------------------------------------
     // INITIALIZATION (EFFECTS)
     // -------------------------------------------------------------------------
+
+    // Handle initialData changes (Edit Mode)
+    useEffect(() => {
+        if (initialData) {
+            setForm({
+                replicate_model_id: initialData.replicate_model_id || '',
+                display_name: initialData.display_name || '',
+                credit_cost: initialData.credit_cost || 0,
+                is_active: initialData.is_active ?? true,
+                archetype_id: initialData.archetype_id || '',
+                provider_id: initialData.provider_id || '',
+                category_id: initialData.category_id || '',
+                node_type_id: initialData.node_type_id || '',
+            });
+        }
+    }, [initialData]);
+
+    // Handle default selections when data arrives
+    useEffect(() => {
+        if (!form.archetype_id && archetypes.length > 0) {
+            setForm(prev => ({ ...prev, archetype_id: archetypes[0].id }));
+        }
+    }, [archetypes, form.archetype_id]);
+
     useEffect(() => {
         if (initialData?.inputs_schema) {
             const inputs = initialData.inputs_schema;
@@ -238,9 +265,21 @@ export function ModelForm({
                     />
                     <Select
                         label="Node Archetype"
-                        value={form.archetype_id}
-                        options={archetypes.map(a => ({ id: a.id, display_name: a.component_name }))}
-                        onChange={e => setForm({ ...form, archetype_id: e.target.value })}
+                        value={form.archetype_id || 'none'}
+                        options={[
+                            { id: 'none', display_name: 'Select Archetype...' },
+                            ...archetypes.map(a => ({ id: a.id, display_name: a.component_name }))
+                        ]}
+                        onChange={e => setForm({ ...form, archetype_id: e.target.value === 'none' ? '' : e.target.value })}
+                    />
+                    <Select
+                        label="AI Provider"
+                        value={form.provider_id || 'none'}
+                        options={[
+                            { id: 'none', display_name: 'None (Default)' },
+                            ...providers.map(p => ({ id: p.id, display_name: p.name }))
+                        ]}
+                        onChange={e => setForm({ ...form, provider_id: e.target.value === 'none' ? '' : e.target.value })}
                     />
                 </div>
             </FormSection>

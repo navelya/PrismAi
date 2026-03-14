@@ -18,8 +18,20 @@ export const modelsAdminApi = {
         const supabase = createClient();
         const { data, error } = await supabase
             .from('ai_models')
-            .select('*')
+            .select('*, providers(name, logo_url)')
             .order('display_name');
+
+        if (error) throw error;
+        return data;
+    },
+
+    /** Fetch all providers */
+    listProviders: async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase
+            .from('providers')
+            .select('*')
+            .order('name');
 
         if (error) throw error;
         return data;
@@ -91,6 +103,41 @@ export const modelsAdminApi = {
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to delete model');
+        return data.success;
+    },
+
+    /** Create a new provider */
+    createProvider: async (formData: FormData) => {
+        const res = await fetch('/api/admin/providers', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create provider');
+        return data.provider;
+    },
+
+    /** Update a provider */
+    updateProvider: async (id: string, formData: FormData) => {
+        const res = await fetch(`/api/admin/providers/${id}`, {
+            method: 'PATCH',
+            body: formData,
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update provider');
+        return data.provider;
+    },
+
+    /** Delete a provider */
+    deleteProvider: async (id: string) => {
+        const res = await fetch(`/api/admin/providers/${id}`, {
+            method: 'DELETE',
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete provider');
         return data.success;
     }
 };
