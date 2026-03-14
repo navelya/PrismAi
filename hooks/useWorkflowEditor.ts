@@ -327,9 +327,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     }, [setEditorState]);
 
     // Add a new node
-    const addNode = useCallback((type: NodeType, position: { x: number; y: number }) => {
+    const addNode = useCallback((type: NodeType, position: { x: number; y: number }, nodeTypeId?: string) => {
         touchInteraction();
-        const newNode = createNodeFromType(type, position);
+        const newNode = createNodeFromType(type, position, nodeTypeId);
         setEditorState((prev) => {
             const maxZ = Math.max(0, ...prev.nodes.map(n => n.zIndex || 0));
             return {

@@ -28,6 +28,7 @@ interface Control {
 
 interface AIGeneratorPropertiesProps {
     config: {
+        node_type_id?: string;
         model_id?: number;
         control_values?: Record<string, any>;
     };
@@ -38,15 +39,19 @@ export default function AIGeneratorProperties({ config, onUpdate }: AIGeneratorP
     const models = useAppStore(state => state.models);
     const isModelsLoading = useAppStore(state => state.isModelsLoading);
 
+    const filteredModels = config.node_type_id 
+        ? models.filter(m => m.node_type_id === config.node_type_id)
+        : models;
+
     useEffect(() => {
         // Default model selection if none exists (and models have loaded)
-        if (!isModelsLoading && models.length > 0 && !config.model_id) {
-            const firstActive = models.find(mod => mod.is_active) || models[0];
+        if (!isModelsLoading && filteredModels.length > 0 && !config.model_id) {
+            const firstActive = filteredModels.find(mod => mod.is_active) || filteredModels[0];
             onUpdate({ ...config, model_id: firstActive.id, control_values: {} });
         }
-    }, [isModelsLoading, models, config.model_id, onUpdate]);
+    }, [isModelsLoading, filteredModels, config.model_id, onUpdate]);
 
-    const selectedModel = models.find(m => m.id === config.model_id);
+    const selectedModel = filteredModels.find(m => m.id === config.model_id);
     const controls = selectedModel?.inputs_schema?.controls || [];
     const handles = selectedModel?.inputs_schema?.handles || [];
 
@@ -86,7 +91,7 @@ export default function AIGeneratorProperties({ config, onUpdate }: AIGeneratorP
                     label="Active Neural Model"
                     value={config.model_id?.toString() || ''}
                     onChange={(e) => handleModelChange(e.target.value)}
-                    options={models.filter(m => m.is_active).map(m => ({
+                    options={filteredModels.filter(m => m.is_active).map(m => ({
                         id: m.id.toString(),
                         display_name: m.display_name
                     }))}

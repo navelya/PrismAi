@@ -2,7 +2,8 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Workflow as WorkflowIcon, MessageSquare, Minimize2, Maximize2, Plus, X, Zap } from 'lucide-react';
+import { Workflow as WorkflowIcon, MessageSquare, Minimize2, Maximize2, Plus, X, Zap, ChevronLeft, ArrowLeft, Folder, Box } from 'lucide-react';
+import * as Icons from 'lucide-react';
 import SharedWorkflowEditor from '@/components/editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
@@ -52,7 +53,28 @@ export default function WorkspaceLayout({
     const setIsCanvasMode = useAppStore((s) => s.setIsCanvasMode);
     const isCopilotMinimized = useAppStore((s) => s.isCopilotMinimized);
     const setIsCopilotMinimized = useAppStore((s) => s.setIsCopilotMinimized);
+    
+    // Node Library Data & State
+    const categories = useAppStore(state => state.categories);
+    const nodeTypes = useAppStore(state => state.nodeTypes);
+    const fetchCategories = useAppStore(state => state.fetchCategories);
+    const fetchNodeTypes = useAppStore(state => state.fetchNodeTypes);
+    
     const [isNodeLibraryOpen, setIsNodeLibraryOpen] = useState(false);
+    const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+
+    // Initial Data Fetch
+    useEffect(() => {
+        if (isNodeLibraryOpen) {
+            fetchCategories();
+            fetchNodeTypes();
+        }
+    }, [isNodeLibraryOpen, fetchCategories, fetchNodeTypes]);
+
+    const activeCategory = categories.find(c => c.id === selectedCategoryId);
+    const filteredNodeTypes = selectedCategoryId 
+        ? nodeTypes.filter(nt => nt.parent_categories?.includes(selectedCategoryId))
+        : [];
 
     // Measure the container so we can compute numeric left/top for the sidebar.
     // This avoids `left: 'auto'` which Framer Motion cannot tween (causing the
@@ -123,51 +145,116 @@ export default function WorkspaceLayout({
                         transition={{ duration: 0.18, ease: 'easeOut' }}
                     >
                         <div className="w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-                            {/* Header — same as PropertyPanel */}
+                            {/* Header — Hierarchy Aware */}
                             <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle flex-shrink-0">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-1 h-3 bg-accent-primary rounded-full" />
-                                    <h3 className="font-bold text-sm text-content-primary">Node Library</h3>
+                                <div className="flex-1 min-w-0">
+                                    {selectedCategoryId ? (
+                                        <button 
+                                            onClick={() => setSelectedCategoryId(null)}
+                                            className="flex items-center gap-2 text-content-primary hover:text-accent-primary transition-colors group"
+                                        >
+                                            <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
+                                            <span className="text-xs font-bold uppercase tracking-widest truncate">Back</span>
+                                        </button>
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1 h-3 bg-accent-primary rounded-full" />
+                                            <h3 className="font-bold text-sm text-content-primary">Node Library</h3>
+                                        </div>
+                                    )}
                                 </div>
                                 <button
-                                    onClick={() => setIsNodeLibraryOpen(false)}
+                                    onClick={() => {
+                                        setIsNodeLibraryOpen(false);
+                                        setSelectedCategoryId(null);
+                                    }}
                                     className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group"
                                 >
                                     <X className="w-4 h-4 text-content-tertiary group-hover:text-content-primary" />
                                 </button>
                             </div>
 
-                            {/* Content */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">Dynamic Nodes</p>
-
-                                {/* AI Generator Card — the only node */}
-                                <div
-                                    draggable
-                                    onDragStart={(e) => {
-                                        e.dataTransfer.setData('application/reactflow', 'ai_generator');
-                                        e.dataTransfer.effectAllowed = 'move';
-                                        setIsNodeLibraryOpen(false);
-                                    }}
-                                    className="group/card flex items-start gap-3 p-4 border border-accent-primary/20 hover:border-accent-primary/50 rounded-xl cursor-move bg-accent-primary/5 hover:bg-accent-primary/10 transition-all duration-200 hover:shadow-lg hover:shadow-accent-primary/10"
-                                >
-                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-accent-primary/10 border border-accent-primary/20 group-hover/card:bg-accent-primary/20 transition-colors">
-                                        <Zap className="w-5 h-5 text-accent-primary" />
+                            {/* Content — Hierarchy Aware */}
+                            <div className="flex-1 overflow-y-auto relative">
+                                {/* Level 1: Categories */}
+                                <div className={cn(
+                                    "absolute inset-0 p-4 space-y-4 transition-all duration-300",
+                                    selectedCategoryId ? "-translate-x-full opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
+                                )}>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary mb-2">Categories</p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {categories.map((category) => {
+                                            const IconComponent = (Icons[category.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Folder;
+                                            return (
+                                                <button
+                                                    key={category.id}
+                                                    onClick={() => setSelectedCategoryId(category.id)}
+                                                    className="flex flex-col items-center justify-center p-4 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm"
+                                                >
+                                                    <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center mb-2 group-hover:bg-accent-primary/10 transition-colors">
+                                                        <IconComponent className="w-5 h-5 text-content-primary group-hover:text-accent-primary transition-colors" />
+                                                    </div>
+                                                    <span className="text-xs font-medium text-center line-clamp-1">{category.display_name}</span>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
-                                    <div className="flex-1 min-w-0 pt-0.5">
-                                        <div className="font-bold text-sm text-content-primary">AI Generator</div>
-                                        <div className="text-xs text-content-secondary mt-1 leading-relaxed">
-                                            Dynamic AI model node. Drag onto canvas and select any model — handles and controls are built automatically from the model schema.
+                                    
+                                    {categories.length === 0 && (
+                                        <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
+                                            <Box className="w-8 h-8 mb-2 opacity-20" />
+                                            <span className="text-xs">Loading categories...</span>
                                         </div>
-                                        <div className="mt-2 text-[10px] font-bold text-accent-primary uppercase tracking-widest">Drag to place ↗</div>
-                                    </div>
+                                    )}
                                 </div>
 
-                                {/* Hint */}
-                                <div className="p-3 bg-white/5 border border-stroke-subtle rounded-xl">
-                                    <p className="text-[10px] text-content-tertiary leading-relaxed">
-                                        The AI Generator node auto-configures its inputs, outputs, and controls from the model registered in the Admin Panel.
-                                    </p>
+                                {/* Level 2: Node Types */}
+                                <div className={cn(
+                                    "absolute inset-0 p-4 space-y-3 transition-all duration-300",
+                                    selectedCategoryId ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 pointer-events-none"
+                                )}>
+                                    <div className="mb-4">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">Nodes for</p>
+                                        <h4 className="text-lg font-bold text-content-primary">{activeCategory?.display_name}</h4>
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        {filteredNodeTypes.map((nt) => {
+                                            const IconComp = (Icons[nt.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Zap;
+                                            return (
+                                                <div
+                                                    key={nt.id}
+                                                    draggable
+                                                    onDragStart={(e) => {
+                                                        const payload = JSON.stringify({
+                                                            type: 'ai_generator',
+                                                            node_type_id: nt.id,
+                                                            archetype_id: nt.archetype_id
+                                                        });
+                                                        e.dataTransfer.setData('application/reactflow', payload);
+                                                        e.dataTransfer.effectAllowed = 'move';
+                                                        setIsNodeLibraryOpen(false);
+                                                    }}
+                                                    className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group"
+                                                >
+                                                    <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
+                                                        <IconComp className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="font-bold text-sm text-content-primary">{nt.display_name}</div>
+                                                        <div className="text-[10px] text-content-tertiary uppercase tracking-wider">Dynamic Node</div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        
+                                        {filteredNodeTypes.length === 0 && (
+                                            <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
+                                                <Icons.Inbox className="w-8 h-8 mb-2 opacity-20" />
+                                                <span className="text-xs">No models found in this category</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -318,4 +405,9 @@ export default function WorkspaceLayout({
             </AnimatePresence>
         </div>
     );
+}
+
+// Utility for conditional classes
+function cn(...classes: any[]) {
+    return classes.filter(Boolean).join(' ');
 }

@@ -117,8 +117,12 @@ interface AppState {
 
     // Global Model Catalog
     models: AiModel[];
+    categories: any[];
+    nodeTypes: any[];
     isModelsLoading: boolean;
     fetchModelCatalog: () => Promise<void>;
+    fetchCategories: () => Promise<void>;
+    fetchNodeTypes: () => Promise<void>;
 }
 
 const MAX_HISTORY = 50; // Keep last 50 snapshots
@@ -138,6 +142,10 @@ export const useAppStore = create<AppState>()(
                 zoom: 0.8,
                 viewport: { x: 0, y: 0 },
             },
+            models: [],
+            categories: [],
+            nodeTypes: [],
+            isModelsLoading: false,
             executionResults: {},
             nodeStatuses: {}, // Initialize empty status map
             nodeDirtyStates: {},
@@ -157,9 +165,7 @@ export const useAppStore = create<AppState>()(
             lastInteraction: Date.now(),
             touchInteraction: () => set({ lastInteraction: Date.now() }),
 
-            // Global Model Catalog
-            models: [],
-            isModelsLoading: false,
+            // Global Model Catalog Actions
             fetchModelCatalog: async () => {
                 if (get().models.length > 0) return;
                 set({ isModelsLoading: true });
@@ -170,6 +176,26 @@ export const useAppStore = create<AppState>()(
                 } catch (error) {
                     console.error('Failed to fetch model catalog:', error);
                     set({ isModelsLoading: false });
+                }
+            },
+            fetchCategories: async () => {
+                if (get().categories.length > 0) return;
+                try {
+                    const { modelsAdminApi } = await import('@/lib/api/admin');
+                    const data = await modelsAdminApi.listCategories();
+                    set({ categories: data || [] });
+                } catch (error) {
+                    console.error('Failed to fetch categories:', error);
+                }
+            },
+            fetchNodeTypes: async () => {
+                if (get().nodeTypes.length > 0) return;
+                try {
+                    const { modelsAdminApi } = await import('@/lib/api/admin');
+                    const data = await modelsAdminApi.listNodeTypes();
+                    set({ nodeTypes: data || [] });
+                } catch (error) {
+                    console.error('Failed to fetch node types:', error);
                 }
             },
 
@@ -198,6 +224,8 @@ export const useAppStore = create<AppState>()(
                     isCopilotMinimized: false,
                     chatScrollTop: 9999999,
                     models: [],
+                    categories: [],
+                    nodeTypes: [],
                     isModelsLoading: false,
                 });
             },

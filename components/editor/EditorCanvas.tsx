@@ -34,7 +34,7 @@ interface EditorCanvasProps {
     onEdgesChange: any;
     onConnect: any;
     onNodeClick?: NodeMouseHandler;
-    onDrop: (type: NodeType, position: { x: number; y: number }) => void;
+    onDrop: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string) => void;
     updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
     selectionMode?: boolean;
     onSelectionToggle?: () => void;
@@ -220,15 +220,28 @@ function EditorCanvasInner({
         (event: React.DragEvent) => {
             event.preventDefault();
 
-            const type = event.dataTransfer.getData('application/reactflow') as NodeType;
-            if (!type || !reactFlowInstance) return;
+            const rawData = event.dataTransfer.getData('application/reactflow');
+            if (!rawData || !reactFlowInstance) return;
+
+            let type: NodeType;
+            let nodeTypeId: string | undefined;
+
+            try {
+                // Attempt to parse as JSON (structured drop)
+                const payload = JSON.parse(rawData);
+                type = payload.type;
+                nodeTypeId = payload.node_type_id;
+            } catch (e) {
+                // Fallback for simple string drop (legacy/utility)
+                type = rawData as NodeType;
+            }
 
             const position = reactFlowInstance.screenToFlowPosition({
                 x: event.clientX,
                 y: event.clientY,
             });
 
-            onDrop(type, position);
+            onDrop(type, position, nodeTypeId);
         },
         [reactFlowInstance, onDrop]
     );

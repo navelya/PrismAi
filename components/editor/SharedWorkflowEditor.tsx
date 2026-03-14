@@ -43,13 +43,20 @@ export default function SharedWorkflowEditor({
     const models = useAppStore(state => state.models);
     const isModelsLoading = useAppStore(state => state.isModelsLoading);
     const fetchModelCatalog = useAppStore(state => state.fetchModelCatalog);
+    const fetchCategories = useAppStore(state => state.fetchCategories);
+    const fetchNodeTypes = useAppStore(state => state.fetchNodeTypes);
 
     useEffect(() => {
-        fetchModelCatalog().then(() => {
-            // Only clear booting after the initial fetch attempt finishes
+        const initializeCatalogs = async () => {
+            await Promise.all([
+                fetchModelCatalog(),
+                fetchCategories(),
+                fetchNodeTypes(),
+            ]);
             setIsBooting(false);
-        });
-    }, [fetchModelCatalog]);
+        };
+        initializeCatalogs();
+    }, [fetchModelCatalog, fetchCategories, fetchNodeTypes]);
 
     // ⚠️ CRITICAL: Use initialWorkflow prop directly, NOT currentWorkflow from store
     // The store's currentWorkflow is stale during session switches and causes state leakage
@@ -193,9 +200,9 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    const handleDrop = (type: NodeType, position: { x: number; y: number }) => {
+    const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string) => {
         if (readOnly) return;
-        addNode(type, position);
+        addNode(type, position, nodeTypeId);
     };
 
     const handleSave = async () => {

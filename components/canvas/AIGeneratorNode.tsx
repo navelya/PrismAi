@@ -37,6 +37,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     const output = liveOutput || data.output || data.config?.last_output;
 
     const models = useAppStore(state => state.models);
+    const nodeTypes = useAppStore(state => state.nodeTypes);
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
@@ -51,18 +52,24 @@ function AIGeneratorNode({ id, data, selected }: any) {
         setLightboxOpen(true);
     };
 
-    const selectedModel = models.find(m => m.id === data.config?.model_id) || null;
+    const nodeTypeId = data.config?.node_type_id;
+    const filteredModels = nodeTypeId 
+        ? models.filter(m => m.node_type_id === nodeTypeId)
+        : models;
+
+    const selectedModel = filteredModels.find(m => m.id === data.config?.model_id) || null;
+    const selectedNodeType = nodeTypes.find(nt => nt.id === nodeTypeId) || null;
 
     // Initial load for auto-selecting if empty
     useEffect(() => {
-        if (!data.config?.model_id && models.length > 0) {
-            const firstActive = models.find(mod => mod.is_active) || models[0];
+        if (!data.config?.model_id && filteredModels.length > 0) {
+            const firstActive = filteredModels.find(mod => mod.is_active) || filteredModels[0];
             setNodes(prev => prev.map(n => n.id === id
                 ? { ...n, data: { ...n.data, config: { ...n.data.config, model_id: firstActive.id, control_values: {} } } }
                 : n
             ));
         }
-    }, [id, models, data.config?.model_id, setNodes]);
+    }, [id, filteredModels, data.config?.model_id, setNodes]);
 
     // ⭐ React Flow Edge Validation — Clean up dangling edges when model/handles change
     const { getEdges, setEdges } = useReactFlow();
@@ -125,7 +132,8 @@ function AIGeneratorNode({ id, data, selected }: any) {
         <BaseNode
             id={id}
             type="ai_generator"
-            label={selectedModel ? selectedModel.display_name : (data.config?.model_id ? '⚠️ Unknown Model' : 'AI Generator')}
+            label={selectedNodeType ? selectedNodeType.display_name : (data.config?.model_id ? 'AI Model' : 'AI Generator')}
+            icon={selectedNodeType?.icon_reference}
             selected={selected}
             customInputs={customInputs}
             customOutputs={customOutputs}

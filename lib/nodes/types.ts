@@ -27,6 +27,21 @@ export interface OutputsSchema {
     handles?: OutputHandle[];
 }
 
+export interface Category {
+    id: string;
+    display_name: string;
+    icon_reference: string;
+    order_index: number;
+}
+
+export interface NodeTypeRecord {
+    id: string;
+    display_name: string;
+    icon_reference: string;
+    parent_categories: string[];
+    archetype_id?: string;
+}
+
 export interface AiModel {
     id: number;
     replicate_model_id: string;
@@ -34,6 +49,7 @@ export interface AiModel {
     credit_cost: number;
     is_active: boolean;
     category_id: string;
+    node_type_id: string | null;
     inputs_schema: InputsSchema | null;
     outputs_schema: OutputsSchema | null;
 }
@@ -148,6 +164,7 @@ export interface PromptConfig {
  */
 export interface AIGeneratorConfig {
     model_id?: number;
+    node_type_id?: string;
     control_values?: Record<string, any>;
     last_output?: any;
 }

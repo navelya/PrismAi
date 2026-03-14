@@ -6,7 +6,8 @@ import { generateNodeId, generateEdgeId } from '../utils';
  */
 export function createNodeFromType(
     type: NodeType,
-    position: { x: number; y: number }
+    position: { x: number; y: number },
+    nodeTypeId?: string
 ): WorkflowNode {
     const id = generateNodeId();
 
@@ -71,6 +72,7 @@ export function createNodeFromType(
             text: '',
         },
         ai_generator: {
+            node_type_id: nodeTypeId,
             control_values: {},
         },
     };
