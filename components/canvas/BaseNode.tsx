@@ -26,7 +26,6 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // Custom header actions
     customActions?: React.ReactNode;
     icon?: string;
-    providerLogo?: string;
 }
 
 const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
@@ -45,7 +44,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     badgeCount,
     customActions,
     icon,
-    providerLogo,
     ...props
 }, ref) => {
     const sharedDef = sharedRegistry[type as keyof typeof sharedRegistry];
@@ -339,7 +337,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 label={displayLabel}
                 color={nodeColor}
                 badgeCount={badgeCount}
-                providerLogo={providerLogo}
             />
 
             {/* Content Area */}

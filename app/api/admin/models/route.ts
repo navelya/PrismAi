@@ -16,7 +16,8 @@ export async function POST(req: Request) {
             credit_cost,
             is_active,
             inputs_schema,
-            outputs_schema
+            outputs_schema,
+            provider_id
         } = body;
 
         // Basic validation
@@ -35,7 +36,8 @@ export async function POST(req: Request) {
                 credit_cost: credit_cost || 0,
                 is_active: is_active ?? true,
                 inputs_schema: inputs_schema || { handles: [], controls: [] },
-                outputs_schema: outputs_schema || { handles: [] }
+                outputs_schema: outputs_schema || { handles: [] },
+                provider_id
             })
             .select()
             .single();

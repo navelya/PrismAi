@@ -141,7 +141,6 @@ function AIGeneratorNode({ id, data, selected }: any) {
             label={selectedNodeType ? selectedNodeType.display_name : (data.config?.model_id ? 'AI Model' : 'AI Generator')}
             icon={selectedNodeType?.icon_reference}
             selected={selected}
-            providerLogo={selectedModel?.providers?.logo_url || undefined}
             customInputs={customInputs}
             customOutputs={customOutputs}
             width={320}
@@ -224,6 +223,11 @@ function AIGeneratorNode({ id, data, selected }: any) {
                             // Let it bubble to open properties
                         }}
                     >
+                        {selectedModel.providers?.logo_url && (
+                            <div className="w-4 h-4 rounded-sm bg-white/10 p-0.5 shrink-0 overflow-hidden border border-white/5">
+                                <img src={selectedModel.providers.logo_url} alt="" className="w-full h-full object-contain" />
+                            </div>
+                        )}
                         <span className="text-xs font-bold text-white/80 truncate">{selectedModel.display_name}</span>
                         <MoreHorizontal className="w-4 h-4 text-white/20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     </div>

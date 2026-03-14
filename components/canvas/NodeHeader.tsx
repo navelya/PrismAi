@@ -22,13 +22,9 @@ export function NodeHeader({ icon, label, color, badgeCount, className, provider
             <div
                 className="w-6 h-6 rounded flex items-center justify-center shrink-0 bg-accent-primary/10 border border-accent-primary/20 overflow-hidden"
             >
-                {providerLogo ? (
-                    <img src={providerLogo} alt="" className="w-full h-full object-cover" />
-                ) : (
-                    <IconComponent
-                        className="w-3.5 h-3.5 text-accent-primary"
-                    />
-                )}
+                <IconComponent
+                    className="w-3.5 h-3.5 text-accent-primary"
+                />
             </div>
 
             <div className="flex-1 min-w-0">

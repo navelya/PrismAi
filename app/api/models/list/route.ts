@@ -8,7 +8,7 @@ export async function GET() {
 
         const { data, error } = await auth.supabase
             .from('ai_models')
-            .select('*')
+            .select('*, providers(name, logo_url)')
             .eq('is_active', true)
             .order('display_name');
 

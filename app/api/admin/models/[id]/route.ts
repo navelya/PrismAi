@@ -18,7 +18,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             credit_cost,
             is_active,
             inputs_schema,
-            outputs_schema
+            outputs_schema,
+            provider_id
         } = body;
 
         const { data, error } = await auth.supabase
@@ -33,6 +34,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
                 is_active,
                 inputs_schema,
                 outputs_schema,
+                provider_id,
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)
