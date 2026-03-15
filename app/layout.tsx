@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import React from 'react';
-import { Inter, Space_Grotesk } from 'next/font/google';
+// import { Inter, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import AppLayout from '@/components/layout/AppLayout';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
@@ -8,8 +8,8 @@ import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { Analytics } from '@vercel/analytics/next';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space' });
+// const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+// const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space' });
 
 export const metadata: Metadata = {
   title: 'Prism AI - Chat-First Automation Platform',
@@ -73,8 +73,16 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{ __html: themeScript }}
         />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans`}>
+      <body className="font-sans" style={{ 
+        fontFamily: "'Inter', sans-serif",
+        // @ts-ignore
+        '--font-inter': "'Inter', sans-serif",
+        '--font-space': "'Space Grotesk', sans-serif"
+      } as React.CSSProperties}>
         <ThemeProvider>
           <TooltipProvider delayDuration={400} skipDelayDuration={100}>
             <AppLayout>{children}</AppLayout>
