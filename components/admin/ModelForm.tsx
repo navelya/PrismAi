@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { parseReplicateSchema, formatDisplayName } from '@/lib/utils/schema-parser';
+import AIGeneratorProperties from '@/components/canvas/AIGeneratorProperties';
+import { Control } from '@/lib/nodes/types';
 
 // =============================================================================
 // UI COMPONENTS
@@ -91,10 +94,15 @@ export function ModelForm({
         node_type_id: initialData?.node_type_id || '',
     });
 
+    const [isFetchingSchema, setIsFetchingSchema] = useState(false);
+    const [previewConfig, setPreviewConfig] = useState<any>({
+        control_values: {}
+    });
+
     // Visual Schema States
-    const [visualControls, setVisualControls] = useState<Array<{ id: string, component_id: string, api_key: string, default_value: any }>>([]);
-    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_key: string, type: string, is_array: boolean, is_mandatory: boolean }>>([]);
-    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_key: string, type: string, is_array: boolean }>>([]);
+    const [visualControls, setVisualControls] = useState<Array<Control & { id: string }>>([]);
+    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean }>>([]);
+    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_visible: boolean }>>([]);
 
     // -------------------------------------------------------------------------
     // INITIALIZATION (EFFECTS)
@@ -132,20 +140,20 @@ export function ModelForm({
                 setVisualInputWires(inputs.handles.map((h: any) => ({
                     id: Math.random().toString(),
                     name: h.name,
-                    api_key: h.api_mapping_key || h.api_key,
+                    api_mapping_key: h.api_mapping_key,
                     type: h.type || 'image',
                     is_array: h.is_array ?? false,
-                    is_mandatory: h.is_mandatory ?? false
+                    is_mandatory: h.is_mandatory ?? false,
+                    is_visible: h.is_visible ?? true
                 })));
             }
 
             // Map controls
             if (inputs.controls) {
                 setVisualControls(inputs.controls.map((c: any) => ({
+                    ...c,
                     id: Math.random().toString(),
-                    component_id: c.component,
-                    api_key: c.api_mapping_key || c.name,
-                    default_value: c.default_value
+                    is_visible: c.is_visible ?? true
                 })));
             }
         }
@@ -154,12 +162,23 @@ export function ModelForm({
             setVisualOutputWires(initialData.outputs_schema.handles.map((h: any) => ({
                 id: Math.random().toString(),
                 name: h.name,
-                api_key: h.api_mapping_key || '',
+                api_mapping_key: h.api_mapping_key || '',
                 type: h.type || 'image',
-                is_array: h.is_array ?? false
+                is_array: h.is_array ?? false,
+                is_visible: h.is_visible ?? true
             })));
         }
     }, [initialData]);
+
+    // Update preview config when controls change
+    useEffect(() => {
+        setPreviewConfig({
+            control_values: visualControls.reduce((acc, ctrl) => ({
+                ...acc,
+                [ctrl.api_mapping_key]: ctrl.default_value
+            }), {})
+        });
+    }, [visualControls]);
 
     // -------------------------------------------------------------------------
     // DYNAMIC FILTERING
@@ -180,34 +199,110 @@ export function ModelForm({
     // -------------------------------------------------------------------------
     // HANDLERS
     // -------------------------------------------------------------------------
+    const fetchSchema = async () => {
+        if (!form.replicate_model_id) return;
+        setIsFetchingSchema(true);
+        try {
+            const response = await fetch(`/api/replicate/schema?model_id=${form.replicate_model_id}`);
+            if (!response.ok) throw new Error('Failed to fetch schema');
+            const data = await response.json();
+            
+            const parsed = parseReplicateSchema(data.openapi_schema);
+            
+            // Map parsed to state
+            setVisualInputWires(parsed.inputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
+            setVisualControls(parsed.inputs.controls.map((c: any) => ({ ...c, id: Math.random().toString() })));
+            setVisualOutputWires(parsed.outputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
+
+            // Auto-match provider
+            const ownerName = data.owner || '';
+            const matchedProvider = providers.find(p => p.name.toLowerCase().includes(ownerName.toLowerCase()));
+            
+            if (matchedProvider) {
+                setForm(prev => ({ ...prev, provider_id: matchedProvider.id }));
+            } else if (ownerName) {
+                // Prompt to add provider if it doesn't exist
+                const confirmAdd = window.confirm(`AI Provider "${ownerName}" not found. Would you like to add it automatically?`);
+                if (confirmAdd) {
+                    try {
+                        const createRes = await fetch('/api/admin/providers', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: ownerName, is_active: true })
+                        });
+                        if (createRes.ok) {
+                            const newProvider = await createRes.json();
+                            // Note: In a real app, we might need to refresh the providers list from the parent
+                            // or optimismically add it here. For now, we assume the user might need to re-fetch 
+                            // or the parent handles the update.
+                            setForm(prev => ({ ...prev, provider_id: newProvider.id }));
+                            alert(`Provider "${ownerName}" added successfully.`);
+                        }
+                    } catch (e) {
+                         console.error("Failed to create provider", e);
+                    }
+                }
+            }
+            
+            if (!form.display_name) {
+                const rawName = form.replicate_model_id.split('/')[1]?.split(':')[0] || form.replicate_model_id;
+                setForm(prev => ({ ...prev, display_name: formatDisplayName(rawName) }));
+            }
+        } catch (error) {
+            console.error(error);
+            alert('Error fetching schema. Please check the Model ID and try again.');
+        } finally {
+            setIsFetchingSchema(false);
+        }
+    };
+
+    const handlePreviewUpdate = (newConfig: any) => {
+        setPreviewConfig(newConfig);
+        // Update default values in visualControls based on preview interaction
+        const newControls = visualControls.map(ctrl => ({
+            ...ctrl,
+            default_value: newConfig.control_values[ctrl.api_mapping_key] ?? ctrl.default_value
+        }));
+        setVisualControls(newControls);
+    };
+
+    const handleToggleVisibility = (key: string, type: 'control' | 'handle') => {
+        if (type === 'control') {
+            setVisualControls(prev => prev.map(c => 
+                c.api_mapping_key === key ? { ...c, is_visible: !c.is_visible } : c
+            ));
+        } else {
+            setVisualInputWires(prev => prev.map(w => 
+                w.api_mapping_key === key ? { ...w, is_visible: !w.is_visible } : w
+            ));
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         const compiledInputs = {
             handles: visualInputWires.map(wire => ({
                 name: wire.name,
-                api_mapping_key: wire.api_key,
+                api_mapping_key: wire.api_mapping_key,
                 type: wire.type,
                 is_array: wire.is_array,
-                is_mandatory: wire.is_mandatory
+                is_mandatory: wire.is_mandatory,
+                is_visible: wire.is_visible
             })),
             controls: visualControls.map(ctrl => {
-                const dictItem = COMPONENT_DICTIONARY.find(d => d.id === ctrl.component_id);
-                return {
-                    api_mapping_key: ctrl.api_key,
-                    type: dictItem?.type || 'string',
-                    component: ctrl.component_id,
-                    default_value: ctrl.default_value
-                };
+                const { id, ...rest } = ctrl;
+                return rest;
             })
         };
 
         const compiledOutputs = {
             handles: visualOutputWires.map(wire => ({
                 name: wire.name,
-                api_mapping_key: wire.api_key,
+                api_mapping_key: wire.api_mapping_key,
                 type: wire.type,
-                is_array: wire.is_array
+                is_array: wire.is_array,
+                is_visible: wire.is_visible
             }))
         };
 
@@ -225,23 +320,35 @@ export function ModelForm({
                 title="Model Identification"
                 description="Core identifiers for the Replicate mapping."
             >
-                <div className="flex flex-col sm:flex-row gap-4">
-                    <Input
-                        label="Replicate Model ID"
-                        name="replicate_model_id"
-                        value={form.replicate_model_id}
-                        onChange={e => setForm({ ...form, replicate_model_id: e.target.value })}
-                        placeholder="stability-ai/sdxl:39ed..."
-                        required
-                    />
-                    <Input
-                        label="Display Name"
-                        name="display_name"
-                        value={form.display_name}
-                        onChange={e => setForm({ ...form, display_name: e.target.value })}
-                        placeholder="SDXL Base"
-                        required
-                    />
+                <div className="flex flex-col sm:flex-row gap-4 items-end">
+                    <div className="flex-1">
+                        <Input
+                            label="Replicate Model ID"
+                            name="replicate_model_id"
+                            value={form.replicate_model_id}
+                            onChange={e => setForm({ ...form, replicate_model_id: e.target.value })}
+                            placeholder="stability-ai/sdxl:39ed..."
+                            required
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={fetchSchema}
+                        disabled={isFetchingSchema || !form.replicate_model_id}
+                        className="mb-0.5 px-4 py-3 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary border border-accent-primary/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 h-[48px]"
+                    >
+                        {isFetchingSchema ? 'Fetching...' : 'Fetch Schema'}
+                    </button>
+                    <div className="flex-1">
+                        <Input
+                            label="Display Name"
+                            name="display_name"
+                            value={form.display_name}
+                            onChange={e => setForm({ ...form, display_name: e.target.value })}
+                            placeholder="SDXL Base"
+                            required
+                        />
+                    </div>
                 </div>
             </FormSection>
 
@@ -314,238 +421,51 @@ export function ModelForm({
                 </div>
             </FormSection>
 
-            {/* VISUAL SCHEMA BUILDER */}
+            {/* LIVE PREVIEW SECTION */}
             <div className="pt-12 border-b border-white/5 pb-12">
-                <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl gap-6">
-                    <div>
-                        <h3 className="font-black text-content-primary text-base inline-flex items-center gap-3 uppercase tracking-tighter">
-                            <div className="w-8 h-8 rounded-xl bg-accent-primary/10 flex items-center justify-center border border-accent-primary/30">
-                                <Layers className="w-4 h-4 text-accent-primary" />
-                            </div>
-                            Visual Schema Builder
-                        </h3>
-                        <p className="text-xs text-content-tertiary mt-2 max-w-lg leading-relaxed font-medium">
-                            Design the node's UI controls and data flow handles. This automatically compiles to JSON on save.
-                        </p>
+                <div className="mb-8 bg-black/40 p-8 rounded-[2.5rem] border border-white/5 shadow-inner">
+                    <div className="flex items-center justify-between mb-8">
+                        <div>
+                            <h3 className="font-black text-content-primary text-base inline-flex items-center gap-3 uppercase tracking-tighter">
+                                Live Visual Preview
+                            </h3>
+                            <p className="text-[10px] text-content-tertiary mt-1 uppercase tracking-widest font-bold opacity-60">
+                                Real-time interface testing & default curator
+                            </p>
+                        </div>
+                        <div className="px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                            <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">Interactive</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setVisualControls([...visualControls, { id: Math.random().toString(), component_id: COMPONENT_DICTIONARY[0].id, api_key: '', default_value: COMPONENT_DICTIONARY[0].default_value }])}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-content-primary text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
-                        >
-                            <Settings2 className="w-4 h-4" /> Property
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setVisualInputWires([...visualInputWires, { id: Math.random().toString(), name: 'input', api_key: '', type: 'image', is_array: false, is_mandatory: false }])}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
-                        >
-                            <Link2 className="w-4 h-4" /> In Wire
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setVisualOutputWires([...visualOutputWires, { id: Math.random().toString(), name: 'output', api_key: '', type: 'image', is_array: false }])}
-                            className="flex items-center gap-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 text-xs font-bold uppercase tracking-wider rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
-                        >
-                            <Link2 className="w-4 h-4" /> Out Wire
-                        </button>
+                    
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-8 backdrop-blur-xl">
+                         <AIGeneratorProperties 
+                            config={{
+                                model_id: 1, // Dummy ID for preview
+                                control_values: previewConfig.control_values
+                            }}
+                            // We mock the properties here by passing the current visual state
+                            // instead of relying on the store lookup which wouldn't have the new model yet
+                            // @ts-ignore - Mocking selectedModel for preview
+                            selectedModel={{
+                                inputs_schema: {
+                                    controls: visualControls,
+                                    handles: visualInputWires
+                                }
+                            }}
+                            editMode={true}
+                            hideSelector={true}
+                            onToggleVisibility={handleToggleVisibility}
+                            onUpdate={handlePreviewUpdate}
+                         />
+                         
+                         {visualControls.length === 0 && (
+                            <div className="text-center py-8 opacity-40">
+                                <p className="text-[10px] font-bold uppercase tracking-widest">Preview inactive - empty schema</p>
+                            </div>
+                         )}
                     </div>
-                </div>
-
-                <div className="space-y-4">
-                    {/* Input Wires */}
-                    {visualInputWires.length > 0 && (
-                        <div className="bg-surface-primary border border-blue-500/20 rounded-xl p-4 shadow-sm relative">
-                            <div className="absolute top-0 left-0 w-1 h-full bg-blue-500/50"></div>
-                            <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-6 pl-2">Input Wires (Handles)</h4>
-                            <div className="space-y-4">
-                                {visualInputWires.map((wire, idx) => (
-                                    <div key={wire.id} className="flex items-start gap-5 bg-white/5 p-4 rounded-2xl border border-white/5 group transition-all hover:bg-white/10">
-                                        <Input
-                                            label="Handle Name"
-                                            value={wire.name}
-                                            onChange={e => {
-                                                const newWires = [...visualInputWires];
-                                                newWires[idx].name = e.target.value;
-                                                setVisualInputWires(newWires);
-                                            }}
-                                            placeholder="e.g. image"
-                                        />
-                                        <Input
-                                            label="Replicate API Key"
-                                            value={wire.api_key}
-                                            onChange={e => {
-                                                const newWires = [...visualInputWires];
-                                                newWires[idx].api_key = e.target.value;
-                                                setVisualInputWires(newWires);
-                                            }}
-                                            placeholder="e.g. prompt, image"
-                                            required
-                                        />
-                                        <Select
-                                            label="Type"
-                                            value={wire.type}
-                                            className="max-w-[150px]"
-                                            options={WIRE_TYPES.map(t => ({ id: t, display_name: t }))}
-                                            onChange={e => {
-                                                const newWires = [...visualInputWires];
-                                                newWires[idx].type = e.target.value;
-                                                setVisualInputWires(newWires);
-                                            }}
-                                        />
-                                        <div className="pt-6 flex gap-4">
-                                            <Checkbox
-                                                label="Array"
-                                                checked={wire.is_array}
-                                                onCheckedChange={(checked) => {
-                                                    const newWires = [...visualInputWires];
-                                                    newWires[idx].is_array = checked;
-                                                    setVisualInputWires(newWires);
-                                                }}
-                                            />
-                                            <Checkbox
-                                                label="Required"
-                                                checked={wire.is_mandatory}
-                                                onCheckedChange={(checked) => {
-                                                    const newWires = [...visualInputWires];
-                                                    newWires[idx].is_mandatory = checked;
-                                                    setVisualInputWires(newWires);
-                                                }}
-                                            />
-                                        </div>
-                                        <button type="button" onClick={() => setVisualInputWires(visualInputWires.filter(w => w.id !== wire.id))} className="p-2 text-content-tertiary hover:text-red-500 mt-5">
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* UI Controls */}
-                    {visualControls.length > 0 && (
-                        <div className="bg-surface-primary border border-stroke-subtle rounded-xl p-4 shadow-sm relative">
-                            <div className="absolute top-0 left-0 w-1 h-full bg-accent-primary/50"></div>
-                            <h4 className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.2em] mb-6 pl-2">UI Properties (Controls)</h4>
-                            <div className="space-y-4">
-                                {visualControls.map((ctrl, idx) => (
-                                    <div key={ctrl.id} className="flex flex-col md:flex-row items-start gap-5 bg-white/5 p-4 rounded-2xl border border-white/5 group transition-all hover:bg-white/10">
-
-                                        <Select
-                                            label="UI Component"
-                                            value={ctrl.component_id}
-                                            className="min-w-[200px]"
-                                            options={COMPONENT_DICTIONARY.map(c => ({ id: c.id, display_name: c.label }))}
-                                            onChange={e => {
-                                                const newCtrls = [...visualControls];
-                                                const dictItem = COMPONENT_DICTIONARY.find(d => d.id === e.target.value);
-                                                newCtrls[idx].component_id = e.target.value;
-                                                newCtrls[idx].default_value = dictItem?.default_value;
-                                                setVisualControls(newCtrls);
-                                            }}
-                                        />
-
-                                        <Input
-                                            label="Replicate API Key"
-                                            value={ctrl.api_key}
-                                            onChange={e => {
-                                                const newCtrls = [...visualControls];
-                                                newCtrls[idx].api_key = e.target.value;
-                                                setVisualControls(newCtrls);
-                                            }}
-                                            placeholder="e.g. prompt, aspect_ratio"
-                                            required
-                                        />
-
-                                        <Input
-                                            label="Default Value"
-                                            value={ctrl.default_value}
-                                            onChange={e => {
-                                                const newCtrls = [...visualControls];
-                                                newCtrls[idx].default_value = e.target.value;
-                                                setVisualControls(newCtrls);
-                                            }}
-                                            className="font-mono text-xs max-w-[150px]"
-                                        />
-
-                                        <button type="button" onClick={() => setVisualControls(visualControls.filter(c => c.id !== ctrl.id))} className="p-2 text-content-tertiary hover:text-red-500 sm:mt-5 self-end sm:self-auto">
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Output Wires */}
-                    {visualOutputWires.length > 0 && (
-                        <div className="bg-surface-primary border border-green-500/20 rounded-xl p-4 shadow-sm relative">
-                            <div className="absolute top-0 left-0 w-1 h-full bg-green-500/50"></div>
-                            <h4 className="text-[10px] font-black text-green-500 uppercase tracking-[0.2em] mb-6 pl-2">Output Wires (Handles)</h4>
-                            <div className="space-y-4">
-                                {visualOutputWires.map((wire, idx) => (
-                                    <div key={wire.id} className="flex items-start gap-5 bg-white/5 p-4 rounded-2xl border border-white/5 group transition-all hover:bg-white/10">
-                                        <Input
-                                            label="Handle Name"
-                                            value={wire.name}
-                                            onChange={e => {
-                                                const newWires = [...visualOutputWires];
-                                                newWires[idx].name = e.target.value;
-                                                setVisualOutputWires(newWires);
-                                            }}
-                                            placeholder="e.g. output"
-                                        />
-                                        <Input
-                                            label="Replicate API Key"
-                                            value={wire.api_key}
-                                            onChange={e => {
-                                                const newWires = [...visualOutputWires];
-                                                newWires[idx].api_key = e.target.value;
-                                                setVisualOutputWires(newWires);
-                                            }}
-                                            placeholder="e.g. image, text"
-                                        />
-                                        <Select
-                                            label="Type"
-                                            value={wire.type}
-                                            className="max-w-[150px]"
-                                            options={WIRE_TYPES.map(t => ({ id: t, display_name: t }))}
-                                            onChange={e => {
-                                                const newWires = [...visualOutputWires];
-                                                newWires[idx].type = e.target.value;
-                                                setVisualOutputWires(newWires);
-                                            }}
-                                        />
-                                        <div className="pt-6">
-                                            <Checkbox
-                                                label="Is Array"
-                                                checked={wire.is_array}
-                                                onCheckedChange={(checked) => {
-                                                    const newWires = [...visualOutputWires];
-                                                    newWires[idx].is_array = checked;
-                                                    setVisualOutputWires(newWires);
-                                                }}
-                                            />
-                                        </div>
-                                        <button type="button" onClick={() => setVisualOutputWires(visualOutputWires.filter(w => w.id !== wire.id))} className="p-2 text-content-tertiary hover:text-red-500 mt-5">
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {visualControls.length === 0 && visualInputWires.length === 0 && visualOutputWires.length === 0 && (
-                        <div className="text-center py-16 bg-white/5 rounded-3xl border border-dashed border-white/10 backdrop-blur-sm">
-                            <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-6 border border-white/10 shadow-2xl">
-                                <Layers className="w-8 h-8 text-content-tertiary opacity-40" />
-                            </div>
-                            <p className="text-content-primary text-sm font-bold uppercase tracking-tight">No schema defined yet</p>
-                            <p className="text-content-tertiary text-[10px] mt-2 max-w-[200px] mx-auto leading-relaxed font-medium opacity-60">Add properties or wires using the action bar above to start building.</p>
-                        </div>
-                    )}
                 </div>
             </div>
 

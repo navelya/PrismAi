@@ -9,6 +9,7 @@ export interface InputHandle {
     type: string;
     is_array: boolean;
     is_mandatory: boolean;
+    is_visible: boolean;
 }
 
 export interface OutputHandle {
@@ -16,11 +17,25 @@ export interface OutputHandle {
     api_mapping_key: string;
     type: string;
     is_array: boolean;
+    is_visible: boolean;
+}
+
+export interface Control {
+    api_mapping_key: string;
+    type: string;
+    component: 'text_input' | 'textarea' | 'slider' | 'number_input' | 'checkbox' | 'select' | 'prompt_textarea' | 'negative_prompt' | 'aspect_ratio' | 'resolution' | 'format' | 'reverse' | 'threshold';
+    default_value: any;
+    is_visible: boolean;
+    label?: string;
+    options?: string[];
+    min?: number;
+    max?: number;
+    step?: number;
 }
 
 export interface InputsSchema {
     handles?: InputHandle[];
-    controls?: any[];
+    controls?: Control[];
 }
 
 export interface OutputsSchema {
