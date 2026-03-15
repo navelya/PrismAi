@@ -220,7 +220,9 @@ export async function POST(request: NextRequest) {
                         onStatusUpdate,
                         undefined,
                         onNodePersist,
-                        runMode || 'chain'
+                        runMode || 'chain',
+                        userId,
+                        sessionId
                     );
                 } else {
                     result = await executeWorkflow(
@@ -230,6 +232,8 @@ export async function POST(request: NextRequest) {
                         undefined,
                         undefined,
                         onNodePersist,
+                        userId,
+                        sessionId
                     );
                 }
 

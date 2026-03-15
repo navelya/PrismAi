@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Eye, EyeOff, Info, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
+import { Input } from '@/components/ui/Input';
+import { NumberInput } from '@/components/ui/NumberInput';
 import { cn } from '@/lib/utils';
 import { formatDisplayName } from '@/lib/utils/schema-parser';
 
@@ -189,7 +191,7 @@ function ControlRenderer({
     const baseInputClass =
         'w-full bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm px-4 py-3 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/50 hover:bg-white/10 hover:border-white/20 shadow-inner';
 
-    const label = control.label || control.api_mapping_key.replace(/_/g, ' ');
+    const label = control.label || formatDisplayName(control.api_mapping_key);
 
     switch (control.component) {
         case 'textarea':
@@ -295,36 +297,24 @@ function ControlRenderer({
             );
         case 'number_input':
             return (
-                <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider pl-1 opacity-80 leading-none">
-                        {label}
-                    </label>
-                    <input
-                        type="number"
-                        min={control.min}
-                        max={control.max}
-                        step={control.step ?? 1}
-                        value={value ?? control.default_value ?? 0}
-                        onChange={e => onChange(control.api_mapping_key, parseFloat(e.target.value))}
-                        className={baseInputClass}
-                    />
-                </div>
+                <NumberInput
+                    label={label}
+                    min={control.min}
+                    max={control.max}
+                    step={control.step ?? 1}
+                    value={value ?? control.default_value ?? 0}
+                    onChange={e => onChange(control.api_mapping_key, parseFloat(e.target.value))}
+                />
             );
         case 'text_input':
         default:
             return (
-                <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider pl-1 opacity-80 leading-none">
-                        {label}
-                    </label>
-                    <input
-                        type="text"
-                        value={value ?? control.default_value ?? ''}
-                        onChange={e => onChange(control.api_mapping_key, e.target.value)}
-                        className={baseInputClass}
-                        placeholder={`${control.api_mapping_key}...`}
-                    />
-                </div>
+                <Input
+                    label={label}
+                    value={value ?? control.default_value ?? ''}
+                    onChange={e => onChange(control.api_mapping_key, e.target.value)}
+                    placeholder={`${control.api_mapping_key}...`}
+                />
             );
     }
 }

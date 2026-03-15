@@ -16,19 +16,24 @@ export const mediaInputExecutor = async (
             };
         }
 
-        // Convert base64 data URLs to ImageObject format
-        const imageObjects: ImageObject[] = images.map((dataUrl: any, index: number) => ({
-            url: dataUrl,
-            resolution: {
-                width: 800,  // Placeholder - actual dimensions determined at runtime
-                height: 600,
-            },
-            metadata: {
-                title: `Uploaded Image ${index + 1}`,
-                source: 'User Upload',
-                format: dataUrl.includes('image/png') ? 'png' : 'jpg',
-            },
-        }));
+        // Convert base64 data URLs or storage objects to ImageObject format
+        const imageObjects: ImageObject[] = images.map((img: any, index: number) => {
+            const url = typeof img === 'string' ? img : img?.url;
+            const isPng = typeof url === 'string' && url.includes('image/png');
+
+            return {
+                url,
+                resolution: {
+                    width: 800, // Placeholder - actual dimensions determined at runtime
+                    height: 600,
+                },
+                metadata: {
+                    title: `Uploaded Image ${index + 1}`,
+                    source: 'User Upload',
+                    format: isPng ? 'png' : 'jpg',
+                },
+            };
+        });
 
         return {
             success: true,

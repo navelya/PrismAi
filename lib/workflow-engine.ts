@@ -45,7 +45,9 @@ export async function executeWorkflow(
         prevThumbnailPaths: string[],
         isLeafNode: boolean,
         forceOverwrite?: boolean
-    ) => Promise<any>
+    ) => Promise<any>,
+    userId?: string,
+    sessionId?: string
 ) {
     return executeWorkflowFromNode(
         workflow,
@@ -55,7 +57,9 @@ export async function executeWorkflow(
         onStatusUpdate,
         onNodeOutput,
         onNodePersist,
-        'all'
+        'all',
+        userId,
+        sessionId
     );
 }
 
@@ -82,7 +86,9 @@ export async function executeWorkflowFromNode(
         resultUrls: string[];
         computedHash: string;
     } | null>,
-    runMode: RunMode = 'chain'
+    runMode: RunMode = 'chain',
+    userId?: string,
+    sessionId?: string
 ): Promise<{
     success: boolean;
     result: any;
@@ -173,6 +179,8 @@ export async function executeWorkflowFromNode(
         const context: ExecutionContext = {
             workflowId: workflow.id || 'temp',
             executionId,
+            userId,
+            sessionId,
             data: null,
         };
 

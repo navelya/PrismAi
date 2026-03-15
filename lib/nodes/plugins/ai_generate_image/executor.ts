@@ -1,4 +1,8 @@
+import { createClient } from '@supabase/supabase-js';
 import { ExecutionContext, NodeExecutionResult, AIGenerateImageConfig } from '../../types';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export const aiGenerateImageExecutor = async (
     config: AIGenerateImageConfig,
@@ -65,12 +69,30 @@ export const aiGenerateImageExecutor = async (
             const arrayBuffer = await blob.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
             const mimeType = blob.type || 'image/png';
-            const base64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
+            
+            let finalUrl: string;
+            
+            // If we have context, upload to storage instead of returning base64
+            if (context.userId && context.sessionId) {
+                try {
+                    const { uploadApi } = await import('@/lib/api/client');
+                    const result = await uploadApi.upload(blob, {
+                        sessionId: context.sessionId,
+                        filename: `gen-${Date.now()}.png`
+                    });
+                    finalUrl = result.publicUrl;
+                } catch (e) {
+                    console.warn('Browser-side upload failed, falling back to base64', e);
+                    finalUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+                }
+            } else {
+                finalUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+            }
 
             return {
                 success: true,
                 data: [{
-                    url: base64,
+                    url: finalUrl,
                     resolution: { width: model === 'gemini' ? 1024 : width, height: model === 'gemini' ? 1024 : height },
                     metadata: {
                         title: `AI Generated: ${prompt}`,
@@ -140,13 +162,43 @@ export const aiGenerateImageExecutor = async (
 
                     const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
                     const mimeType = imagePart.inlineData.mimeType || 'image/png';
-                    const base64 = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
-                    console.log(`✅ [Server] Image generated with ${tryModel} (${imageBuffer.length} bytes)`);
+                    
+                    let finalUrl: string;
+
+                    // If we have context, upload to storage instead of returning base64
+                    if (context.userId && context.sessionId) {
+                        try {
+                            const adminSupabase = createClient(supabaseUrl, supabaseServiceKey);
+                            const ext = mimeType.split('/')[1] || 'png';
+                            const storagePath = `${context.userId}/${context.sessionId}/generative/gen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+                            
+                            const { error: uploadError } = await adminSupabase.storage
+                                .from('chat-assets')
+                                .upload(storagePath, imageBuffer, {
+                                    contentType: mimeType,
+                                    upsert: false
+                                });
+
+                            if (uploadError) throw uploadError;
+
+                            const { data: urlData } = adminSupabase.storage
+                                .from('chat-assets')
+                                .getPublicUrl(storagePath);
+                            
+                            finalUrl = urlData.publicUrl;
+                            console.log(`✅ [Server] Image uploaded to: ${storagePath}`);
+                        } catch (e) {
+                            console.error('Server-side upload failed, falling back to base64', e);
+                            finalUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+                        }
+                    } else {
+                        finalUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+                    }
 
                     return {
                         success: true,
                         data: [{
-                            url: base64,
+                            url: finalUrl,
                             resolution: { width: 1024, height: 1024 },
                             metadata: {
                                 title: `AI Generated: ${prompt}`,

@@ -61,7 +61,8 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
                     const subItems = Array.isArray(item) ? item : [item];
                     return subItems.map(sub => {
                         if (typeof sub === 'object' && sub !== null) {
-                            return sub.url || sub.text || sub;
+                            // Recursively look for url or text if nested
+                            return sub.url || sub.text || (sub.data && sub.data.url) || sub;
                         }
                         return sub;
                     });

@@ -242,6 +242,8 @@ export interface Workflow {
 export interface ExecutionContext {
     workflowId: string;
     executionId: string;
+    userId?: string;
+    sessionId?: string;
     data: any;
 }
 
