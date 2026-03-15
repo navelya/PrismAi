@@ -119,10 +119,14 @@ export default function AdminPage() {
             if (editingModel) {
                 await modelsAdminApi.updateModel(editingModel.id, data);
                 setStatus({ type: 'success', message: 'AI Model updated successfully!' });
-                setEditingModel(null);
+                // We stay in editing mode as requested
+                const updatedMod = { ...editingModel, ...data };
+                setEditingModel(updatedMod);
             } else {
-                await modelsAdminApi.createModel(data);
+                const newModel = await modelsAdminApi.createModel(data);
                 setStatus({ type: 'success', message: 'AI Model registered successfully!' });
+                // Optionally switch to edit mode for the new model if needed, 
+                // but for now we just keep the status message visible.
             }
             await loadData();
         } catch (err: any) {

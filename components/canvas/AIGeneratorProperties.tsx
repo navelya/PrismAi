@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Loader2, Eye, EyeOff, Info, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/utils';
+import { formatDisplayName } from '@/lib/utils/schema-parser';
 
 // =============================================================================
 // TYPES (Synced with AIGeneratorNode)
@@ -29,9 +30,10 @@ interface AIGeneratorPropertiesProps {
     editMode?: boolean;
     onToggleVisibility?: (key: string, type: 'control' | 'handle') => void;
     hideSelector?: boolean;
+    selectedModelOverride?: Partial<AiModel>;
 }
 
-export default function AIGeneratorProperties({ config, onUpdate, editMode = false, onToggleVisibility, hideSelector = false }: AIGeneratorPropertiesProps) {
+export default function AIGeneratorProperties({ config, onUpdate, editMode = false, onToggleVisibility, hideSelector = false, selectedModelOverride }: AIGeneratorPropertiesProps) {
     const models = useAppStore(state => state.models);
     const isModelsLoading = useAppStore(state => state.isModelsLoading);
 
@@ -47,7 +49,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
         }
     }, [isModelsLoading, filteredModels, config.model_id, onUpdate]);
 
-    const selectedModel = filteredModels.find(m => m.id === config.model_id);
+    const selectedModel = selectedModelOverride || filteredModels.find(m => m.id === config.model_id);
     const controls = selectedModel?.inputs_schema?.controls || [];
     const handles = selectedModel?.inputs_schema?.handles || [];
 
@@ -85,57 +87,42 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
             <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-8">
                 {/* Model Selection */}
                 {!hideSelector && (
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4 shadow-xl ring-1 ring-white/5">
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 shadow-xl ring-1 ring-white/5">
                         <Select
-                            label="Active Neural Model"
+                            label="Model"
                             value={config.model_id?.toString() || ''}
                             onChange={(e) => handleModelChange(e.target.value)}
                             options={filteredModels.filter(m => m.is_active).map(m => ({
                                 id: m.id.toString(),
                                 display_name: m.display_name
                             }))}
-                            placeholder="Select a neural model..."
+                            placeholder="Select a model..."
                         />
                     </div>
                 )}
 
-            {/* Architecture Note (Parity with AIGenerateImage) */}
-            {handles.length > 0 && (
+            {/* Curation Handles */}
+            {editMode && handles.length > 0 && (
                 <div className="space-y-4">
-                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[10px] text-content-secondary leading-relaxed font-medium animate-in fade-in duration-700">
-                        <span className="font-bold text-blue-400 uppercase tracking-wider block mb-1">Architecture Note</span>
-                        This model requires external inputs. Connect compatible nodes to the
-                        {handles.map((h: any, i: number) => (
-                            <span key={h.api_mapping_key}>
-                                {i > 0 && i === handles.length - 1 ? ' and ' : i > 0 ? ', ' : ' '}
-                                <b className="text-content-primary">{h.name}</b>
-                            </span>
-                        ))}
-                        handle{handles.length > 1 ? 's' : ''} to provide context.
-                    </div>
-
-                    {editMode && (
-                        <div className="space-y-2">
-                             <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary mb-2 px-1">Curation: Handles</p>
-                             <div className="flex flex-wrap gap-2">
-                                 {handles.map(h => (
-                                     <button
-                                         key={h.api_mapping_key}
-                                         onClick={() => onToggleVisibility?.(h.api_mapping_key, 'handle')}
-                                         className={cn(
-                                             "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
-                                             h.is_visible 
-                                                 ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
-                                                 : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
-                                         )}
-                                     >
-                                         {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                         {h.name}
-                                     </button>
-                                 ))}
-                             </div>
-                        </div>
-                    )}
+                     <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary mb-2 px-1">Curation: Handles</p>
+                     <div className="flex flex-wrap gap-2">
+                         {handles.map(h => (
+                             <button
+                                 key={h.api_mapping_key}
+                                 type="button"
+                                 onClick={() => onToggleVisibility?.(h.api_mapping_key, 'handle')}
+                                 className={cn(
+                                     "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
+                                     h.is_visible 
+                                         ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
+                                         : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
+                                 )}
+                             >
+                                 {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                 {h.name}
+                             </button>
+                         ))}
+                     </div>
                 </div>
             )}
 
@@ -157,6 +144,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                                 <div key={ctrl.api_mapping_key} className="relative group/field">
                                     {editMode && (
                                         <button 
+                                            type="button"
                                             onClick={() => onToggleVisibility?.(ctrl.api_mapping_key, 'control')}
                                             className={cn(
                                                 "absolute -top-1 -right-1 z-10 w-6 h-6 rounded-full flex items-center justify-center border shadow-xl transition-all",
@@ -235,7 +223,10 @@ function ControlRenderer({
                     label={label}
                     value={value ?? control.default_value ?? ''}
                     onChange={e => onChange(control.api_mapping_key, e.target.value)}
-                    options={(control.options || []).map(opt => ({ id: opt, display_name: opt.toString() }))}
+                    options={(control.options || []).map(opt => ({ 
+                        id: opt, 
+                        display_name: formatDisplayName(opt.toString()) 
+                    }))}
                 />
             );
         case 'slider':

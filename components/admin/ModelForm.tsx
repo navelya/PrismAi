@@ -445,10 +445,7 @@ export function ModelForm({
                                 model_id: 1, // Dummy ID for preview
                                 control_values: previewConfig.control_values
                             }}
-                            // We mock the properties here by passing the current visual state
-                            // instead of relying on the store lookup which wouldn't have the new model yet
-                            // @ts-ignore - Mocking selectedModel for preview
-                            selectedModel={{
+                            selectedModelOverride={{
                                 inputs_schema: {
                                     controls: visualControls,
                                     handles: visualInputWires
