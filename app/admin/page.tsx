@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import * as LucideIcons from 'lucide-react';
 import {
     Boxes,
     ArrowLeft,
@@ -51,14 +52,18 @@ export default function AdminPage() {
     // Selection/Edit State
     const [editingModel, setEditingModel] = useState<any | null>(null);
     const [editingProvider, setEditingProvider] = useState<any | null>(null);
+    const [editingNodeType, setEditingNodeType] = useState<any | null>(null);
     const [providerToDelete, setProviderToDelete] = useState<any | null>(null);
     const [modelToDelete, setModelToDelete] = useState<any | null>(null);
+    const [nodeTypeToDelete, setNodeTypeToDelete] = useState<any | null>(null);
 
     // Dynamic Data
     const [categories, setCategories] = useState<any[]>([]);
     const [archetypes, setArchetypes] = useState<any[]>([]);
     const [nodeTypes, setNodeTypes] = useState<any[]>([]);
     const [providers, setProviders] = useState<any[]>([]);
+    const [subCategorySearch, setSubCategorySearch] = useState('');
+    const [subCategoryParentFilter, setSubCategoryParentFilter] = useState('all');
 
     // -------------------------------------------------------------------------
     // FORM STATES
@@ -147,14 +152,34 @@ export default function AdminPage() {
 
         setNodeSubmitting(true);
         try {
-            await modelsAdminApi.createNodeType(nodeForm);
-            setStatus({ type: 'success', message: 'Node Type created successfully!' });
+            if (editingNodeType) {
+                await modelsAdminApi.updateNodeType(editingNodeType.id, nodeForm);
+                setStatus({ type: 'success', message: 'Sub Category updated successfully!' });
+                setEditingNodeType(null);
+            } else {
+                await modelsAdminApi.createNodeType(nodeForm);
+                setStatus({ type: 'success', message: 'Sub Category created successfully!' });
+            }
             setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [] });
             await loadData();
         } catch (err: any) {
-            setStatus({ type: 'error', message: err.message || 'Failed to create Node Type.' });
+            setStatus({ type: 'error', message: err.message || 'Failed to process Sub Category.' });
         } finally {
             setNodeSubmitting(false);
+        }
+    };
+
+    const handleNodeTypeDelete = async () => {
+        if (!nodeTypeToDelete) return;
+        setStatus(null);
+        try {
+            await modelsAdminApi.deleteNodeType(nodeTypeToDelete.id);
+            setStatus({ type: 'success', message: `Sub Category "${nodeTypeToDelete.display_name}" deleted.` });
+            await loadData();
+        } catch (err: any) {
+            setStatus({ type: 'error', message: err.message || 'Failed to delete Sub Category.' });
+        } finally {
+            setNodeTypeToDelete(null);
         }
     };
 
@@ -274,7 +299,7 @@ export default function AdminPage() {
                             : 'text-content-tertiary hover:text-content-secondary'
                             }`}
                     >
-                        Definitions
+                        Sub Categories
                     </button>
                 </div>
             </header>
@@ -577,26 +602,42 @@ export default function AdminPage() {
                             </div>
                         )}
 
-                        {/* Definitions View */}
+                        {/* Sub Categories View */}
                         {activeTab === 'nodes' && (
                             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <div className="glassmorphism rounded-3xl p-10 shadow-2xl relative overflow-hidden group">
                                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-premium opacity-50 group-hover:opacity-100 transition-opacity"></div>
-                                    <div className="mb-10">
-                                        <h3 className="text-2xl font-black text-content-primary uppercase tracking-tighter mb-2">Initialize Node Definition</h3>
-                                        <p className="text-xs text-content-tertiary font-medium opacity-80 leading-relaxed max-w-xl">
-                                            Define new atomic node categories. This maps models to high-level visual identities.
-                                        </p>
+                                    <div className="mb-10 flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-2xl font-black text-content-primary uppercase tracking-tighter mb-2">
+                                                {editingNodeType ? `Edit: ${editingNodeType.display_name}` : 'Initialize Sub Category'}
+                                            </h3>
+                                            <p className="text-xs text-content-tertiary font-medium opacity-80 leading-relaxed max-w-xl">
+                                                Sub categories (Node Types) group models by their functional purpose (e.g. Image Generation, Video Processing).
+                                            </p>
+                                        </div>
+                                        {editingNodeType && (
+                                            <button
+                                                onClick={() => {
+                                                    setEditingNodeType(null);
+                                                    setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [] });
+                                                }}
+                                                className="p-2 text-content-tertiary hover:text-content-primary rounded-xl transition-all border border-white/5"
+                                            >
+                                                <X className="w-5 h-5" />
+                                            </button>
+                                        )}
                                     </div>
 
                                     <form onSubmit={handleNodeTypeSubmit} className="space-y-6">
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             <Input
-                                                label="Type ID"
+                                                label="Sub Category ID"
                                                 value={nodeForm.id}
-                                                onChange={e => setNodeForm({ ...nodeForm, id: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
+                                                onChange={e => !editingNodeType && setNodeForm({ ...nodeForm, id: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
                                                 placeholder="e.g. video_upscale"
                                                 required
+                                                disabled={!!editingNodeType}
                                             />
                                             <Input
                                                 label="Display Name"
@@ -662,10 +703,116 @@ export default function AdminPage() {
                                                 className="px-8 py-3 bg-content-primary text-surface-primary font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-content-secondary transition-all disabled:opacity-50 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] shadow-xl"
                                             >
                                                 {nodeSubmitting && <div className="w-4 h-4 border-2 border-surface-primary/30 border-t-surface-primary rounded-full animate-spin" />}
-                                                Initialize Type
+                                                {editingNodeType ? 'Update Category' : 'Initialize Category'}
                                             </button>
                                         </div>
                                     </form>
+                                </div>
+
+                                {/* Filters & Search */}
+                                <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                                    <div className="flex flex-1 w-full md:w-auto items-center gap-4">
+                                        <div className="relative flex-1 max-w-sm group">
+                                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-content-tertiary transition-colors group-focus-within:text-accent-primary" />
+                                            <input
+                                                type="text"
+                                                placeholder="Search sub categories..."
+                                                value={subCategorySearch}
+                                                onChange={e => setSubCategorySearch(e.target.value)}
+                                                className="w-full h-11 pl-12 pr-4 bg-white/5 border border-white/10 rounded-2xl text-xs font-medium text-content-primary focus:outline-none focus:ring-4 focus:ring-accent-primary/10 focus:border-accent-primary/30 transition-all placeholder:text-content-tertiary/50"
+                                            />
+                                        </div>
+                                        <div className="w-px h-6 bg-white/10 hidden md:block" />
+                                        <div className="flex items-center gap-2 min-w-[200px]">
+                                            <Select
+                                                label="Parent Category"
+                                                value={subCategoryParentFilter}
+                                                onChange={e => setSubCategoryParentFilter(e.target.value)}
+                                                options={[
+                                                    { id: 'all', display_name: 'All Categories' },
+                                                    ...categories.map(cat => ({
+                                                        id: cat.id,
+                                                        display_name: cat.display_name
+                                                    }))
+                                                ]}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-content-tertiary opacity-40">
+                                        Showing {nodeTypes.filter(type => {
+                                            const matchesSearch = type.display_name.toLowerCase().includes(subCategorySearch.toLowerCase()) || type.id.toLowerCase().includes(subCategorySearch.toLowerCase());
+                                            const matchesParent = subCategoryParentFilter === 'all' || type.parent_categories?.includes(subCategoryParentFilter);
+                                            return matchesSearch && matchesParent;
+                                        }).length} Results
+                                    </div>
+                                </div>
+
+                                {/* List */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {nodeTypes
+                                        .filter(type => {
+                                            const matchesSearch = type.display_name.toLowerCase().includes(subCategorySearch.toLowerCase()) || type.id.toLowerCase().includes(subCategorySearch.toLowerCase());
+                                            const matchesParent = subCategoryParentFilter === 'all' || type.parent_categories?.includes(subCategoryParentFilter);
+                                            return matchesSearch && matchesParent;
+                                        })
+                                        .map(type => {
+                                            const IconComponent = (LucideIcons[type.icon_reference as keyof typeof LucideIcons] as React.ComponentType<any>) || Activity;
+                                            return (
+                                                <div key={type.id} className="group bg-white/5 hover:bg-white/10 border border-white/5 rounded-3xl p-6 transition-all flex flex-col justify-between gap-6 shadow-lg hover:shadow-2xl">
+                                                    <div className="flex items-start justify-between">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 shadow-inner group-hover:bg-accent-primary/10 group-hover:border-accent-primary/20 transition-all">
+                                                                <IconComponent className="w-6 h-6 text-accent-primary" />
+                                                            </div>
+                                                            <div>
+                                                                <h4 className="font-bold text-content-primary uppercase tracking-tight text-sm">{type.display_name}</h4>
+                                                                <p className="text-[10px] text-content-tertiary font-mono mt-0.5 opacity-60">ID: {type.id}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingNodeType(type);
+                                                                    setNodeForm({
+                                                                        id: type.id,
+                                                                        display_name: type.display_name,
+                                                                        icon_reference: type.icon_reference,
+                                                                        parent_categories: type.parent_categories || []
+                                                                    });
+                                                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                                }}
+                                                                className="p-2 text-content-tertiary hover:text-accent-primary bg-white/10 rounded-xl transition-all border border-white/10 shadow-sm"
+                                                            >
+                                                                <LucideIcons.Edit2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setNodeTypeToDelete(type)}
+                                                                className="p-2 text-content-tertiary hover:text-red-500 bg-white/10 rounded-xl transition-all border border-white/10 shadow-sm"
+                                                            >
+                                                                <LucideIcons.Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="pt-4 border-t border-white/5">
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {type.parent_categories?.map((catId: string) => (
+                                                                <span key={catId} className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-lg text-content-tertiary text-[8px] font-black uppercase tracking-widest">
+                                                                    {catId}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    {nodeTypes.length === 0 && (
+                                        <div className="col-span-full text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">
+                                            <Boxes className="w-12 h-12 text-content-tertiary opacity-20 mx-auto mb-4" />
+                                            <p className="text-content-tertiary text-xs font-bold uppercase tracking-widest leading-relaxed">
+                                                No sub categories initialized.<br />Create your first one above.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -689,6 +836,15 @@ export default function AdminPage() {
                 onClose={() => setModelToDelete(null)}
                 title="Remove Neural Model?"
                 message={`Are you sure you want to delete this model? This action is irreversible and will remove it from all existing workflows.`}
+                variant="danger"
+            />
+
+            <ConfirmationModal
+                isOpen={!!nodeTypeToDelete}
+                onConfirm={handleNodeTypeDelete}
+                onClose={() => setNodeTypeToDelete(null)}
+                title="Remove Sub Category?"
+                message={`Are you sure you want to delete "${nodeTypeToDelete?.display_name}"? This may affect models associated with this category.`}
                 variant="danger"
             />
         </div>

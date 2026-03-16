@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Textarea } from '@/components/ui/Textarea';
+import { Switch } from '@/components/ui/Switch';
 import { parseReplicateSchema, formatDisplayName } from '@/lib/utils/schema-parser';
 import AIGeneratorProperties from '@/components/canvas/AIGeneratorProperties';
 import { Control } from '@/lib/nodes/types';
@@ -383,7 +384,7 @@ export function ModelForm({
                         onChange={e => setForm({ ...form, category_id: e.target.value })}
                     />
                     <Select
-                        label="Node Type (Filtered)"
+                        label="Sub Category (Filtered)"
                         value={form.node_type_id}
                         options={filteredNodeTypes}
                         onChange={e => setForm({ ...form, node_type_id: e.target.value })}
@@ -422,20 +423,12 @@ export function ModelForm({
                         onChange={e => setForm({ ...form, credit_cost: Number(e.target.value) })}
                         className="max-w-[150px]"
                     />
-                    <div className="flex items-center gap-3 pt-5">
-                        <div className="relative">
-                            <input
-                                type="checkbox"
-                                checked={form.is_active}
-                                onChange={() => { }}
-                                className="sr-only peer"
-                            />
-                            <div
-                                onClick={() => setForm(prev => ({ ...prev, is_active: !prev.is_active }))}
-                                className="w-11 h-6 bg-surface-tertiary peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-content-tertiary after:border-stroke-subtle after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500 after:peer-checked:bg-white cursor-pointer"
-                            ></div>
-                        </div>
-                        <label className="text-sm font-medium text-content-primary select-none">Is Active</label>
+                    <div className="pt-5">
+                        <Switch
+                            label="Is Active"
+                            checked={form.is_active}
+                            onCheckedChange={(checked) => setForm(prev => ({ ...prev, is_active: checked }))}
+                        />
                     </div>
                 </div>
             </FormSection>

@@ -82,6 +82,30 @@ export const modelsAdminApi = {
         return data.nodeType;
     },
 
+    /** Update an existing Node Type */
+    updateNodeType: async (id: string, nodeType: any) => {
+        const res = await fetch(`/api/admin/node-types/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nodeType),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update sub category');
+        return data.nodeType;
+    },
+
+    /** Delete a Node Type */
+    deleteNodeType: async (id: string) => {
+        const res = await fetch(`/api/admin/node-types/${id}`, {
+            method: 'DELETE',
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete sub category');
+        return data.success;
+    },
+
     /** Update an existing AI model */
     updateModel: async (id: number, model: any) => {
         const res = await fetch(`/api/admin/models/${id}`, {

@@ -1,21 +1,18 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, Eye, EyeOff, Info, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Loader2, Eye, EyeOff, Info } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { NumberInput } from '@/components/ui/NumberInput';
+import { Switch } from '@/components/ui/Switch';
 import { cn } from '@/lib/utils';
 import { formatDisplayName } from '@/lib/utils/schema-parser';
 
 // =============================================================================
-// TYPES (Synced with AIGeneratorNode)
-// =============================================================================
-
-// =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
 // =============================================================================
-import { AiModel, InputsSchema, OutputsSchema, Control } from '@/lib/nodes/types';
+import { AiModel, Control } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 
 // =============================================================================
@@ -103,75 +100,75 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                     </div>
                 )}
 
-            {/* Curation Handles */}
-            {editMode && handles.length > 0 && (
-                <div className="space-y-4">
-                     <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary mb-2 px-1">Curation: Handles</p>
-                     <div className="flex flex-wrap gap-2">
-                         {handles.map(h => (
-                             <button
-                                 key={h.api_mapping_key}
-                                 type="button"
-                                 onClick={() => onToggleVisibility?.(h.api_mapping_key, 'handle')}
-                                 className={cn(
-                                     "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
-                                     h.is_visible 
-                                         ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
-                                         : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
-                                 )}
-                             >
-                                 {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                 {h.name}
-                             </button>
-                         ))}
-                     </div>
-                </div>
-            )}
-
-            {/* Dynamic Controls */}
-            {controls.length > 0 && (
-                <div className="space-y-6 pt-2">
-                    <div className="flex items-center gap-3">
-                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-content-tertiary whitespace-nowrap">
-                            Parameters
-                        </p>
-                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                {/* Curation Handles */}
+                {editMode && handles.length > 0 && (
+                    <div className="space-y-4">
+                         <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary mb-2 px-1">Curation: Handles</p>
+                         <div className="flex flex-wrap gap-2">
+                             {handles.map(h => (
+                                 <button
+                                     key={h.api_mapping_key}
+                                     type="button"
+                                     onClick={() => onToggleVisibility?.(h.api_mapping_key, 'handle')}
+                                     className={cn(
+                                         "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
+                                         h.is_visible 
+                                             ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
+                                             : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
+                                     )}
+                                 >
+                                     {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                     {h.name}
+                                 </button>
+                             ))}
+                         </div>
                     </div>
+                )}
 
-                    <div className="space-y-5">
-                        {controls
-                            .filter(ctrl => editMode || ctrl.is_visible)
-                            .map(ctrl => (
-                                <div key={ctrl.api_mapping_key} className="relative group/field">
-                                    {editMode && (
-                                        <button 
-                                            type="button"
-                                            onClick={() => onToggleVisibility?.(ctrl.api_mapping_key, 'control')}
-                                            className={cn(
-                                                "absolute -top-1 -right-1 z-10 w-6 h-6 rounded-full flex items-center justify-center border shadow-xl transition-all",
-                                                ctrl.is_visible 
-                                                    ? "bg-green-500 border-green-400 text-white" 
-                                                    : "bg-red-500 border-red-400 text-white"
-                                            )}
-                                        >
-                                            {ctrl.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                        </button>
-                                    )}
-                                    <div className={cn("transition-all", !ctrl.is_visible && "opacity-40 grayscale-[0.5]")}>
-                                        <ControlRenderer
-                                            control={ctrl}
-                                            value={config.control_values?.[ctrl.api_mapping_key]}
-                                            onChange={handleControlChange}
-                                        />
+                {/* Dynamic Controls */}
+                {controls.length > 0 && (
+                    <div className="space-y-6 pt-2">
+                        <div className="flex items-center gap-3">
+                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-content-tertiary whitespace-nowrap">
+                                Parameters
+                            </p>
+                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                        </div>
+
+                        <div className="space-y-5">
+                            {controls
+                                .filter(ctrl => editMode || ctrl.is_visible)
+                                .map(ctrl => (
+                                    <div key={ctrl.api_mapping_key} className="relative group/field">
+                                        {editMode && (
+                                            <button 
+                                                type="button"
+                                                onClick={() => onToggleVisibility?.(ctrl.api_mapping_key, 'control')}
+                                                className={cn(
+                                                    "absolute -top-1 -right-1 z-10 w-6 h-6 rounded-full flex items-center justify-center border shadow-xl transition-all",
+                                                    ctrl.is_visible 
+                                                        ? "bg-green-500 border-green-400 text-white" 
+                                                        : "bg-red-500 border-red-400 text-white"
+                                                )}
+                                            >
+                                                {ctrl.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                            </button>
+                                        )}
+                                        <div className={cn("transition-all", !ctrl.is_visible && "opacity-40 grayscale-[0.5]")}>
+                                            <ControlRenderer
+                                                control={ctrl}
+                                                value={config.control_values?.[ctrl.api_mapping_key]}
+                                                onChange={handleControlChange}
+                                            />
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
-    </div>
     );
 }
 
@@ -266,33 +263,19 @@ function ControlRenderer({
         case 'checkbox':
         case 'reverse':
             return (
-                <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.1em] pl-1 opacity-60 leading-none">
+                <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 shadow-inner group/switch transition-all hover:bg-white/10">
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.1em] opacity-60 leading-none block">
                             {label}
                         </label>
-                        <span className="text-[8px] font-bold text-accent-primary/40 uppercase tracking-widest px-2 py-0.5 rounded-full border border-accent-primary/10">BOOL</span>
+                        <span className="text-[8px] font-bold text-accent-primary/40 uppercase tracking-widest px-2 py-0.5 rounded-full border border-accent-primary/10 bg-accent-primary/5 inline-block">
+                            BOOL
+                        </span>
                     </div>
-                    <div className="flex bg-white/5 rounded-xl p-1.5 border border-white/10 shadow-inner">
-                        {[
-                            { label: 'No', value: false },
-                            { label: 'Yes', value: true }
-                        ].map((opt) => (
-                            <button
-                                key={opt.label}
-                                type="button"
-                                onClick={() => onChange(control.api_mapping_key, opt.value)}
-                                className={cn(
-                                    "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
-                                    (value === opt.value || (value === undefined && opt.value === control.default_value))
-                                        ? "bg-accent-primary text-white shadow-xl shadow-accent-primary/30 scale-[1.02]"
-                                        : "text-content-tertiary hover:text-content-secondary hover:bg-white/5"
-                                )}
-                            >
-                                {opt.label}
-                            </button>
-                        ))}
-                    </div>
+                    <Switch
+                        checked={value ?? control.default_value ?? false}
+                        onCheckedChange={(checked) => onChange(control.api_mapping_key, checked)}
+                    />
                 </div>
             );
         case 'number_input':
