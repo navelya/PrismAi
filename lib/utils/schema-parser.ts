@@ -11,6 +11,22 @@ export function formatDisplayName(name: string): string {
 }
 
 /**
+ * Parses icon names: 
+ * - image-upscale -> ImageUpscaleIcon
+ * - Boxes -> Boxes (no touch if no dash)
+ */
+export function parseIconName(name: string): string {
+    if (!name) return 'Boxes';
+    if (!name.includes('Icon')) {
+        return name
+            .split('-')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join('') + 'Icon';
+    }
+    return name;
+}
+
+/**
  * Recursively resolves $ref and allOf within a property to ensure flat evaluation.
  */
 function resolveProperty(prop: any, components: any): any {
@@ -61,16 +77,16 @@ export function parseReplicateSchema(schema: any) {
         // ---------------------------------------------------------------------
         // PRECEDENCE A: INPUT WIRES (HANDLES)
         // ---------------------------------------------------------------------
-        
+
         // Rule A1: URI format
         const isUri = prop.format === 'uri';
         // Rule A2: Array of URIs
         const isArrayUri = prop.type === 'array' && prop.items?.format === 'uri';
         // Rule A3: Prompt keyword
-        
+
         if (isUri || isArrayUri || isPrompt) {
             let handleType = 'image'; // Default fallback
-            
+
             if (isPrompt) {
                 handleType = 'text';
             } else {
@@ -102,17 +118,17 @@ export function parseReplicateSchema(schema: any) {
         if (prop.type === 'array' && prop.items?.type === 'string') {
             component = 'text_input';
             defaultValue = defaultValue ?? '';
-        } 
+        }
         // Rule B2: Enum (Select)
         else if (prop.enum) {
             component = 'select';
             defaultValue = defaultValue ?? prop.enum[0];
-        } 
+        }
         // Rule B3: Boolean
         else if (prop.type === 'boolean') {
             component = 'checkbox';
             defaultValue = defaultValue ?? false;
-        } 
+        }
         // Rule B4: Numbers & Integers
         else if (prop.type === 'number' || prop.type === 'integer') {
             if (prop.maximum !== undefined) {
@@ -121,7 +137,7 @@ export function parseReplicateSchema(schema: any) {
                 component = 'number_input';
             }
             defaultValue = defaultValue ?? prop.minimum ?? 0;
-        } 
+        }
         // Rule B5: Generic String
         else if (prop.type === 'string') {
             component = 'text_input';
