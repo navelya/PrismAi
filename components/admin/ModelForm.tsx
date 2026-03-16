@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { Textarea } from '@/components/ui/Textarea';
 import { parseReplicateSchema, formatDisplayName } from '@/lib/utils/schema-parser';
 import AIGeneratorProperties from '@/components/canvas/AIGeneratorProperties';
 import { Control } from '@/lib/nodes/types';
@@ -92,6 +93,7 @@ export function ModelForm({
         provider_id: initialData?.provider_id || '',
         category_id: initialData?.category_id || '',
         node_type_id: initialData?.node_type_id || '',
+        description: initialData?.inputs_schema?.description || '',
     });
 
     const [isFetchingSchema, setIsFetchingSchema] = useState(false);
@@ -120,6 +122,7 @@ export function ModelForm({
                 provider_id: initialData.provider_id || '',
                 category_id: initialData.category_id || '',
                 node_type_id: initialData.node_type_id || '',
+                description: initialData.inputs_schema?.description || '',
             });
         }
     }, [initialData]);
@@ -248,6 +251,10 @@ export function ModelForm({
                 const rawName = form.replicate_model_id.split('/')[1]?.split(':')[0] || form.replicate_model_id;
                 setForm(prev => ({ ...prev, display_name: formatDisplayName(rawName) }));
             }
+
+            if (data.description) {
+                setForm(prev => ({ ...prev, description: data.description }));
+            }
         } catch (error) {
             console.error(error);
             alert('Error fetching schema. Please check the Model ID and try again.');
@@ -282,6 +289,7 @@ export function ModelForm({
         e.preventDefault();
 
         const compiledInputs = {
+            description: form.description,
             handles: visualInputWires.map(wire => ({
                 name: wire.name,
                 api_mapping_key: wire.api_mapping_key,
@@ -310,7 +318,8 @@ export function ModelForm({
             ...form,
             inputs_schema: compiledInputs,
             outputs_schema: compiledOutputs,
-            credit_cost: Number(form.credit_cost)
+            credit_cost: Number(form.credit_cost),
+            description: form.description // Pass at top level too for API processing
         });
     };
 
@@ -349,6 +358,16 @@ export function ModelForm({
                             required
                         />
                     </div>
+                </div>
+                <div className="mt-4">
+                    <Textarea 
+                        label="Model Description"
+                        name="description"
+                        value={form.description}
+                        onChange={e => setForm({ ...form, description: e.target.value })}
+                        placeholder="Describe what this model does..."
+                        className="max-w-2xl"
+                    />
                 </div>
             </FormSection>
 

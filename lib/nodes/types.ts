@@ -34,6 +34,7 @@ export interface Control {
 }
 
 export interface InputsSchema {
+    description?: string;
     handles?: InputHandle[];
     controls?: Control[];
 }

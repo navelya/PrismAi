@@ -19,7 +19,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             is_active,
             inputs_schema,
             outputs_schema,
-            provider_id
+            provider_id,
+            description
         } = body;
 
         const { data, error } = await auth.supabase
@@ -32,8 +33,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
                 archetype_id,
                 credit_cost: credit_cost !== undefined ? Number(credit_cost) : undefined,
                 is_active,
-                inputs_schema,
-                outputs_schema,
+                inputs_schema: {
+                    ...(inputs_schema || {}),
+                    description: description || inputs_schema?.description || ''
+                },
+                outputs_schema: outputs_schema || { handles: [] },
                 provider_id,
                 updated_at: new Date().toISOString()
             })

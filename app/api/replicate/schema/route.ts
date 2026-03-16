@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
         
         let owner = data.owner;
         let cover_image_url = data.cover_image_url;
+        let description = data.description;
 
         if (isVersionFetch && !owner) {
             // If it's a version fetch, owner might not be in the version object
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
             openapi_schema,
             owner,
             cover_image_url,
+            description,
         });
     } catch (error: any) {
         console.error('Error fetching Replicate schema:', error);
