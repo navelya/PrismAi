@@ -202,7 +202,8 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
             {
                 lightboxOpen && output && Array.isArray(output) && createPortal(
                     <ImageLightbox
-                        images={output}
+                        media={output}
+                        type="image"
                         initialIndex={lightboxIndex}
                         onClose={() => setLightboxOpen(false)}
                     />,

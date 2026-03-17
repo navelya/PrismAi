@@ -148,7 +148,8 @@ const ImageGallery = React.memo(function ImageGallery({ images }: { images: Imag
 
             {selectedIndex !== null && (
                 <ImageLightbox
-                    images={lightboxImages}
+                    media={lightboxImages}
+                    type="image"
                     initialIndex={selectedIndex}
                     onClose={() => setSelectedIndex(null)}
                 />

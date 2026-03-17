@@ -6,27 +6,41 @@ import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 
 
 interface ImageLightboxProps {
-    images: { url?: string; base64?: string }[];
+    media: any; // Can be an array of objects/strings or a single object/string
+    type: 'image' | 'video' | 'any';
     initialIndex: number;
     onClose: () => void;
 }
 
-export default function ImageLightbox({ images, initialIndex, onClose }: ImageLightboxProps) {
+export default function ImageLightbox({ media, type, initialIndex, onClose }: ImageLightboxProps) {
     const [currentIndex, setCurrentIndex] = React.useState(initialIndex);
     // Portal mount guard — prevents SSR mismatch
     const [mounted, setMounted] = useState(false);
     useEffect(() => { setMounted(true); }, []);
 
-    const currentImage = images[currentIndex];
-    const imageSrc = currentImage?.url || currentImage?.base64 || '';
+    // Normalize media to array
+    const normalizedMedia = React.useMemo(() => {
+        const items = Array.isArray(media) ? media : [media];
+        return items.filter(Boolean).map(item => {
+            if (typeof item === 'string') return { url: item };
+            return {
+                url: item.url,
+                base64: item.base64
+            };
+        });
+    }, [media]);
+
+    const currentItem = normalizedMedia[currentIndex];
+    const mediaSrc = currentItem?.url || currentItem?.base64 || '';
+    const isVideo = type === 'video';
 
     const goToPrevious = useCallback(() => {
-        setCurrentIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1));
-    }, [images.length]);
+        setCurrentIndex((prev) => (prev > 0 ? prev - 1 : normalizedMedia.length - 1));
+    }, [normalizedMedia.length]);
 
     const goToNext = useCallback(() => {
-        setCurrentIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0));
-    }, [images.length]);
+        setCurrentIndex((prev) => (prev < normalizedMedia.length - 1 ? prev + 1 : 0));
+    }, [normalizedMedia.length]);
 
     // Keyboard navigation
     useEffect(() => {
@@ -43,30 +57,35 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
     // Download handler
     const handleDownload = async () => {
         try {
-            const response = await fetch(imageSrc);
+            const response = await fetch(mediaSrc);
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `image_${currentIndex + 1}.${blob.type.includes('png') ? 'png' : 'jpg'}`;
+            const extension = isVideo ? 'mp4' : (blob.type.includes('png') ? 'png' : 'jpg');
+            a.download = `output_${currentIndex + 1}.${extension}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
         } catch (error) {
             // Fallback: open in new tab
-            window.open(imageSrc, '_blank');
+            window.open(mediaSrc, '_blank');
         }
     };
 
     const lightbox = (
         <div
-            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
+            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center placeholder-media-lightbox"
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onClose(); }}
         >
-            {/* Close button */}
+            {!media || media.length === 0 ? (
+                <div className="text-white opacity-50 font-black uppercase tracking-widest text-[10px]">No Media Loaded</div>
+            ) : (
+                <>
+                    {/* Close button */}
             <button
                 onMouseDown={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
@@ -89,11 +108,11 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
 
             {/* Counter */}
             <div className="absolute top-4 left-4 px-3 py-1 rounded-full bg-white/10 text-white text-sm">
-                {currentIndex + 1} / {images.length}
+                {currentIndex + 1} / {normalizedMedia.length}
             </div>
 
             {/* Previous button */}
-            {images.length > 1 && (
+            {normalizedMedia.length > 1 && (
                 <button
                     onMouseDown={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
@@ -104,18 +123,30 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
                 </button>
             )}
 
-            {/* Image */}
-            <img
-                src={imageSrc}
-                alt={`Image ${currentIndex + 1}`}
-                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
-                onMouseDown={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-            />
+            {/* Image / Video */}
+            {isVideo ? (
+                <video
+                    src={mediaSrc}
+                    controls
+                    autoPlay
+                    className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                />
+            ) : (
+                <img
+                    src={mediaSrc}
+                    alt={`Media ${currentIndex + 1}`}
+                    className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                />
+            )}
 
             {/* Next button */}
-            {images.length > 1 && (
+            {normalizedMedia.length > 1 && (
                 <button
                     onMouseDown={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
@@ -127,30 +158,41 @@ export default function ImageLightbox({ images, initialIndex, onClose }: ImageLi
             )}
 
             {/* Thumbnail strip at bottom */}
-            {images.length > 1 && (
+            {normalizedMedia.length > 1 && (
                 <div 
                     className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 p-2 bg-black/50 rounded-lg max-w-[80vw] overflow-x-auto"
                     onMouseDown={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
                 >
-                    {images.map((img, idx) => (
-                        <button
-                            key={idx}
-                            onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
-                            className={`flex-shrink-0 w-12 h-12 rounded overflow-hidden border-2 transition-all ${idx === currentIndex
-                                ? 'border-white scale-110'
-                                : 'border-transparent opacity-60 hover:opacity-100'
-                                }`}
-                        >
-                            <img
-                                src={img.url || img.base64}
-                                alt={`Thumbnail ${idx + 1}`}
-                                className="w-full h-full object-cover"
-                            />
-                        </button>
-                    ))}
+                    {normalizedMedia.map((item, idx) => {
+                        const thumbSrc = item.url || item.base64;
+                        const isThumbVideo = type === 'video';
+
+                        return (
+                            <button
+                                key={idx}
+                                onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
+                                className={`flex-shrink-0 w-12 h-12 rounded overflow-hidden border-2 transition-all ${idx === currentIndex
+                                    ? 'border-white scale-110'
+                                    : 'border-transparent opacity-60 hover:opacity-100'
+                                    }`}
+                            >
+                                {isThumbVideo ? (
+                                    <video src={thumbSrc} className="w-full h-full object-cover" />
+                                ) : (
+                                    <img
+                                        src={thumbSrc}
+                                        alt={`Thumbnail ${idx + 1}`}
+                                        className="w-full h-full object-cover"
+                                    />
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
+        </>
+        )}
         </div>
     );
 

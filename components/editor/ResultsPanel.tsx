@@ -262,7 +262,8 @@ export default function ResultsPanel({ result, isExecuting, error }: ResultsPane
             {/* Image Lightbox */}
             {lightboxImages && (
                 <ImageLightbox
-                    images={lightboxImages}
+                    media={lightboxImages}
+                    type="image"
                     initialIndex={lightboxIndex}
                     onClose={() => setLightboxImages(null)}
                 />

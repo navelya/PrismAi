@@ -128,10 +128,16 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
     // Find the first valid output to preview (if multiple)
     let previewOutput = output;
+    let previewType = outputHandles[0]?.type || 'any';
+    
     if (output && typeof output === 'object' && !Array.isArray(output) && !output.url && !output.text) {
         // It's a multi-handle output object. Pick the first one that has an image or text
         const firstKey = Object.keys(output)[0];
-        if (firstKey) previewOutput = output[firstKey];
+        if (firstKey) {
+            previewOutput = output[firstKey];
+            const handle = outputHandles.find(h => h.api_mapping_key === firstKey);
+            if (handle) previewType = handle.type;
+        }
     }
 
     return (
@@ -178,7 +184,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 {previewOutput && (
                     <OutputPreview
                         output={previewOutput}
-                        type={outputHandles[0]?.type || 'any'}
+                        type={previewType}
                         previewMode={previewMode}
                         activeImageIndex={activeImageIndex}
                         onImageClick={(idx: number, e: React.MouseEvent) => {
@@ -188,8 +194,12 @@ function AIGeneratorNode({ id, data, selected }: any) {
                         }}
                         onPreviewClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
-                            openLightbox(activeImageIndex);
+                            if (previewType === 'image' || previewType === 'video' || previewType === 'any') {
+                                openLightbox(activeImageIndex);
+                            }
                         }}
+                        // We pass these handlers to prevent node selection when clicking inputs/previews
+                        onInteraction={(e: React.MouseEvent | React.PointerEvent) => e.stopPropagation()}
                     />
                 )}
 
@@ -254,7 +264,8 @@ function AIGeneratorNode({ id, data, selected }: any) {
             {/* Lightbox Portal */}
             {lightboxOpen && previewOutput && createPortal(
                 <ImageLightbox
-                    images={Array.isArray(previewOutput) ? previewOutput : [previewOutput]}
+                    media={previewOutput}
+                    type={previewType as any}
                     initialIndex={lightboxIndex}
                     onClose={() => setLightboxOpen(false)}
                 />,
@@ -268,12 +279,14 @@ function AIGeneratorNode({ id, data, selected }: any) {
 // OUTPUT PREVIEW (Parity with CustomNode)
 // =============================================================================
 
-function OutputPreview({ output, type, previewMode, activeImageIndex, onImageClick, onPreviewClick }: any) {
+function OutputPreview({ output, type, previewMode, activeImageIndex, onImageClick, onPreviewClick, onInteraction }: any) {
     const items = Array.isArray(output) ? output : [output];
     const urls = items.map((o: any) => (typeof o === 'string' ? o : o?.url)).filter(Boolean);
+    const textContent = typeof output === 'string' ? output : (output?.text || items[0]?.text || null);
 
     const [isTransitioning, setIsTransitioning] = useState(false);
     const lastUrlRef = React.useRef<string | null>(null);
+    const videoRef = React.useRef<HTMLVideoElement>(null);
 
     const MAX_HEIGHT = 800;
 
@@ -286,25 +299,94 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
         }
     }, [urls, activeImageIndex]);
 
+    if (type === 'text' && textContent) {
+        return (
+            <div 
+                className="w-full min-h-[150px] max-h-[300px] p-4 bg-black/20 overflow-y-auto custom-scrollbar"
+                onMouseDown={onInteraction}
+                onPointerDown={onInteraction}
+            >
+                <p className="text-[11px] leading-relaxed text-white/90 whitespace-pre-wrap font-mono">
+                    {textContent}
+                </p>
+            </div>
+        );
+    }
+
+    if (type === 'audio' && (urls[0] || output?.url)) {
+        const audioUrl = urls[0] || output?.url;
+        return (
+            <div 
+                className="w-full p-6 bg-accent-primary/5 flex flex-col items-center justify-center gap-4"
+                onMouseDown={onInteraction}
+                onPointerDown={onInteraction}
+            >
+                <div className="w-16 h-16 rounded-full bg-accent-primary/20 flex items-center justify-center border border-accent-primary/30">
+                    <Zap className="w-8 h-8 text-accent-primary animate-pulse" />
+                </div>
+                <audio 
+                    src={audioUrl} 
+                    controls 
+                    className="w-full h-8 accent-accent-primary" 
+                    onMouseDown={(e) => e.stopPropagation()}
+                />
+                <span className="text-[9px] font-black uppercase tracking-widest text-accent-primary opacity-60">Audio Output</span>
+            </div>
+        );
+    }
+
     if (urls.length === 0) {
         return (
-            <div className="p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4">
-                {JSON.stringify(output)}
+            <div 
+                className="p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4"
+                onMouseDown={onInteraction}
+                onPointerDown={onInteraction}
+            >
+                {textContent || JSON.stringify(output)}
             </div>
         );
     }
 
     if (previewMode === 'single') {
         const url = urls[activeImageIndex] || urls[0];
+        
         if (type === 'video') {
-            return <video src={url} controls className="w-full" />;
+            return (
+                <div 
+                    className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden" 
+                    onMouseEnter={() => videoRef.current?.play()}
+                    onMouseLeave={() => {
+                        if (videoRef.current) {
+                            videoRef.current.pause();
+                            videoRef.current.currentTime = 0;
+                        }
+                    }}
+                    onMouseDown={onInteraction}
+                    onPointerDown={onInteraction}
+                    onClick={onPreviewClick}
+                >
+                    <video 
+                        ref={videoRef}
+                        src={url} 
+                        muted 
+                        loop 
+                        playsInline
+                        className="w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                        style={{ maxHeight: MAX_HEIGHT }}
+                    />
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center">
+                        <Play className="w-10 h-10 text-white fill-current" />
+                    </div>
+                </div>
+            );
         }
+
         return (
             <div 
                 className="w-full h-full relative group/preview cursor-zoom-in" 
-                onMouseDown={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => onPreviewClick(e)}
+                onMouseDown={onInteraction}
+                onPointerDown={onInteraction}
+                onClick={onPreviewClick}
             >
                 <motion.img
                     initial={false}
@@ -333,15 +415,19 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
                     return (
                         <button
                             key={i}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onPointerDown={(e) => e.stopPropagation()}
+                            onMouseDown={onInteraction}
+                            onPointerDown={onInteraction}
                             onClick={(e) => onImageClick(i, e)}
                             className={cn(
                                 "relative aspect-square rounded-md overflow-hidden bg-white/5 border-2 transition-all",
                                 isActive ? "border-accent-primary ring-2 ring-accent-primary/20 scale-[0.98]" : "border-white/5 hover:border-white/20"
                             )}
                         >
-                            <img src={url} alt="" className="w-full h-full object-cover" />
+                            {type === 'video' ? (
+                                <video src={url} className="w-full h-full object-cover" />
+                            ) : (
+                                <img src={url} alt="" className="w-full h-full object-cover" />
+                            )}
                             {isActive && (
                                 <div className="absolute inset-0 bg-accent-primary/10 flex items-center justify-center">
                                     <Check className="w-4 h-4 text-white drop-shadow-md" />

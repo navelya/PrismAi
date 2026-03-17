@@ -391,15 +391,16 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
             {/* Lightbox Portal */}
             {
                 lightboxOpen && createPortal(
-                    <ImageLightbox
-                        images={[{
-                            base64: stageRef.current ? stageRef.current.toDataURL({
-                                pixelRatio: 1 / stageRef.current.scaleX()
-                            }) : ''
-                        }]}
-                        initialIndex={0}
-                        onClose={() => setLightboxOpen(false)}
-                    />,
+                <ImageLightbox
+                    media={[{
+                        base64: stageRef.current ? stageRef.current.toDataURL({
+                            pixelRatio: 1 / stageRef.current.scaleX()
+                        }) : ''
+                    }]}
+                    type="image"
+                    initialIndex={0}
+                    onClose={() => setLightboxOpen(false)}
+                />,
                     document.body
                 )
             }
