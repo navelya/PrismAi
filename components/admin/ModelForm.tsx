@@ -276,13 +276,17 @@ export function ModelForm({
         setVisualControls(newControls);
     };
 
-    const handleToggleVisibility = (key: string, type: 'control' | 'handle') => {
+    const handleToggleVisibility = (key: string, type: 'control' | 'input-handle' | 'output-handle') => {
         if (type === 'control') {
             setVisualControls(prev => prev.map(c => 
                 c.api_mapping_key === key ? { ...c, is_visible: !c.is_visible } : c
             ));
-        } else {
+        } else if (type === 'input-handle') {
             setVisualInputWires(prev => prev.map(w => 
+                w.api_mapping_key === key ? { ...w, is_visible: !w.is_visible } : w
+            ));
+        } else if (type === 'output-handle') {
+            setVisualOutputWires(prev => prev.map(w => 
                 w.api_mapping_key === key ? { ...w, is_visible: !w.is_visible } : w
             ));
         }
@@ -586,6 +590,131 @@ export function ModelForm({
                 </div>
             </FormSection>
 
+            <FormSection
+                title="Input Handles"
+                description="Customize how external data flows into this model."
+            >
+                <div className="space-y-6">
+                    {visualInputWires.length === 0 && (
+                        <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
+                            No input handles found in schema
+                        </div>
+                    )}
+                    {visualInputWires.map((wire) => (
+                        <div key={wire.id} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                                        <Link2 className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-black text-content-primary text-xs uppercase tracking-tight">{wire.name || formatDisplayName(wire.api_mapping_key)}</h4>
+                                        <p className="text-[10px] text-content-tertiary font-mono opacity-60">{wire.api_mapping_key}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleToggleVisibility(wire.api_mapping_key, 'input-handle')}
+                                    className={cn(
+                                        "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
+                                        wire.is_visible ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-white/5 border-white/10 text-content-tertiary opacity-40"
+                                    )}
+                                >
+                                    {wire.is_visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                    {wire.is_visible ? 'Visible' : 'Hidden'}
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                                <Input
+                                    label="Custom Label"
+                                    value={wire.name}
+                                    onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, name: e.target.value } : w))}
+                                />
+                                <Select
+                                    label="Wire Type"
+                                    value={wire.type}
+                                    options={WIRE_TYPES.map(t => ({ id: t, display_name: formatDisplayName(t) }))}
+                                    onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, type: e.target.value } : w))}
+                                />
+                                <div className="flex gap-4 pb-2">
+                                    <Checkbox
+                                        label="Array"
+                                        checked={wire.is_array}
+                                        onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_array: checked as boolean } : w))}
+                                    />
+                                    <Checkbox
+                                        label="Required"
+                                        checked={wire.is_mandatory}
+                                        onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_mandatory: checked as boolean } : w))}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </FormSection>
+
+            <FormSection
+                title="Output Handles"
+                description="Customize how this model exports data."
+            >
+                <div className="space-y-6">
+                    {visualOutputWires.length === 0 && (
+                        <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
+                            No output handles found in schema
+                        </div>
+                    )}
+                    {visualOutputWires.map((wire) => (
+                        <div key={wire.id} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center text-accent-primary">
+                                        <Layers className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-black text-content-primary text-xs uppercase tracking-tight">{wire.name || formatDisplayName(wire.api_mapping_key)}</h4>
+                                        <p className="text-[10px] text-content-tertiary font-mono opacity-60">{wire.api_mapping_key}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleToggleVisibility(wire.api_mapping_key, 'output-handle')}
+                                    className={cn(
+                                        "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
+                                        wire.is_visible ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-white/5 border-white/10 text-content-tertiary opacity-40"
+                                    )}
+                                >
+                                    {wire.is_visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                    {wire.is_visible ? 'Visible' : 'Hidden'}
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                                <Input
+                                    label="Custom Label"
+                                    value={wire.name}
+                                    onChange={e => setVisualOutputWires(prev => prev.map(w => w.id === wire.id ? { ...w, name: e.target.value } : w))}
+                                />
+                                <Select
+                                    label="Wire Type"
+                                    value={wire.type}
+                                    options={WIRE_TYPES.map(t => ({ id: t, display_name: formatDisplayName(t) }))}
+                                    onChange={e => setVisualOutputWires(prev => prev.map(w => w.id === wire.id ? { ...w, type: e.target.value } : w))}
+                                />
+                                <div className="pb-2">
+                                    <Checkbox
+                                        label="Array"
+                                        checked={wire.is_array}
+                                        onCheckedChange={(checked) => setVisualOutputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_array: checked as boolean } : w))}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </FormSection>
+
             {/* LIVE PREVIEW SECTION */}
             <div className="pt-12 border-b border-white/5 pb-12">
                 <div className="mb-8 bg-black/40 p-8 rounded-[2.5rem] border border-white/5 shadow-inner">
@@ -610,15 +739,18 @@ export function ModelForm({
                                 model_id: 1, // Dummy ID for preview
                                 control_values: previewConfig.control_values
                             }}
-                            selectedModelOverride={{
-                                inputs_schema: {
-                                    controls: visualControls,
-                                    handles: visualInputWires
-                                }
-                            }}
-                            editMode={true}
-                            hideSelector={true}
-                            onToggleVisibility={handleToggleVisibility}
+                             selectedModelOverride={{
+                                 inputs_schema: {
+                                     controls: visualControls,
+                                     handles: visualInputWires
+                                 },
+                                 outputs_schema: {
+                                     handles: visualOutputWires
+                                 }
+                             }}
+                             editMode={true}
+                             hideSelector={true}
+                             onToggleVisibility={handleToggleVisibility as any}
                             onUpdate={handlePreviewUpdate}
                          />
 

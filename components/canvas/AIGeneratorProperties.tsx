@@ -132,27 +132,55 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                 )}
 
                 {/* Curation Handles */}
-                {editMode && handles.length > 0 && (
-                    <div className="space-y-4">
-                         <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary mb-2 px-1">Curation: Handles</p>
-                         <div className="flex flex-wrap gap-2">
-                             {handles.map(h => (
-                                 <button
-                                     key={h.api_mapping_key}
-                                     type="button"
-                                     onClick={() => onToggleVisibility?.(h.api_mapping_key, 'handle')}
-                                     className={cn(
-                                         "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
-                                         h.is_visible 
-                                             ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
-                                             : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
-                                     )}
-                                 >
-                                     {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                     {h.name}
-                                 </button>
-                             ))}
-                         </div>
+                {editMode && (handles.length > 0 || (selectedModel?.outputs_schema?.handles?.length ?? 0) > 0) && (
+                    <div className="space-y-6 bg-white/5 border border-white/10 rounded-2xl p-4">
+                         {handles.length > 0 && (
+                             <div className="space-y-3">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary px-1">Inputs</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {handles.map(h => (
+                                        <button
+                                            key={h.api_mapping_key}
+                                            type="button"
+                                            onClick={() => onToggleVisibility?.(h.api_mapping_key, 'input-handle' as any)}
+                                            className={cn(
+                                                "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
+                                                h.is_visible 
+                                                    ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
+                                                    : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
+                                            )}
+                                        >
+                                            {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                            {h.name}
+                                        </button>
+                                    ))}
+                                </div>
+                             </div>
+                         )}
+
+                         {(selectedModel?.outputs_schema?.handles?.length ?? 0) > 0 && (
+                             <div className="space-y-3 pt-2 border-t border-white/5">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary px-1">Outputs</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {selectedModel?.outputs_schema?.handles?.map(h => (
+                                        <button
+                                            key={h.api_mapping_key}
+                                            type="button"
+                                            onClick={() => onToggleVisibility?.(h.api_mapping_key, 'output-handle' as any)}
+                                            className={cn(
+                                                "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
+                                                h.is_visible 
+                                                    ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary" 
+                                                    : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
+                                            )}
+                                        >
+                                            {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                            {h.name || formatDisplayName(h.api_mapping_key)}
+                                        </button>
+                                    ))}
+                                </div>
+                             </div>
+                         )}
                     </div>
                 )}
 
