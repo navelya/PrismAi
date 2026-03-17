@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { Analytics } from '@vercel/analytics/next';
+import { CrashRecoveryProvider } from '@/components/providers/CrashRecoveryProvider';
 
 // const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 // const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space' });
@@ -85,7 +86,9 @@ export default function RootLayout({
       } as React.CSSProperties}>
         <ThemeProvider>
           <TooltipProvider delayDuration={400} skipDelayDuration={100}>
-            <AppLayout>{children}</AppLayout>
+            <CrashRecoveryProvider>
+              <AppLayout>{children}</AppLayout>
+            </CrashRecoveryProvider>
           </TooltipProvider>
         </ThemeProvider>
         <SpeedInsights />

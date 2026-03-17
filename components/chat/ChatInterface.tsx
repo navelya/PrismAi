@@ -175,6 +175,32 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const debouncedSaveState = useDebounce(memoizedSaveState, 2000);
 
+    // Serialize autosaves to avoid overlapping writes
+    const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const lastSavedHashRef = useRef<string | null>(null);
+    const isSavingRef = useRef(false);
+
+    // Slim the workflow to avoid shipping heavy outputs/base64 on autosave
+    const slimWorkflowForAutosave = useCallback((workflow: Workflow) => {
+        if (!workflow?.nodes) return workflow;
+        return {
+            ...workflow,
+            nodes: workflow.nodes.map((n) => {
+                const data = { ...(n.data || {}) };
+                // Drop heavy runtime data; keep config/label/prompt fields
+                delete (data as any).output;
+                if (data.outputMetadata && (data.outputMetadata as any).preview_urls) {
+                    delete (data.outputMetadata as any).preview_urls;
+                }
+                // Preserve configs and light metadata
+                return {
+                    ...n,
+                    data,
+                };
+            })
+        };
+    }, []);
+
     useEffect(() => {
         const { workflow: debouncedWorkflow, sessionId: saveSessionId, isDragging: debouncedIsDragging } = debouncedSaveState || {};
 
@@ -190,7 +216,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
         if (!debouncedWorkflow.nodes?.length && !debouncedWorkflow.edges?.length) return;
 
-        const cleanWorkflow = cleanWorkflowForSave(debouncedWorkflow);
+        const slimWorkflow = slimWorkflowForAutosave(debouncedWorkflow);
+        const cleanWorkflow = cleanWorkflowForSave(slimWorkflow);
         const currentHash = stableStringify(cleanWorkflow);
 
         // 🛡️ AUTOSAVE GUARD: Only block if nodes IN THIS WORKFLOW are currently executing.
@@ -206,18 +233,29 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
 
         const isSameHash = currentHash === serverWorkflowHash;
-
-        if (isSameHash) {
+        if (isSameHash || currentHash === lastSavedHashRef.current) {
             return;
         }
 
+        // Enqueue save to prevent overlapping writes
+        const enqueueSave = () => {
+            if (isSavingRef.current) return;
+            isSavingRef.current = true;
+            saveQueueRef.current = saveQueueRef.current
+                .then(async () => {
+                    await sessionsApi.update(saveSessionId, { canvas_state: cleanWorkflow });
+                    lastSavedHashRef.current = currentHash;
+                    setServerWorkflowHash(cleanWorkflow);
+                })
+                .catch((error: any) => {
+                    console.error("[AutoSave] ❌ Failed to update session", error);
+                })
+                .finally(() => {
+                    isSavingRef.current = false;
+                });
+        };
 
-        setServerWorkflowHash(cleanWorkflow);
-        sessionsApi.update(saveSessionId, {
-            canvas_state: cleanWorkflow,
-        }).catch((error: any) => {
-            console.error("[AutoSave] ❌ Failed to update session", error);
-        });
+        enqueueSave();
     }, [debouncedSaveState, effectiveSessionId]);
 
     useEffect(() => {
@@ -237,7 +275,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
             if (isExecuting) return;
 
-            if (currentHash && currentHash !== serverWorkflowHash) {
+            if (currentHash && currentHash !== serverWorkflowHash && currentHash !== lastSavedHashRef.current) {
                 setServerWorkflowHash(cleanWorkflow);
                 const payload = JSON.stringify({ canvas_state: cleanWorkflow });
 

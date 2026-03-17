@@ -1,77 +1,37 @@
 import { supabase } from './supabase';
-import { Workflow, WorkflowNode, WorkflowEdge, ExecutionRecord } from '../nodes/types';
+import { Workflow, ExecutionRecord } from '../nodes/types';
 
 /**
- * Save a workflow to the database
+ * Save a workflow snapshot to the sessions table (Primary Source of Truth)
  */
 export async function saveWorkflow(
     workflow: Workflow,
-    userId: string = 'anonymous'
-): Promise<{ success: boolean; workflowId?: string; error?: string }> {
+    sessionId: string
+): Promise<{ success: boolean; sessionId?: string; error?: string }> {
     try {
-        // Insert workflow
-        const { data: workflowData, error: workflowError } = await supabase
-            .from('workflows')
-            .insert({
-                user_id: userId,
-                name: workflow.name,
-                description: `Auto-generated workflow: ${workflow.name}`,
+        if (!sessionId) {
+            throw new Error('Missing sessionId context for save');
+        }
+
+        // 1. Update the session with the latest canvas state
+        const { error: sessionError } = await supabase
+            .from('sessions')
+            .update({
+                canvas_state: workflow,
+                updated_at: new Date().toISOString(),
             })
-            .select()
-            .single();
+            .eq('id', sessionId);
 
-        if (workflowError || !workflowData) {
-            throw new Error(workflowError?.message || 'Failed to create workflow');
-        }
-
-        const workflowId = workflowData.id;
-
-        // Insert nodes
-        const nodesData = workflow.nodes.map(node => ({
-            workflow_id: workflowId,
-            node_type: node.type,
-            position_x: node.position.x,
-            position_y: node.position.y,
-            config: node.data.config,
-        }));
-
-        const { data: insertedNodes, error: nodesError } = await supabase
-            .from('nodes')
-            .insert(nodesData)
-            .select();
-
-        if (nodesError || !insertedNodes) {
-            throw new Error(nodesError?.message || 'Failed to create nodes');
-        }
-
-        // Map old node IDs to new database IDs
-        const nodeIdMap = new Map<string, string>();
-        workflow.nodes.forEach((node, index) => {
-            nodeIdMap.set(node.id, insertedNodes[index].id);
-        });
-
-        // Insert edges with updated IDs
-        if (workflow.edges.length > 0) {
-            const edgesData = workflow.edges.map(edge => ({
-                workflow_id: workflowId,
-                source_node_id: nodeIdMap.get(edge.source)!,
-                target_node_id: nodeIdMap.get(edge.target)!,
-            }));
-
-            const { error: edgesError } = await supabase
-                .from('edges')
-                .insert(edgesData);
-
-            if (edgesError) {
-                throw new Error(edgesError.message);
-            }
+        if (sessionError) {
+            throw new Error(sessionError.message);
         }
 
         return {
             success: true,
-            workflowId,
+            sessionId,
         };
     } catch (error) {
+        console.error('[saveWorkflow] Error:', error);
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error',
@@ -80,66 +40,60 @@ export async function saveWorkflow(
 }
 
 /**
- * Get a workflow from the database
+ * Get a workflow from the sessions table
  */
-export async function getWorkflow(workflowId: string): Promise<Workflow | null> {
+export async function getWorkflow(sessionId: string): Promise<Workflow | null> {
     try {
-        const { data: workflowData, error: workflowError } = await supabase
-            .from('workflows')
-            .select('*')
-            .eq('id', workflowId)
+        const { data: sessionData, error: sessionError } = await supabase
+            .from('sessions')
+            .select('canvas_state')
+            .eq('id', sessionId)
             .single();
 
-        if (workflowError || !workflowData) {
+        if (sessionError || !sessionData) {
             return null;
         }
 
-        const { data: nodesData } = await supabase
-            .from('nodes')
-            .select('*')
-            .eq('workflow_id', workflowId);
-
-        const { data: edgesData } = await supabase
-            .from('edges')
-            .select('*')
-            .eq('workflow_id', workflowId);
-
-        const nodes: WorkflowNode[] = (nodesData || []).map((node: any) => ({
-            id: node.id,
-            type: node.node_type as any,
-            position: {
-                x: node.position_x,
-                y: node.position_y,
-            },
-            data: {
-                label: node.node_type,
-                config: node.config,
-            },
-        }));
-
-        const edges: WorkflowEdge[] = (edgesData || []).map((edge: any) => ({
-            id: edge.id,
-            source: edge.source_node_id,
-            target: edge.target_node_id,
-        }));
-
-        return {
-            id: workflowData.id,
-            name: workflowData.name,
-            nodes,
-            edges,
-        };
+        return sessionData.canvas_state as Workflow;
     } catch (error) {
-        console.error('Error fetching workflow:', error);
+        console.error('Error fetching session workflow:', error);
         return null;
     }
 }
 
 /**
- * Save execution result to database
+ * Create a persistent history version/snapshot of a session's current state
+ */
+export async function saveSessionVersion(
+    sessionId: string,
+    workflow: Workflow,
+    versionName?: string
+): Promise<{ success: boolean; versionId?: string }> {
+    try {
+        const { data, error } = await supabase
+            .from('session_versions')
+            .insert({
+                session_id: sessionId,
+                canvas_state: workflow,
+                version_name: versionName || `Snapshot ${new Date().toLocaleString()}`,
+            })
+            .select()
+            .single();
+
+        if (error || !data) throw error;
+
+        return { success: true, versionId: data.id };
+    } catch (error) {
+        console.error('Error saving session version:', error);
+        return { success: false };
+    }
+}
+
+/**
+ * Save execution result to database (links to sessions)
  */
 export async function saveExecution(
-    workflowId: string,
+    sessionId: string,
     status: string,
     resultData: any,
     errorMessage?: string
@@ -148,7 +102,7 @@ export async function saveExecution(
         const { data, error } = await supabase
             .from('executions')
             .insert({
-                workflow_id: workflowId,
+                session_id: sessionId,
                 status,
                 result_data: resultData,
                 error_message: errorMessage,
@@ -174,14 +128,14 @@ export async function saveExecution(
 }
 
 /**
- * Get execution history for a workflow
+ * Get execution history for a session
  */
-export async function getExecutionHistory(workflowId: string): Promise<ExecutionRecord[]> {
+export async function getExecutionHistory(sessionId: string): Promise<ExecutionRecord[]> {
     try {
         const { data, error } = await supabase
             .from('executions')
             .select('*')
-            .eq('workflow_id', workflowId)
+            .eq('session_id', sessionId)
             .order('created_at', { ascending: false });
 
         if (error || !data) {
@@ -190,7 +144,7 @@ export async function getExecutionHistory(workflowId: string): Promise<Execution
 
         return data.map((execution: any) => ({
             id: execution.id,
-            workflowId: execution.workflow_id,
+            sessionId: execution.session_id,
             status: execution.status as any,
             resultData: execution.result_data,
             errorMessage: execution.error_message,
@@ -204,15 +158,16 @@ export async function getExecutionHistory(workflowId: string): Promise<Execution
 }
 
 /**
- * Get recent workflows
+ * Get recent active sessions
  */
 export async function getRecentWorkflows(userId: string = 'anonymous', limit: number = 10) {
     try {
         const { data, error } = await supabase
-            .from('workflows')
-            .select('*')
+            .from('sessions')
+            .select('id, title, canvas_state, created_at, updated_at')
             .eq('user_id', userId)
-            .order('created_at', { ascending: false })
+            .eq('is_deleted', false)
+            .order('updated_at', { ascending: false })
             .limit(limit);
 
         if (error) {
@@ -221,7 +176,8 @@ export async function getRecentWorkflows(userId: string = 'anonymous', limit: nu
 
         return data || [];
     } catch (error) {
-        console.error('Error fetching recent workflows:', error);
+        console.error('Error fetching recent sessions:', error);
         return [];
     }
 }
+

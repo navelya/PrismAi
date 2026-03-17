@@ -49,7 +49,7 @@ export default function AdminPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [activeFilter, setActiveFilter] = useState('all');
-    
+
     // Selection/Edit State
     const [editingModel, setEditingModel] = useState<any | null>(null);
     const [editingProvider, setEditingProvider] = useState<any | null>(null);
@@ -157,7 +157,7 @@ export default function AdminPage() {
                 ...nodeForm,
                 icon_reference: parseIconName(nodeForm.icon_reference)
             };
-            
+
             if (editingNodeType) {
                 await modelsAdminApi.updateNodeType(editingNodeType.id, finalNodeForm);
                 setStatus({ type: 'success', message: 'Sub Category updated successfully!' });
@@ -389,80 +389,80 @@ export default function AdminPage() {
                                             const matchesActive = activeFilter === 'all' || (activeFilter === 'active' ? m.is_active : !m.is_active);
                                             return matchesSearch && matchesCat && matchesActive;
                                         })
-                                            .map(model => {
-                                                const provider = providers.find(p => p.id === model.provider_id);
-                                                const subCategory = nodeTypes.find(t => t.id === model.node_type_id);
-                                                const IconComponent = (subCategory?.icon_reference && (LucideIcons as any)[subCategory.icon_reference]) || Boxes;
+                                        .map(model => {
+                                            const provider = providers.find(p => p.id === model.provider_id);
+                                            const subCategory = nodeTypes.find(t => t.id === model.node_type_id);
+                                            const IconComponent = (subCategory?.icon_reference && (LucideIcons as any)[subCategory.icon_reference]) || Boxes;
 
-                                                return (
-                                                    <div key={model.id} className="group bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl p-6 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6">
-                                                        <div className="flex items-center gap-5">
-                                                            <div className="relative">
-                                                                <div className={cn(
-                                                                    "w-12 h-12 rounded-xl flex items-center justify-center border shadow-inner transition-all group-hover:scale-110 overflow-hidden",
-                                                                    model.is_active ? "bg-green-500/10 border-green-500/20" : "bg-red-500/10 border-red-500/20"
-                                                                )}>
-                                                                    {provider?.logo_url ? (
-                                                                        <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain p-2" />
-                                                                    ) : (
-                                                                        <Building2 className={cn("w-6 h-6", model.is_active ? "text-green-400" : "text-red-400")} />
-                                                                    )}
-                                                                </div>
-                                                                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-surface-primary border border-white/10 rounded-lg flex items-center justify-center overflow-hidden shadow-lg p-1">
-                                                                    <IconComponent className="w-3.5 h-3.5 text-content-primary" />
-                                                                </div>
+                                            return (
+                                                <div key={model.id} className="group bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl p-6 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                                    <div className="flex items-center gap-5">
+                                                        <div className="relative">
+                                                            <div className={cn(
+                                                                "w-12 h-12 rounded-xl flex items-center justify-center border shadow-inner transition-all group-hover:scale-110 overflow-hidden",
+                                                                model.is_active ? "bg-green-500/10 border-green-500/20" : "bg-red-500/10 border-red-500/20"
+                                                            )}>
+                                                                {provider?.logo_url ? (
+                                                                    <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
+                                                                ) : (
+                                                                    <Building2 className={cn("w-6 h-6", model.is_active ? "text-green-400" : "text-red-400")} />
+                                                                )}
                                                             </div>
-                                                            <div>
-                                                                <h4 className="font-bold text-content-primary uppercase tracking-tight text-sm">{model.display_name}</h4>
-                                                                <p className="text-[10px] text-content-tertiary font-mono mt-1 opacity-60">{model.replicate_model_id}</p>
-                                                                <div className="flex flex-wrap gap-2 mt-2">
-                                                                    <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-lg text-content-tertiary text-[8px] font-black uppercase tracking-widest">{model.category_id}</span>
-                                                                    {subCategory && (
-                                                                        <span className="px-2 py-0.5 bg-accent-primary/5 border border-accent-primary/20 rounded-lg text-accent-primary text-[8px] font-black uppercase tracking-widest">
-                                                                            {subCategory.display_name}
-                                                                        </span>
-                                                                    )}
-                                                                    {provider && (
-                                                                        <span className="px-2 py-0.5 bg-white/10 border border-white/20 rounded-lg text-content-secondary text-[8px] font-black uppercase tracking-widest">
-                                                                            {provider.name}
-                                                                        </span>
-                                                                    )}
-                                                                    <span className="px-2 py-0.5 bg-accent-primary/5 border border-accent-primary/20 rounded-lg text-accent-primary text-[8px] font-black uppercase tracking-widest">{model.credit_cost} Credits</span>
-                                                                </div>
+                                                            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-surface-primary border border-white/10 rounded-lg flex items-center justify-center overflow-hidden shadow-lg p-1">
+                                                                <IconComponent className="w-3.5 h-3.5 text-content-primary" />
                                                             </div>
                                                         </div>
-
-                                                        <div className="flex items-center gap-3">
-                                                            <button
-                                                                onClick={() => {
-                                                                    const blob = new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' });
-                                                                    const url = URL.createObjectURL(blob);
-                                                                    const a = document.createElement('a');
-                                                                    a.href = url;
-                                                                    a.download = `${model.display_name.replace(/\s+/g, '_')}_config.json`;
-                                                                    a.click();
-                                                                    URL.revokeObjectURL(url);
-                                                                }}
-                                                                className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-content-tertiary hover:text-content-primary text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all"
-                                                            >
-                                                                <Download className="w-3.5 h-3.5" /> JSON
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setEditingModel(model)}
-                                                                className="flex items-center gap-2 px-4 py-2 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 text-accent-primary text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all"
-                                                            >
-                                                                <Edit2 className="w-3.5 h-3.5" /> Edit
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setModelToDelete(model)}
-                                                                className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
-                                                            >
-                                                                <Trash2 className="w-4 h-4" />
-                                                            </button>
+                                                        <div>
+                                                            <h4 className="font-bold text-content-primary uppercase tracking-tight text-sm">{model.display_name}</h4>
+                                                            <p className="text-[10px] text-content-tertiary font-mono mt-1 opacity-60">{model.replicate_model_id}</p>
+                                                            <div className="flex flex-wrap gap-2 mt-2">
+                                                                <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-lg text-content-tertiary text-[8px] font-black uppercase tracking-widest">{model.category_id}</span>
+                                                                {subCategory && (
+                                                                    <span className="px-2 py-0.5 bg-accent-primary/5 border border-accent-primary/20 rounded-lg text-accent-primary text-[8px] font-black uppercase tracking-widest">
+                                                                        {subCategory.display_name}
+                                                                    </span>
+                                                                )}
+                                                                {provider && (
+                                                                    <span className="px-2 py-0.5 bg-white/10 border border-white/20 rounded-lg text-content-secondary text-[8px] font-black uppercase tracking-widest">
+                                                                        {provider.name}
+                                                                    </span>
+                                                                )}
+                                                                <span className="px-2 py-0.5 bg-accent-primary/5 border border-accent-primary/20 rounded-lg text-accent-primary text-[8px] font-black uppercase tracking-widest">{model.credit_cost} Credits</span>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                );
-                                            })
+
+                                                    <div className="flex items-center gap-3">
+                                                        <button
+                                                            onClick={() => {
+                                                                const blob = new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' });
+                                                                const url = URL.createObjectURL(blob);
+                                                                const a = document.createElement('a');
+                                                                a.href = url;
+                                                                a.download = `${model.display_name.replace(/\s+/g, '_')}_config.json`;
+                                                                a.click();
+                                                                URL.revokeObjectURL(url);
+                                                            }}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-content-tertiary hover:text-content-primary text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all"
+                                                        >
+                                                            <Download className="w-3.5 h-3.5" /> JSON
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setEditingModel(model)}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 text-accent-primary text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setModelToDelete(model)}
+                                                            className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
                                     }
                                     {allModels.length === 0 && (
                                         <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">

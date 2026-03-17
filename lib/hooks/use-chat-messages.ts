@@ -43,7 +43,7 @@ export function useChatMessages({
                 content: msg.content || '',
                 images: imagesToSave,
                 created_at: msg.timestamp.toISOString(),
-                canvas_state: msg.workflow || undefined,
+                // Intentionally omit canvas_state to avoid heavy snapshots per message
             });
 
             if (message && message.id) {

@@ -8,6 +8,7 @@ import ReactFlow, {
     ReactFlowProvider,
     Edge,
     NodeDragHandler,
+    NodeChange,
     getIncomers,
     getOutgoers,
     getConnectedEdges,
@@ -181,6 +182,37 @@ function EditorCanvasInner({
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
     }, [setIsDragging, onNodeDragStop, touchInteraction]);
 
+    // Throttle high-frequency node change events (drag) to the next animation frame
+    const pendingNodeChanges = useRef<NodeChange[] | null>(null);
+    const rafId = useRef<number | null>(null);
+
+    const flushNodeChanges = useCallback(() => {
+        if (pendingNodeChanges.current && pendingNodeChanges.current.length > 0) {
+            onNodesChange(pendingNodeChanges.current);
+        }
+        pendingNodeChanges.current = null;
+        rafId.current = null;
+    }, [onNodesChange]);
+
+    const handleNodesChangeThrottled = useCallback((changes: NodeChange[]) => {
+        if (pendingNodeChanges.current) {
+            pendingNodeChanges.current = pendingNodeChanges.current.concat(changes);
+        } else {
+            pendingNodeChanges.current = changes;
+        }
+        if (rafId.current === null) {
+            rafId.current = requestAnimationFrame(flushNodeChanges);
+        }
+    }, [flushNodeChanges]);
+
+    useEffect(() => {
+        return () => {
+            if (rafId.current) {
+                cancelAnimationFrame(rafId.current);
+            }
+        };
+    }, []);
+
     // Handle undo button click
     const handleUndo = () => {
         if (canUndo && undo) {
@@ -352,9 +384,7 @@ function EditorCanvasInner({
             <ReactFlow
                 nodes={nodes}
                 edges={memoizedEdges}
-                onNodesChange={(changes) => {
-                    onNodesChange(changes);
-                }}
+                onNodesChange={handleNodesChangeThrottled}
                 onEdgesChange={(changes) => {
                     onEdgesChange(changes);
                 }}

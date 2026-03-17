@@ -61,6 +61,8 @@ interface AppState {
     clearExecutionResults: () => void;
 
     // Execution Status (Real-time updates)
+    activeExecutionId: string | null;
+    setActiveExecutionId: (id: string | null) => void;
     nodeStatuses: Record<string, NodeStatus>;
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
     resetNodeStatuses: () => void;
@@ -150,6 +152,7 @@ export const useAppStore = create<AppState>()(
             nodeTypes: [],
             providers: [],
             isModelsLoading: false,
+            activeExecutionId: null,
             executionResults: {},
             nodeStatuses: {}, // Initialize empty status map
             nodeDirtyStates: {},
@@ -240,6 +243,7 @@ export const useAppStore = create<AppState>()(
                     isComputing: {},
                     executionLocks: {},
                     nodeOutputs: {},
+                    activeExecutionId: null,
                     copiedNode: null,
                     runFromNodeId: null,
                     runMode: null,
@@ -441,6 +445,9 @@ export const useAppStore = create<AppState>()(
 
             clearExecutionResults: () => set({ executionResults: {} }),
 
+            activeExecutionId: null,
+            setActiveExecutionId: (id) => set({ activeExecutionId: id }),
+
             // Node Status Actions (Real-time execution updates)
             setNodeStatus: (nodeId, status) =>
                 set((state) => ({
@@ -549,6 +556,7 @@ export const useAppStore = create<AppState>()(
                     'isComputing',
                     'executionLocks',
                     'nodeOutputs',
+                    'activeExecutionId',
                     'copiedNode',
                     'isLoading',
                     'statusMessage',
@@ -568,6 +576,7 @@ export const useAppStore = create<AppState>()(
                     state.executionLocks = {};
                     state.nodeOutputs = {};
                     state.executionResults = {};
+                    state.activeExecutionId = null;
                     state.isCopilotMinimized = false;
                     if (state.editorState) {
                         // editorState no longer has isCanvasOpen

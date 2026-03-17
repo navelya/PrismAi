@@ -31,13 +31,18 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
         const handleExecutionBroadcast = (payload: any) => {
             const store = useAppStore.getState();
-            const { nodeId, status, output, outputMetadata } = payload.payload ?? {};
+            const { nodeId, status, output, outputMetadata, executionId } = payload.payload ?? {};
+            const activeExecutionId = store.activeExecutionId;
 
             if (!nodeId || !status) {
                 console.warn('[ExecutionChannel] Received malformed broadcast payload', payload);
                 return;
             }
 
+            // Ignore stale runs if we have an active execution token
+            if (activeExecutionId && executionId && executionId !== activeExecutionId) {
+                return;
+            }
 
             store.setNodeStatus(nodeId, status);
 

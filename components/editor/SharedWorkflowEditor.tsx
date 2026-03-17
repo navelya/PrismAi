@@ -58,24 +58,21 @@ export default function SharedWorkflowEditor({
         initializeCatalogs();
     }, [fetchModelCatalog, fetchCategories, fetchNodeTypes]);
 
-    // ⚠️ CRITICAL: Use initialWorkflow prop directly, NOT currentWorkflow from store
-    // The store's currentWorkflow is stale during session switches and causes state leakage
-    // The prop is the source of truth from the parent component (which has the correct session context)
     const {
         nodes,
         edges,
         onNodesChange,
         onEdgesChange,
         onConnect,
-        onNodeDragStart, // New prop
+        onNodeDragStart,
         selectedNode,
         setSelectedNode,
         workflowName,
         setWorkflowName,
         addNode,
         deleteNode,
-        deleteNodes, // New prop
-        duplicateNodes, // New prop
+        deleteNodes,
+        duplicateNodes,
         updateNodeConfig,
         updatePositions,
         getWorkflow: getCurrentWorkflow,
@@ -90,8 +87,6 @@ export default function SharedWorkflowEditor({
     const [showPropertyPanel, setShowPropertyPanel] = useState(false);
     const [isBooting, setIsBooting] = useState(true);
     const [executionResult, setExecutionResult] = useState<any>(null);
-    // Use a ref-based counter instead of boolean so concurrent runs don't block each other.
-    // isExecuting = (activeRunCount > 0) for toolbar display.
     const activeRunCountRef = useRef(0);
     const [isExecuting, setIsExecuting] = useState(false);
     const [executionError, setExecutionError] = useState<string | null>(null);
@@ -99,13 +94,11 @@ export default function SharedWorkflowEditor({
     const [selectionMode, setSelectionMode] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    // Credit Modal State
     const [showCreditModal, setShowCreditModal] = useState(false);
     const [pendingExecutionTarget, setPendingExecutionTarget] = useState<{ id: string | null, mode: 'all' | 'solo' | 'chain' | 'ab_test' } | null>(null);
     const [pendingCost, setPendingCost] = useState(0);
     const [pendingNodeCount, setPendingNodeCount] = useState(0);
 
-    // Track if component is mounted to prevent stale updates
     const isMountedRef = useRef(true);
     useEffect(() => {
         isMountedRef.current = true;
@@ -114,9 +107,7 @@ export default function SharedWorkflowEditor({
         };
     }, []);
 
-    // Save initial workflow to history on mount
     useEffect(() => {
-        // 🛡️ DEFENSIVE: Prevent writing stale workflow to store if no active session
         const storeState = useAppStore.getState();
         const hasActiveSession = !!storeState.activeSessionId;
 
@@ -125,7 +116,6 @@ export default function SharedWorkflowEditor({
                 setCurrentWorkflow(initialWorkflow);
             } else {
                 console.warn('[SharedWorkflowEditor] 🛑 Aborted reviving workflow: No active session!');
-                // Optional: Force clear if we shouldn't be here with data
                 if (storeState.currentWorkflow) {
                     setCurrentWorkflow(null);
                 }
@@ -133,21 +123,14 @@ export default function SharedWorkflowEditor({
         }
     }, [initialWorkflow, nodes.length, setCurrentWorkflow]);
 
-    // Track last saved state to prevent infinite loops
     const lastSavedStateRef = useRef<string>('');
-
-    // Debounce timer ref
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Sync workflow changes to Zustand store (creates history snapshots)
     useEffect(() => {
         if (nodes.length > 0 || edges.length > 0) {
-            // 👑 PERFORMANCE FIX: Exit early if dragging to avoid expensive serialization on every frame
             if (isDragging) return;
 
             const workflow = getCurrentWorkflow();
-
-            // Create a stable serialization for comparison
             const currentStateString = stableStringify({
                 nodes: workflow.nodes.map(n => ({ id: n.id, data: n.data, position: n.position })),
                 edges: workflow.edges,
@@ -157,31 +140,23 @@ export default function SharedWorkflowEditor({
             if (currentStateString !== lastSavedStateRef.current) {
                 lastSavedStateRef.current = currentStateString;
 
-                // Clear existing timer
                 if (debounceTimerRef.current) {
                     clearTimeout(debounceTimerRef.current);
                 }
 
-                // Debounce the update to prevent rapid-fire loops
-                // ⚠️ CRITICAL: Check isMountedRef AND activeSessionId to prevent stale updates
                 debounceTimerRef.current = setTimeout(() => {
-                    // Ensure we are still the active session (or there IS an active session)
-                    // This prevents the old editor from writing back to store after "New Chat" clears the session
                     const currentActiveId = useAppStore.getState().activeSessionId;
-
                     if (isMountedRef.current && currentActiveId) {
                         setCurrentWorkflow(workflow);
                     }
                 }, 300);
             }
 
-            // Also notify parent component
             if (onWorkflowChange) {
                 onWorkflowChange(workflow);
             }
         }
 
-        // Cleanup function
         return () => {
             if (debounceTimerRef.current) {
                 clearTimeout(debounceTimerRef.current);
@@ -207,7 +182,14 @@ export default function SharedWorkflowEditor({
 
     const handleSave = async () => {
         const workflow = getCurrentWorkflow();
-        const result = await saveWorkflow(workflow, 'anonymous');
+        const activeSessionId = useAppStore.getState().activeSessionId;
+
+        if (!activeSessionId) {
+            alert('No active session found. Cannot save.');
+            return;
+        }
+
+        const result = await saveWorkflow(workflow, activeSessionId);
         if (result.success) {
             alert('Workflow saved successfully!');
         } else {
@@ -215,18 +197,16 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    // --- Core Execution Logic (Backend Post) ---
     const commitExecution = async (targetNodeId: string | null, mode: string) => {
-        // Increment active run counter — allows concurrent independent runs
         activeRunCountRef.current += 1;
         setIsExecuting(true);
         setExecutionError(null);
         setShowResults(true);
 
         const store = useAppStore.getState();
+        const executionId = generateNodeId();
+        store.setActiveExecutionId(executionId);
 
-        // Optimistically set statuses to 'pending' for targeted nodes
-        // This provides instant UI feedback while the server request is in flight.
         if (targetNodeId && mode === 'solo') {
             store.setNodeStatus(targetNodeId, 'pending');
         } else if (targetNodeId && mode === 'chain') {
@@ -235,10 +215,8 @@ export default function SharedWorkflowEditor({
             store.setNodeStatus(targetNodeId, 'pending');
             descendants.forEach((id: string) => store.setNodeStatus(id, 'pending'));
         } else if (targetNodeId && mode === 'ab_test') {
-            // Simplification: set current node to pending. Realtime will fill rest.
             store.setNodeStatus(targetNodeId, 'pending');
         } else {
-            // Full Run
             nodes.forEach(n => store.setNodeStatus(n.id, 'pending'));
             store.clearNodeOutputs();
         }
@@ -247,15 +225,11 @@ export default function SharedWorkflowEditor({
         const activeSessionId = store.activeSessionId;
 
         try {
-            // Strip outputMetadata from nodes being re-executed so the server doesn't
-            // reuse stale persisted Storage paths from previous runs.
-            // Non-targeted nodes keep their metadata so upstream context (image URLs as inputs) is preserved.
             const sanitizedWorkflow = {
                 ...workflow,
                 nodes: workflow.nodes.map((node: any) => {
                     const isTarget = targetNodeId ? (node.id === targetNodeId) : true;
                     if (!isTarget) return node;
-                    // Strip all execution output state from targeted nodes before sending to server
                     const { output, outputMetadata, status, ...cleanData } = node.data || {};
                     return { ...node, data: cleanData };
                 })
@@ -264,7 +238,8 @@ export default function SharedWorkflowEditor({
             const bodyPayload: any = {
                 workflow: sanitizedWorkflow,
                 sessionId: activeSessionId,
-                runMode: mode
+                runMode: mode,
+                executionId,
             };
 
             if (targetNodeId) {
@@ -287,18 +262,15 @@ export default function SharedWorkflowEditor({
             setExecutionResult(null);
             store.resetNodeStatuses();
         } finally {
-            // Decrement counter; only clear button state when ALL runs complete
             activeRunCountRef.current -= 1;
             if (activeRunCountRef.current <= 0) {
                 activeRunCountRef.current = 0;
                 setIsExecuting(false);
+                store.setActiveExecutionId(null);
             }
         }
     };
 
-    // --- Pricing Calculation & Modal Triggers ---
-
-    // Helper to calculate total cost of an execution set
     const calculateExecutionCost = (targetNodeId: string | null, mode: string) => {
         let executionNodes: typeof nodes = [];
 
@@ -312,7 +284,6 @@ export default function SharedWorkflowEditor({
             executionNodes = [...nodes.filter(n => descendants.has(n.id))];
             if (targetNode) executionNodes.unshift(targetNode);
         } else {
-            // Mode 'all'
             executionNodes = nodes;
         }
 
@@ -322,7 +293,7 @@ export default function SharedWorkflowEditor({
         executionNodes.forEach((node) => {
             const def = sharedRegistry[node.type as keyof typeof sharedRegistry];
             if (def && def.category === 'generative') {
-                cost += (def.creditCost || 1); // fallback to 1 if not explicitly set
+                cost += (def.creditCost || 1);
                 count++;
             }
         });
@@ -344,7 +315,6 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    // Listen for "Run From Node" triggers
     const runFromNodeId = useAppStore((state) => state.runFromNodeId);
     const runMode = useAppStore((state) => state.runMode);
 
@@ -355,7 +325,7 @@ export default function SharedWorkflowEditor({
         const targetId = runFromNodeId;
         const mode = runMode;
 
-        clearRunFromNode(); // clear the dispatcher immediately
+        clearRunFromNode();
 
         const { cost, count } = calculateExecutionCost(targetId, mode);
 
@@ -367,8 +337,6 @@ export default function SharedWorkflowEditor({
         } else {
             commitExecution(targetId, mode);
         }
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [runFromNodeId, runMode]);
 
     const confirmCreditRun = () => {
@@ -385,10 +353,8 @@ export default function SharedWorkflowEditor({
             abortControllerRef.current = null;
         }
         setIsExecuting(false);
-
-        // Reset all node statuses
-        const resetNodeStatuses = useAppStore.getState().resetNodeStatuses;
-        resetNodeStatuses();
+        useAppStore.getState().setActiveExecutionId(null);
+        useAppStore.getState().resetNodeStatuses();
     };
 
     const handleDelete = () => {
@@ -410,9 +376,7 @@ export default function SharedWorkflowEditor({
 
     return (
         <div className="w-full h-full relative overflow-hidden flex flex-col">
-            {/* Main Editor Container */}
             <div className="flex-1 relative flex overflow-hidden">
-                {/* Floating Toolbar Island - Moved up for stable centering */}
                 {showToolbar && (
                     <EditorToolbar
                         workflowName={workflowName}
@@ -428,7 +392,6 @@ export default function SharedWorkflowEditor({
                     />
                 )}
 
-                {/* Canvas Area */}
                 <div className="flex-1 relative bg-surface-primary flex flex-col overflow-hidden">
                     <div className="flex-1 relative z-10">
                         {(isModelsLoading || isBooting) ? (
@@ -450,7 +413,6 @@ export default function SharedWorkflowEditor({
                                 updatePositions={updatePositions}
                                 selectionMode={selectionMode}
                                 onSelectionToggle={() => setSelectionMode(!selectionMode)}
-                                // New Undo/Redo & Action Props
                                 undo={undo}
                                 redo={redo}
                                 canUndo={canUndo}
@@ -480,7 +442,6 @@ export default function SharedWorkflowEditor({
                         )}
                     </div>
 
-                    {/* Results Panel */}
                     {showResultsPanel && showResults && (
                         <ResultsPanel
                             result={executionResult}

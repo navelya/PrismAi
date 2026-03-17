@@ -5,28 +5,26 @@ import { getAuthenticatedUser } from '@/lib/api/auth';
 
 export async function POST(request: NextRequest) {
     try {
-        // Authenticate the request
         const auth = await getAuthenticatedUser();
         if (auth.error) return auth.error;
-        const { user } = auth;
 
         const body = await request.json();
-        const { workflow } = body;
+        const { workflow, sessionId } = body;
 
-        if (!workflow || !workflow.nodes) {
+        if (!workflow || !sessionId) {
             return NextResponse.json(
-                { error: 'Invalid workflow' },
+                { error: 'Invalid payload: missing workflow or sessionId' },
                 { status: 400 }
             );
         }
 
-        // Use authenticated user ID — never trust client-supplied userId
-        const result = await saveWorkflow(workflow as Workflow, user.id);
+        // Save directly to the session's canvas_state
+        const result = await saveWorkflow(workflow as Workflow, sessionId);
 
         if (result.success) {
             return NextResponse.json({
                 success: true,
-                workflowId: result.workflowId,
+                sessionId: result.sessionId,
             });
         } else {
             return NextResponse.json(
@@ -38,7 +36,7 @@ export async function POST(request: NextRequest) {
             );
         }
     } catch (error) {
-        console.error('Error saving workflow:', error);
+        console.error('Error in /api/workflow/save:', error);
         return NextResponse.json(
             {
                 success: false,
