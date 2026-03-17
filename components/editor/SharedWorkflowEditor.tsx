@@ -497,9 +497,9 @@ export default function SharedWorkflowEditor({
                             animate={{ opacity: 1, x: 0, scale: 1 }}
                             exit={{ opacity: 0, x: 20, scale: 0.95 }}
                             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                            className="absolute top-[80px] right-4 bottom-4 z-40 pointer-events-none"
+                            className="absolute top-[72px] right-3 bottom-3 z-40 pointer-events-none flex flex-col items-end"
                         >
-                            <div className="pointer-events-auto h-auto">
+                            <div className="pointer-events-auto max-h-full flex flex-col">
                                 <PropertyPanel
                                     nodeId={selectedNodeData.id}
                                     nodeType={selectedNodeData.type}

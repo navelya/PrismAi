@@ -112,101 +112,104 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const totalCost = calculateTotalCost();
 
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
-            {/* Model Selection */}
-            {!hideSelector && (
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 shadow-xl ring-1 ring-white/5">
-                    <Select
-                        label="Model"
-                        value={config.model_id?.toString() || ''}
-                        onChange={(e) => handleModelChange(e.target.value)}
-                        options={filteredModels.filter(m => m.is_active).map(m => ({
-                            id: m.id.toString(),
-                            display_name: m.display_name
-                        }))}
-                        placeholder="Select a model..."
-                    />
-                </div>
-            )}
-
-            {/* Curation Handles */}
-            {editMode && handles.length > 0 && (
-                <div className="space-y-4">
-                     <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary mb-2 px-1">Curation: Handles</p>
-                     <div className="flex flex-wrap gap-2">
-                         {handles.map(h => (
-                             <button
-                                 key={h.api_mapping_key}
-                                 type="button"
-                                 onClick={() => onToggleVisibility?.(h.api_mapping_key, 'handle')}
-                                 className={cn(
-                                     "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
-                                     h.is_visible 
-                                         ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
-                                         : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
-                                 )}
-                             >
-                                 {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                 {h.name}
-                             </button>
-                         ))}
-                     </div>
-                </div>
-            )}
-
-            {/* Dynamic Controls */}
-            {controls.length > 0 && (
-                <div className="space-y-6 pt-2">
-                    <div className="flex items-center gap-3">
-                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-content-tertiary whitespace-nowrap">
-                            Parameters
-                        </p>
-                        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden">
+            {/* Parameters Content Area - Scrolls independently when window is at max height */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-5 pt-1 pb-8 space-y-8">
+                {/* Model Selection */}
+                {!hideSelector && (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 shadow-xl ring-1 ring-white/5">
+                        <Select
+                            label="Model"
+                            value={config.model_id?.toString() || ''}
+                            onChange={(e) => handleModelChange(e.target.value)}
+                            options={filteredModels.filter(m => m.is_active).map(m => ({
+                                id: m.id.toString(),
+                                display_name: m.display_name
+                            }))}
+                            placeholder="Select a model..."
+                        />
                     </div>
+                )}
 
-                    <div className="space-y-5">
-                        {controls
-                            .filter(ctrl => editMode || ctrl.is_visible)
-                            .map(ctrl => (
-                                <div key={ctrl.api_mapping_key} className="relative group/field">
-                                    {editMode && (
-                                        <button 
-                                            type="button"
-                                            onClick={() => onToggleVisibility?.(ctrl.api_mapping_key, 'control')}
-                                            className={cn(
-                                                "absolute -top-1 -right-1 z-10 w-6 h-6 rounded-full flex items-center justify-center border shadow-xl transition-all",
-                                                ctrl.is_visible 
-                                                    ? "bg-green-500 border-green-400 text-white" 
-                                                    : "bg-red-500 border-red-400 text-white"
-                                            )}
-                                        >
-                                            {ctrl.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                        </button>
-                                    )}
-                                    <div className={cn("transition-all", !ctrl.is_visible && "opacity-40 grayscale-[0.5]")}>
-                                        <ControlRenderer
-                                            control={ctrl}
-                                            value={config.control_values?.[ctrl.api_mapping_key]}
-                                            onChange={handleControlChange}
-                                        />
+                {/* Curation Handles */}
+                {editMode && handles.length > 0 && (
+                    <div className="space-y-4">
+                         <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary mb-2 px-1">Curation: Handles</p>
+                         <div className="flex flex-wrap gap-2">
+                             {handles.map(h => (
+                                 <button
+                                     key={h.api_mapping_key}
+                                     type="button"
+                                     onClick={() => onToggleVisibility?.(h.api_mapping_key, 'handle')}
+                                     className={cn(
+                                         "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
+                                         h.is_visible 
+                                             ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
+                                             : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
+                                     )}
+                                 >
+                                     {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                     {h.name}
+                                 </button>
+                             ))}
+                         </div>
+                    </div>
+                )}
+
+                {/* Dynamic Controls */}
+                {controls.length > 0 && (
+                    <div className="space-y-6 pt-2">
+                        <div className="flex items-center gap-3">
+                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-content-tertiary whitespace-nowrap">
+                                Parameters
+                            </p>
+                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                        </div>
+
+                        <div className="space-y-5">
+                            {controls
+                                .filter(ctrl => editMode || ctrl.is_visible)
+                                .map(ctrl => (
+                                    <div key={ctrl.api_mapping_key} className="relative group/field">
+                                        {editMode && (
+                                            <button 
+                                                type="button"
+                                                onClick={() => onToggleVisibility?.(ctrl.api_mapping_key, 'control')}
+                                                className={cn(
+                                                    "absolute -top-1 -right-1 z-10 w-6 h-6 rounded-full flex items-center justify-center border shadow-xl transition-all",
+                                                    ctrl.is_visible 
+                                                        ? "bg-green-500 border-green-400 text-white" 
+                                                        : "bg-red-500 border-red-400 text-white"
+                                                )}
+                                            >
+                                                {ctrl.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                            </button>
+                                        )}
+                                        <div className={cn("transition-all", !ctrl.is_visible && "opacity-40 grayscale-[0.5]")}>
+                                            <ControlRenderer
+                                                control={ctrl}
+                                                value={config.control_values?.[ctrl.api_mapping_key]}
+                                                onChange={handleControlChange}
+                                            />
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
-            {/* Minimal Sticky Footer */}
-            <div className="sticky bottom-0 -mx-4 px-4 py-3 bg-surface-elevated/95 backdrop-blur-xl border-t border-white/10 flex items-center justify-between gap-3 z-20">
+            {/* Premium Flush Footer - Fixed at the very bottom */}
+            <div className="px-5 py-4 bg-surface-elevated/95 backdrop-blur-xl border-t border-white/10 flex items-center justify-between gap-3 z-30 shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
-                    <Coins className="w-3.5 h-3.5 text-accent-primary" />
-                    <div className="flex items-baseline gap-1.5">
-                        <span className="text-[10px] font-black text-accent-primary uppercase tracking-tight whitespace-nowrap">Total cost</span>
-                        <span className="text-base font-black text-accent-primary tracking-tighter leading-none truncate">
+                    <Coins className="w-4 h-4 text-accent-primary" />
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-[11px] font-black text-accent-primary uppercase tracking-tight whitespace-nowrap">Total cost</span>
+                        <span className="text-xl font-black text-accent-primary tracking-tighter leading-none truncate">
                             {totalCost}
                         </span>
-                        <span className="text-[9px] font-bold text-accent-primary/60 uppercase tracking-tighter leading-none whitespace-nowrap">
+                        <span className="text-[10px] font-bold text-accent-primary/60 uppercase tracking-tighter leading-none whitespace-nowrap">
                             CR{selectedModel?.is_per_second ? '/s' : ''}
                         </span>
                     </div>
@@ -215,9 +218,9 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                 <button
                     onClick={() => nodeId && triggerRunFromNode(nodeId, 'solo')}
                     disabled={!nodeId}
-                    className="h-8 px-4 bg-accent-primary hover:bg-accent-primary/90 border border-accent-primary/20 rounded-lg flex items-center justify-center gap-2 text-white font-black uppercase tracking-widest text-[9px] shadow-lg shadow-accent-primary/10 transition-all disabled:opacity-30 active:scale-95 group shrink-0"
+                    className="h-9 px-5 bg-accent-primary hover:bg-accent-primary/90 border border-accent-primary/20 rounded-xl flex items-center justify-center gap-2 text-white font-black uppercase tracking-widest text-[10px] shadow-lg shadow-accent-primary/20 transition-all disabled:opacity-30 active:scale-95 group shrink-0"
                 >
-                    <Play className="w-2.5 h-2.5 fill-white" />
+                    <Play className="w-3 h-3 fill-white" />
                     Run Node
                 </button>
             </div>

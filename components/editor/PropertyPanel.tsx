@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { NodeConfig } from '@/lib/nodes/types';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 
@@ -18,9 +19,9 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
     const isAiNode = nodeType === 'ai_generator' || nodeType === 'ai_generate_image';
 
     return (
-        <div className="w-80 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[calc(100vh-80px)] h-fit">
+        <div className="w-80 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-full h-fit select-none">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle">
+            <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle shrink-0">
                 <div className="flex items-center gap-2">
                     <div className="w-1 h-3 bg-accent-primary rounded-full" />
                     <h3 className="font-bold text-sm text-content-primary">
@@ -35,7 +36,10 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 </button>
             </div>
 
-            <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar flex-1 relative">
+            <div className={cn(
+                "flex-1 relative flex flex-col min-h-0",
+                !isAiNode && "overflow-y-auto custom-scrollbar p-4 space-y-4"
+            )}>
                 {/* Node Info - Minimalist Card */}
                 {!isAiNode && (
                     <div className="bg-white/5 border border-stroke-subtle rounded-xl p-3">
@@ -45,11 +49,11 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 )}
 
                 {/* Form Fields */}
-                <div className="pb-2">
+                <div className={cn("flex-1", isAiNode && "flex flex-col min-h-0")}>
                     {PropertyComponent ? (
                         <PropertyComponent config={config} onUpdate={onUpdate} nodeId={nodeId} />
                     ) : (
-                        <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed border-stroke-subtle rounded-xl bg-white/5">
+                        <div className={cn(!isAiNode && "flex flex-col items-center justify-center py-10 text-center border border-dashed border-stroke-subtle rounded-xl bg-white/5")}>
                             <p className="text-xs text-content-tertiary font-medium">No properties available</p>
                         </div>
                     )}
