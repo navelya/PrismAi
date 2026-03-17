@@ -18,7 +18,7 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
     const isAiNode = nodeType === 'ai_generator' || nodeType === 'ai_generate_image';
 
     return (
-        <div className="w-80 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-full h-fit">
+        <div className="w-80 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[calc(100vh-80px)] h-fit">
             {/* Header */}
             <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle">
                 <div className="flex items-center gap-2">
@@ -35,7 +35,7 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 </button>
             </div>
 
-            <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
+            <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar flex-1 relative">
                 {/* Node Info - Minimalist Card */}
                 {!isAiNode && (
                     <div className="bg-white/5 border border-stroke-subtle rounded-xl p-3">
@@ -47,7 +47,7 @@ export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onCl
                 {/* Form Fields */}
                 <div className="pb-2">
                     {PropertyComponent ? (
-                        <PropertyComponent config={config} onUpdate={onUpdate} />
+                        <PropertyComponent config={config} onUpdate={onUpdate} nodeId={nodeId} />
                     ) : (
                         <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed border-stroke-subtle rounded-xl bg-white/5">
                             <p className="text-xs text-content-tertiary font-medium">No properties available</p>

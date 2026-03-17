@@ -8,9 +8,10 @@ import { cn } from '@/lib/utils';
 interface NumberInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
     label?: string;
     error?: string;
+    suffix?: string;
 }
 
-export function NumberInput({ label, error, className, ...props }: NumberInputProps) {
+export function NumberInput({ label, error, suffix, className, ...props }: NumberInputProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const defaultId = useId();
     const id = props.id || defaultId;
@@ -64,11 +65,20 @@ export function NumberInput({ label, error, className, ...props }: NumberInputPr
                     ref={inputRef}
                     type="number"
                     className={cn(
-                        "w-full h-11 px-4 pr-10 py-2 bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/30 disabled:opacity-40 disabled:cursor-not-allowed",
+                        "w-full h-11 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/30 disabled:opacity-40 disabled:cursor-not-allowed",
                         "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                        suffix ? "pr-16" : "pr-10",
                         error && "border-red-500/50 focus:border-red-500/50 focus:ring-red-500/10"
                     )}
                 />
+
+                <div className="absolute right-10 flex items-center pr-2 pointer-events-none">
+                    {suffix && (
+                        <span className="text-[10px] font-black text-content-tertiary uppercase tracking-widest opacity-40">
+                            {suffix}
+                        </span>
+                    )}
+                </div>
 
                 <div className="absolute right-2.5 flex flex-col gap-0.5 pointer-events-none">
                     <button

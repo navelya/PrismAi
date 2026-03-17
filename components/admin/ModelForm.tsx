@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Save, Layers, Link2, Settings2, Trash2, X } from 'lucide-react';
+import { Save, Layers, Link2, Settings2, Trash2, X, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -89,6 +89,7 @@ export function ModelForm({
         replicate_model_id: initialData?.replicate_model_id || '',
         display_name: initialData?.display_name || '',
         credit_cost: initialData?.credit_cost || 0,
+        is_per_second: initialData?.is_per_second ?? false,
         is_active: initialData?.is_active ?? true,
         archetype_id: initialData?.archetype_id || '',
         provider_id: initialData?.provider_id || '',
@@ -118,6 +119,7 @@ export function ModelForm({
                 replicate_model_id: initialData.replicate_model_id || '',
                 display_name: initialData.display_name || '',
                 credit_cost: initialData.credit_cost || 0,
+                is_per_second: initialData.is_per_second ?? false,
                 is_active: initialData.is_active ?? true,
                 archetype_id: initialData.archetype_id || '',
                 provider_id: initialData.provider_id || '',
@@ -422,14 +424,165 @@ export function ModelForm({
                         value={form.credit_cost}
                         onChange={e => setForm({ ...form, credit_cost: Number(e.target.value) })}
                         className="max-w-[150px]"
+                        suffix={form.is_per_second ? "/s" : ""}
                     />
-                    <div className="pt-5">
+                    <div className="pt-5 flex items-center gap-6">
+                        <Checkbox
+                            label="Bill Per Second"
+                            checked={form.is_per_second}
+                            onCheckedChange={(checked) => setForm(prev => ({ ...prev, is_per_second: checked as boolean }))}
+                        />
+                        <div className="w-px h-8 bg-white/10 mx-2" />
                         <Switch
                             label="Is Active"
                             checked={form.is_active}
                             onCheckedChange={(checked) => setForm(prev => ({ ...prev, is_active: checked }))}
                         />
                     </div>
+                </div>
+            </FormSection>
+
+            <FormSection
+                title="UI Properties"
+                description="Refine the visual interface and set dynamic pricing rules."
+            >
+                <div className="space-y-6">
+                    {visualControls.map((ctrl, index) => (
+                        <div key={ctrl.id} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center text-accent-primary">
+                                        <Settings2 className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-black text-content-primary text-xs uppercase tracking-tight">{ctrl.label || formatDisplayName(ctrl.api_mapping_key)}</h4>
+                                        <p className="text-[10px] text-content-tertiary font-mono opacity-60">{ctrl.api_mapping_key}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleToggleVisibility(ctrl.api_mapping_key, 'control')}
+                                        className={cn(
+                                            "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
+                                            ctrl.is_visible ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-white/5 border-white/10 text-content-tertiary opacity-40"
+                                        )}
+                                    >
+                                        {ctrl.is_visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                        {ctrl.is_visible ? 'Visible' : 'Hidden'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Input
+                                    label="Override Label"
+                                    value={ctrl.label || ''}
+                                    onChange={e => {
+                                        const label = e.target.value;
+                                        setVisualControls(prev => prev.map(c => c.id === ctrl.id ? { ...c, label } : c));
+                                    }}
+                                    placeholder={formatDisplayName(ctrl.api_mapping_key)}
+                                />
+                                <Select
+                                    label="Component Type"
+                                    value={ctrl.component}
+                                    options={[
+                                        { id: 'text_input', display_name: 'Text Input' },
+                                        { id: 'textarea', display_name: 'Textarea' },
+                                        { id: 'slider', display_name: 'Slider' },
+                                        { id: 'number_input', display_name: 'Number Input' },
+                                        { id: 'checkbox', display_name: 'Checkbox' },
+                                        { id: 'select', display_name: 'Select' },
+                                        { id: 'prompt_textarea', display_name: 'Prompt' },
+                                        { id: 'negative_prompt', display_name: 'Negative Prompt' },
+                                        { id: 'reverse', display_name: 'Reverse Switch' },
+                                        { id: 'threshold', display_name: 'Threshold Slider' },
+                                    ]}
+                                    onChange={e => {
+                                        const component = e.target.value as any;
+                                        setVisualControls(prev => prev.map(c => c.id === ctrl.id ? { ...c, component } : c));
+                                    }}
+                                />
+                            </div>
+
+                            {/* Dynamic Pricing Section */}
+                            <div className="pt-4 mt-4 border-t border-white/5">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-accent-primary mb-4 opacity-80">Pricing Modifiers</p>
+                                
+                                {ctrl.component === 'select' && ctrl.options && (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                                        {ctrl.options.map(opt => (
+                                            <NumberInput
+                                                key={opt}
+                                                label={`Cost for "${opt}"`}
+                                                value={ctrl.cost_modifiers?.[opt] || 0}
+                                                onChange={e => {
+                                                    const val = Number(e.target.value);
+                                                    setVisualControls(prev => prev.map(c => 
+                                                        c.id === ctrl.id ? { 
+                                                            ...c, 
+                                                            cost_modifiers: { ...(c.cost_modifiers || {}), [opt]: val } 
+                                                        } : c
+                                                    ));
+                                                }}
+                                                suffix="CR"
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+
+                                {(ctrl.component === 'checkbox' || ctrl.component === 'reverse') && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <NumberInput
+                                            label="Cost for TRUE"
+                                            value={ctrl.cost_modifiers?.['true'] || 0}
+                                            onChange={e => {
+                                                const val = Number(e.target.value);
+                                                setVisualControls(prev => prev.map(c => 
+                                                    c.id === ctrl.id ? { 
+                                                        ...c, 
+                                                        cost_modifiers: { ...(c.cost_modifiers || {}), ['true']: val } 
+                                                    } : c
+                                                ));
+                                            }}
+                                            suffix="CR"
+                                        />
+                                        <NumberInput
+                                            label="Cost for FALSE"
+                                            value={ctrl.cost_modifiers?.['false'] || 0}
+                                            onChange={e => {
+                                                const val = Number(e.target.value);
+                                                setVisualControls(prev => prev.map(c => 
+                                                    c.id === ctrl.id ? { 
+                                                        ...c, 
+                                                        cost_modifiers: { ...(c.cost_modifiers || {}), ['false']: val } 
+                                                    } : c
+                                                ));
+                                            }}
+                                            suffix="CR"
+                                        />
+                                    </div>
+                                )}
+
+                                {(ctrl.component === 'slider' || ctrl.component === 'number_input' || ctrl.component === 'threshold') && (
+                                    <div className="max-w-[200px]">
+                                        <NumberInput
+                                            label="Cost Per Unit"
+                                            value={ctrl.cost_per_unit || 0}
+                                            onChange={e => {
+                                                const val = Number(e.target.value);
+                                                setVisualControls(prev => prev.map(c => 
+                                                    c.id === ctrl.id ? { ...c, cost_per_unit: val } : c
+                                                ));
+                                            }}
+                                            suffix="CR"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </FormSection>
 
@@ -468,7 +621,7 @@ export function ModelForm({
                             onToggleVisibility={handleToggleVisibility}
                             onUpdate={handlePreviewUpdate}
                          />
-                         
+
                          {visualControls.length === 0 && (
                             <div className="text-center py-8 opacity-40">
                                 <p className="text-[10px] font-bold uppercase tracking-widest">Preview inactive - empty schema</p>

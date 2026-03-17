@@ -31,6 +31,8 @@ export interface Control {
     min?: number;
     max?: number;
     step?: number;
+    cost_modifiers?: Record<string, number>;
+    cost_per_unit?: number;
 }
 
 export interface InputsSchema {
@@ -63,6 +65,7 @@ export interface AiModel {
     replicate_model_id: string;
     display_name: string;
     credit_cost: number;
+    is_per_second: boolean;
     is_active: boolean;
     category_id: string;
     node_type_id: string | null;
