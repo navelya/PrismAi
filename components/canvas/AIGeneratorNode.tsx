@@ -79,8 +79,18 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
     // ⭐ React Flow Edge Validation — Clean up dangling edges when model/handles change
     const { getEdges, setEdges } = useReactFlow();
+    const lastModelIdRef = React.useRef(data.config?.model_id);
+
     useEffect(() => {
-        if (!selectedModel) return;
+        // Only run validation if the model has actually changed via user action
+        // This prevents race conditions during hydration where edges might be deleted 
+        // because the model catalog hasn't fully loaded yet.
+        if (!selectedModel || lastModelIdRef.current === data.config?.model_id) {
+            return;
+        }
+
+        // Update ref for next change
+        lastModelIdRef.current = data.config?.model_id;
 
         const currentEdges = getEdges();
         const validInputHandles = new Set(selectedModel.inputs_schema?.handles?.map(h => h.api_mapping_key) || []);
@@ -105,7 +115,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
             const invalidIds = new Set(invalidEdges.map(e => e.id));
             setEdges(eds => eds.filter(e => !invalidIds.has(e.id)));
         }
-    }, [id, selectedModel, getEdges, setEdges]);
+    }, [id, selectedModel, getEdges, setEdges, data.config?.model_id]);
     const inputHandles = selectedModel?.inputs_schema?.handles || [];
     const outputHandles = selectedModel?.outputs_schema?.handles || [];
 
@@ -283,21 +293,8 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
     const items = Array.isArray(output) ? output : [output];
     const urls = items.map((o: any) => (typeof o === 'string' ? o : o?.url)).filter(Boolean);
     const textContent = typeof output === 'string' ? output : (output?.text || items[0]?.text || null);
-
-    const [isTransitioning, setIsTransitioning] = useState(false);
-    const lastUrlRef = React.useRef<string | null>(null);
     const videoRef = React.useRef<HTMLVideoElement>(null);
-
     const MAX_HEIGHT = 800;
-
-    // Track URL changes to trigger blur transition
-    React.useEffect(() => {
-        const url = urls[activeImageIndex] || urls[0];
-        if (url && url !== lastUrlRef.current) {
-            setIsTransitioning(true);
-            lastUrlRef.current = url;
-        }
-    }, [urls, activeImageIndex]);
 
     if (type === 'text' && textContent) {
         return (
@@ -338,11 +335,11 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
     if (urls.length === 0) {
         return (
             <div 
-                className="p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4"
+                className="w-full min-h-[120px] p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4 flex items-center justify-center text-center"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
             >
-                {textContent || JSON.stringify(output)}
+                {textContent || (output ? JSON.stringify(output) : 'No output data')}
             </div>
         );
     }
@@ -350,6 +347,22 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
     if (previewMode === 'single') {
         const url = urls[activeImageIndex] || urls[0];
         
+        // ⭐ DOUBLE BUFFERING: Keep the previous image visible while the new one loads
+        const [currentUrl, setCurrentUrl] = useState(url);
+        const [lastLoadedUrl, setLastLoadedUrl] = useState<string | null>(null);
+        const [isNewImageLoading, setIsNewImageLoading] = useState(false);
+
+        useEffect(() => {
+            if (url && url !== currentUrl) {
+                // If we had a successful image before, keep it as the buffer
+                if (!isNewImageLoading && currentUrl) {
+                    setLastLoadedUrl(currentUrl);
+                }
+                setCurrentUrl(url);
+                setIsNewImageLoading(true);
+            }
+        }, [url, currentUrl, isNewImageLoading]);
+
         if (type === 'video') {
             return (
                 <div 
@@ -383,25 +396,51 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
 
         return (
             <div 
-                className="w-full h-full relative group/preview cursor-zoom-in" 
+                className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden min-h-[200px]" 
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
                 onClick={onPreviewClick}
+                style={{ aspectRatio: lastLoadedUrl ? undefined : '1/1' }}
             >
+                {/* Layer 1: The OLD (Buffered) Image - Visible while loading */}
+                {lastLoadedUrl && isNewImageLoading && (
+                    <div className="absolute inset-0 z-0">
+                        <img 
+                            src={lastLoadedUrl} 
+                            alt="" 
+                            className="w-full h-full object-contain blur-md opacity-50 scale-105"
+                        />
+                    </div>
+                )}
+
+                {/* Layer 2: The NEW Image - Fades in when loaded */}
                 <motion.img
-                    initial={false}
+                    key={currentUrl}
+                    initial={{ opacity: lastLoadedUrl ? 0 : 1, filter: lastLoadedUrl ? 'blur(10px)' : 'none' }}
                     animate={{ 
-                        opacity: isTransitioning ? 0.4 : 1,
-                        filter: isTransitioning ? 'blur(20px)' : 'blur(0px)',
-                        scale: isTransitioning ? 0.95 : 1
+                        opacity: isNewImageLoading ? (lastLoadedUrl ? 0 : 0.5) : 1,
+                        filter: isNewImageLoading ? 'blur(10px)' : 'none',
+                        scale: isNewImageLoading ? 0.98 : 1
                     }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                    src={url}
+                    transition={{ duration: 0.6, ease: "easeOut" }}
+                    src={currentUrl}
                     alt="Output"
-                    className="w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
-                    onLoad={() => setIsTransitioning(false)}
+                    className="relative z-10 w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                    onLoad={() => {
+                        setIsNewImageLoading(false);
+                        // We don't clear lastLoadedUrl here to keep it ready for the NEXT swap
+                    }}
                     style={{ maxHeight: MAX_HEIGHT }}
                 />
+
+                {/* Shimmer overlay during load */}
+                {isNewImageLoading && (
+                    <motion.div
+                        animate={{ x: ['-100%', '100%'] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                        className="absolute inset-0 z-20 bg-gradient-to-r from-transparent via-white/5 to-transparent pointer-events-none"
+                    />
+                )}
             </div>
         );
     }

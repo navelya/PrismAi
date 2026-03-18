@@ -91,8 +91,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
         // We only reset history if we truly switched to a DIFFERENT session or workflow.
         // We do NOT include node data/positions in this identity, as those are synced 
         // granularly below to avoid history-reset feedback loops.
-        if (wf.id) return `id:${wf.id}`;
-        return `name:${wf.name || 'Untitled'}`; 
+        const id = wf.id || 'no-id';
+        const name = wf.name || 'Untitled';
+        return `id:${id}-name:${name}`; 
     };
 
     const currentIdentity = getWorkflowIdentity(initialWorkflow);
