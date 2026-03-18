@@ -215,6 +215,8 @@ export interface WorkflowNode {
         config: NodeConfig;
         output?: any; // Cached execution output
         outputMetadata?: any; // Metadata about node outputs (e.g. thumbnails)
+        status?: NodeStatus; // Current execution status of this specific node
+        errorMessage?: string; // Error message if the node failed
         __originalType?: string; // Track original type for legacy/deprecated nodes
     };
     zIndex?: number;

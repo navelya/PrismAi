@@ -122,7 +122,14 @@ export async function executeNode(
 
         // Prepare input based on node type
         let input = null;
-        const executionContext: ExecutionContext = { executionId, userId, sessionId, nodeId };
+        const executionContext: ExecutionContext = { 
+            workflowId: workflow.id || 'temp',
+            executionId, 
+            userId, 
+            sessionId, 
+            nodeId,
+            data: null // Required by type, but currently only used for internal node communication
+        };
 
         if (node.type === 'compositor' || node.type === 'ai_generator') {
             // Multi-handle input nodes

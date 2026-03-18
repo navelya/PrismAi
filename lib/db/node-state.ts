@@ -4,7 +4,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
-import { WorkflowNode } from '@/lib/types/workflow';
+import { WorkflowNode } from '@/lib/nodes/types';
 
 export interface NodeStateUpdate {
   status?: 'idle' | 'pending' | 'running' | 'success' | 'error';
