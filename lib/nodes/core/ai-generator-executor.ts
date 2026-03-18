@@ -75,9 +75,19 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         if (!process.env.REPLICATE_API_TOKEN) throw new Error('Replicate API token missing');
 
+        // CRITICAL: Validate execution context to prevent malformed webhook URLs
+        if (!context.sessionId) {
+            throw new Error('[AIGeneratorExecutor] Missing sessionId in execution context - cannot create webhook URL');
+        }
+        if (!context.nodeId) {
+            throw new Error('[AIGeneratorExecutor] Missing nodeId in execution context - cannot create webhook URL');
+        }
+
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
         const isLocal = appUrl.includes('localhost') || !appUrl.startsWith('https');
-        const webhookUrl = `${appUrl}/api/webhooks/replicate?sessionId=${context.sessionId || ''}&nodeId=${context.nodeId || ''}`;
+        const webhookUrl = `${appUrl}/api/webhooks/replicate?sessionId=${context.sessionId}&nodeId=${context.nodeId}`;
+
+        console.log(`[AIGeneratorExecutor] Creating prediction for node ${context.nodeId} in session ${context.sessionId}`);
 
         // Robust model/version extraction
         // Handles: "owner/name", "owner/name:version", "name"

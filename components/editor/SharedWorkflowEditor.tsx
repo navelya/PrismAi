@@ -247,7 +247,8 @@ export default function SharedWorkflowEditor({
         } catch (err: any) {
             setExecutionError(err.message || 'Execution failed to start');
             setExecutionResult(null);
-            store.resetNodeStatuses();
+            // Don't reset node statuses on error - DB state is authoritative
+            // User can see which nodes completed before the error
         } finally {
             activeRunCountRef.current -= 1;
             if (activeRunCountRef.current <= 0) {
@@ -341,7 +342,8 @@ export default function SharedWorkflowEditor({
         }
         setIsExecuting(false);
         useAppStore.getState().setActiveExecutionId(null);
-        useAppStore.getState().resetNodeStatuses();
+        // Don't reset node statuses - DB state persists and is authoritative
+        // This allows users to see the final state of nodes even after stopping
     };
 
     const handleDelete = () => {

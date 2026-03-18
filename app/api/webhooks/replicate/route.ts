@@ -23,9 +23,23 @@ export async function POST(request: NextRequest) {
         const sessionId = searchParams.get('sessionId');
         const nodeId = searchParams.get('nodeId');
 
+        // CRITICAL: Validate context parameters - missing context means prediction can't be resumed
         if (!sessionId || !nodeId) {
+            console.error('[Webhook/Replicate] REJECTED - Missing mandatory context:', {
+                sessionId,
+                nodeId,
+                url: request.url,
+                searchParams: Object.fromEntries(searchParams.entries()),
+                headers: {
+                    'webhook-id': request.headers.get('webhook-id'),
+                    'webhook-timestamp': request.headers.get('webhook-timestamp'),
+                    'content-type': request.headers.get('content-type'),
+                },
+            });
             return NextResponse.json({ error: 'Missing mandatory context' }, { status: 400 });
         }
+
+        console.log(`[Webhook/Replicate] Received callback for node ${nodeId} in session ${sessionId}`);
 
         // --- Signature Verification ---
         // Replicate signs the payload with Standard Webhooks.
@@ -42,8 +56,14 @@ export async function POST(request: NextRequest) {
 
             try {
                 wh.verify(bodyText, headers);
+                console.log(`[Webhook/Replicate] Signature verified for node ${nodeId}`);
             } catch (err) {
-                console.error('[Webhook/Replicate] Signature verification failed:', err);
+                console.error('[Webhook/Replicate] REJECTED - Signature verification failed:', {
+                    error: err,
+                    nodeId,
+                    sessionId,
+                    headers,
+                });
                 return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
             }
         } else {

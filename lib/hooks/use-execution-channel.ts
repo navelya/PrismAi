@@ -5,6 +5,43 @@ import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
 
 /**
+ * Helper function to subscribe to channel with exponential backoff retry
+ */
+async function subscribeWithRetry(
+    channel: ReturnType<ReturnType<typeof createClient>['channel']>,
+    maxRetries: number = 3,
+    initialDelay: number = 1000
+): Promise<void> {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            await new Promise<void>((resolve, reject) => {
+                channel.subscribe((status: string, err?: any) => {
+                    if (err) {
+                        console.error(`[ExecutionChannel] Subscription attempt ${attempt + 1} failed:`, err);
+                        reject(err);
+                    } else if (status === 'SUBSCRIBED') {
+                        console.log(`[ExecutionChannel] Successfully subscribed on attempt ${attempt + 1}`);
+                        resolve();
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                        reject(new Error(`Subscription failed with status: ${status}`));
+                    }
+                });
+            });
+            return; // Success - exit retry loop
+        } catch (err) {
+            if (attempt < maxRetries - 1) {
+                const delay = initialDelay * Math.pow(2, attempt);
+                console.warn(`[ExecutionChannel] Retrying in ${delay}ms...`);
+                await new Promise(res => setTimeout(res, delay));
+            } else {
+                console.error('[ExecutionChannel] All retry attempts exhausted');
+                throw err;
+            }
+        }
+    }
+}
+
+/**
  * Subscribes to both Supabase Realtime broadcast AND postgres_changes for session updates.
  *
  * CRITICAL: This hook MUST be instantiated at a component level that is
@@ -21,6 +58,7 @@ import { useAppStore } from '@/lib/store/app-store';
  *  - node status updates (pending/running/success/error)
  *  - live node output delivery (thumbnailUrls → image objects)
  *  - text/non-image node output delivery
+ *  - RETRY LOGIC: Exponential backoff on subscription failures
  */
 export function useExecutionChannel(sessionId: string | null | undefined) {
     const executionChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
@@ -42,26 +80,43 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                 const nodes = canvasState?.nodes || [];
 
                 // Update all node states from the authoritative DB state
+                // CRITICAL: Only update if status actually changed to prevent infinite loops
                 nodes.forEach((node: any) => {
                     const status = node.data?.status;
                     const output = node.data?.output;
                     const outputMetadata = node.data?.outputMetadata;
 
+                    // Only update status if it changed (prevents React Error #185 infinite loop)
                     if (status) {
-                        store.setNodeStatus(node.id, status);
+                        const currentStatus = store.nodeStatuses[node.id];
+                        if (status !== currentStatus) {
+                            store.setNodeStatus(node.id, status);
+                        }
                     }
 
-                    // Hydrate outputs from DB
+                    // Hydrate outputs from DB (only for successful nodes)
                     if (status === 'success') {
+                        const currentOutput = store.nodeOutputs[node.id];
+                        
                         if (outputMetadata?.thumbnailUrls && Array.isArray(outputMetadata.thumbnailUrls) && outputMetadata.thumbnailUrls.length > 0) {
                             const imageObjects = outputMetadata.thumbnailUrls.map((url: string, idx: number) => ({
                                 url,
                                 resolution: { width: 1024, height: 1024 },
                                 metadata: { title: `Output ${idx + 1}`, source: 'Database' },
                             }));
-                            store.setNodeOutput(node.id, imageObjects);
+                            
+                            // Only update output if changed
+                            const outputChanged = !currentOutput || 
+                                JSON.stringify(currentOutput) !== JSON.stringify(imageObjects);
+                            if (outputChanged) {
+                                store.setNodeOutput(node.id, imageObjects);
+                            }
                         } else if (output !== undefined) {
-                            store.setNodeOutput(node.id, output);
+                            const outputChanged = !currentOutput || 
+                                JSON.stringify(currentOutput) !== JSON.stringify(output);
+                            if (outputChanged) {
+                                store.setNodeOutput(node.id, output);
+                            }
                         }
                     }
                 });
@@ -101,7 +156,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
             }
         };
 
-        // STAGE 2: Subscribe to both postgres_changes AND broadcast
+        // STAGE 2: Subscribe to both postgres_changes AND broadcast with retry logic
         const channel = supabase
             .channel(`execution_${sessionId}`)
             // PRIMARY: Database changes (authoritative state)
@@ -116,23 +171,23 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                 handleDatabaseChange
             )
             // SECONDARY: Broadcast events (low-latency)
-            .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast)
-            .subscribe((status: string, err?: any) => {
-                if (err) {
-                    console.error('[ExecutionChannel] Subscription error:', err);
-                } else {
-                    console.log('[ExecutionChannel] Subscribed to session:', sessionId);
-                }
-            });
+            .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast);
 
         executionChannelRef.current = channel;
 
-        // Reconnect when tab becomes visible again
+        // Subscribe with retry logic (prevents permanent subscription failures)
+        subscribeWithRetry(channel, 3, 1000).catch((err) => {
+            console.error('[ExecutionChannel] Failed to subscribe after all retries:', err);
+        });
+
+        // Reconnect when tab becomes visible again (with retry logic)
         const handleVisibilityChange = async () => {
             if (document.visibilityState !== 'visible') return;
             const channelState = (executionChannelRef.current as any)?.state;
             if (channelState === 'closed' || channelState === 'errored') {
+                console.log('[ExecutionChannel] Reconnecting due to visibility change...');
                 if (executionChannelRef.current) supabase.removeChannel(executionChannelRef.current);
+                
                 const reconnected = supabase
                     .channel(`execution_${sessionId}`)
                     .on(
@@ -145,9 +200,14 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                         },
                         handleDatabaseChange
                     )
-                    .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast)
-                    .subscribe();
+                    .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast);
+                    
                 executionChannelRef.current = reconnected;
+                
+                // Retry reconnection
+                subscribeWithRetry(reconnected, 3, 1000).catch((err) => {
+                    console.error('[ExecutionChannel] Reconnection failed after all retries:', err);
+                });
             }
         };
 
