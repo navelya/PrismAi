@@ -176,16 +176,17 @@ export function useSession() {
                         store.setNodeOutput(node.id, node.data.output);
                     }
 
-                    // Hydrate execution borders
-                    // 🛡️ SANITIZATION: If the session is loaded from the DB, any 'running' or 'pending'
-                    // statuses are stale (from an interrupted past execution). 
-                    // We must convert them to 'idle' to avoid blocking the auto-save guard.
+                    // STAGE 2: Hydrate execution borders from DB state
+                    // With Stage 1 persistence, node statuses in the DB are now authoritative
+                    // We can trust 'running'/'pending' states if they exist (background job may still be active)
                     if (isCompleted) {
+                        // Session execution completed - use final state
                         store.setNodeStatus(node.id, isFailed ? 'error' : 'success');
                     } else if (node.data?.status) {
+                        // Session may have in-progress execution - preserve status from DB
+                        // The postgres_changes subscription will update if still running
                         const status = node.data.status;
-                        const sanitizedStatus = (status === 'running' || status === 'pending') ? 'idle' : status;
-                        store.setNodeStatus(node.id, sanitizedStatus);
+                        store.setNodeStatus(node.id, status);
                     }
                 });
             }

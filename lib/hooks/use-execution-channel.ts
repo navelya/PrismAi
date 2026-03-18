@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
 
 /**
- * Subscribes to the Supabase Realtime execution broadcast channel.
+ * Subscribes to both Supabase Realtime broadcast AND postgres_changes for session updates.
  *
  * CRITICAL: This hook MUST be instantiated at a component level that is
  * NEVER unmounted while the session is active. Specifically, it must NOT
@@ -14,7 +14,10 @@ import { useAppStore } from '@/lib/store/app-store';
  *
  * Recommended mount point: ChatClientPage.tsx (always in DOM for a session).
  *
+ * STAGE 2: Now listens to postgres_changes on sessions table for authoritative state
  * It handles:
+ *  - DB changes (primary source of truth for node states)
+ *  - Broadcast events (low-latency updates, secondary)
  *  - node status updates (pending/running/success/error)
  *  - live node output delivery (thumbnailUrls → image objects)
  *  - text/non-image node output delivery
@@ -28,9 +31,45 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
         const supabase = createClient();
         supabaseRef.current = supabase;
+        const store = useAppStore.getState();
 
+        // Handler for postgres_changes (PRIMARY SOURCE OF TRUTH)
+        const handleDatabaseChange = (payload: any) => {
+            console.log('[ExecutionChannel] DB change detected:', payload);
+            
+            if (payload.eventType === 'UPDATE' && payload.new?.canvas_state) {
+                const canvasState = payload.new.canvas_state;
+                const nodes = canvasState?.nodes || [];
+
+                // Update all node states from the authoritative DB state
+                nodes.forEach((node: any) => {
+                    const status = node.data?.status;
+                    const output = node.data?.output;
+                    const outputMetadata = node.data?.outputMetadata;
+
+                    if (status) {
+                        store.setNodeStatus(node.id, status);
+                    }
+
+                    // Hydrate outputs from DB
+                    if (status === 'success') {
+                        if (outputMetadata?.thumbnailUrls && Array.isArray(outputMetadata.thumbnailUrls) && outputMetadata.thumbnailUrls.length > 0) {
+                            const imageObjects = outputMetadata.thumbnailUrls.map((url: string, idx: number) => ({
+                                url,
+                                resolution: { width: 1024, height: 1024 },
+                                metadata: { title: `Output ${idx + 1}`, source: 'Database' },
+                            }));
+                            store.setNodeOutput(node.id, imageObjects);
+                        } else if (output !== undefined) {
+                            store.setNodeOutput(node.id, output);
+                        }
+                    }
+                });
+            }
+        };
+
+        // Handler for broadcast (SECONDARY, LOW-LATENCY)
         const handleExecutionBroadcast = (payload: any) => {
-            const store = useAppStore.getState();
             const { nodeId, status, output, outputMetadata, executionId } = payload.payload ?? {};
             const activeExecutionId = store.activeExecutionId;
 
@@ -62,13 +101,27 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
             }
         };
 
+        // STAGE 2: Subscribe to both postgres_changes AND broadcast
         const channel = supabase
             .channel(`execution_${sessionId}`)
+            // PRIMARY: Database changes (authoritative state)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'sessions',
+                    filter: `id=eq.${sessionId}`
+                },
+                handleDatabaseChange
+            )
+            // SECONDARY: Broadcast events (low-latency)
             .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast)
             .subscribe((status: string, err?: any) => {
                 if (err) {
                     console.error('[ExecutionChannel] Subscription error:', err);
                 } else {
+                    console.log('[ExecutionChannel] Subscribed to session:', sessionId);
                 }
             });
 
@@ -82,6 +135,16 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                 if (executionChannelRef.current) supabase.removeChannel(executionChannelRef.current);
                 const reconnected = supabase
                     .channel(`execution_${sessionId}`)
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: 'UPDATE',
+                            schema: 'public',
+                            table: 'sessions',
+                            filter: `id=eq.${sessionId}`
+                        },
+                        handleDatabaseChange
+                    )
                     .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast)
                     .subscribe();
                 executionChannelRef.current = reconnected;

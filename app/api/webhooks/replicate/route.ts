@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { executeWorkflowFromNode, stripHeavyNodeData } from '@/lib/workflow-engine';
+import { stripHeavyNodeData } from '@/lib/workflow-engine';
+import { updateNodeState } from '@/lib/db/node-state';
+import { checkForward, createNodeActorContext } from '@/lib/workflow/node-actor';
 import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
 import { normalizeReplicateOutput, REPLICATE_WEBHOOK_SIGNING_SECRET } from '@/lib/ai/replicate-client';
@@ -79,27 +81,38 @@ export async function POST(request: NextRequest) {
         if (status === 'succeeded') {
             const normalizedResult = normalizeReplicateOutput(output);
             
-            // Update node data in workflow
+            // STAGE 3: Update node to 'success' in DB via RPC (atomic)
+            await updateNodeState(adminSupabase, sessionId, nodeId, {
+                status: 'success',
+                output: normalizedResult,
+                outputMetadata: {
+                    preview_urls: Array.isArray(normalizedResult) && normalizedResult.length > 0 && normalizedResult[0]?.url
+                        ? normalizedResult.slice(0, 4).map((o: any) => o.url)
+                        : normalizedResult && typeof normalizedResult === 'object' && normalizedResult.url
+                        ? [normalizedResult.url]
+                        : []
+                }
+            });
+
+            // Update node data in local workflow object for checkForward
             node.data.output = normalizedResult;
+            node.data.status = 'success';
             
-            // Set preview residuals for UI
-            if (Array.isArray(normalizedResult) && normalizedResult.length > 0 && normalizedResult[0].url) {
+            if (Array.isArray(normalizedResult) && normalizedResult.length > 0 && normalizedResult[0]?.url) {
                 node.data.outputMetadata = { ...node.data.outputMetadata, preview_urls: normalizedResult.slice(0, 4).map((o: any) => o.url) };
             } else if (normalizedResult && typeof normalizedResult === 'object' && normalizedResult.url) {
                 node.data.outputMetadata = { ...node.data.outputMetadata, preview_urls: [normalizedResult.url] };
             }
 
-            // Persistence: Update the session and trigger children.
-            // We use stripHeavyNodeData to keep the DB record lean.
+            // Update status message
             await adminSupabase.from('sessions').update({
-                canvas_state: stripHeavyNodeData(workflow),
                 status_message: 'AI Generation ready'
             }).eq('id', sessionId);
 
-            // Trigger Real-time update (so UI knows to refresh)
+            // Broadcast for low-latency UI update (optional, DB change will also trigger UI)
             const execChannel = adminSupabase.channel(`execution_${sessionId}`);
-            await execChannel.subscribe(async (status) => {
-                if (status === 'SUBSCRIBED') {
+            await execChannel.subscribe(async (channelStatus) => {
+                if (channelStatus === 'SUBSCRIBED') {
                     await execChannel.send({
                         type: 'broadcast',
                         event: 'node_execution',
@@ -114,36 +127,58 @@ export async function POST(request: NextRequest) {
                 }
             });
 
-            // Resume Workflow for child nodes
-            await executeWorkflowFromNode(
+            // STAGE 3: Use Node-Actor pattern to resume execution
+            // Create actor context and trigger checkForward for this node
+            const executionId = `resume_${Date.now()}`;
+            const actorContext = createNodeActorContext(
                 workflow,
-                `resume_${Date.now()}`,
-                nodeId,
-                {}, // Cached outputs already in the workflow object
-                async (nid, nstatus, currentWorkflow) => {
-                   // Broadcast follow-up status
-                   await adminSupabase.channel(`execution_${sessionId}`).send({
-                       type: 'broadcast',
-                       event: 'node_execution',
-                       payload: { nodeId: nid, status: nstatus }
-                   });
-                },
-                undefined,
-                undefined, 
-                'chain',
+                executionId,
+                adminSupabase,
+                sessionId,
                 session.user_id,
-                sessionId
+                async (nid, nstatus, currentWorkflow) => {
+                    // Update DB on status change
+                    await updateNodeState(adminSupabase, sessionId, nid, { status: nstatus });
+                    
+                    // Broadcast for low-latency
+                    const chan = adminSupabase.channel(`execution_${sessionId}`);
+                    await chan.subscribe(async (s) => {
+                        if (s === 'SUBSCRIBED') {
+                            await chan.send({
+                                type: 'broadcast',
+                                event: 'node_execution',
+                                payload: { nodeId: nid, status: nstatus }
+                            });
+                            await chan.unsubscribe();
+                        }
+                    });
+                },
+                undefined, // onNodeOutput
+                undefined  // onNodePersist (handled by main execution flow)
             );
 
+            // Mark this node as completed in the context
+            actorContext.completedNodes.add(nodeId);
+            actorContext.nodeOutputs.set(nodeId, normalizedResult);
+
+            // Trigger checkForward to execute ready children
+            await checkForward(nodeId, actorContext);
+
         } else if (status === 'failed') {
+            // STAGE 3: Update node to 'error' in DB
+            await updateNodeState(adminSupabase, sessionId, nodeId, {
+                status: 'error',
+                error: error || 'Replicate prediction failed'
+            });
+
             await adminSupabase.from('sessions').update({
                 status_message: 'AI Generation failed'
             }).eq('id', sessionId);
 
             // Broadcast error
             const execChannel = adminSupabase.channel(`execution_${sessionId}`);
-            await execChannel.subscribe(async (status) => {
-                if (status === 'SUBSCRIBED') {
+            await execChannel.subscribe(async (channelStatus) => {
+                if (channelStatus === 'SUBSCRIBED') {
                     await execChannel.send({
                         type: 'broadcast',
                         event: 'node_execution',

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { executeWorkflow, executeWorkflowFromNode, validateWorkflow, stripHeavyNodeData } from '@/lib/workflow-engine';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { saveExecution } from '@/lib/db/workflows';
+import { updateNodeState, initializeNodesForExecution } from '@/lib/db/node-state';
 import { Workflow } from '@/lib/nodes/types';
 import { generateNodeId } from '@/lib/utils';
 import { getAuthenticatedUser } from '@/lib/api/auth';
@@ -60,6 +61,12 @@ export async function POST(request: NextRequest) {
         const executionId = clientExecutionId || generateNodeId();
         const userId = user.id;
 
+        // STAGE 1: Pre-flight - Initialize all nodes to 'idle' for immediate UI feedback
+        // This happens BEFORE waitUntil, so the DB is updated before the 202 response
+        const adminSupabaseSync = createAdminClient();
+        const allNodeIds = workflow.nodes.map((n: any) => n.id);
+        await initializeNodesForExecution(adminSupabaseSync, sessionId, allNodeIds);
+
         waitUntil((async () => {
             const adminSupabase = createAdminClient();
 
@@ -90,12 +97,16 @@ export async function POST(request: NextRequest) {
                 const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
                     const payload: any = { nodeId, status, executionId };
 
+                    // Prepare DB update data
+                    const dbUpdate: any = { status };
+
                     if (status === 'success' && currentWorkflow) {
                         const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
                         if (node) {
                             const thumbnailUrls = node.data?.outputMetadata?.thumbnailUrls;
                             if (Array.isArray(thumbnailUrls) && thumbnailUrls.length > 0) {
                                 payload.outputMetadata = { thumbnailUrls };
+                                dbUpdate.outputMetadata = node.data.outputMetadata;
                             } else if (node.data?.output) {
                                 const out = node.data.output;
                                 const hasBase64 = Array.isArray(out)
@@ -107,11 +118,30 @@ export async function POST(request: NextRequest) {
                                 }
                                 if (node.data.outputMetadata) {
                                     payload.outputMetadata = node.data.outputMetadata;
+                                    dbUpdate.outputMetadata = node.data.outputMetadata;
+                                }
+                                
+                                // Store output in DB (filtering base64)
+                                if (!hasBase64 && out) {
+                                    dbUpdate.output = out;
                                 }
                             }
                         }
+                    } else if (status === 'error' && currentWorkflow) {
+                        const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
+                        if (node?.data?.error) {
+                            dbUpdate.error = node.data.error;
+                        }
                     }
 
+                    // STAGE 1: Persist state to DB atomically (Primary Source of Truth)
+                    try {
+                        await updateNodeState(adminSupabase, sessionId, nodeId, dbUpdate);
+                    } catch (e) {
+                        console.error('[API/Execute] DB update failed for node', nodeId, ':', e);
+                    }
+
+                    // Broadcast for low-latency UI updates (Secondary, Optional)
                     try {
                         await execChannel.send({
                             type: 'broadcast',
