@@ -41,8 +41,8 @@ export function useSession() {
                 // Set active session to the new session ID
                 store.setActiveSessionId(session.id);
 
-                // Clear workflow and other state for fresh start
-                store.setCurrentWorkflow(null);
+                // Clear workflow and other state for fresh start (false = don't mark dirty)
+                store.setCurrentWorkflow(null, false);
                 store.clearMessages();
                 store.clearExecutionResults();
                 store.resetNodeStatuses();
@@ -67,24 +67,32 @@ export function useSession() {
         // ⚠️ CRITICAL: Immediately clear current workflow state BEFORE async operations
         // This prevents stale data from leaking between session switches
         const store = useAppStore.getState();
+        store.setIsLoadingSession(true); // Guard auto-save
         store.setActiveSessionId(sessionId);
-        store.setCurrentWorkflow(null);  // Clear workflow first!
+        store.setCurrentWorkflow(null, false);  // Clear workflow first without triggering dirty!
 
 
         try {
             // Fetch session with messages via BFF API
             const { session, messages } = await sessionsApi.load(sessionId);
 
+            // STALE CHECK: If the user navigated away while we were loading, ignore results
+            const currentStore = useAppStore.getState();
+            if (currentStore.activeSessionId !== sessionId) {
+                console.warn('[useSession] Ignoring stale session load for:', sessionId);
+                return;
+            }
+
             // Hydrate Workflow from Session State (primary source of truth for canvas)
             if (session.canvas_state && session.canvas_state.nodes && session.canvas_state.nodes.length > 0) {
                 const workflow = session.canvas_state as Workflow;
                 // Stamp the server hash so auto-save skips the echo write after page load
                 setServerWorkflowHash(workflow);
-                store.setCurrentWorkflow(workflow);
+                store.setCurrentWorkflow(workflow, false); // NOT dirty on initial load!
             } else {
                 // Clear workflow if no valid canvas_state
                 setServerWorkflowHash(null);
-                store.setCurrentWorkflow(null);
+                store.setCurrentWorkflow(null, false);
             }
 
             // Hydrate Messages
@@ -190,6 +198,7 @@ export function useSession() {
             setError(error);
         } finally {
             setIsLoading(false);
+            store.setIsLoadingSession(false); // Release guard
         }
     }, []);
 
@@ -200,7 +209,7 @@ export function useSession() {
             router.push('/chat');
             setCurrentSessionId(null);
             useAppStore.getState().clearMessages();
-            useAppStore.getState().setCurrentWorkflow(null);
+            useAppStore.getState().setCurrentWorkflow(null, false); // Don't trigger auto-save of null
         }
 
         // Fire-and-forget — delete from DB asynchronously

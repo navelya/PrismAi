@@ -37,16 +37,52 @@ export interface LocalBackup {
  * Save a workflow snapshot to local IndexedDB storage.
  * This is non-blocking and intended for high-frequency saves (e.g., 1s interval).
  */
+/** Returns true if the error is a storage quota error across browser vendors. */
+function isQuotaError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    return (
+        error.name === 'QuotaExceededError' ||
+        error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+        error.message.toLowerCase().includes('quota')
+    );
+}
+
 export async function saveLocalBackup(workflowId: string, workflow: Workflow, sessionId?: string): Promise<void> {
+    const backup: LocalBackup = {
+        workflow,
+        updatedAt: Date.now(),
+        sessionId
+    };
+
     try {
-        const backup: LocalBackup = {
-            workflow,
-            updatedAt: Date.now(),
-            sessionId
-        };
         await localforage.setItem(`backup_${workflowId}`, backup);
     } catch (error) {
-        console.error('[LocalBackup] Failed to save backup:', error);
+        if (!isQuotaError(error)) {
+            console.error('[LocalBackup] Failed to save backup:', error);
+            return;
+        }
+
+        // Quota hit — evict the oldest entry and retry once.
+        console.warn('[LocalBackup] Quota exceeded, retrying after eviction...');
+        try {
+            let oldestKey: string | null = null;
+            let oldestTime = Infinity;
+
+            await localforage.iterate<LocalBackup, void>((value, key) => {
+                if (value.updatedAt < oldestTime) {
+                    oldestTime = value.updatedAt;
+                    oldestKey = key;
+                }
+            });
+
+            if (oldestKey) {
+                await localforage.removeItem(oldestKey);
+                await localforage.setItem(`backup_${workflowId}`, backup);
+            }
+        } catch (retryError) {
+            // Silent fail — local backup is best-effort; remote Supabase is the source of truth.
+            console.error('[LocalBackup] Eviction retry failed, skipping local save:', retryError);
+        }
     }
 }
 
@@ -86,5 +122,37 @@ export async function getAllLocalBackups(): Promise<LocalBackup[]> {
     } catch (error) {
         console.error('[LocalBackup] Failed to list backups:', error);
         return [];
+    }
+}
+
+/**
+ * Remove any local backups whose session ID is not in the provided active set.
+ * Call once on app load with the user's current session list to prevent
+ * IndexedDB from growing indefinitely with stale snapshots.
+ */
+export async function cleanupOrphanedBackups(activeSessionIds: string[]): Promise<void> {
+    try {
+        const activeSet = new Set(activeSessionIds);
+        const keysToDelete: string[] = [];
+
+        await localforage.iterate<LocalBackup, void>((value, key) => {
+            // Each key is `backup_<id>`. The session ID stored in the backup
+            // data is checked first; fall back to parsing the key itself.
+            const backupSessionId = value.sessionId ?? key.replace(/^backup_/, '');
+            if (!activeSet.has(backupSessionId)) {
+                keysToDelete.push(key);
+            }
+        });
+
+        for (const key of keysToDelete) {
+            await localforage.removeItem(key);
+            console.log(`[LocalBackup] Removed orphaned backup: ${key}`);
+        }
+
+        if (keysToDelete.length > 0) {
+            console.log(`[LocalBackup] Cleaned up ${keysToDelete.length} orphaned backup(s).`);
+        }
+    } catch (error) {
+        console.error('[LocalBackup] Orphan cleanup failed:', error);
     }
 }

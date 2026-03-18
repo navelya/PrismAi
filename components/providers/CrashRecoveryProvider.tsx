@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store/app-store';
-import { getLocalBackup, removeLocalBackup } from '@/lib/db/local-backup';
+import { getLocalBackup, removeLocalBackup, cleanupOrphanedBackups } from '@/lib/db/local-backup';
 import { sessionsApi } from '@/lib/api/client';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { RecoveryPrompt } from '@/components/modals/RecoveryPrompt';
@@ -55,6 +55,22 @@ export function CrashRecoveryProvider({ children }: CrashRecoveryProviderProps) 
     });
     const [showSuccessToast, setShowSuccessToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
+
+    // --- Orphaned Backup Cleanup (runs once on mount) ---
+    // Removes stale IndexedDB backups whose sessions no longer exist server-side.
+    useEffect(() => {
+        const runOrphanCleanup = async () => {
+            try {
+                const { sessions } = await sessionsApi.list();
+                const activeIds = sessions.map((s: any) => s.id as string);
+                await cleanupOrphanedBackups(activeIds);
+            } catch (err) {
+                // Non-critical — never let cleanup failure block the app.
+                console.warn('[CrashRecovery] Orphan cleanup skipped:', err);
+            }
+        };
+        runOrphanCleanup();
+    }, []); // empty deps = run only once on mount
 
     useEffect(() => {
         const attemptRecovery = async () => {

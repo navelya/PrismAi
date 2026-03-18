@@ -18,7 +18,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         set({ isWorkflowDirty: isDirty });
     },
 
-    setCurrentWorkflow: (workflow) => {
+    setCurrentWorkflow: (workflow, isDirty = true) => {
         if (workflow && workflow.nodes) {
             workflow.nodes = workflow.nodes.map((node) => {
                 const def = sharedRegistry[node.type];
@@ -34,7 +34,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                 return node;
             });
         }
-        set({ currentWorkflow: workflow, isWorkflowDirty: true });
+        set({ currentWorkflow: workflow, isWorkflowDirty: isDirty });
     },
 
     setIsDragging: (isDragging) => set({ isDragging }),

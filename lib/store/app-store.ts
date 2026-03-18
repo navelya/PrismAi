@@ -66,6 +66,7 @@ export const useAppStore = create<RootState>()(
                         viewport: { x: 0, y: 0 },
                     },
                     isLoading: false,
+                    isLoadingSession: false,
                     statusMessage: null,
                     isCanvasMode: false,
                     isCopilotMinimized: false,
@@ -97,6 +98,7 @@ export const useAppStore = create<RootState>()(
                     'activeExecutionId',
                     'copiedNode',
                     'isLoading',
+                    'isLoadingSession',
                     'statusMessage',
                     'isCopilotMinimized',
                     'liveNodePositions',
@@ -116,6 +118,7 @@ export const useAppStore = create<RootState>()(
                     state.executionResults = {};
                     state.activeExecutionId = null;
                     state.isCopilotMinimized = false;
+                    state.isLoadingSession = false;
                 }
             },
         }

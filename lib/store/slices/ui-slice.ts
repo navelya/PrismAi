@@ -7,6 +7,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         viewport: { x: 0, y: 0 },
     },
     isLoading: false,
+    isLoadingSession: false,
     statusMessage: null,
     isCanvasMode: false,
     isCopilotMinimized: false,
@@ -25,6 +26,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         })),
 
     setIsLoading: (isLoading) => set({ isLoading }),
+    setIsLoadingSession: (isLoadingSession) => set({ isLoadingSession }),
     setStatusMessage: (statusMessage) => set({ statusMessage }),
     setIsCanvasMode: (v) => set({ isCanvasMode: v }),
     setIsCopilotMinimized: (v) => set({ isCopilotMinimized: v }),

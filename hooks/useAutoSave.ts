@@ -41,6 +41,7 @@ export function useAutoSave() {
     const isWorkflowDirty = useAppStore((state) => state.isWorkflowDirty);
     const setWorkflowDirty = useAppStore((state) => state.setWorkflowDirty);
     const isDragging = useAppStore((state) => state.isDragging);
+    const isLoadingSession = useAppStore((state) => state.isLoadingSession);
 
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
     const throttleTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -88,10 +89,15 @@ export function useAutoSave() {
     }
 
     // Remote persist to Supabase
+    // IMPORTANT: reads currentWorkflow and activeSessionId from refs (not closed-over render
+    // values) so that a mid-flight session switch cannot cause a stale ID to be written.
     const persistRemote = useCallback(async (isEmergency = false) => {
-        if (!currentWorkflow || !activeSessionId || isSavingRemoteRef.current) return;
+        const workflow = currentWorkflowRef.current;
+        const sessionId = activeSessionIdRef.current;
 
-        const currentHash = stableStringify(currentWorkflow);
+        if (!workflow || !sessionId || isSavingRemoteRef.current) return;
+
+        const currentHash = stableStringify(workflow);
         if (currentHash === lastRemoteSavedHashRef.current) {
             setWorkflowDirty(false);
             return;
@@ -100,7 +106,7 @@ export function useAutoSave() {
         try {
             isSavingRemoteRef.current = true;
             
-            const result = await saveWorkflow(currentWorkflow, activeSessionId);
+            const result = await saveWorkflow(workflow, sessionId);
             
             if (result.success) {
                 lastRemoteSavedHashRef.current = currentHash;
@@ -109,27 +115,45 @@ export function useAutoSave() {
                 
                 // Cleanup local backup after successful remote sync
                 try {
-                    await removeLocalBackup(currentWorkflow.id || activeSessionId);
+                    await removeLocalBackup(workflow.id || sessionId);
                 } catch (cleanupErr) {
                     console.error('[AutoSave] Cleanup failed:', cleanupErr);
                 }
             }
         } catch (err) {
             console.error('[AutoSave] Save failed:', err);
+
+            // Telemetry: fire-and-forget to capture failures in server logs.
+            // sendBeacon is guaranteed not to block the current execution context.
+            try {
+                const payload = JSON.stringify({
+                    sessionId,
+                    errorMessage: err instanceof Error ? err.message : String(err),
+                    timestamp: new Date().toISOString(),
+                });
+                if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+                    navigator.sendBeacon(
+                        '/api/telemetry/save-error',
+                        new Blob([payload], { type: 'application/json' })
+                    );
+                }
+            } catch {
+                // Never let telemetry reporting cause a secondary failure.
+            }
         } finally {
             isSavingRemoteRef.current = false;
         }
-    }, [currentWorkflow, activeSessionId, setWorkflowDirty]);
+    }, [setWorkflowDirty]); // refs are stable — no need to list currentWorkflow/activeSessionId
 
     // 1. Local Backup Effect (high-frequency, throttled)
     useEffect(() => {
-        if (!isWorkflowDirty || !activeSessionId || !currentWorkflow) return;
+        if (!isWorkflowDirty || !activeSessionId || !currentWorkflow || isLoadingSession) return;
         saveLocalThrottledRef.current?.();
-    }, [isWorkflowDirty, activeSessionId, currentWorkflow]);
+    }, [isWorkflowDirty, activeSessionId, currentWorkflow, isLoadingSession]);
 
     // 2. Debounced Remote Save Effect (2s after last change)
     useEffect(() => {
-        if (!isWorkflowDirty || isDragging || !activeSessionId) return;
+        if (!isWorkflowDirty || isDragging || !activeSessionId || isLoadingSession) return;
 
         if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
@@ -144,11 +168,11 @@ export function useAutoSave() {
                 clearTimeout(debounceTimerRef.current);
             }
         };
-    }, [isWorkflowDirty, isDragging, activeSessionId, persistRemote]);
+    }, [isWorkflowDirty, isDragging, activeSessionId, persistRemote, isLoadingSession]);
 
     // 3. Max-Wait Throttle Effect (force save every 30s during continuous editing)
     useEffect(() => {
-        if (!isWorkflowDirty || !activeSessionId) return;
+        if (!isWorkflowDirty || !activeSessionId || isLoadingSession) return;
 
         if (throttleTimerRef.current) {
             clearTimeout(throttleTimerRef.current);
@@ -173,7 +197,7 @@ export function useAutoSave() {
                 clearTimeout(throttleTimerRef.current);
             }
         };
-    }, [isWorkflowDirty, activeSessionId, persistRemote]);
+    }, [isWorkflowDirty, activeSessionId, persistRemote, isLoadingSession]);
 
     // 4. Emergency Save on Exit (beforeunload with sendBeacon)
     useEffect(() => {

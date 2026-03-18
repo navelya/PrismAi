@@ -24,7 +24,7 @@ export interface WorkflowSlice {
     activeSessionId: string | null;
     setActiveSessionId: (sessionId: string | null) => void;
     currentWorkflow: Workflow | null;
-    setCurrentWorkflow: (workflow: Workflow | null) => void;
+    setCurrentWorkflow: (workflow: Workflow | null, isDirty?: boolean) => void;
     isDragging: boolean;
     setIsDragging: (isDragging: boolean) => void;
     copiedNode: WorkflowNode | null;
@@ -73,6 +73,8 @@ export interface UISlice {
     setEditorState: (state: Partial<EditorState>) => void;
     isLoading: boolean;
     setIsLoading: (isLoading: boolean) => void;
+    isLoadingSession: boolean;
+    setIsLoadingSession: (isLoadingSession: boolean) => void;
     statusMessage: string | null;
     setStatusMessage: (message: string | null) => void;
     isCanvasMode: boolean;
