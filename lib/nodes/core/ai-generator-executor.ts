@@ -1,10 +1,6 @@
-import Replicate from 'replicate';
 import { createClient } from '@supabase/supabase-js';
 import { NodeExecutor, NodeExecutionResult, ExecutionContext } from '../types';
-
-const replicate = new Replicate({
-    auth: process.env.REPLICATE_API_TOKEN!,
-});
+import { replicate, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -105,10 +101,6 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         console.log(`[WorkflowExecutor] Starting AI model: ${model.replicate_model_id}`, { isLocal, replicateInputs });
 
-        const replicate = new Replicate({
-            auth: process.env.REPLICATE_API_TOKEN,
-        });
-
         if (isLocal) {
             // FALLBACK: Synchronous execution for localhost (no webhooks)
             const output = await replicate.run(
@@ -116,23 +108,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
                 { input: replicateInputs }
             );
 
-            // Normalize output (restoring legacy stable logic)
-            const normalizeOutput = (rawOutput: any) => {
-                const normalizeItem = (item: any) => {
-                    let urlStr = item;
-                    if (item && typeof item === 'object' && typeof item.url === 'function') {
-                        urlStr = item.url().toString();
-                    }
-                    return typeof urlStr === 'string' ? { url: urlStr } : urlStr;
-                };
-
-                if (Array.isArray(rawOutput)) {
-                    return rawOutput.map(normalizeItem);
-                }
-                return normalizeItem(rawOutput);
-            };
-
-            const normalizedResult = normalizeOutput(output);
+            const normalizedResult = normalizeReplicateOutput(output);
 
             return {
                 success: true,

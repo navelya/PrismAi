@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { executeWorkflowFromNode, stripHeavyNodeData } from '@/lib/workflow-engine';
 import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
+import { normalizeReplicateOutput, REPLICATE_WEBHOOK_SIGNING_SECRET } from '@/lib/ai/replicate-client';
+import { Webhook } from 'standardwebhooks';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -23,7 +25,30 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Missing mandatory context' }, { status: 400 });
         }
 
-        const body = await request.json();
+        // --- Signature Verification ---
+        // Replicate signs the payload with Standard Webhooks.
+        // If a secret is provided in the environment, we MUST verify the signature.
+        const bodyText = await request.text();
+        
+        if (REPLICATE_WEBHOOK_SIGNING_SECRET) {
+            const wh = new Webhook(REPLICATE_WEBHOOK_SIGNING_SECRET);
+            const headers = {
+                'webhook-id': request.headers.get('webhook-id') || '',
+                'webhook-timestamp': request.headers.get('webhook-timestamp') || '',
+                'webhook-signature': request.headers.get('webhook-signature') || '',
+            };
+
+            try {
+                wh.verify(bodyText, headers);
+            } catch (err) {
+                console.error('[Webhook/Replicate] Signature verification failed:', err);
+                return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+            }
+        } else {
+            console.warn('[Webhook/Replicate] WARNING: REPLICATE_WEBHOOK_SIGNING_SECRET is not set. Verification skipped.');
+        }
+
+        const body = JSON.parse(bodyText);
         const { status, output, error, id: predictionId } = body;
 
         console.log(`[Webhook/Replicate] Received update for ${nodeId} in session ${sessionId}. Status: ${status}`);
@@ -52,24 +77,7 @@ export async function POST(request: NextRequest) {
 
         // 2. Handle Completion
         if (status === 'succeeded') {
-            // Normalize output (handle array vs single)
-            // Replicate AI Generator normalization logic
-            const normalizeOutput = (rawOutput: any) => {
-                const normalizeItem = (item: any) => {
-                    let urlStr = item;
-                    if (item && typeof item === 'object' && typeof item.url === 'function') {
-                        urlStr = item.url().toString();
-                    }
-                    return typeof urlStr === 'string' ? { url: urlStr } : urlStr;
-                };
-                
-                if (Array.isArray(rawOutput)) {
-                    return rawOutput.map(normalizeItem);
-                }
-                return normalizeItem(rawOutput);
-            };
-
-            const normalizedResult = normalizeOutput(output);
+            const normalizedResult = normalizeReplicateOutput(output);
             
             // Update node data in workflow
             node.data.output = normalizedResult;
@@ -81,10 +89,8 @@ export async function POST(request: NextRequest) {
                 node.data.outputMetadata = { ...node.data.outputMetadata, preview_urls: [normalizedResult.url] };
             }
 
-            // Persistence: In the real app, we'd call persistNodeOutputs here.
-            // For now, we update the session and trigger children.
-            
-            // Update Session canvas_state
+            // Persistence: Update the session and trigger children.
+            // We use stripHeavyNodeData to keep the DB record lean.
             await adminSupabase.from('sessions').update({
                 canvas_state: stripHeavyNodeData(workflow),
                 status_message: 'AI Generation ready'
@@ -109,7 +115,6 @@ export async function POST(request: NextRequest) {
             });
 
             // Resume Workflow for child nodes
-            // Note: We ignore the execution record here as it's part of a larger chain
             await executeWorkflowFromNode(
                 workflow,
                 `resume_${Date.now()}`,
@@ -124,7 +129,7 @@ export async function POST(request: NextRequest) {
                    });
                 },
                 undefined,
-                undefined, // To keep it simple, we skip heavy persistence in webhook for now or use Vercel waitUntil
+                undefined, 
                 'chain',
                 session.user_id,
                 sessionId
