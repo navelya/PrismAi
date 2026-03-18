@@ -238,11 +238,6 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
         }, { history: 'replace' });
     }, [initialWorkflow, setEditorState, isDragging]);
 
-    // 👑 SYNC OUTPUTS: Watch the global store for node outputs (thumbnails/results) 
-    // and sync them into the local 'nodes' array data. This is CRITICAL for 
-    // persistence, as the editor's auto-save uses this local data. 
-    // We specifically do NOT sync 'nodeStatuses' here to avoid the rendering 
-    // feedback loop bug — status is handled directly by CustomNode.tsx.
     useEffect(() => {
         // PERFORMANCE: Skip sync during active dragging to keep UI responsive
         if (isDragging) return;
@@ -257,12 +252,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
                 if (globalOutput === undefined) return node;
 
                 // Only update if the output has actually changed (to prevent loops)
-                // Note: we specifically promote thumbnailUrls from the global record
-                // if they exist, as these are the primary persistence targets.
                 const currentOutput = node.data?.output;
-                const currentMeta = node.data?.outputMetadata;
-
-                // Detection: Check if new output data exists
+                
+                // Compare stringified versions for deep equality check
                 if (stableStringify(globalOutput) !== stableStringify(currentOutput)) {
                     changed = true;
                     return {
@@ -278,7 +270,7 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
 
             return changed ? { ...prev, nodes: newNodes } : prev;
         }, { history: 'replace' });
-    }, [nodeOutputs, setEditorState]);
+    }, [nodeOutputs, setEditorState, isDragging]);
 
     // Handle Node Changes
     const onNodesChange = useCallback((changes: NodeChange[]) => {

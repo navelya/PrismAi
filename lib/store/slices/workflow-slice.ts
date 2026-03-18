@@ -19,22 +19,57 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     },
 
     setCurrentWorkflow: (workflow, isDirty = true) => {
-        if (workflow && workflow.nodes) {
-            workflow.nodes = workflow.nodes.map((node) => {
-                const def = sharedRegistry[node.type];
-                if (def && def.defaultConfig) {
-                    node.data = {
-                        ...node.data,
-                        config: { ...def.defaultConfig, ...(node.data?.config || {}) }
-                    };
-                }
-                if (!node.position) {
-                    node.position = { x: 0, y: 0 };
-                }
-                return node;
-            });
+        if (!workflow) {
+            set({ currentWorkflow: null, isWorkflowDirty: isDirty });
+            return;
         }
-        set({ currentWorkflow: workflow, isWorkflowDirty: isDirty });
+
+        const nodes = workflow.nodes || [];
+        let hasChanges = false;
+        
+        const transformedNodes = nodes.map((node) => {
+            let nodeChanged = false;
+            const def = sharedRegistry[node.type];
+            let newConfig = node.data?.config || {};
+            
+            if (def && def.defaultConfig) {
+                const mergedConfig = { ...def.defaultConfig, ...newConfig };
+                if (JSON.stringify(mergedConfig) !== JSON.stringify(newConfig)) {
+                    newConfig = mergedConfig;
+                    nodeChanged = true;
+                }
+            }
+            
+            let newPosition = node.position;
+            if (!newPosition) {
+                newPosition = { x: 0, y: 0 };
+                nodeChanged = true;
+            }
+
+            if (nodeChanged) {
+                hasChanges = true;
+                return {
+                    ...node,
+                    position: newPosition,
+                    data: { ...node.data, config: newConfig }
+                };
+            }
+            return node;
+        });
+
+        const finalWorkflow = hasChanges ? { ...workflow, nodes: transformedNodes } : workflow;
+        
+        // Deep compare with current to avoid redundant sets
+        const currentWf = get().currentWorkflow;
+        if (currentWf && JSON.stringify(finalWorkflow) === JSON.stringify(currentWf)) {
+            // Even if identical, we might want to update the dirty flag
+            if (get().isWorkflowDirty !== isDirty) {
+                set({ isWorkflowDirty: isDirty });
+            }
+            return;
+        }
+
+        set({ currentWorkflow: finalWorkflow, isWorkflowDirty: isDirty });
     },
 
     setIsDragging: (isDragging) => set({ isDragging }),

@@ -108,22 +108,6 @@ export default function SharedWorkflowEditor({
         };
     }, []);
 
-    useEffect(() => {
-        const storeState = useAppStore.getState();
-        const hasActiveSession = !!storeState.activeSessionId;
-
-        if (initialWorkflow && nodes.length > 0) {
-            if (hasActiveSession) {
-                setCurrentWorkflow(initialWorkflow);
-            } else {
-                console.warn('[SharedWorkflowEditor] 🛑 Aborted reviving workflow: No active session!');
-                if (storeState.currentWorkflow) {
-                    setCurrentWorkflow(null);
-                }
-            }
-        }
-    }, [initialWorkflow, nodes.length, setCurrentWorkflow]);
-
     // 🛡️ Enable Global Auto-Save Persistence
     useAutoSave();
 
