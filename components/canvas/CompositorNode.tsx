@@ -324,6 +324,7 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                 badgeCount={config.layers.length}
                 width={320}
                 customInputs={inputHandles}
+                hideStatus={true}
                 customActions={
                     <button
                         onClick={openEditor}

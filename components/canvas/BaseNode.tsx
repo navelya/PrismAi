@@ -26,6 +26,7 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // Custom header actions
     customActions?: React.ReactNode;
     icon?: string;
+    hideStatus?: boolean;
 }
 
 const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
@@ -44,6 +45,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     badgeCount,
     customActions,
     icon,
+    hideStatus = false,
     ...props
 }, ref) => {
     const sharedDef = sharedRegistry[type as keyof typeof sharedRegistry];
@@ -236,7 +238,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             </div>
 
             {/* Status Badge */}
-            {status !== 'idle' && (
+            {!hideStatus && status !== 'idle' && (
                 <div
                     className={cn(
                         "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
@@ -286,7 +288,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 >
                                     {input.label && (() => {
                                         const isMissing = (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id);
-                                        const isErrorState = status === 'error' && isMissing;
+                                        const isErrorState = !hideStatus && status === 'error' && isMissing;
 
                                         return (
                                             <div className={cn(
@@ -317,7 +319,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         {defaultInputLabel && (() => {
                             const defaultInput = sharedDef?.handles?.inputs?.[0];
                             const isMissing = defaultInput?.isMandatory && !edges.some(e => e.target === id && (!e.targetHandle || e.targetHandle === defaultInput.id));
-                            const isErrorState = status === 'error' && isMissing;
+                            const isErrorState = !hideStatus && status === 'error' && isMissing;
 
                             return (
                                 <div className={cn(

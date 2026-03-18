@@ -70,6 +70,7 @@ function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
             label={data.label}
             selected={selected}
             renderInputs={false}
+            hideStatus={true}
         >
             {/* Embedded Text Area Container */}
             <div className="relative group/prompt bg-white/5 border border-white/10 rounded-xl shadow-inner backdrop-blur-md transition-all duration-300 p-2.5">

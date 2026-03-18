@@ -28,7 +28,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const { setNodes } = useReactFlow();
     const [isUploading, setIsUploading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
-    const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
 
     // Update node config with new images
     const updateImages = useCallback((newImages: Array<{ url: string; path: string } | string>) => {
@@ -148,6 +147,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             renderInputs={false}
+            hideStatus={true}
         >
             <div
                 className={cn(
@@ -245,7 +245,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                     </>
                 )}
                 {/* Modern Glassy Loading Effect */}
-                {(isUploading || status === 'running') && <GlassyLoader />}
+                {isUploading && <GlassyLoader />}
             </div>
 
             {/* Hidden file input */}
