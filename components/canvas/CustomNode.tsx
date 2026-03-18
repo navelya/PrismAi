@@ -70,14 +70,14 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
             width={output && aspectRatio ? Math.min(MAX_WIDTH, 320 * aspectRatio) : 320}
         >
             <motion.div
-                layout
                 className={cn(
-                    "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
+                    "relative w-full rounded-xl overflow-hidden border border-white/10 shadow-inner group/node",
+                    !output ? "bg-white/5" : "bg-transparent",
                     "transition-all duration-500"
                 )}
                 style={{
-                    minHeight: MIN_HEIGHT,
-                    height: output && aspectRatio ? 'auto' : MIN_HEIGHT,
+                    minHeight: output ? 0 : MIN_HEIGHT,
+                    height: output && aspectRatio ? 'auto' : (output ? 'auto' : MIN_HEIGHT),
                 }}
             >
                 {/* Frosty Placeholder background */}

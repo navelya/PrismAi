@@ -316,17 +316,23 @@ export async function executeWorkflowFromNode(
                     );
 
                     const result: NodeExecutionResult = await Promise.race([
-                        executor(node.data?.config, input, context),
+                        executor(node.data?.config, input, { ...context, nodeId: node.id }),
                         timeoutPromise
                     ]);
 
                     if (!result.success) throw new Error(result.error || 'Node execution failed');
 
-                    return { nodeId: node.id, success: true, output: result.data };
+                    return { 
+                        nodeId: node.id, 
+                        success: true, 
+                        output: result.data,
+                        status: result.status || 'success'
+                    };
                 } catch (error) {
                     return {
                         nodeId: node.id,
                         success: false,
+                        status: 'error',
                         error: error instanceof Error ? error.message : 'Unknown error',
                     };
                 }
@@ -340,6 +346,13 @@ export async function executeWorkflowFromNode(
                 const node = readyNodes[index];
 
                 if (result.status === 'fulfilled' && result.value.success) {
+                    if (result.value.status === 'pending') {
+                        // ASYNC BRANCH: Mark as pending and STOP downstream propagation for this node.
+                        // The webhook handler will resume this branch later.
+                        onStatusUpdate?.(node.id, 'pending', workflow);
+                        continue;
+                    }
+
                     completedNodes.add(node.id);
                     nodeOutputs.set(node.id, result.value.output);
 

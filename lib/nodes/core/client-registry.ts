@@ -3,7 +3,6 @@ import { aiGenerateImageClientDef } from '../plugins/ai_generate_image/component
 import { mediaInputClientDef } from '../plugins/media_input/component';
 import { compositorClientDef } from '../plugins/compositor/component';
 import { promptClientDef } from '../plugins/prompt/component';
-import LegacyNode from '@/components/canvas/LegacyNode';
 import AIGeneratorNode from '@/components/canvas/AIGeneratorNode';
 import AIGeneratorProperties from '@/components/canvas/AIGeneratorProperties';
 
@@ -20,5 +19,5 @@ export const clientRegistry: Record<string, NodeClientDef> = {
     } as any,
 };
 
-export const FallbackNode = LegacyNode;
+export const FallbackNode = AIGeneratorNode;
 

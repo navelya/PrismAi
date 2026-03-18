@@ -87,11 +87,12 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     // Create a stable identity for the workflow to detect changes
     const getWorkflowIdentity = (wf: Workflow | null | undefined) => {
         if (!wf) return 'empty';
-        // ⚠️ CRITICAL: Do NOT use node/edge counts here. 
-        // Local state updates (add/delete) change counts, which would trigger a history RESET if we included them.
-        // We only want to reset history if we truly switched to a DIFFERENT workflow document.
+        // 👑 STRUCTURAL IDENTITY ONLY: 
+        // We only reset history if we truly switched to a DIFFERENT session or workflow.
+        // We do NOT include node data/positions in this identity, as those are synced 
+        // granularly below to avoid history-reset feedback loops.
         if (wf.id) return `id:${wf.id}`;
-        return `name:${wf.name}`; // Fallback for unsaved/new workflows
+        return `name:${wf.name || 'Untitled'}`; 
     };
 
     const currentIdentity = getWorkflowIdentity(initialWorkflow);
@@ -148,6 +149,7 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
 
     // Track the last workflow we loaded to avoid re-rendering during drag
     const lastLoadedWorkflowRef = useRef<string | null>(null);
+    const lastSyncedDataRef = useRef<string>('');
 
     // ⭐ CRITICAL FIX: Use useLayoutEffect for SYNCHRONOUS state reset before paint
     useLayoutEffect(() => {
@@ -162,81 +164,78 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
             prevIdentityRef.current = currentIdentity;
             lastLoadedWorkflowRef.current = null;
 
-            const newState: EditorState = {
-                nodes: getInitialNodes(initialWorkflow),
-                edges: getInitialEdges(initialWorkflow),
-                name: initialWorkflow?.name || 'Untitled Workflow',
-            };
+            // Process Nodes (Dedupe & Layout Check)
+            const rawNodes = getInitialNodes(initialWorkflow);
+            const rawEdges = getInitialEdges(initialWorkflow);
 
-            resetEditorState(newState);
+            const uniqueNodes: any[] = [];
+            const seenIds = new Set();
+            rawNodes.forEach(n => {
+                if (!seenIds.has(n.id)) {
+                    seenIds.add(n.id);
+                    uniqueNodes.push(n);
+                }
+            });
+
+            const needsLayout = uniqueNodes.length > 0 && uniqueNodes.every(n => {
+                const pos = n.position || { x: 0, y: 0 };
+                return (pos.x === 0 && pos.y === 0) || (pos.x === 0 && pos.y === 100);
+            });
+
+            if (needsLayout) {
+                autoLayoutNodesAsync(uniqueNodes, rawEdges).then(layoutedPositions => {
+                    const layoutedNodes = uniqueNodes.map(n => {
+                        const pos = layoutedPositions.get(n.id);
+                        return pos ? { ...n, position: pos } : n;
+                    });
+                    resetEditorState({ nodes: layoutedNodes, edges: rawEdges, name: initialWorkflow?.name || 'Untitled Workflow' });
+                });
+            } else {
+                const newState: EditorState = {
+                    nodes: uniqueNodes,
+                    edges: rawEdges,
+                    name: initialWorkflow?.name || 'Untitled Workflow',
+                };
+                resetEditorState(newState);
+            }
             setSelectedNode(null);
         }
     }, [currentIdentity, initialWorkflow, resetEditorState]);
 
-    // ⭐ Main effect to update state when workflow changes from outside (e.g. loaded from DB)
-    useEffect(() => {
-        if (initialWorkflow && initialWorkflow.nodes && initialWorkflow.nodes.length > 0) {
-            const sortedNodes = [...initialWorkflow.nodes].sort((a, b) => a.id.localeCompare(b.id));
-            const configHash = stableStringify(sortedNodes.map(n => ({ id: n.id, data: n.data })));
-            const workflowId = `${initialWorkflow.name}-${initialWorkflow.nodes.length}-${initialWorkflow.edges.length}-${configHash}`;
-
-            if (lastLoadedWorkflowRef.current !== workflowId) {
-                lastLoadedWorkflowRef.current = workflowId;
-
-                // Process Nodes (Dedupe & Layout)
-                const uniqueNodes = new Map();
-                initialWorkflow.nodes.forEach(n => {
-                    if (!uniqueNodes.has(n.id)) {
-                        uniqueNodes.set(n.id, {
-                            id: n.id,
-                            type: n.type,
-                            position: n.position || { x: 0, y: 0 },
-                            data: n.data,
-                            zIndex: n.zIndex || 0,
-                        });
-                    }
-                });
-                const newNodes = Array.from(uniqueNodes.values());
-
-                const uniqueEdges = new Map();
-                initialWorkflow.edges.forEach(e => {
-                    const edgeId = e.id || `e-${e.source}-${e.target}`;
-                    if (!uniqueEdges.has(edgeId)) {
-                        uniqueEdges.set(edgeId, {
-                            id: edgeId,
-                            source: e.source,
-                            target: e.target,
-                            sourceHandle: e.sourceHandle,
-                            targetHandle: e.targetHandle,
-                            type: 'smoothstep',
-                            animated: true,
-                        });
-                    }
-                });
-                const newEdges = Array.from(uniqueEdges.values());
-
-                const needsLayout = newNodes.length > 0 && newNodes.every(n => {
-                    // קוד הגנתי: אם מסיבה כלשהי (היסטוריה ישנה או שגיאת AI) אין מיקום, נשתמש ב-0,0
-                    const pos = n.position || { x: 0, y: 0 };
-                    return (pos.x === 0 && pos.y === 0) || (pos.x === 0 && pos.y === 100);
-                });
-
-                if (needsLayout) {
-                    autoLayoutNodesAsync(newNodes, newEdges).then(layoutedPositions => {
-                        const layoutedNodes = newNodes.map(n => {
-                            const pos = layoutedPositions.get(n.id);
-                            return pos ? { ...n, position: pos } : n;
-                        });
-                        setEditorState({ nodes: layoutedNodes, edges: newEdges, name: initialWorkflow.name }, { history: 'replace' });
-                    });
-                } else {
-                    setEditorState({ nodes: newNodes, edges: newEdges, name: initialWorkflow.name }, { history: 'replace' });
-                }
-            }
-        }
-    }, [initialWorkflow, setEditorState, resetEditorState]);
-
     const isDragging = useAppStore((state) => state.isDragging);
+
+    // ⭐ Main effect to update state when workflow changes from outside (e.g. loaded from DB or AI generation)
+    useEffect(() => {
+        if (!initialWorkflow || !initialWorkflow.nodes) return;
+
+        // 🛡️ RE-SYNC GUARD: Only sync if the incoming prop data has actually changed
+        // and we are not middle-of-drag.
+        if (isDragging) return;
+
+        const incomingDataStr = stableStringify(initialWorkflow.nodes.map(n => ({ id: n.id, data: n.data })));
+        if (incomingDataStr === lastSyncedDataRef.current) return;
+        
+        lastSyncedDataRef.current = incomingDataStr;
+
+        setEditorState((prev) => {
+            let changed = false;
+            const newNodes = prev.nodes.map((node) => {
+                const incomingNode = initialWorkflow.nodes.find(n => n.id === node.id);
+                if (!incomingNode) return node;
+
+                const nodeIncomingDataStr = stableStringify(incomingNode.data);
+                const currentNodeDataStr = stableStringify(node.data);
+
+                if (nodeIncomingDataStr !== currentNodeDataStr) {
+                    changed = true;
+                    return { ...node, data: incomingNode.data };
+                }
+                return node;
+            });
+
+            return changed ? { ...prev, nodes: newNodes } : prev;
+        }, { history: 'replace' });
+    }, [initialWorkflow, setEditorState, isDragging]);
 
     // 👑 SYNC OUTPUTS: Watch the global store for node outputs (thumbnails/results) 
     // and sync them into the local 'nodes' array data. This is CRITICAL for 

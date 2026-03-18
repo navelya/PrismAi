@@ -1,6 +1,25 @@
 import localforage from 'localforage';
 import { Workflow } from '../nodes/types';
 
+/**
+ * Local Backup Module
+ * 
+ * Provides high-frequency crash recovery backups using IndexedDB.
+ * 
+ * Storage Architecture:
+ * - **IndexedDB (via localforage):** Fast, non-blocking browser storage
+ *   - Stores complete workflow snapshots with timestamps
+ *   - Key format: `backup_${workflowId}` or `backup_${sessionId}`
+ *   - Survives page refreshes and browser crashes
+ *   - NOT synced across devices (browser-local only)
+ * 
+ * - **When used:** Auto-save writes here every 1 second (throttled)
+ * - **When cleaned:** After successful Supabase sync OR when server version is newer
+ * - **Recovery:** CrashRecoveryProvider checks on session load
+ * 
+ * Note: This is separate from localStorage (Zustand persist), which only stores UI preferences.
+ */
+
 // Configure localforage
 localforage.config({
     name: 'PrismAi',

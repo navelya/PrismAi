@@ -79,64 +79,89 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         if (!process.env.REPLICATE_API_TOKEN) throw new Error('Replicate API token missing');
 
-        console.log(`[WorkflowExecutor] Running dynamic AI model: ${model.replicate_model_id}`, replicateInputs);
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
+        const isLocal = appUrl.includes('localhost') || !appUrl.startsWith('https');
+        const webhookUrl = `${appUrl}/api/webhooks/replicate?sessionId=${context.sessionId || ''}&nodeId=${context.nodeId || ''}`;
 
-        // 3. Execute
-        const rawOutput = await replicate.run(model.replicate_model_id as any, {
-            input: replicateInputs,
-        });
+        // Robust model/version extraction
+        // Handles: "owner/name", "owner/name:version", "name"
+        const modelParts = model.replicate_model_id.split(/[:\/]/);
+        let modelOwner: string | undefined;
+        let modelName: string;
+        let modelVersion: string | undefined;
 
-        // 4. Normalize Output
-        // Support multiple handles or single output
-        const outputHandles = model.outputs_schema?.handles || [];
-        const isSingleHandle = outputHandles.length <= 1;
-        
-        const normalizeItem = (item: any) => {
-            let urlStr = item;
-            if (item && typeof item === 'object' && typeof item.url === 'function') {
-                urlStr = item.url().toString();
-            }
-            return typeof urlStr === 'string' ? { url: urlStr } : urlStr;
-        };
-
-        let result;
-        if (isSingleHandle) {
-            const h = outputHandles[0];
-            const isArray = h?.is_array ?? true; // Default to array for backward compat
-            
-            if (Array.isArray(rawOutput)) {
-                const sanitized = rawOutput.map(normalizeItem);
-                result = isArray ? sanitized : sanitized[0];
+        if (modelParts.length === 3) {
+            [modelOwner, modelName, modelVersion] = modelParts;
+        } else if (modelParts.length === 2) {
+            if (model.replicate_model_id.includes(':')) {
+                // assume name:version or owner/name (if no colon)
+                [modelName, modelVersion] = modelParts;
             } else {
-                const sanitized = normalizeItem(rawOutput);
-                result = isArray ? [sanitized] : sanitized;
+                [modelOwner, modelName] = modelParts;
             }
         } else {
-            // Multi-handle output: mapping keys in rawOutput to handles
-            const multiOutput: Record<string, any> = {};
-            outputHandles.forEach((h: any) => {
-                const rawVal = (rawOutput as any)[h.api_mapping_key] || rawOutput;
-                const isArray = h.is_array ?? true;
-                
-                if (Array.isArray(rawVal)) {
-                    const sanitized = rawVal.map(normalizeItem);
-                    multiOutput[h.api_mapping_key] = isArray ? sanitized : sanitized[0];
-                } else {
-                    const sanitized = normalizeItem(rawVal);
-                    multiOutput[h.api_mapping_key] = isArray ? [sanitized] : sanitized;
-                }
-            });
-            result = multiOutput;
+            modelName = modelParts[0];
         }
 
-        return {
-            success: true,
-            data: result
-        };
+        console.log(`[WorkflowExecutor] Starting AI model: ${model.replicate_model_id}`, { isLocal, replicateInputs });
+
+        const replicate = new Replicate({
+            auth: process.env.REPLICATE_API_TOKEN,
+        });
+
+        if (isLocal) {
+            // FALLBACK: Synchronous execution for localhost (no webhooks)
+            const output = await replicate.run(
+                model.replicate_model_id as any,
+                { input: replicateInputs }
+            );
+
+            // Normalize output (restoring legacy stable logic)
+            const normalizeOutput = (rawOutput: any) => {
+                const normalizeItem = (item: any) => {
+                    let urlStr = item;
+                    if (item && typeof item === 'object' && typeof item.url === 'function') {
+                        urlStr = item.url().toString();
+                    }
+                    return typeof urlStr === 'string' ? { url: urlStr } : urlStr;
+                };
+
+                if (Array.isArray(rawOutput)) {
+                    return rawOutput.map(normalizeItem);
+                }
+                return normalizeItem(rawOutput);
+            };
+
+            const normalizedResult = normalizeOutput(output);
+
+            return {
+                success: true,
+                data: normalizedResult,
+                status: 'success'
+            };
+        } else {
+            // PRODUCTION: Asynchronous execution with Webhooks
+            const prediction = await replicate.predictions.create({
+                // Replicate SDK prefers version if available, otherwise model
+                ...(modelVersion ? { version: modelVersion } : { model: model.replicate_model_id }),
+                input: replicateInputs,
+                webhook: webhookUrl,
+                webhook_events_filter: ['completed'],
+            });
+
+            console.log(`[WorkflowExecutor] Created prediction: ${prediction.id}`);
+
+            return {
+                success: true,
+                data: { id: prediction.id, status: prediction.status },
+                status: 'pending'
+            };
+        }
     } catch (err: any) {
         console.error('[AIGeneratorExecutor] Error:', err);
         return {
             success: false,
+            status: 'error',
             data: null,
             error: err.message || 'AI Generation failed'
         };

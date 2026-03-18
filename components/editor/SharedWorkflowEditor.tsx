@@ -11,6 +11,7 @@ import { saveWorkflow } from '@/lib/db/workflows';
 import { executeWorkflow, executeWorkflowFromNode } from '@/lib/workflow-engine';
 import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { useAutoSave } from '@/hooks/useAutoSave';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -123,46 +124,32 @@ export default function SharedWorkflowEditor({
         }
     }, [initialWorkflow, nodes.length, setCurrentWorkflow]);
 
-    const lastSavedStateRef = useRef<string>('');
-    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+    // 🛡️ Enable Global Auto-Save Persistence
+    useAutoSave();
+
+    // 🔄 Sync local editor state to global store for auto-save
+    const lastSyncedStateRef = useRef<string>('');
+    
+    useEffect(() => {
+        if (isDragging) return;
+        
+        const workflow = getCurrentWorkflow();
+        const currentHash = stableStringify(workflow);
+        
+        if (currentHash !== lastSyncedStateRef.current) {
+            lastSyncedStateRef.current = currentHash;
+            setCurrentWorkflow(workflow);
+        }
+    }, [nodes, edges, isDragging, getCurrentWorkflow, setCurrentWorkflow]);
 
     useEffect(() => {
         if (nodes.length > 0 || edges.length > 0) {
-            if (isDragging) return;
-
             const workflow = getCurrentWorkflow();
-            const currentStateString = stableStringify({
-                nodes: workflow.nodes.map(n => ({ id: n.id, data: n.data, position: n.position })),
-                edges: workflow.edges,
-                name: workflow.name
-            });
-
-            if (currentStateString !== lastSavedStateRef.current) {
-                lastSavedStateRef.current = currentStateString;
-
-                if (debounceTimerRef.current) {
-                    clearTimeout(debounceTimerRef.current);
-                }
-
-                debounceTimerRef.current = setTimeout(() => {
-                    const currentActiveId = useAppStore.getState().activeSessionId;
-                    if (isMountedRef.current && currentActiveId) {
-                        setCurrentWorkflow(workflow);
-                    }
-                }, 300);
-            }
-
             if (onWorkflowChange) {
                 onWorkflowChange(workflow);
             }
         }
-
-        return () => {
-            if (debounceTimerRef.current) {
-                clearTimeout(debounceTimerRef.current);
-            }
-        };
-    }, [nodes, edges, workflowName, isDragging, onWorkflowChange, getCurrentWorkflow, setCurrentWorkflow]);
+    }, [nodes, edges, workflowName, isDragging, onWorkflowChange, getCurrentWorkflow]);
 
     const handleNodeClick = (_event: any, node: any) => {
         if (readOnly) return;

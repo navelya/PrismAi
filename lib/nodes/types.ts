@@ -213,6 +213,8 @@ export interface WorkflowNode {
     data: {
         label: string;
         config: NodeConfig;
+        output?: any; // Cached execution output
+        outputMetadata?: any; // Metadata about node outputs (e.g. thumbnails)
         __originalType?: string; // Track original type for legacy/deprecated nodes
     };
     zIndex?: number;
@@ -248,6 +250,7 @@ export interface ExecutionContext {
     executionId: string;
     userId?: string;
     sessionId?: string;
+    nodeId?: string; // Current node being executed
     data: any;
 }
 
@@ -258,6 +261,7 @@ export interface NodeExecutionResult {
     success: boolean;
     data: any;
     error?: string;
+    status?: 'success' | 'pending' | 'error';
 }
 
 /**

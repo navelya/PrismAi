@@ -86,8 +86,23 @@ function EditorCanvasInner({
     const { resolvedTheme } = useTheme();
 
     const setIsDragging = useAppStore((state) => state.setIsDragging);
+    const setLiveNodePosition = useAppStore((state) => state.setLiveNodePosition);
+    const syncLivePositionsToWorkflow = useAppStore((state) => state.syncLivePositionsToWorkflow);
+    const liveNodePositions = useAppStore((state) => state.liveNodePositions);
+
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
+
+    // Overlay live positions for buttery smooth dragging
+    const displayNodes = useMemo(() => {
+        return nodes.map((node) => {
+            const livePos = liveNodePositions[node.id];
+            if (livePos) {
+                return { ...node, position: livePos };
+            }
+            return node;
+        });
+    }, [nodes, liveNodePositions]);
 
     // Get selected nodes
     const selectedNodes = useMemo(() => nodes.filter((n: any) => n.selected), [nodes]);
@@ -168,6 +183,11 @@ function EditorCanvasInner({
         };
     }, [undo, redo, canUndo, canRedo, nodes, copyNode, pasteNode]);
 
+    // Handle node drag
+    const handleNodeDrag: NodeDragHandler = useCallback((event, node) => {
+        setLiveNodePosition(node.id, node.position);
+    }, [setLiveNodePosition]);
+
     // Handle node drag start
     const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
         setIsDragging(true);
@@ -177,10 +197,25 @@ function EditorCanvasInner({
 
     // Handle node drag stop
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
+        // Collect final positions from liveNodePositions slice
+        const state = useAppStore.getState();
+        const positionsMap = new Map<string, { x: number; y: number }>();
+        Object.entries(state.liveNodePositions).forEach(([id, pos]) => {
+            positionsMap.set(id, pos);
+        });
+
+        // 🛡️ SYNC FIX: Update the hook first (the owner of state)
+        if (updatePositions && positionsMap.size > 0) {
+            updatePositions(positionsMap);
+        }
+
+        // Now clear and stop
+        state.clearLiveNodePositions();
         setIsDragging(false);
         touchInteraction();
+        
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
-    }, [setIsDragging, onNodeDragStop, touchInteraction]);
+    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions]);
 
     // Throttle high-frequency node change events (drag) to the next animation frame
     const pendingNodeChanges = useRef<NodeChange[] | null>(null);
@@ -188,7 +223,16 @@ function EditorCanvasInner({
 
     const flushNodeChanges = useCallback(() => {
         if (pendingNodeChanges.current && pendingNodeChanges.current.length > 0) {
-            onNodesChange(pendingNodeChanges.current);
+            // Filter out position changes during drag - they are handled by liveNodePositions
+            // BUT if we are NOT dragging (e.g. final drop), we must include them to sync React Flow's state
+            const isDragging = useAppStore.getState().isDragging;
+            const importantChanges = isDragging 
+                ? pendingNodeChanges.current.filter(c => c.type !== 'position')
+                : pendingNodeChanges.current;
+
+            if (importantChanges.length > 0) {
+                onNodesChange(importantChanges);
+            }
         }
         pendingNodeChanges.current = null;
         rafId.current = null;
@@ -382,7 +426,7 @@ function EditorCanvasInner({
     return (
         <div ref={reactFlowWrapper} className="w-full h-full relative" onContextMenu={handleContextMenu}>
             <ReactFlow
-                nodes={nodes}
+                nodes={displayNodes}
                 edges={memoizedEdges}
                 onNodesChange={handleNodesChangeThrottled}
                 onEdgesChange={(changes) => {
@@ -393,6 +437,7 @@ function EditorCanvasInner({
                     onConnect(connection);
                 }}
                 onNodeClick={onNodeClick}
+                onNodeDrag={handleNodeDrag}
                 onNodeDragStart={handleNodeDragStart}
                 onNodeDragStop={handleNodeDragStop}
                 onEdgeClick={handleEdgeClick}
