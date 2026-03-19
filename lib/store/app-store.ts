@@ -58,9 +58,6 @@ export const useAppStore = create<RootState>()(
                     activeExecutionId: null,
                     executionStartTime: null,
                     nodeStatuses: {},
-                    nodeDirtyStates: {},
-                    isComputing: {},
-                    executionLocks: {},
                     nodeOutputs: {},
                     editorState: {
                         zoom: 1,
@@ -92,9 +89,6 @@ export const useAppStore = create<RootState>()(
                     'chatMessages',
                     'executionResults',
                     'nodeStatuses',
-                    'nodeDirtyStates',
-                    'isComputing',
-                    'executionLocks',
                     'nodeOutputs',
                     'activeExecutionId',
                     'copiedNode',
@@ -112,9 +106,6 @@ export const useAppStore = create<RootState>()(
                     state.isDragging = false;
                     state.currentWorkflow = null;
                     state.nodeStatuses = {};
-                    state.nodeDirtyStates = {};
-                    state.isComputing = {};
-                    state.executionLocks = {};
                     state.nodeOutputs = {};
                     state.executionResults = {};
                     state.activeExecutionId = null;

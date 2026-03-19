@@ -5,19 +5,11 @@ import { useAppStore } from '@/lib/store/app-store';
 import { getLocalBackup, removeLocalBackup, cleanupOrphanedBackups } from '@/lib/db/local-backup';
 import { sessionsApi } from '@/lib/api/client';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { RecoveryPrompt } from '@/components/modals/RecoveryPrompt';
 import { Toast } from '@/components/ui/Toast';
 import type { Workflow } from '@/lib/nodes/types';
 
 interface CrashRecoveryProviderProps {
     children: React.ReactNode;
-}
-
-interface RecoveryState {
-    isOpen: boolean;
-    localWorkflow: Workflow | null;
-    localTimestamp: number;
-    serverTimestamp: number;
 }
 
 /**
@@ -33,10 +25,9 @@ interface RecoveryState {
  * Recovery Flow:
  * 1. On session load, checks for local backup in IndexedDB
  * 2. Compares local backup timestamp with server session.updated_at
- * 3. If local is newer (crash/sync failure), shows RecoveryPrompt modal
- * 4. User chooses: Restore, Discard, or Decide Later
- * 5. Shows success toast after restore
- * 6. Cleans up local backup after successful sync
+ * 3. If local is newer (crash/sync failure), automatically restores it
+ * 4. Shows success toast after restore
+ * 5. Cleans up local backup after successful sync
  * 
  * Also initializes the global auto-save hook.
  */
@@ -47,12 +38,6 @@ export function CrashRecoveryProvider({ children }: CrashRecoveryProviderProps) 
     const activeSessionId = useAppStore(state => state.activeSessionId);
     const setCurrentWorkflow = useAppStore(state => state.setCurrentWorkflow);
     const [hasCheckedRecovery, setHasCheckedRecovery] = useState<Set<string>>(new Set());
-    const [recoveryState, setRecoveryState] = useState<RecoveryState>({
-        isOpen: false,
-        localWorkflow: null,
-        localTimestamp: 0,
-        serverTimestamp: 0,
-    });
     const [showSuccessToast, setShowSuccessToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
 
@@ -98,12 +83,9 @@ export function CrashRecoveryProvider({ children }: CrashRecoveryProviderProps) 
 
                 // Compare timestamps (5-second tolerance for network lag)
                 if (localTime > (serverTime + 5000)) {
-                    setRecoveryState({
-                        isOpen: true,
-                        localWorkflow: localBackup.workflow,
-                        localTimestamp: localTime,
-                        serverTimestamp: serverTime,
-                    });
+                    // Automate recovery: Skip the prompt and restore directly
+                    console.log('[CrashRecovery] Newer local backup found. Auto-restoring...');
+                    await executeRestore(localBackup.workflow, localTime);
                 } else {
                     await removeLocalBackup(activeSessionId);
                 }
@@ -118,58 +100,34 @@ export function CrashRecoveryProvider({ children }: CrashRecoveryProviderProps) 
         attemptRecovery();
     }, [activeSessionId, hasCheckedRecovery]);
 
-    const handleRestore = async () => {
-        if (!recoveryState.localWorkflow || !activeSessionId) return;
+    const executeRestore = async (workflow: Workflow, timestamp: number) => {
+        if (!activeSessionId) return;
 
         try {
-            setCurrentWorkflow(recoveryState.localWorkflow);
+            setCurrentWorkflow(workflow);
             await sessionsApi.update(activeSessionId, {
-                canvas_state: recoveryState.localWorkflow
+                canvas_state: workflow
             });
             await removeLocalBackup(activeSessionId);
             
             // Calculate time ago for toast message
-            const timeDiff = Date.now() - recoveryState.localTimestamp;
+            const timeDiff = Date.now() - timestamp;
             const minutesAgo = Math.floor(timeDiff / 60000);
             const timeAgo = minutesAgo < 1 ? 'less than a minute' : 
                            minutesAgo === 1 ? '1 minute' : 
                            `${minutesAgo} minutes`;
             
-            // Count changes (simplified - just show we restored)
-            const nodeCount = recoveryState.localWorkflow.nodes?.length || 0;
-            
-            setToastMessage(`Restored workflow with ${nodeCount} nodes from ${timeAgo} ago`);
+            const nodeCount = workflow.nodes?.length || 0;
+            setToastMessage(`Automatically restored workflow (${nodeCount} nodes) from ${timeAgo} ago`);
             setShowSuccessToast(true);
         } catch (error) {
-            console.error('[CrashRecovery] Restore failed:', error);
+            console.error('[CrashRecovery] Auto-restore failed:', error);
         }
-    };
-
-    const handleDiscard = async () => {
-        if (!activeSessionId) return;
-
-        try {
-            await removeLocalBackup(activeSessionId);
-        } catch (error) {
-            console.error('[CrashRecovery] Discard failed:', error);
-        }
-    };
-
-    const handleClose = () => {
-        setRecoveryState(prev => ({ ...prev, isOpen: false }));
     };
 
     return (
         <>
             {children}
-            <RecoveryPrompt
-                isOpen={recoveryState.isOpen}
-                onClose={handleClose}
-                onRestore={handleRestore}
-                onDiscard={handleDiscard}
-                localTimestamp={recoveryState.localTimestamp}
-                serverTimestamp={recoveryState.serverTimestamp}
-            />
             {showSuccessToast && (
                 <Toast
                     message={toastMessage}
