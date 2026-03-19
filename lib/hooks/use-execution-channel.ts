@@ -78,7 +78,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
             if (!record) return;
 
-            const { node_id: nodeId, status, output, error } = record;
+            const { node_id: nodeId, status, output, error, output_metadata: outputMetadata } = record;
 
             if (!nodeId) return;
 
@@ -86,37 +86,33 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
             // Update status in Zustand
             if (status) {
-                const currentStatus = store.nodeStatuses[nodeId];
-                if (status !== currentStatus) {
-                    store.setNodeStatus(nodeId, status);
-                }
+                store.setNodeStatus(nodeId, status);
             }
 
             // Update output if present
-            if (output !== undefined && status === 'success') {
-                const currentOutput = store.nodeOutputs[nodeId];
-                
-                // Check for metadata in output
-                const metadata = output._metadata;
-                if (metadata?.preview_urls && Array.isArray(metadata.preview_urls) && metadata.preview_urls.length > 0) {
+            if (status === 'success') {
+                // Priority 1: Check the new output_metadata column for storage URLs (thumbnails/previews)
+                if (outputMetadata?.preview_urls && Array.isArray(outputMetadata.preview_urls) && outputMetadata.preview_urls.length > 0) {
+                    const imageObjects = outputMetadata.preview_urls.map((url: string, idx: number) => ({
+                        url,
+                        resolution: { width: 1024, height: 1024 },
+                        metadata: { title: `Output ${idx + 1}`, source: 'Database' },
+                    }));
+                    store.setNodeOutput(nodeId, imageObjects);
+                } 
+                // Priority 2: Check legacy _metadata inside output
+                else if (output?._metadata?.preview_urls && Array.isArray(output._metadata.preview_urls) && output._metadata.preview_urls.length > 0) {
+                    const metadata = output._metadata;
                     const imageObjects = metadata.preview_urls.map((url: string, idx: number) => ({
                         url,
                         resolution: { width: 1024, height: 1024 },
                         metadata: { title: `Output ${idx + 1}`, source: 'Database' },
                     }));
-                    
-                    const outputChanged = !currentOutput || 
-                        JSON.stringify(currentOutput) !== JSON.stringify(imageObjects);
-                    if (outputChanged) {
-                        store.setNodeOutput(nodeId, imageObjects);
-                    }
-                } else {
-                    // Regular output (text, JSON, etc.)
-                    const outputChanged = !currentOutput || 
-                        JSON.stringify(currentOutput) !== JSON.stringify(output);
-                    if (outputChanged) {
-                        store.setNodeOutput(nodeId, output);
-                    }
+                    store.setNodeOutput(nodeId, imageObjects);
+                }
+                // Priority 3: Fallback to raw output (text, JSON, etc.)
+                else if (output !== undefined) {
+                    store.setNodeOutput(nodeId, output);
                 }
             }
 

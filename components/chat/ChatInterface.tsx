@@ -188,10 +188,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             nodes: workflow.nodes.map((n) => {
                 const data = { ...(n.data || {}) };
                 // Drop heavy runtime data; keep config/label/prompt fields
+                // IMPORTANT: We keep outputMetadata because it contains storage URLs (thumbnails)
+                // that are needed to restore the UI state after a refresh.
                 delete (data as any).output;
-                if (data.outputMetadata && (data.outputMetadata as any).preview_urls) {
-                    delete (data.outputMetadata as any).preview_urls;
-                }
+                
                 // Preserve configs and light metadata
                 return {
                     ...n,

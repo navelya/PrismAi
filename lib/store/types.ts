@@ -51,9 +51,6 @@ export interface ExecutionSlice {
     activeExecutionId: string | null;
     executionStartTime: number | null;
     nodeStatuses: Record<string, NodeStatus>;
-    nodeDirtyStates: Record<string, boolean>;
-    isComputing: Record<string, boolean>;
-    executionLocks: Record<string, boolean>;
     nodeOutputs: Record<string, any>;
     addExecutionResult: (workflowId: string, result: any) => void;
     clearExecutionResults: () => void;
@@ -62,10 +59,6 @@ export interface ExecutionSlice {
     isExecutionActive: () => boolean;
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
     resetNodeStatuses: () => void;
-    setNodeDirtyState: (nodeId: string, isDirty: boolean) => void;
-    setIsComputing: (nodeId: string, computing: boolean) => void;
-    setExecutionLock: (nodeId: string, locked: boolean) => void;
-    clearExecutionLocks: () => void;
     setNodeOutput: (nodeId: string, output: any) => void;
     clearNodeOutputs: () => void;
     cleanupNodeMetadata: (nodeId: string) => void;

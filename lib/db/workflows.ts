@@ -193,7 +193,8 @@ export async function upsertNodeExecution(
     nodeId: string,
     status: string,
     output?: any,
-    error?: string
+    error?: string,
+    outputMetadata?: any
 ): Promise<{ success: boolean; error?: string }> {
     try {
         if (!sessionId || !nodeId) {
@@ -206,7 +207,8 @@ export async function upsertNodeExecution(
                 p_node_id: nodeId,
                 p_status: status,
                 p_output: output,
-                p_error: error
+                p_error: error,
+                p_output_metadata: outputMetadata
             });
 
         if (rpcError) {
@@ -228,7 +230,7 @@ export async function upsertNodeExecution(
  */
 export async function getSessionExecutions(
     sessionId: string
-): Promise<Array<{ nodeId: string; status: string; output: any; error?: string; updatedAt: string }>> {
+): Promise<Array<{ nodeId: string; status: string; output: any; error?: string; outputMetadata?: any; updatedAt: string }>> {
     try {
         const { data, error } = await supabase
             .rpc('get_session_executions', {
@@ -245,6 +247,7 @@ export async function getSessionExecutions(
             status: row.status,
             output: row.output,
             error: row.error,
+            outputMetadata: row.output_metadata,
             updatedAt: row.updated_at
         }));
     } catch (err) {

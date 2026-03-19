@@ -159,6 +159,10 @@ export function useSession() {
 
             // ✅ PHASE 3 FIX: Hydrate Node Statuses and Outputs from node_executions table
             if (session.canvas_state?.nodes?.length > 0) {
+                // IMPORTANT: Clear existing state first to avoid mixing with previous session
+                store.resetNodeStatuses();
+                store.clearNodeOutputs();
+
                 // Fetch execution state from node_executions table
                 const executions = await getSessionExecutions(sessionId);
                 
@@ -179,19 +183,28 @@ export function useSession() {
                             store.setNodeStatus(node.id, execution.status as import('@/lib/nodes/types').NodeStatus);
                         }
                         
-                        if (execution.output) {
-                            // Check for metadata in output
+                        // Priority 1: Check the new outputMetadata property (from the new DB column)
+                        if (execution.outputMetadata?.preview_urls && Array.isArray(execution.outputMetadata.preview_urls) && execution.outputMetadata.preview_urls.length > 0) {
+                            const imageObjects = execution.outputMetadata.preview_urls.map((url: string, idx: number) => ({
+                                url,
+                                resolution: { width: 1024, height: 1024 },
+                                metadata: { title: `Output ${idx + 1}`, source: 'Database' },
+                            }));
+                            store.setNodeOutput(node.id, imageObjects);
+                        }
+                        // Priority 2: Check legacy _metadata inside output
+                        else if (execution.output?._metadata?.preview_urls && Array.isArray(execution.output._metadata.preview_urls) && execution.output._metadata.preview_urls.length > 0) {
                             const metadata = execution.output._metadata;
-                            if (metadata?.preview_urls && Array.isArray(metadata.preview_urls) && metadata.preview_urls.length > 0) {
-                                const imageObjects = metadata.preview_urls.map((url: string, idx: number) => ({
-                                    url,
-                                    resolution: { width: 1024, height: 1024 },
-                                    metadata: { title: `Output ${idx + 1}`, source: 'Database' },
-                                }));
-                                store.setNodeOutput(node.id, imageObjects);
-                            } else {
-                                store.setNodeOutput(node.id, execution.output);
-                            }
+                            const imageObjects = metadata.preview_urls.map((url: string, idx: number) => ({
+                                url,
+                                resolution: { width: 1024, height: 1024 },
+                                metadata: { title: `Output ${idx + 1}`, source: 'Database' },
+                            }));
+                            store.setNodeOutput(node.id, imageObjects);
+                        }
+                        // Priority 3: Fallback to raw output
+                        else if (execution.output) {
+                            store.setNodeOutput(node.id, execution.output);
                         }
                     } else if (isCompleted) {
                         // No execution record but session completed - mark as success/error

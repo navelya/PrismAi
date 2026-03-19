@@ -106,7 +106,7 @@ export function useAutoSave() {
         if (!workflow || !sessionId || isSavingRemoteRef.current) return;
 
         // ✅ PHASE 1 FIX: Sanitize execution state before saving
-        // CRITICAL: Never save node status/output/outputMetadata client-side
+        // CRITICAL: Never save node status/output client-side
         // These are managed by the execution engine and should only come from the server
         const sanitizedWorkflow = {
             ...workflow,
@@ -115,9 +115,9 @@ export function useAutoSave() {
                 data: {
                     ...n.data,
                     // Remove execution state - these are read-only from client perspective
+                    // IMPORTANT: We keep outputMetadata because it contains storage URLs (thumbnails)
                     status: undefined,
                     output: undefined,
-                    outputMetadata: undefined,
                 }
             }))
         };

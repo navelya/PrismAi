@@ -116,9 +116,28 @@ export async function POST(request: NextRequest) {
             await upsertNodeExecution(sessionId, nodeId, 'pending');
         }
 
+        // 1. Fetch ALL existing node executions to hydrate the engine's cache
+        // This is critical for chain/solo runs where ancestors might already be completed
+        const { data: existingExecutions } = await adminSupabaseSync
+            .from('node_executions')
+            .select('node_id, status, output')
+            .eq('session_id', sessionId);
+
+        const cachedOutputs: Record<string, any> = {};
+        if (existingExecutions) {
+            existingExecutions.forEach((exec: any) => {
+                if (exec.status === 'success' && exec.output) {
+                    // Strip metadata for engine consumption
+                    const rawOutput = exec.output?._metadata ? { ...exec.output } : exec.output;
+                    if (rawOutput?._metadata) delete rawOutput._metadata;
+                    cachedOutputs[exec.node_id] = rawOutput;
+                }
+            });
+        }
+
         // LOGGING: Execution lifecycle start
         const executionStartTime = Date.now();
-        console.log(`[Execution:${executionId}] START - sessionId: ${sessionId}, mode: ${runMode}, targetNode: ${runFromNodeId || 'all'}, nodesQueued: ${nodeIdsToInitialize.length}`);
+        console.log(`[Execution:${executionId}] START - sessionId: ${sessionId}, mode: ${runMode}, targetNode: ${runFromNodeId || 'all'}, nodesQueued: ${nodeIdsToInitialize.length}, cachedNodes: ${Object.keys(cachedOutputs).length}`);
 
         waitUntil((async () => {
             const adminSupabase = createAdminClient();
@@ -161,27 +180,23 @@ export async function POST(request: NextRequest) {
                     if (status === 'success' && currentWorkflow) {
                         const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
                         if (node) {
-                            const thumbnailUrls = node.data?.outputMetadata?.thumbnailUrls;
-                            if (Array.isArray(thumbnailUrls) && thumbnailUrls.length > 0) {
-                                payload.outputMetadata = { thumbnailUrls };
-                                dbUpdate.outputMetadata = node.data.outputMetadata;
-                            } else if (node.data?.output) {
-                                const out = node.data.output;
-                                const hasBase64 = Array.isArray(out)
-                                    ? out.some((o: any) => typeof o?.url === 'string' && o.url.startsWith('data:'))
-                                    : typeof out?.url === 'string' && out.url.startsWith('data:');
+                            const nodeOutput = node.data?.output;
+                            const nodeMetadata = node.data?.outputMetadata;
+                            
+                            // Check for base64 to avoid bloating DB
+                            const hasBase64 = Array.isArray(nodeOutput)
+                                ? nodeOutput.some((o: any) => typeof o?.url === 'string' && o.url.startsWith('data:'))
+                                : typeof nodeOutput?.url === 'string' && nodeOutput.url.startsWith('data:');
 
-                                if (!hasBase64) {
-                                    payload.output = out;
-                                }
-                                if (node.data.outputMetadata) {
-                                    payload.outputMetadata = node.data.outputMetadata;
-                                    dbUpdate.outputMetadata = node.data.outputMetadata;
-                                }
-                                
-                                // Store output in DB (filtering base64)
-                                if (!hasBase64 && out) {
-                                    dbUpdate.output = out;
+                            if (nodeOutput && !hasBase64) {
+                                dbUpdate.output = nodeOutput;
+                                payload.output = nodeOutput;
+                            }
+
+                            if (nodeMetadata) {
+                                dbUpdate.outputMetadata = nodeMetadata;
+                                if (nodeMetadata.thumbnailUrls) {
+                                    payload.outputMetadata = { thumbnailUrls: nodeMetadata.thumbnailUrls };
                                 }
                             }
                         }
@@ -199,7 +214,8 @@ export async function POST(request: NextRequest) {
                             nodeId,
                             dbUpdate.status!,
                             dbUpdate.output,
-                            dbUpdate.error
+                            dbUpdate.error,
+                            dbUpdate.outputMetadata
                         );
                     } catch (e) {
                         console.error('[API/Execute] DB update failed for node', nodeId, ':', e);
@@ -272,7 +288,7 @@ export async function POST(request: NextRequest) {
                         workflow as Workflow,
                         executionId,
                         runFromNodeId,
-                        {},
+                        cachedOutputs,
                         onStatusUpdate,
                         undefined,
                         onNodePersist,
@@ -286,7 +302,7 @@ export async function POST(request: NextRequest) {
                         executionId,
                         onStatusUpdate,
                         undefined,
-                        undefined,
+                        cachedOutputs,
                         onNodePersist,
                         userId,
                         sessionId
@@ -308,7 +324,6 @@ export async function POST(request: NextRequest) {
                 if (sessionId) {
                     await adminSupabase.from('sessions').update({
                         status_message: result.success ? null : 'Execution failed',
-                        canvas_state: stripHeavyNodeData(workflow),
                     }).eq('id', sessionId);
                 }
 

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
+import { useShallow } from 'zustand/react/shallow';
 import { Menu, Sparkles } from 'lucide-react';
 
 interface AppLayoutProps {
@@ -15,6 +16,24 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const pathname = usePathname();
     const isMobile = useIsMobile();
     const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    // ✅ GLOBAL CATALOG FETCH: Ensure models and node types are loaded for labels
+    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders } = useAppStore(
+        useShallow((state) => ({
+            fetchModels: state.fetchModels,
+            fetchCategories: state.fetchCategories,
+            fetchNodeTypes: state.fetchNodeTypes,
+            fetchProviders: state.fetchProviders,
+        }))
+    );
+
+    React.useEffect(() => {
+        // Fetch all catalog data once on app load
+        fetchModels();
+        fetchCategories();
+        fetchNodeTypes();
+        fetchProviders();
+    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders]);
 
     // Get workflow name from store
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);

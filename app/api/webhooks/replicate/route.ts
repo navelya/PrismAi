@@ -115,8 +115,9 @@ export async function POST(request: NextRequest) {
                 sessionId,
                 nodeId,
                 'success',
-                { ...normalizedResult, _metadata: metadata },
-                undefined
+                normalizedResult,
+                undefined,
+                metadata
             );
 
             // Update node data in local workflow object for checkForward
@@ -151,9 +152,18 @@ export async function POST(request: NextRequest) {
                     await execChannel.unsubscribe();
                 }
             });
-
+            
             // STAGE 3: Use Node-Actor pattern to resume execution
-            // Create actor context and trigger checkForward for this node
+            // 1. Fetch ALL node executions to hydrate the actor context
+            const { data: executions, error: execError } = await adminSupabase
+                .from('node_executions')
+                .select('node_id, status, output, output_metadata')
+                .eq('session_id', sessionId);
+
+            if (execError) {
+                console.error('[Webhook/Replicate] Failed to fetch existing executions:', execError);
+            }
+
             const executionId = `resume_${Date.now()}`;
             const actorContext = createNodeActorContext(
                 workflow,
@@ -182,7 +192,28 @@ export async function POST(request: NextRequest) {
                 undefined  // onNodePersist (handled by main execution flow)
             );
 
-            // Mark this node as completed in the context
+            // 2. Hydrate context from existing database state
+            if (executions) {
+                executions.forEach((exec: any) => {
+                    if (exec.status === 'success') {
+                        actorContext.completedNodes.add(exec.node_id);
+                        
+                        // Use output if present, or fallback to storage URLs from metadata
+                        let nodeOutput = exec.output;
+                        if (!nodeOutput && exec.output_metadata?.thumbnailUrls?.length > 0) {
+                            nodeOutput = exec.output_metadata.thumbnailUrls.map((url: string) => ({ url }));
+                        }
+                        
+                        if (nodeOutput) {
+                            actorContext.nodeOutputs.set(exec.node_id, nodeOutput);
+                        }
+                    } else if (exec.status === 'error') {
+                        actorContext.failedNodes.add(exec.node_id);
+                    }
+                });
+            }
+
+            // 3. Mark the current node as completed (just in case it wasn't in DB yet or we want to be sure)
             actorContext.completedNodes.add(nodeId);
             actorContext.nodeOutputs.set(nodeId, normalizedResult);
 
