@@ -135,7 +135,7 @@ export async function initializeNodesForExecution(
   const updates = nodeIds.map(nodeId => ({
     nodeId,
     updates: {
-      status: 'idle' as const,
+      status: 'pending' as const,  // Changed from 'idle' - signals execution started
       output: undefined,
       error: undefined
     }

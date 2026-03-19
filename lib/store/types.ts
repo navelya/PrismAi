@@ -48,6 +48,7 @@ export interface ChatSlice {
 export interface ExecutionSlice {
     executionResults: Record<string, any>;
     activeExecutionId: string | null;
+    executionStartTime: number | null;
     nodeStatuses: Record<string, NodeStatus>;
     nodeDirtyStates: Record<string, boolean>;
     isComputing: Record<string, boolean>;
@@ -56,6 +57,8 @@ export interface ExecutionSlice {
     addExecutionResult: (workflowId: string, result: any) => void;
     clearExecutionResults: () => void;
     setActiveExecutionId: (id: string | null) => void;
+    setExecutionStartTime: (time: number | null) => void;
+    isExecutionActive: () => boolean;
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
     resetNodeStatuses: () => void;
     setNodeDirtyState: (nodeId: string, isDirty: boolean) => void;

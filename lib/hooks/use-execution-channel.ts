@@ -73,11 +73,15 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
         // Handler for postgres_changes (PRIMARY SOURCE OF TRUTH)
         const handleDatabaseChange = (payload: any) => {
-            console.log('[ExecutionChannel] DB change detected:', payload);
-            
             if (payload.eventType === 'UPDATE' && payload.new?.canvas_state) {
                 const canvasState = payload.new.canvas_state;
                 const nodes = canvasState?.nodes || [];
+
+                // EXECUTION GUARD: Prevent stale 'idle' resets from clobbering live execution states
+                // Check if ANY node in Zustand has a "live" status (pending/running)
+                const hasLiveStatuses = Object.values(store.nodeStatuses).some(
+                    (s: any) => s === 'pending' || s === 'running'
+                );
 
                 // Update all node states from the authoritative DB state
                 // CRITICAL: Only update if status actually changed to prevent infinite loops
@@ -89,8 +93,21 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                     // Only update status if it changed (prevents React Error #185 infinite loop)
                     if (status) {
                         const currentStatus = store.nodeStatuses[node.id];
-                        if (status !== currentStatus) {
+                        
+                        // EXECUTION GUARD: If we have live statuses and DB says 'idle',
+                        // it's likely a stale reset from the API initialization before execution started.
+                        // Only allow this transition if:
+                        // 1. No live statuses exist (safe to reset), OR
+                        // 2. Current status is also 'idle' (no-op), OR
+                        // 3. DB status is NOT 'idle' (forward progress allowed)
+                        const isStaleReset = hasLiveStatuses && 
+                                           status === 'idle' && 
+                                           currentStatus !== 'idle';
+                        
+                        if (!isStaleReset && status !== currentStatus) {
                             store.setNodeStatus(node.id, status);
+                        } else if (isStaleReset) {
+                            console.log(`[ExecutionChannel] Blocked stale 'idle' reset for node ${node.id} (current: ${currentStatus})`);
                         }
                     }
 

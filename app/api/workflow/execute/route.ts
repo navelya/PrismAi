@@ -8,6 +8,7 @@ import { generateNodeId } from '@/lib/utils';
 import { getAuthenticatedUser } from '@/lib/api/auth';
 import { createClient } from '@supabase/supabase-js';
 import { waitUntil } from '@vercel/functions';
+import { validateWorkflowState, logValidationResults } from '@/lib/workflow/validate-node-state';
 
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,33 @@ function createAdminClient() {
     });
 }
 
+/**
+ * Helper: Get all downstream node IDs from a given node
+ */
+function getDownstreamNodeIds(workflow: any, startNodeId: string): string[] {
+    const downstreamIds = new Set<string>();
+    const queue = [startNodeId];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+        const nodeId = queue.shift()!;
+        if (visited.has(nodeId)) continue;
+        visited.add(nodeId);
+
+        // Find all edges where this node is the source
+        const outgoingEdges = workflow.edges.filter((e: any) => e.source === nodeId);
+        outgoingEdges.forEach((edge: any) => {
+            if (!downstreamIds.has(edge.target)) {
+                downstreamIds.add(edge.target);
+                queue.push(edge.target);
+            }
+        });
+    }
+
+    return Array.from(downstreamIds);
+}
+
+
 export async function POST(request: NextRequest) {
     try {
         const auth = await getAuthenticatedUser();
@@ -61,11 +89,34 @@ export async function POST(request: NextRequest) {
         const executionId = clientExecutionId || generateNodeId();
         const userId = user.id;
 
-        // STAGE 1: Pre-flight - Initialize all nodes to 'idle' for immediate UI feedback
+        // STAGE 1: Pre-flight - Initialize relevant nodes to 'idle' for immediate UI feedback
         // This happens BEFORE waitUntil, so the DB is updated before the 202 response
         const adminSupabaseSync = createAdminClient();
-        const allNodeIds = workflow.nodes.map((n: any) => n.id);
-        await initializeNodesForExecution(adminSupabaseSync, sessionId, allNodeIds);
+        
+        // For targeted execution, only initialize nodes that will actually run
+        let nodeIdsToInitialize: string[];
+        if (runMode === 'solo' && runFromNodeId) {
+            // Solo mode: Only initialize the single target node
+            nodeIdsToInitialize = [runFromNodeId];
+        } else if (runMode === 'chain' && runFromNodeId) {
+            // Chain mode: Initialize target and its downstream nodes
+            const targetNode = workflow.nodes.find((n: any) => n.id === runFromNodeId);
+            if (targetNode) {
+                const downstreamIds = getDownstreamNodeIds(workflow, runFromNodeId);
+                nodeIdsToInitialize = [runFromNodeId, ...downstreamIds];
+            } else {
+                nodeIdsToInitialize = [runFromNodeId];
+            }
+        } else {
+            // Full workflow: Initialize all nodes
+            nodeIdsToInitialize = workflow.nodes.map((n: any) => n.id);
+        }
+        
+        await initializeNodesForExecution(adminSupabaseSync, sessionId, nodeIdsToInitialize);
+
+        // LOGGING: Execution lifecycle start
+        const executionStartTime = Date.now();
+        console.log(`[Execution:${executionId}] START - sessionId: ${sessionId}, mode: ${runMode}, targetNode: ${runFromNodeId || 'all'}, nodesQueued: ${nodeIdsToInitialize.length}`);
 
         waitUntil((async () => {
             const adminSupabase = createAdminClient();
@@ -96,6 +147,10 @@ export async function POST(request: NextRequest) {
 
                 const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
                     const payload: any = { nodeId, status, executionId };
+                    
+                    // LOGGING: Status update
+                    const elapsed = Date.now() - executionStartTime;
+                    console.log(`[Execution:${executionId}] STATUS_UPDATE - node: ${nodeId}, status: ${status}, elapsed: ${elapsed}ms`);
 
                     // Prepare DB update data
                     const dbUpdate: any = { status };
@@ -233,6 +288,14 @@ export async function POST(request: NextRequest) {
                     await saveExecution(sessionId, result.success ? 'completed' : 'failed', result.result, result.error);
                 }
 
+                // LOGGING: Execution completion
+                const totalElapsed = Date.now() - executionStartTime;
+                console.log(`[Execution:${executionId}] COMPLETE - success: ${result.success}, elapsed: ${totalElapsed}ms, error: ${result.error || 'none'}`);
+
+                // VALIDATION: Check final workflow state consistency
+                const validationResults = validateWorkflowState(workflow);
+                logValidationResults(validationResults, `Execution:${executionId}:FinalState`);
+
                 if (sessionId) {
                     await adminSupabase.from('sessions').update({
                         status_message: result.success ? null : 'Execution failed',
@@ -242,6 +305,8 @@ export async function POST(request: NextRequest) {
 
             } catch (err) {
                 console.error('[API/Execute] Background execution crashed:', err);
+                const totalElapsed = Date.now() - executionStartTime;
+                console.log(`[Execution:${executionId}] CRASHED - elapsed: ${totalElapsed}ms, error: ${err}`);
                 if (sessionId) {
                     await adminSupabase.from('sessions').update({ status_message: 'Execution crashed' }).eq('id', sessionId);
                 }

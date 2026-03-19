@@ -177,6 +177,7 @@ export default function SharedWorkflowEditor({
         const store = useAppStore.getState();
         const executionId = generateNodeId();
         store.setActiveExecutionId(executionId);
+        store.setExecutionStartTime(Date.now());
 
         if (targetNodeId && mode === 'solo') {
             store.setNodeStatus(targetNodeId, 'pending');
@@ -237,8 +238,14 @@ export default function SharedWorkflowEditor({
             activeRunCountRef.current -= 1;
             if (activeRunCountRef.current <= 0) {
                 activeRunCountRef.current = 0;
-                setIsExecuting(false);
-                store.setActiveExecutionId(null);
+                
+                // Use the store's helper to check if execution is truly complete
+                const isStillActive = store.isExecutionActive();
+                if (!isStillActive) {
+                    setIsExecuting(false);
+                    store.setActiveExecutionId(null);
+                    store.setExecutionStartTime(null);
+                }
             }
         }
     };

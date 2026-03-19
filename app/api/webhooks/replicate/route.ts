@@ -7,6 +7,7 @@ import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
 import { normalizeReplicateOutput, REPLICATE_WEBHOOK_SIGNING_SECRET } from '@/lib/ai/replicate-client';
 import { Webhook } from 'standardwebhooks';
+import { validateWorkflowState, logValidationResults } from '@/lib/workflow/validate-node-state';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -183,6 +184,10 @@ export async function POST(request: NextRequest) {
 
             // Trigger checkForward to execute ready children
             await checkForward(nodeId, actorContext);
+
+            // VALIDATION: Check workflow state after webhook completion
+            const validationResults = validateWorkflowState(workflow);
+            logValidationResults(validationResults, `Webhook:${nodeId}:AfterResume`);
 
         } else if (status === 'failed') {
             // STAGE 3: Update node to 'error' in DB

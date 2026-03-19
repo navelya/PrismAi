@@ -4,6 +4,7 @@ import { RootState, ExecutionSlice } from '../types';
 export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlice> = (set, get) => ({
     executionResults: {},
     activeExecutionId: null,
+    executionStartTime: null,
     nodeStatuses: {},
     nodeDirtyStates: {},
     isComputing: {},
@@ -20,6 +21,26 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
 
     clearExecutionResults: () => set({ executionResults: {} }),
     setActiveExecutionId: (id) => set({ activeExecutionId: id }),
+    setExecutionStartTime: (time) => set({ executionStartTime: time }),
+
+    // Check if execution is truly active based on node statuses
+    isExecutionActive: () => {
+        const { nodeStatuses, executionStartTime } = get();
+        
+        // If no execution has started, return false
+        if (!executionStartTime) return false;
+        
+        // Check if any node has a "live" status (pending/running)
+        const hasLiveStatuses = Object.values(nodeStatuses).some(
+            (status: any) => status === 'pending' || status === 'running'
+        );
+        
+        // Also check if execution started very recently (within 5 seconds)
+        // This handles race conditions where statuses haven't updated yet
+        const recentlyStarted = Date.now() - executionStartTime < 5000;
+        
+        return hasLiveStatuses || recentlyStarted;
+    },
 
     setNodeStatus: (nodeId, status) =>
         set((state) => ({

@@ -349,6 +349,10 @@ export async function executeWorkflowFromNode(
                     if (result.value.status === 'pending') {
                         // ASYNC BRANCH: Mark as pending and STOP downstream propagation for this node.
                         // The webhook handler will resume this branch later.
+                        // CRITICAL: Persist 'pending' status to workflow object for DB save
+                        if (node.data) {
+                            (node.data as any).status = 'pending';
+                        }
                         onStatusUpdate?.(node.id, 'pending', workflow);
                         continue;
                     }
@@ -358,6 +362,8 @@ export async function executeWorkflowFromNode(
 
                     if (node.data) {
                         (node.data as any).output = result.value.output;
+                        // CRITICAL: Persist 'success' status to workflow object for DB save
+                        (node.data as any).status = 'success';
 
                         const outputStr = result.value.output;
                         if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
@@ -432,6 +438,13 @@ export async function executeWorkflowFromNode(
                     const errorMsg = result.status === 'fulfilled' ? result.value.error : 'Promise rejected';
                     if (!firstError) firstError = `${node.type} failed: ${errorMsg}`;
                     failedNodes.add(node.id);
+                    
+                    // CRITICAL: Persist 'error' status to workflow object for DB save
+                    if (node.data) {
+                        (node.data as any).status = 'error';
+                        (node.data as any).error = errorMsg;
+                    }
+                    
                     onStatusUpdate?.(node.id, 'error');
 
                     const blockDownstream = (nodeId: string) => {
@@ -439,8 +452,15 @@ export async function executeWorkflowFromNode(
                         childIds.forEach(childId => {
                             if (!blockedNodes.has(childId) && executionSet.has(childId)) {
                                 blockedNodes.add(childId);
+                                // Also set error status on blocked downstream nodes
+                                const childNode = workflow.nodes.find(n => n.id === childId);
+                                if (childNode?.data) {
+                                    (childNode.data as any).status = 'error';
+                                    (childNode.data as any).error = `Blocked by upstream failure: ${node.type}`;
+                                }
                                 onStatusUpdate?.(childId, 'error');
                                 blockDownstream(childId);
+                            }
                             }
                         });
                     };

@@ -56,6 +56,7 @@ export const useAppStore = create<RootState>()(
                     chatScrollTop: 9999999,
                     executionResults: {},
                     activeExecutionId: null,
+                    executionStartTime: null,
                     nodeStatuses: {},
                     nodeDirtyStates: {},
                     isComputing: {},
@@ -117,6 +118,7 @@ export const useAppStore = create<RootState>()(
                     state.nodeOutputs = {};
                     state.executionResults = {};
                     state.activeExecutionId = null;
+                    state.executionStartTime = null;
                     state.isCopilotMinimized = false;
                     state.isLoadingSession = false;
                 }

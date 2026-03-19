@@ -182,6 +182,10 @@ export async function executeNode(
 
         // Check if node is async (pending status)
         if (result.status === 'pending') {
+            // CRITICAL: Persist 'pending' status to workflow object for DB save
+            if (node.data) {
+                (node.data as any).status = 'pending';
+            }
             ctx.onStatusUpdate?.(nodeId, 'pending', workflow);
             return { success: true, status: 'pending' };
         }
@@ -193,6 +197,8 @@ export async function executeNode(
         // Update node data in workflow object
         if (node.data) {
             (node.data as any).output = result.data;
+            // CRITICAL: Persist 'success' status to workflow object for DB save
+            (node.data as any).status = 'success';
 
             // Set preview URLs for output metadata
             const outputStr = result.data;
@@ -256,8 +262,9 @@ export async function executeNode(
 
         failedNodes.add(nodeId);
         
-        // Update node data with error
+        // CRITICAL: Persist 'error' status to workflow object for DB save
         if (node.data) {
+            (node.data as any).status = 'error';
             (node.data as any).error = errorMsg;
         }
 
@@ -341,6 +348,14 @@ export async function propagateBlocker(nodeId: string, ctx: NodeActorContext): P
     for (const childId of childIds) {
         if (!blockedNodes.has(childId)) {
             blockedNodes.add(childId);
+            
+            // CRITICAL: Persist 'error' status to blocked nodes
+            const childNode = workflow.nodes.find(n => n.id === childId);
+            if (childNode?.data) {
+                (childNode.data as any).status = 'error';
+                (childNode.data as any).error = `Blocked by upstream failure`;
+            }
+            
             ctx.onStatusUpdate?.(childId, 'error', workflow);
             
             // Recursively block downstream
