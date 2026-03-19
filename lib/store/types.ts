@@ -1,4 +1,5 @@
 import { Workflow, WorkflowNode, NodeStatus, AiModel } from '../nodes/types';
+export type { NodeStatus };
 
 // Message interface
 export interface Message {

@@ -461,7 +461,6 @@ export async function executeWorkflowFromNode(
                                 onStatusUpdate?.(childId, 'error');
                                 blockDownstream(childId);
                             }
-                            }
                         });
                     };
                     blockDownstream(node.id);
