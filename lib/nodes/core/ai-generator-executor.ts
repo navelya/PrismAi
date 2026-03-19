@@ -83,11 +83,32 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             throw new Error('[AIGeneratorExecutor] Missing nodeId in execution context - cannot create webhook URL');
         }
 
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || 'http://localhost:3000';
-        const isLocal = appUrl.includes('localhost') || !appUrl.startsWith('https');
+        // ✅ PHASE 2 FIX: Proper Vercel URL detection with protocol
+        // ISSUE: VERCEL_URL doesn't include protocol, causing webhook failures
+        // SOLUTION: Always ensure https:// prefix for Vercel deployments
+        const getAppUrl = () => {
+            // Priority 1: Explicit APP_URL (should include protocol)
+            if (process.env.NEXT_PUBLIC_APP_URL) {
+                const url = process.env.NEXT_PUBLIC_APP_URL;
+                return url.startsWith('http') ? url : `https://${url}`;
+            }
+            // Priority 2: Vercel deployment (VERCEL_URL never has protocol)
+            if (process.env.VERCEL_URL) {
+                return `https://${process.env.VERCEL_URL}`;
+            }
+            // Priority 3: Local development
+            return 'http://localhost:3000';
+        };
+
+        const appUrl = getAppUrl();
+        const isLocal = appUrl.startsWith('http://localhost') || appUrl.startsWith('http://127.0.0.1');
         const webhookUrl = `${appUrl}/api/webhooks/replicate?sessionId=${context.sessionId}&nodeId=${context.nodeId}`;
 
-        console.log(`[AIGeneratorExecutor] Creating prediction for node ${context.nodeId} in session ${context.sessionId}`);
+        console.log(`[AIGeneratorExecutor] Creating prediction for node ${context.nodeId} in session ${context.sessionId}`, { 
+            appUrl, 
+            isLocal, 
+            webhookUrl 
+        });
 
         // Robust model/version extraction
         // Handles: "owner/name", "owner/name:version", "name"

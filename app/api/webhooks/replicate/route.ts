@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { stripHeavyNodeData } from '@/lib/workflow-engine';
-import { updateNodeState } from '@/lib/db/node-state';
+import { upsertNodeExecution } from '@/lib/db/workflows';
 import { checkForward, createNodeActorContext } from '@/lib/workflow/node-actor';
 import { saveExecution } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
@@ -102,18 +102,22 @@ export async function POST(request: NextRequest) {
         if (status === 'succeeded') {
             const normalizedResult = normalizeReplicateOutput(output);
             
-            // STAGE 3: Update node to 'success' in DB via RPC (atomic)
-            await updateNodeState(adminSupabase, sessionId, nodeId, {
-                status: 'success',
-                output: normalizedResult,
-                outputMetadata: {
-                    preview_urls: Array.isArray(normalizedResult) && normalizedResult.length > 0 && normalizedResult[0]?.url
-                        ? normalizedResult.slice(0, 4).map((o: any) => o.url)
-                        : normalizedResult && typeof normalizedResult === 'object' && normalizedResult.url
-                        ? [normalizedResult.url]
-                        : []
-                }
-            });
+            // ✅ PHASE 3 FIX: Update node_executions table (atomic)
+            const metadata = {
+                preview_urls: Array.isArray(normalizedResult) && normalizedResult.length > 0 && normalizedResult[0]?.url
+                    ? normalizedResult.slice(0, 4).map((o: any) => o.url)
+                    : normalizedResult && typeof normalizedResult === 'object' && normalizedResult.url
+                    ? [normalizedResult.url]
+                    : []
+            };
+            
+            await upsertNodeExecution(
+                sessionId,
+                nodeId,
+                'success',
+                { ...normalizedResult, _metadata: metadata },
+                undefined
+            );
 
             // Update node data in local workflow object for checkForward
             node.data.output = normalizedResult;
@@ -158,8 +162,8 @@ export async function POST(request: NextRequest) {
                 sessionId,
                 session.user_id,
                 async (nid, nstatus, currentWorkflow) => {
-                    // Update DB on status change
-                    await updateNodeState(adminSupabase, sessionId, nid, { status: nstatus });
+                    // ✅ PHASE 3 FIX: Update node_executions table
+                    await upsertNodeExecution(sessionId, nid, nstatus, undefined, undefined);
                     
                     // Broadcast for low-latency
                     const chan = adminSupabase.channel(`execution_${sessionId}`);
@@ -190,11 +194,14 @@ export async function POST(request: NextRequest) {
             logValidationResults(validationResults, `Webhook:${nodeId}:AfterResume`);
 
         } else if (status === 'failed') {
-            // STAGE 3: Update node to 'error' in DB
-            await updateNodeState(adminSupabase, sessionId, nodeId, {
-                status: 'error',
-                error: error || 'Replicate prediction failed'
-            });
+            // ✅ PHASE 3 FIX: Update node_executions table with error
+            await upsertNodeExecution(
+                sessionId,
+                nodeId,
+                'error',
+                undefined,
+                error || 'Replicate prediction failed'
+            );
 
             await adminSupabase.from('sessions').update({
                 status_message: 'AI Generation failed'

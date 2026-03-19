@@ -4,6 +4,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { Workflow } from '@/lib/nodes/types';
 import { sessionsApi } from '@/lib/api/client';
 import { setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
+import { getSessionExecutions } from '@/lib/db/workflows';
 
 export interface Session {
     id: string;
@@ -156,37 +157,45 @@ export function useSession() {
 
             formattedMessages.forEach((msg: any) => store.addMessage(msg));
 
-            // Hydrate Node Statuses and Live Outputs for the loaded Canvas State
+            // ✅ PHASE 3 FIX: Hydrate Node Statuses and Outputs from node_executions table
             if (session.canvas_state?.nodes?.length > 0) {
+                // Fetch execution state from node_executions table
+                const executions = await getSessionExecutions(sessionId);
+                
+                // Create lookup map for quick access
+                const executionMap = new Map(
+                    executions.map(exec => [exec.nodeId, exec])
+                );
+
                 const isCompleted = lastWorkflowMsgStatus === 'completed' || lastWorkflowMsgStatus === 'failed';
                 const isFailed = lastWorkflowMsgStatus === 'failed' || lastWorkflowMsgHasError;
 
                 session.canvas_state.nodes.forEach((node: any) => {
-                    // Priority 1: Hydrate from persisted thumbnail URLs (canvas node display)
-                    const meta = node.data?.outputMetadata;
-                    if (meta?.thumbnailUrls && Array.isArray(meta.thumbnailUrls) && meta.thumbnailUrls.length > 0) {
-                        const imageObjects = meta.thumbnailUrls.map((url: string, idx: number) => ({
-                            url,
-                            resolution: { width: 1024, height: 1024 },
-                            metadata: { title: `Output ${idx + 1}`, source: 'Persisted' },
-                        }));
-                        store.setNodeOutput(node.id, imageObjects);
-                    } else if (node.data?.output !== undefined) {
-                        // Priority 2: Fallback to inline output if present (legacy / non-image nodes)
-                        store.setNodeOutput(node.id, node.data.output);
-                    }
-
-                    // STAGE 2: Hydrate execution borders from DB state
-                    // With Stage 1 persistence, node statuses in the DB are now authoritative
-                    // We can trust 'running'/'pending' states if they exist (background job may still be active)
-                    if (isCompleted) {
-                        // Session execution completed - use final state
+                    const execution = executionMap.get(node.id);
+                    
+                    if (execution) {
+                        // Use execution state from node_executions table (authoritative)
+                        if (execution.status) {
+                            store.setNodeStatus(node.id, execution.status as import('@/lib/nodes/types').NodeStatus);
+                        }
+                        
+                        if (execution.output) {
+                            // Check for metadata in output
+                            const metadata = execution.output._metadata;
+                            if (metadata?.preview_urls && Array.isArray(metadata.preview_urls) && metadata.preview_urls.length > 0) {
+                                const imageObjects = metadata.preview_urls.map((url: string, idx: number) => ({
+                                    url,
+                                    resolution: { width: 1024, height: 1024 },
+                                    metadata: { title: `Output ${idx + 1}`, source: 'Database' },
+                                }));
+                                store.setNodeOutput(node.id, imageObjects);
+                            } else {
+                                store.setNodeOutput(node.id, execution.output);
+                            }
+                        }
+                    } else if (isCompleted) {
+                        // No execution record but session completed - mark as success/error
                         store.setNodeStatus(node.id, isFailed ? 'error' : 'success');
-                    } else if (node.data?.status) {
-                        // Session may have in-progress execution - preserve status from DB
-                        // The postgres_changes subscription will update if still running
-                        const status = node.data.status;
-                        store.setNodeStatus(node.id, status);
                     }
                 });
             }

@@ -71,72 +71,58 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
         supabaseRef.current = supabase;
         const store = useAppStore.getState();
 
-        // Handler for postgres_changes (PRIMARY SOURCE OF TRUTH)
-        const handleDatabaseChange = (payload: any) => {
-            if (payload.eventType === 'UPDATE' && payload.new?.canvas_state) {
-                const canvasState = payload.new.canvas_state;
-                const nodes = canvasState?.nodes || [];
+        // ✅ PHASE 3 FIX: Handler for node_executions changes (PRIMARY SOURCE OF TRUTH)
+        const handleExecutionChange = (payload: any) => {
+            const eventType = payload.eventType; // INSERT, UPDATE, DELETE
+            const record = payload.new || payload.old;
 
-                // EXECUTION GUARD: Prevent stale 'idle' resets from clobbering live execution states
-                // Check if ANY node in Zustand has a "live" status (pending/running)
-                const hasLiveStatuses = Object.values(store.nodeStatuses).some(
-                    (s: any) => s === 'pending' || s === 'running'
-                );
+            if (!record) return;
 
-                // Update all node states from the authoritative DB state
-                // CRITICAL: Only update if status actually changed to prevent infinite loops
-                nodes.forEach((node: any) => {
-                    const status = node.data?.status;
-                    const output = node.data?.output;
-                    const outputMetadata = node.data?.outputMetadata;
+            const { node_id: nodeId, status, output, error } = record;
 
-                    // Only update status if it changed (prevents React Error #185 infinite loop)
-                    if (status) {
-                        const currentStatus = store.nodeStatuses[node.id];
-                        
-                        // EXECUTION GUARD: If we have live statuses and DB says 'idle',
-                        // it's likely a stale reset from the API initialization before execution started.
-                        // Only allow this transition if:
-                        // 1. No live statuses exist (safe to reset), OR
-                        // 2. Current status is also 'idle' (no-op), OR
-                        // 3. DB status is NOT 'idle' (forward progress allowed)
-                        const isStaleReset = hasLiveStatuses && 
-                                           status === 'idle' && 
-                                           currentStatus !== 'idle';
-                        
-                        if (!isStaleReset && status !== currentStatus) {
-                            store.setNodeStatus(node.id, status);
-                        } else if (isStaleReset) {
-                            console.log(`[ExecutionChannel] Blocked stale 'idle' reset for node ${node.id} (current: ${currentStatus})`);
-                        }
+            if (!nodeId) return;
+
+            console.log(`[ExecutionChannel] node_executions ${eventType}: ${nodeId} → ${status}`);
+
+            // Update status in Zustand
+            if (status) {
+                const currentStatus = store.nodeStatuses[nodeId];
+                if (status !== currentStatus) {
+                    store.setNodeStatus(nodeId, status);
+                }
+            }
+
+            // Update output if present
+            if (output !== undefined && status === 'success') {
+                const currentOutput = store.nodeOutputs[nodeId];
+                
+                // Check for metadata in output
+                const metadata = output._metadata;
+                if (metadata?.preview_urls && Array.isArray(metadata.preview_urls) && metadata.preview_urls.length > 0) {
+                    const imageObjects = metadata.preview_urls.map((url: string, idx: number) => ({
+                        url,
+                        resolution: { width: 1024, height: 1024 },
+                        metadata: { title: `Output ${idx + 1}`, source: 'Database' },
+                    }));
+                    
+                    const outputChanged = !currentOutput || 
+                        JSON.stringify(currentOutput) !== JSON.stringify(imageObjects);
+                    if (outputChanged) {
+                        store.setNodeOutput(nodeId, imageObjects);
                     }
-
-                    // Hydrate outputs from DB (only for successful nodes)
-                    if (status === 'success') {
-                        const currentOutput = store.nodeOutputs[node.id];
-                        
-                        if (outputMetadata?.thumbnailUrls && Array.isArray(outputMetadata.thumbnailUrls) && outputMetadata.thumbnailUrls.length > 0) {
-                            const imageObjects = outputMetadata.thumbnailUrls.map((url: string, idx: number) => ({
-                                url,
-                                resolution: { width: 1024, height: 1024 },
-                                metadata: { title: `Output ${idx + 1}`, source: 'Database' },
-                            }));
-                            
-                            // Only update output if changed
-                            const outputChanged = !currentOutput || 
-                                JSON.stringify(currentOutput) !== JSON.stringify(imageObjects);
-                            if (outputChanged) {
-                                store.setNodeOutput(node.id, imageObjects);
-                            }
-                        } else if (output !== undefined) {
-                            const outputChanged = !currentOutput || 
-                                JSON.stringify(currentOutput) !== JSON.stringify(output);
-                            if (outputChanged) {
-                                store.setNodeOutput(node.id, output);
-                            }
-                        }
+                } else {
+                    // Regular output (text, JSON, etc.)
+                    const outputChanged = !currentOutput || 
+                        JSON.stringify(currentOutput) !== JSON.stringify(output);
+                    if (outputChanged) {
+                        store.setNodeOutput(nodeId, output);
                     }
-                });
+                }
+            }
+
+            // Clear output on error
+            if (status === 'error' && error) {
+                console.error(`[ExecutionChannel] Node ${nodeId} error:`, error);
             }
         };
 
@@ -176,16 +162,16 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
         // STAGE 2: Subscribe to both postgres_changes AND broadcast with retry logic
         const channel = supabase
             .channel(`execution_${sessionId}`)
-            // PRIMARY: Database changes (authoritative state)
+            // ✅ PHASE 3 FIX: Listen to node_executions table (authoritative state)
             .on(
                 'postgres_changes',
                 {
-                    event: 'UPDATE',
+                    event: '*', // Listen to INSERT, UPDATE, DELETE
                     schema: 'public',
-                    table: 'sessions',
-                    filter: `id=eq.${sessionId}`
+                    table: 'node_executions',
+                    filter: `session_id=eq.${sessionId}`
                 },
-                handleDatabaseChange
+                handleExecutionChange
             )
             // SECONDARY: Broadcast events (low-latency)
             .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast);
@@ -210,12 +196,12 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                     .on(
                         'postgres_changes',
                         {
-                            event: 'UPDATE',
+                            event: '*',
                             schema: 'public',
-                            table: 'sessions',
-                            filter: `id=eq.${sessionId}`
+                            table: 'node_executions',
+                            filter: `session_id=eq.${sessionId}`
                         },
-                        handleDatabaseChange
+                        handleExecutionChange
                     )
                     .on('broadcast', { event: 'node_execution' }, handleExecutionBroadcast);
                     

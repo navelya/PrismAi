@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeWorkflow, executeWorkflowFromNode, validateWorkflow, stripHeavyNodeData } from '@/lib/workflow-engine';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
-import { saveExecution } from '@/lib/db/workflows';
-import { updateNodeState, initializeNodesForExecution } from '@/lib/db/node-state';
+import { saveExecution, upsertNodeExecution, clearSessionExecutions } from '@/lib/db/workflows';
 import { Workflow } from '@/lib/nodes/types';
 import { generateNodeId } from '@/lib/utils';
 import { getAuthenticatedUser } from '@/lib/api/auth';
@@ -112,7 +111,10 @@ export async function POST(request: NextRequest) {
             nodeIdsToInitialize = workflow.nodes.map((n: any) => n.id);
         }
         
-        await initializeNodesForExecution(adminSupabaseSync, sessionId, nodeIdsToInitialize);
+        // ✅ PHASE 3 FIX: Initialize nodes in node_executions table (not canvas_state)
+        for (const nodeId of nodeIdsToInitialize) {
+            await upsertNodeExecution(sessionId, nodeId, 'pending');
+        }
 
         // LOGGING: Execution lifecycle start
         const executionStartTime = Date.now();
@@ -130,6 +132,7 @@ export async function POST(request: NextRequest) {
 
                 const actionDescriptions: Record<string, string> = {
                     ai_generate_image: 'Generating AI image',
+                    ai_generator: 'Generating with AI model', // ✅ PHASE 2 FIX: Add ai_generator description
                     media_input: 'Processing upload',
                     compositor: 'Compositing layers',
                     prompt: 'Setting prompt',
@@ -189,9 +192,15 @@ export async function POST(request: NextRequest) {
                         }
                     }
 
-                    // STAGE 1: Persist state to DB atomically (Primary Source of Truth)
+                    // ✅ PHASE 3 FIX: Write to node_executions table (Primary Source of Truth)
                     try {
-                        await updateNodeState(adminSupabase, sessionId, nodeId, dbUpdate);
+                        await upsertNodeExecution(
+                            sessionId,
+                            nodeId,
+                            dbUpdate.status!,
+                            dbUpdate.output,
+                            dbUpdate.error
+                        );
                     } catch (e) {
                         console.error('[API/Execute] DB update failed for node', nodeId, ':', e);
                     }

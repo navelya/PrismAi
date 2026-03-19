@@ -77,19 +77,22 @@ function AIGeneratorNode({ id, data, selected }: any) {
         }
     }, [id, filteredModels, data.config?.model_id, setNodes, selectedModel]);
 
-    // ⭐ React Flow Edge Validation — Clean up dangling edges when model/handles change
+    // ✅ PHASE 1 FIX: Edge cleanup logic removed
+    // ISSUE: Direct setEdges() manipulation bypassed editor state, causing sync mismatches
+    // SOLUTION: Let ReactFlow handle invalid connections naturally through its validation
+    // Edge validation should happen at the connection level, not post-hoc cleanup
+    // If invalid edges become a problem, implement validation in onConnect handler instead
+    
+    // Original edge cleanup logic commented out to prevent wire disappearance issues:
+    /*
     const { getEdges, setEdges } = useReactFlow();
     const lastModelIdRef = React.useRef(data.config?.model_id);
 
     useEffect(() => {
-        // Only run validation if the model has actually changed via user action
-        // This prevents race conditions during hydration where edges might be deleted 
-        // because the model catalog hasn't fully loaded yet.
         if (!selectedModel || lastModelIdRef.current === data.config?.model_id) {
             return;
         }
 
-        // Update ref for next change
         lastModelIdRef.current = data.config?.model_id;
 
         const currentEdges = getEdges();
@@ -97,12 +100,10 @@ function AIGeneratorNode({ id, data, selected }: any) {
         const validOutputHandles = new Set(selectedModel.outputs_schema?.handles?.map(h => h.api_mapping_key || 'output') || []);
 
         const invalidEdges = currentEdges.filter(edge => {
-            // If this node is the target, check if targetHandle is still valid
             if (edge.target === id) {
-                if (!edge.targetHandle) return false; // Default handle is always valid
+                if (!edge.targetHandle) return false;
                 return !validInputHandles.has(edge.targetHandle);
             }
-            // If this node is the source, check if sourceHandle is still valid
             if (edge.source === id) {
                 if (!edge.sourceHandle || edge.sourceHandle === 'output') return false; 
                 return !validOutputHandles.has(edge.sourceHandle);
@@ -116,6 +117,8 @@ function AIGeneratorNode({ id, data, selected }: any) {
             setEdges(eds => eds.filter(e => !invalidIds.has(e.id)));
         }
     }, [id, selectedModel, getEdges, setEdges, data.config?.model_id]);
+    */
+
     const inputHandles = selectedModel?.inputs_schema?.handles || [];
     const outputHandles = selectedModel?.outputs_schema?.handles || [];
 

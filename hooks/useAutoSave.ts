@@ -94,10 +94,35 @@ export function useAutoSave() {
     const persistRemote = useCallback(async (isEmergency = false) => {
         const workflow = currentWorkflowRef.current;
         const sessionId = activeSessionIdRef.current;
+        const store = useAppStore.getState();
+
+        // ✅ PHASE 1 FIX: GUARD - Never save during active execution
+        // This prevents race conditions where auto-save overwrites execution results
+        if (!isEmergency && store.isExecutionActive && store.isExecutionActive()) {
+            console.log('[AutoSave] Blocked: Execution in progress');
+            return;
+        }
 
         if (!workflow || !sessionId || isSavingRemoteRef.current) return;
 
-        const currentHash = stableStringify(workflow);
+        // ✅ PHASE 1 FIX: Sanitize execution state before saving
+        // CRITICAL: Never save node status/output/outputMetadata client-side
+        // These are managed by the execution engine and should only come from the server
+        const sanitizedWorkflow = {
+            ...workflow,
+            nodes: workflow.nodes.map(n => ({
+                ...n,
+                data: {
+                    ...n.data,
+                    // Remove execution state - these are read-only from client perspective
+                    status: undefined,
+                    output: undefined,
+                    outputMetadata: undefined,
+                }
+            }))
+        };
+
+        const currentHash = stableStringify(sanitizedWorkflow);
         if (currentHash === lastRemoteSavedHashRef.current) {
             setWorkflowDirty(false);
             return;
@@ -106,7 +131,7 @@ export function useAutoSave() {
         try {
             isSavingRemoteRef.current = true;
 
-            const result = await saveWorkflow(workflow, sessionId);
+            const result = await saveWorkflow(sanitizedWorkflow, sessionId);
 
             if (result.success) {
                 lastRemoteSavedHashRef.current = currentHash;

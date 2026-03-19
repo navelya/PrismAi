@@ -181,3 +181,129 @@ export async function getRecentWorkflows(userId: string = 'anonymous', limit: nu
     }
 }
 
+// ✅ PHASE 3 FIX: Node Execution Functions (Table-Based)
+// Separate table for execution state - complete isolation from canvas_state
+// These should ONLY be called by the execution engine, never by client auto-save
+
+/**
+ * Upsert node execution (insert or update)
+ */
+export async function upsertNodeExecution(
+    sessionId: string,
+    nodeId: string,
+    status: string,
+    output?: any,
+    error?: string
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (!sessionId || !nodeId) {
+            throw new Error('Missing sessionId or nodeId for execution upsert');
+        }
+
+        const { error: rpcError } = await supabase
+            .rpc('upsert_node_execution', {
+                p_session_id: sessionId,
+                p_node_id: nodeId,
+                p_status: status,
+                p_output: output,
+                p_error: error
+            });
+
+        if (rpcError) {
+            throw new Error(rpcError.message);
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error('[upsertNodeExecution] Error:', err);
+        return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+        };
+    }
+}
+
+/**
+ * Get all node executions for a session
+ */
+export async function getSessionExecutions(
+    sessionId: string
+): Promise<Array<{ nodeId: string; status: string; output: any; error?: string; updatedAt: string }>> {
+    try {
+        const { data, error } = await supabase
+            .rpc('get_session_executions', {
+                p_session_id: sessionId
+            });
+
+        if (error) {
+            console.error('[getSessionExecutions] Error:', error);
+            return [];
+        }
+
+        return (data || []).map((row: any) => ({
+            nodeId: row.node_id,
+            status: row.status,
+            output: row.output,
+            error: row.error,
+            updatedAt: row.updated_at
+        }));
+    } catch (err) {
+        console.error('[getSessionExecutions] Error:', err);
+        return [];
+    }
+}
+
+/**
+ * Clear all executions for a session (for workflow reset)
+ */
+export async function clearSessionExecutions(
+    sessionId: string
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const { error } = await supabase
+            .rpc('clear_session_executions', {
+                p_session_id: sessionId
+            });
+
+        if (error) {
+            throw new Error(error.message);
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error('[clearSessionExecutions] Error:', err);
+        return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+        };
+    }
+}
+
+/**
+ * Batch upsert executions (for initial load or bulk updates)
+ */
+export async function batchUpsertExecutions(
+    sessionId: string,
+    executions: Array<{ nodeId: string; status: string; output?: any; error?: string }>
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const { error } = await supabase
+            .rpc('batch_upsert_executions', {
+                p_session_id: sessionId,
+                p_executions: executions
+            });
+
+        if (error) {
+            throw new Error(error.message);
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error('[batchUpsertExecutions] Error:', err);
+        return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+        };
+    }
+}
+

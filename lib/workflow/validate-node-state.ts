@@ -98,6 +98,7 @@ export function validateWorkflowState(workflow: any): NodeStateValidationResult 
 
 /**
  * Check if a status transition is valid
+ * ✅ PHASE 3 FIX: Allow re-runs from completed states
  */
 export function isValidStatusTransition(
     fromStatus: NodeStatus | undefined,
@@ -106,13 +107,16 @@ export function isValidStatusTransition(
     // Undefined/null (never set) can go to any status
     if (!fromStatus) return true;
 
+    // Same status is always allowed (idempotent updates)
+    if (fromStatus === toStatus) return true;
+
     // Define valid transitions
     const validTransitions: Record<NodeStatus, NodeStatus[]> = {
         idle: ['pending', 'running'],  // idle → pending (queued) or running (sync)
-        pending: ['running', 'success', 'error'],  // pending → running → terminal
-        running: ['success', 'error', 'pending'],  // running → terminal or back to pending (retry)
-        success: ['idle', 'pending'],  // success → idle (reset) or pending (re-run)
-        error: ['idle', 'pending'],  // error → idle (reset) or pending (retry)
+        pending: ['running', 'success', 'error', 'idle'],  // pending → running → terminal, or cancelled → idle
+        running: ['success', 'error', 'pending', 'idle'],  // running → terminal, retry → pending, cancel → idle
+        success: ['idle', 'pending', 'running'],  // ✅ FIX: Allow re-run directly to running (for sync execution)
+        error: ['idle', 'pending', 'running'],  // ✅ FIX: Allow retry directly to running
     };
 
     const allowedNextStates = validTransitions[fromStatus] || [];

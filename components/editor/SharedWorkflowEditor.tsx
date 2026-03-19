@@ -118,11 +118,28 @@ export default function SharedWorkflowEditor({
         if (isDragging) return;
         
         const workflow = getCurrentWorkflow();
-        const currentHash = stableStringify(workflow);
+        
+        // ✅ PHASE 1 FIX: Sanitize workflow before syncing to store
+        // Strip execution state to prevent stale data from entering auto-save pipeline
+        const cleanWorkflow = {
+            ...workflow,
+            nodes: workflow.nodes.map(n => ({
+                ...n,
+                data: {
+                    ...n.data,
+                    // Execution state is managed separately in Zustand nodeStatuses/nodeOutputs
+                    status: undefined,
+                    output: undefined,
+                    outputMetadata: undefined,
+                }
+            }))
+        };
+        
+        const currentHash = stableStringify(cleanWorkflow);
         
         if (currentHash !== lastSyncedStateRef.current) {
             lastSyncedStateRef.current = currentHash;
-            setCurrentWorkflow(workflow);
+            setCurrentWorkflow(cleanWorkflow);
         }
     }, [nodes, edges, isDragging, getCurrentWorkflow, setCurrentWorkflow]);
 
