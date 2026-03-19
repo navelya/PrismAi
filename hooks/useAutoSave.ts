@@ -49,11 +49,11 @@ export function useAutoSave() {
     const lastLocalSavedHashRef = useRef<string>('');
     const isSavingRemoteRef = useRef(false);
     const lastRemoteSaveTimeRef = useRef<number>(0);
-    
+
     // Store refs for current values to avoid stale closures
     const currentWorkflowRef = useRef(currentWorkflow);
     const activeSessionIdRef = useRef(activeSessionId);
-    
+
     useEffect(() => {
         currentWorkflowRef.current = currentWorkflow;
         activeSessionIdRef.current = activeSessionId;
@@ -63,7 +63,7 @@ export function useAutoSave() {
     const saveLocal = useCallback(async () => {
         const workflow = currentWorkflowRef.current;
         const sessionId = activeSessionIdRef.current;
-        
+
         if (!workflow || !sessionId) return;
 
         const currentHash = stableStringify(workflow);
@@ -105,14 +105,14 @@ export function useAutoSave() {
 
         try {
             isSavingRemoteRef.current = true;
-            
+
             const result = await saveWorkflow(workflow, sessionId);
-            
+
             if (result.success) {
                 lastRemoteSavedHashRef.current = currentHash;
                 lastRemoteSaveTimeRef.current = Date.now();
                 setWorkflowDirty(false);
-                
+
                 // Cleanup local backup after successful remote sync
                 try {
                     await removeLocalBackup(workflow.id || sessionId);
@@ -220,7 +220,7 @@ export function useAutoSave() {
                         headers: { 'Content-Type': 'application/json' },
                         body: payload,
                         keepalive: true,
-                    }).catch(() => {});
+                    }).catch(() => { });
                 }
             }
         };
