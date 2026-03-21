@@ -407,3 +407,38 @@ export async function executeWorkflowFromNode(
     }
 }
 
+/**
+ * Strip heavy node data (stub for backward compatibility)
+ * Used by old v1 routes that are being phased out
+ */
+export function stripHeavyNodeData(workflow: Workflow): Workflow {
+    return {
+        ...workflow,
+        nodes: workflow.nodes.map(node => ({
+            ...node,
+            data: {
+                ...node.data,
+                // Remove heavy fields if they exist
+                output: undefined,
+                preview: undefined,
+            }
+        }))
+    };
+}
+
+/**
+ * Validate workflow (stub for backward compatibility)
+ */
+export function validateWorkflow(workflow: Workflow): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    
+    if (!workflow.nodes || workflow.nodes.length === 0) {
+        errors.push('Workflow must have at least one node');
+    }
+    
+    return {
+        valid: errors.length === 0,
+        errors,
+    };
+}
+

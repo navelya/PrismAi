@@ -116,8 +116,7 @@ export async function POST(request: NextRequest) {
                 nodeId,
                 'success',
                 normalizedResult,
-                undefined,
-                metadata
+                undefined
             );
 
             // Update node data in local workflow object for checkForward
