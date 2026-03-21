@@ -148,7 +148,7 @@ async function dispatchReplicateNode(
       version: model,
       input: replicateInput,
       webhook: webhookUrl,
-      webhook_events_filter: ['completed', 'failed'],
+      webhook_events_filter: ['completed'],
     });
     
     console.log(`[Dispatch/Replicate] Prediction created:`, {

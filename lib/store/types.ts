@@ -11,6 +11,7 @@ export interface Message {
     timestamp: Date;
     sessionId?: string;
     status?: 'running' | 'completed' | 'error';
+    workflow?: any;
 }
 
 // Editor state interface

@@ -27,6 +27,7 @@ export interface NodeActorContext {
     nodeTimeout?: number; // Timeout per node in ms
     onStatusUpdate?: (nodeId: string, status: NodeStatus, currentWorkflow?: Workflow) => void;
     onNodeOutput?: (nodeId: string, output: any) => void;
+    onNodePersist?: any;
 }
 
 /**

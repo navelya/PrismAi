@@ -200,7 +200,7 @@ export async function upsertNodeExecution(
  */
 export async function getSessionExecutions(
     sessionId: string
-): Promise<Array<{ nodeId: string; status: string; output: any; error?: string; updatedAt: string }>> {
+): Promise<Array<{ nodeId: string; status: string; output: any; outputMetadata?: any; error?: string; updatedAt: string }>> {
     try {
         const { data, error } = await supabase
             .rpc('get_session_executions', {
@@ -216,6 +216,7 @@ export async function getSessionExecutions(
             nodeId: row.node_id,
             status: row.status,
             output: row.output,
+            outputMetadata: row.output_metadata,
             error: row.error,
             updatedAt: row.updated_at
         }));
