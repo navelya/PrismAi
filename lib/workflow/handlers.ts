@@ -1,0 +1,281 @@
+/**
+ * Workflow Engine v2 - STEP 5: Ephemeral Node Handler Registry
+ * 
+ * Server-side handlers for ephemeral nodes (non-AI transforms)
+ * Each handler is a pure function: (properties, inputs) => output
+ */
+
+import sharp from 'sharp';
+
+export type HandlerFunction = (
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+) => Promise<Buffer | string>;
+
+/**
+ * Handler Registry
+ * Maps node type to handler function
+ */
+export const EPHEMERAL_HANDLERS: Record<string, HandlerFunction> = {
+  blur: handleBlur,
+  levels: handleLevels,
+  brightness: handleBrightness,
+  contrast: handleContrast,
+  grayscale: handleGrayscale,
+  invert: handleInvert,
+  rotate: handleRotate,
+  resize: handleResize,
+  prompt: handlePrompt,
+};
+
+/**
+ * Check if a node type is ephemeral
+ */
+export function isEphemeralNode(nodeType: string): boolean {
+  return nodeType in EPHEMERAL_HANDLERS;
+}
+
+/**
+ * Blur Handler
+ * Applies Gaussian blur to an image
+ */
+async function handleBlur(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Blur node requires "image" input');
+  }
+  
+  const radius = properties.radius || 5;
+  
+  console.log(`[Handler/Blur] Applying blur with radius ${radius} to ${imageUrl}`);
+  
+  // Fetch image
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  // Apply blur
+  const output = await sharp(imageBuffer)
+    .blur(radius)
+    .toBuffer();
+  
+  console.log(`[Handler/Blur] Output size: ${output.length} bytes`);
+  
+  return output;
+}
+
+/**
+ * Levels Handler
+ * Adjusts tonal range (shadows, midtones, highlights)
+ */
+async function handleLevels(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Levels node requires "image" input');
+  }
+  
+  const shadows = properties.shadows || 0;
+  const midtones = properties.midtones || 1;
+  const highlights = properties.highlights || 255;
+  
+  console.log(`[Handler/Levels] Adjusting levels: ${shadows}-${midtones}-${highlights}`);
+  
+  // Fetch image
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  // Apply levels using normalize
+  const output = await sharp(imageBuffer)
+    .normalize()
+    .toBuffer();
+  
+  return output;
+}
+
+/**
+ * Brightness Handler
+ * Adjusts image brightness
+ */
+async function handleBrightness(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Brightness node requires "image" input');
+  }
+  
+  const brightness = properties.brightness || 1.0;
+  
+  console.log(`[Handler/Brightness] Adjusting brightness: ${brightness}`);
+  
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  const output = await sharp(imageBuffer)
+    .modulate({ brightness })
+    .toBuffer();
+  
+  return output;
+}
+
+/**
+ * Contrast Handler
+ * Adjusts image contrast
+ */
+async function handleContrast(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Contrast node requires "image" input');
+  }
+  
+  const contrast = properties.contrast || 1.0;
+  
+  console.log(`[Handler/Contrast] Adjusting contrast: ${contrast}`);
+  
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  const output = await sharp(imageBuffer)
+    .linear(contrast, 0)
+    .toBuffer();
+  
+  return output;
+}
+
+/**
+ * Grayscale Handler
+ * Converts image to grayscale
+ */
+async function handleGrayscale(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Grayscale node requires "image" input');
+  }
+  
+  console.log(`[Handler/Grayscale] Converting to grayscale`);
+  
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  const output = await sharp(imageBuffer)
+    .grayscale()
+    .toBuffer();
+  
+  return output;
+}
+
+/**
+ * Invert Handler
+ * Inverts image colors
+ */
+async function handleInvert(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Invert node requires "image" input');
+  }
+  
+  console.log(`[Handler/Invert] Inverting colors`);
+  
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  const output = await sharp(imageBuffer)
+    .negate()
+    .toBuffer();
+  
+  return output;
+}
+
+/**
+ * Rotate Handler
+ * Rotates image by specified angle
+ */
+async function handleRotate(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Rotate node requires "image" input');
+  }
+  
+  const angle = properties.angle || 0;
+  
+  console.log(`[Handler/Rotate] Rotating by ${angle} degrees`);
+  
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  const output = await sharp(imageBuffer)
+    .rotate(angle)
+    .toBuffer();
+  
+  return output;
+}
+
+/**
+ * Resize Handler
+ * Resizes image to specified dimensions
+ */
+async function handleResize(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  
+  const imageUrl = inputs.image;
+  if (!imageUrl) {
+    throw new Error('Resize node requires "image" input');
+  }
+  
+  const width = properties.width;
+  const height = properties.height;
+  
+  console.log(`[Handler/Resize] Resizing to ${width}x${height}`);
+  
+  const imageResponse = await fetch(imageUrl);
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  
+  const output = await sharp(imageBuffer)
+    .resize(width, height, { fit: 'contain' })
+    .toBuffer();
+  
+  return output;
+}
+
+/**
+ * Prompt Handler
+ * Returns text prompt as string (no image processing)
+ */
+async function handlePrompt(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<string> {
+  
+  const text = properties.text || properties.prompt || '';
+  
+  console.log(`[Handler/Prompt] Returning text: "${text.substring(0, 50)}..."`);
+  
+  return text;
+}
