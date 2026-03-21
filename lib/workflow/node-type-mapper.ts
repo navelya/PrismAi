@@ -4,6 +4,7 @@
  */
 
 import { NodeConfig, EdgeConfig, GraphJson } from './types-v2';
+import { createServiceClient } from '@/lib/supabase/service';
 
 interface V1Node {
   id: string;
@@ -54,10 +55,33 @@ export function mapNodeTypeV1ToV2(v1Type: string): string {
 
 /**
  * Transform V1 node to V2 NodeConfig format
+ * For AI nodes with model_id, fetches the replicate_model_id from the database
  */
-export function transformNodeV1ToV2(v1Node: V1Node): NodeConfig {
+export async function transformNodeV1ToV2(v1Node: V1Node): Promise<NodeConfig> {
   // Sanitize data: remove execution-specific fields
   const { output, outputMetadata, status, error, ...cleanData } = v1Node.data || {};
+  
+  // Handle model_id -> model transformation for AI nodes
+  let modelVersion = cleanData.model || cleanData.version;
+  
+  if (cleanData.model_id && !modelVersion) {
+    // Fetch replicate_model_id from database
+    try {
+      const supabase = createServiceClient();
+      const { data: modelData } = await supabase
+        .from('ai_models')
+        .select('replicate_model_id')
+        .eq('id', cleanData.model_id)
+        .single();
+      
+      if (modelData?.replicate_model_id) {
+        modelVersion = modelData.replicate_model_id;
+        console.log(`[NodeMapper] Resolved model_id ${cleanData.model_id} to ${modelVersion}`);
+      }
+    } catch (err) {
+      console.error(`[NodeMapper] Failed to resolve model_id ${cleanData.model_id}:`, err);
+    }
+  }
   
   return {
     id: v1Node.id,
@@ -66,10 +90,10 @@ export function transformNodeV1ToV2(v1Node: V1Node): NodeConfig {
       ...cleanData,
       // Normalize common fields
       label: cleanData.label,
-      model: cleanData.model || cleanData.config?.model,
-      version: cleanData.version || cleanData.config?.version,
-      prompt: cleanData.prompt || cleanData.config?.prompt,
-      input: cleanData.input || cleanData.config || {},
+      model: modelVersion,
+      version: modelVersion, // V2 uses 'model' or 'version' interchangeably
+      prompt: cleanData.prompt || cleanData.control_values?.prompt,
+      input: cleanData.control_values || cleanData.input || {},
     },
     position: v1Node.position,
   };
@@ -91,9 +115,14 @@ export function transformEdgeV1ToV2(v1Edge: V1Edge): EdgeConfig {
 /**
  * Transform V1 workflow to V2 graph_json
  */
-export function transformWorkflowV1ToV2(v1Workflow: { nodes: V1Node[]; edges?: V1Edge[] }): GraphJson {
+export async function transformWorkflowV1ToV2(v1Workflow: { nodes: V1Node[]; edges?: V1Edge[] }): Promise<GraphJson> {
+  // Transform nodes (awaiting promises)
+  const transformedNodes = await Promise.all(
+    v1Workflow.nodes.map(node => transformNodeV1ToV2(node))
+  );
+  
   return {
-    nodes: v1Workflow.nodes.map(transformNodeV1ToV2),
+    nodes: transformedNodes,
     edges: (v1Workflow.edges || []).map(transformEdgeV1ToV2),
   };
 }

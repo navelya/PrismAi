@@ -91,11 +91,21 @@ export async function POST(request: NextRequest) {
     // Since Edge Function listener is not deployed yet, call check-and-dispatch directly
     console.log(`[Execution/Start] Triggering initial check-and-dispatch`);
     
-    // Import and call check-and-dispatch directly (don't wait for completion)
-    const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
-    checkAndDispatch(execution.id).catch(error => {
-      console.error(`[Execution/Start] Check-and-dispatch error:`, error);
-    });
+    try {
+      // Import and call check-and-dispatch directly
+      const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
+      
+      console.log(`[Execution/Start] Successfully imported check-and-dispatch, calling now...`);
+      
+      // Call check-and-dispatch (don't wait for full completion, but catch errors)
+      checkAndDispatch(execution.id).catch(error => {
+        console.error(`[Execution/Start] Check-and-dispatch error:`, error);
+      });
+      
+      console.log(`[Execution/Start] Check-and-dispatch call initiated`);
+    } catch (importError) {
+      console.error(`[Execution/Start] Failed to import check-and-dispatch:`, importError);
+    }
     
     // Return execution details
     return NextResponse.json({

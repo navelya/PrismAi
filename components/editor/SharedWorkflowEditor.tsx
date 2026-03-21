@@ -216,8 +216,8 @@ export default function SharedWorkflowEditor({
         const activeSessionId = store.activeSessionId;
 
         try {
-            // Transform V1 workflow to V2 graph_json format
-            const graph_json = transformWorkflowV1ToV2({
+            // Transform V1 workflow to V2 graph_json format (async - fetches model data)
+            const graph_json = await transformWorkflowV1ToV2({
                 nodes: workflow.nodes,
                 edges: workflow.edges || []
             });
