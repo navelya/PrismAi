@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await request.json();
-    const { role, content, images, created_at, canvas_state } = body;
+    const { role, content, images, created_at } = body;
 
     if (!role || !['user', 'assistant'].includes(role)) {
         return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
@@ -74,7 +74,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             content: content || '',
             images: images || [],
             created_at: created_at || new Date().toISOString(),
-            canvas_state: canvas_state || null, // Store snapshot
         })
         .select()
         .single();
@@ -83,16 +82,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: msgError.message }, { status: 500 });
     }
 
-    // Update session timestamp and optionally canvas_state
-    const updatePayload: any = { updated_at: new Date().toISOString() };
-    if (canvas_state) {
-        updatePayload.canvas_state = canvas_state;
-    }
-
+    // Update session timestamp
     await supabase
         .from('sessions')
-        .update(updatePayload)
+        .update({ updated_at: new Date().toISOString() })
         .eq('id', params.id);
 
     return NextResponse.json({ message }, { status: 201 });
 }
+

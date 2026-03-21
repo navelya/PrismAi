@@ -54,7 +54,17 @@ export interface Database {
         role: 'user' | 'assistant';
         content: string;
         images?: string[];
-        canvas_state?: any; // Snapshot of the workflow
         created_at: string;
+    };
+    node_executions: {
+        id: string;
+        session_id: string;
+        node_id: string;
+        status: string;
+        output: any;
+        error?: string;
+        created_at: string;
+        updated_at: string;
+        user_id?: string;
     };
 }

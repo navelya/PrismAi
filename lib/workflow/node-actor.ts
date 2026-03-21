@@ -27,22 +27,6 @@ export interface NodeActorContext {
     nodeTimeout?: number; // Timeout per node in ms
     onStatusUpdate?: (nodeId: string, status: NodeStatus, currentWorkflow?: Workflow) => void;
     onNodeOutput?: (nodeId: string, output: any) => void;
-    onNodePersist?: (
-        nodeId: string,
-        nodeType: string,
-        config: any,
-        inputUrls: string[],
-        output: any,
-        prevThumbnailPaths: string[],
-        isLeafNode: boolean,
-        forceOverwrite?: boolean
-    ) => Promise<{
-        thumbnailPaths: string[];
-        thumbnailUrls: string[];
-        resultPaths: string[];
-        resultUrls: string[];
-        computedHash: string;
-    } | null>;
 }
 
 /**
@@ -199,55 +183,6 @@ export async function executeNode(
             (node.data as any).output = result.data;
             // CRITICAL: Persist 'success' status to workflow object for DB save
             (node.data as any).status = 'success';
-
-            // Set preview URLs for output metadata
-            const outputStr = result.data;
-            if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0]?.url) {
-                (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
-            } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
-                (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
-            }
-        }
-
-        // Persist node output if callback provided
-        if (ctx.onNodePersist) {
-            const previousMeta = (node.data as any)?.outputMetadata;
-            const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
-
-            const inputsForHashing = parentIds.flatMap(pid => {
-                const val = nodeOutputs.get(pid);
-                if (Array.isArray(val)) return val.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v));
-                if (typeof val === 'object') return [JSON.stringify(val)];
-                return [String(val)];
-            });
-
-            const isLeaf = (children.get(nodeId) || []).length === 0;
-
-            try {
-                const persistMeta = await ctx.onNodePersist(
-                    nodeId,
-                    node.type,
-                    (node.data as any)?.config ?? {},
-                    inputsForHashing,
-                    result.data,
-                    prevThumbnailPaths,
-                    isLeaf,
-                    forceOverwrite
-                );
-
-                if (persistMeta && node.data) {
-                    (node.data as any).outputMetadata = {
-                        ...(node.data as any).outputMetadata,
-                        thumbnailPaths: persistMeta.thumbnailPaths,
-                        thumbnailUrls: persistMeta.thumbnailUrls,
-                        resultPaths: persistMeta.resultPaths,
-                        resultUrls: persistMeta.resultUrls,
-                        computedHash: persistMeta.computedHash,
-                    };
-                }
-            } catch (persistErr) {
-                console.warn(`[Persist] Node ${nodeId} persist failed:`, persistErr);
-            }
         }
 
         // Update status to 'success'
@@ -273,6 +208,7 @@ export async function executeNode(
         return { success: false, status: 'error', error: errorMsg };
     }
 }
+
 
 /**
  * Check if a node's dependencies are satisfied and trigger execution if ready

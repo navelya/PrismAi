@@ -62,34 +62,6 @@ export async function getWorkflow(sessionId: string): Promise<Workflow | null> {
 }
 
 /**
- * Create a persistent history version/snapshot of a session's current state
- */
-export async function saveSessionVersion(
-    sessionId: string,
-    workflow: Workflow,
-    versionName?: string
-): Promise<{ success: boolean; versionId?: string }> {
-    try {
-        const { data, error } = await supabase
-            .from('session_versions')
-            .insert({
-                session_id: sessionId,
-                canvas_state: workflow,
-                version_name: versionName || `Snapshot ${new Date().toLocaleString()}`,
-            })
-            .select()
-            .single();
-
-        if (error || !data) throw error;
-
-        return { success: true, versionId: data.id };
-    } catch (error) {
-        console.error('Error saving session version:', error);
-        return { success: false };
-    }
-}
-
-/**
  * Save execution result to database (links to sessions)
  */
 export async function saveExecution(
@@ -193,8 +165,7 @@ export async function upsertNodeExecution(
     nodeId: string,
     status: string,
     output?: any,
-    error?: string,
-    outputMetadata?: any
+    error?: string
 ): Promise<{ success: boolean; error?: string }> {
     try {
         if (!sessionId || !nodeId) {
@@ -207,8 +178,7 @@ export async function upsertNodeExecution(
                 p_node_id: nodeId,
                 p_status: status,
                 p_output: output,
-                p_error: error,
-                p_output_metadata: outputMetadata
+                p_error: error
             });
 
         if (rpcError) {
@@ -230,7 +200,7 @@ export async function upsertNodeExecution(
  */
 export async function getSessionExecutions(
     sessionId: string
-): Promise<Array<{ nodeId: string; status: string; output: any; error?: string; outputMetadata?: any; updatedAt: string }>> {
+): Promise<Array<{ nodeId: string; status: string; output: any; error?: string; updatedAt: string }>> {
     try {
         const { data, error } = await supabase
             .rpc('get_session_executions', {
@@ -247,7 +217,6 @@ export async function getSessionExecutions(
             status: row.status,
             output: row.output,
             error: row.error,
-            outputMetadata: row.output_metadata,
             updatedAt: row.updated_at
         }));
     } catch (err) {
@@ -309,4 +278,5 @@ export async function batchUpsertExecutions(
         };
     }
 }
+
 

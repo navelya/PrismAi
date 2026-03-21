@@ -197,8 +197,6 @@ export async function POST(req: Request) {
                                 session_id: sessionId,
                                 role: 'assistant',
                                 content: finalContent,
-                                workflow: finalWorkflow,
-                                metadata: finalWorkflow ? { type: 'workflow' } : { type: 'chat' },
                                 status: 'completed',
                                 created_at: new Date(Date.now() + 1000).toISOString()
                             });

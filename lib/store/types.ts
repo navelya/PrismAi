@@ -7,7 +7,6 @@ export interface Message {
     type: 'user' | 'assistant';
     content: string;
     result?: any;
-    workflow?: Workflow;
     images?: string[];
     timestamp: Date;
     sessionId?: string;

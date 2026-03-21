@@ -88,70 +88,35 @@ export async function POST(request: NextRequest) {
         const executionId = clientExecutionId || generateNodeId();
         const userId = user.id;
 
-        // STAGE 1: Pre-flight - Initialize relevant nodes to 'idle' for immediate UI feedback
-        // This happens BEFORE waitUntil, so the DB is updated before the 202 response
-        const adminSupabaseSync = createAdminClient();
-        
-        // For targeted execution, only initialize nodes that will actually run
+        // STAGE 1: Pre-flight - Initialize relevant nodes to 'pending' for immediate UI feedback
         let nodeIdsToInitialize: string[];
         if (runMode === 'solo' && runFromNodeId) {
-            // Solo mode: Only initialize the single target node
             nodeIdsToInitialize = [runFromNodeId];
         } else if (runMode === 'chain' && runFromNodeId) {
-            // Chain mode: Initialize target and its downstream nodes
-            const targetNode = workflow.nodes.find((n: any) => n.id === runFromNodeId);
-            if (targetNode) {
-                const downstreamIds = getDownstreamNodeIds(workflow, runFromNodeId);
-                nodeIdsToInitialize = [runFromNodeId, ...downstreamIds];
-            } else {
-                nodeIdsToInitialize = [runFromNodeId];
-            }
+            const downstreamIds = getDownstreamNodeIds(workflow, runFromNodeId);
+            nodeIdsToInitialize = [runFromNodeId, ...downstreamIds];
         } else {
-            // Full workflow: Initialize all nodes
             nodeIdsToInitialize = workflow.nodes.map((n: any) => n.id);
         }
         
-        // ✅ PHASE 3 FIX: Initialize nodes in node_executions table (not canvas_state)
         for (const nodeId of nodeIdsToInitialize) {
             await upsertNodeExecution(sessionId, nodeId, 'pending');
         }
 
-        // 1. Fetch ALL existing node executions to hydrate the engine's cache
-        // This is critical for chain/solo runs where ancestors might already be completed
-        const { data: existingExecutions } = await adminSupabaseSync
-            .from('node_executions')
-            .select('node_id, status, output')
-            .eq('session_id', sessionId);
-
-        const cachedOutputs: Record<string, any> = {};
-        if (existingExecutions) {
-            existingExecutions.forEach((exec: any) => {
-                if (exec.status === 'success' && exec.output) {
-                    // Strip metadata for engine consumption
-                    const rawOutput = exec.output?._metadata ? { ...exec.output } : exec.output;
-                    if (rawOutput?._metadata) delete rawOutput._metadata;
-                    cachedOutputs[exec.node_id] = rawOutput;
-                }
-            });
-        }
-
         // LOGGING: Execution lifecycle start
         const executionStartTime = Date.now();
-        console.log(`[Execution:${executionId}] START - sessionId: ${sessionId}, mode: ${runMode}, targetNode: ${runFromNodeId || 'all'}, nodesQueued: ${nodeIdsToInitialize.length}, cachedNodes: ${Object.keys(cachedOutputs).length}`);
+        console.log(`[Execution:${executionId}] START - sessionId: ${sessionId}, mode: ${runMode}, targetNode: ${runFromNodeId || 'all'}`);
 
         waitUntil((async () => {
             const adminSupabase = createAdminClient();
 
             try {
-                const { persistNodeOutputs } = await import('@/lib/workflow/persist-node');
-                const { computeNodeHash } = await import('@/lib/nodes/hash-inputs');
-
                 const totalNodes = workflow.nodes.length;
                 let completedNodeCount = 0;
 
                 const actionDescriptions: Record<string, string> = {
                     ai_generate_image: 'Generating AI image',
-                    ai_generator: 'Generating with AI model', // ✅ PHASE 2 FIX: Add ai_generator description
+                    ai_generator: 'Generating with AI model',
                     media_input: 'Processing upload',
                     compositor: 'Compositing layers',
                     prompt: 'Setting prompt',
@@ -170,58 +135,38 @@ export async function POST(request: NextRequest) {
                 const onStatusUpdate = async (nodeId: string, status: string, currentWorkflow?: any) => {
                     const payload: any = { nodeId, status, executionId };
                     
-                    // LOGGING: Status update
                     const elapsed = Date.now() - executionStartTime;
                     console.log(`[Execution:${executionId}] STATUS_UPDATE - node: ${nodeId}, status: ${status}, elapsed: ${elapsed}ms`);
 
-                    // Prepare DB update data
                     const dbUpdate: any = { status };
 
                     if (status === 'success' && currentWorkflow) {
                         const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
                         if (node) {
                             const nodeOutput = node.data?.output;
-                            const nodeMetadata = node.data?.outputMetadata;
-                            
-                            // Check for base64 to avoid bloating DB
-                            const hasBase64 = Array.isArray(nodeOutput)
-                                ? nodeOutput.some((o: any) => typeof o?.url === 'string' && o.url.startsWith('data:'))
-                                : typeof nodeOutput?.url === 'string' && nodeOutput.url.startsWith('data:');
-
-                            if (nodeOutput && !hasBase64) {
-                                dbUpdate.output = nodeOutput;
-                                payload.output = nodeOutput;
-                            }
-
-                            if (nodeMetadata) {
-                                dbUpdate.outputMetadata = nodeMetadata;
-                                if (nodeMetadata.thumbnailUrls) {
-                                    payload.outputMetadata = { thumbnailUrls: nodeMetadata.thumbnailUrls };
-                                }
-                            }
+                            dbUpdate.output = nodeOutput;
+                            payload.output = nodeOutput;
                         }
                     } else if (status === 'error' && currentWorkflow) {
                         const node = currentWorkflow.nodes.find((n: any) => n.id === nodeId);
                         if (node?.data?.error) {
                             dbUpdate.error = node.data.error;
+                            payload.error = node.data.error;
                         }
                     }
 
-                    // ✅ PHASE 3 FIX: Write to node_executions table (Primary Source of Truth)
                     try {
                         await upsertNodeExecution(
                             sessionId,
                             nodeId,
                             dbUpdate.status!,
                             dbUpdate.output,
-                            dbUpdate.error,
-                            dbUpdate.outputMetadata
+                            dbUpdate.error
                         );
                     } catch (e) {
                         console.error('[API/Execute] DB update failed for node', nodeId, ':', e);
                     }
 
-                    // Broadcast for low-latency UI updates (Secondary, Optional)
                     try {
                         await execChannel.send({
                             type: 'broadcast',
@@ -243,55 +188,15 @@ export async function POST(request: NextRequest) {
                     }
                 };
 
-                const onNodePersist = async (
-                    nodeId: string,
-                    nodeType: string,
-                    config: any,
-                    inputUrls: string[],
-                    output: any,
-                    prevThumbnailPaths: string[] = [],
-                    isLeafNode: boolean = false,
-                    forceOverwrite: boolean = false
-                ) => {
-                    const isEphemeral = sharedRegistry[nodeType]?.meta?.ephemeral;
-
-                    if (isEphemeral) {
-                        let rawUrls: string[] = [];
-                        if (Array.isArray(output)) {
-                            rawUrls = output.filter((o: any) => o?.url).map((o: any) => o.url);
-                        } else if (output?.url) {
-                            rawUrls = [output.url];
-                        }
-
-                        return {
-                            thumbnailPaths: [],
-                            thumbnailUrls: rawUrls,
-                            resultPaths: [],
-                            resultUrls: isLeafNode ? rawUrls : [],
-                            computedHash: `ephemeral-${Date.now()}`
-                        };
-                    }
-
-                    return persistNodeOutputs(
-                        adminSupabase,
-                        { userId, sessionId, nodeId, nodeType, config, inputUrls, output },
-                        prevThumbnailPaths,
-                        isLeafNode,
-                        computeNodeHash,
-                        forceOverwrite
-                    );
-                };
-
                 let result;
                 if (runFromNodeId) {
                     result = await executeWorkflowFromNode(
                         workflow as Workflow,
                         executionId,
                         runFromNodeId,
-                        cachedOutputs,
+                        {}, // No persistent cache
                         onStatusUpdate,
                         undefined,
-                        onNodePersist,
                         runMode || 'chain',
                         userId,
                         sessionId
@@ -302,8 +207,7 @@ export async function POST(request: NextRequest) {
                         executionId,
                         onStatusUpdate,
                         undefined,
-                        cachedOutputs,
-                        onNodePersist,
+                        {}, // No persistent cache
                         userId,
                         sessionId
                     );
@@ -313,13 +217,7 @@ export async function POST(request: NextRequest) {
                     await saveExecution(sessionId, result.success ? 'completed' : 'failed', result.result, result.error);
                 }
 
-                // LOGGING: Execution completion
-                const totalElapsed = Date.now() - executionStartTime;
-                console.log(`[Execution:${executionId}] COMPLETE - success: ${result.success}, elapsed: ${totalElapsed}ms, error: ${result.error || 'none'}`);
-
-                // VALIDATION: Check final workflow state consistency
-                const validationResults = validateWorkflowState(workflow);
-                logValidationResults(validationResults, `Execution:${executionId}:FinalState`);
+                console.log(`[Execution:${executionId}] COMPLETE - success: ${result.success}, elapsed: ${Date.now() - executionStartTime}ms`);
 
                 if (sessionId) {
                     await adminSupabase.from('sessions').update({
@@ -329,13 +227,12 @@ export async function POST(request: NextRequest) {
 
             } catch (err) {
                 console.error('[API/Execute] Background execution crashed:', err);
-                const totalElapsed = Date.now() - executionStartTime;
-                console.log(`[Execution:${executionId}] CRASHED - elapsed: ${totalElapsed}ms, error: ${err}`);
                 if (sessionId) {
                     await adminSupabase.from('sessions').update({ status_message: 'Execution crashed' }).eq('id', sessionId);
                 }
             }
         })());
+
 
         return NextResponse.json({
             success: true,

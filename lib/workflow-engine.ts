@@ -36,16 +36,6 @@ export async function executeWorkflow(
     onStatusUpdate?: (nodeId: string, status: NodeStatus, currentWorkflow?: Workflow) => void,
     onNodeOutput?: (nodeId: string, output: any) => void,
     cachedOutputs?: Record<string, any>,
-    onNodePersist?: (
-        nodeId: string,
-        nodeType: string,
-        config: any,
-        inputUrls: string[],
-        output: any,
-        prevThumbnailPaths: string[],
-        isLeafNode: boolean,
-        forceOverwrite?: boolean
-    ) => Promise<any>,
     userId?: string,
     sessionId?: string
 ) {
@@ -56,7 +46,6 @@ export async function executeWorkflow(
         cachedOutputs || {},
         onStatusUpdate,
         onNodeOutput,
-        onNodePersist,
         'all',
         userId,
         sessionId
@@ -70,22 +59,6 @@ export async function executeWorkflowFromNode(
     cachedOutputs: Record<string, any>,
     onStatusUpdate?: (nodeId: string, status: NodeStatus, currentWorkflow?: Workflow) => void,
     onNodeOutput?: (nodeId: string, output: any) => void,
-    onNodePersist?: (
-        nodeId: string,
-        nodeType: string,
-        config: any,
-        inputUrls: string[],
-        output: any,
-        prevThumbnailPaths: string[],
-        isLeafNode: boolean,
-        forceOverwrite?: boolean
-    ) => Promise<{
-        thumbnailPaths: string[];
-        thumbnailUrls: string[];
-        resultPaths: string[];
-        resultUrls: string[];
-        computedHash: string;
-    } | null>,
     runMode: RunMode = 'chain',
     userId?: string,
     sessionId?: string
@@ -221,9 +194,6 @@ export async function executeWorkflowFromNode(
                         }
                     }
 
-                    if (!cachedOutput && (node.data as any)?.outputMetadata?.thumbnailUrls?.length) {
-                        cachedOutput = (node.data as any).outputMetadata.thumbnailUrls.map((url: string) => ({ url }));
-                    }
                     if (!cachedOutput && cachedOutputs && cachedOutputs[nodeId]) {
                         cachedOutput = cachedOutputs[nodeId];
                     }
@@ -231,16 +201,6 @@ export async function executeWorkflowFromNode(
                     if (cachedOutput !== undefined && cachedOutput !== null) {
                         nodeOutputs.set(nodeId, cachedOutput);
                         completedNodes.add(nodeId);
-
-                        // RESTORE METADATA: If the node was skipped/cached, we must ensure its metadata 
-                        // is copied back into the workflow object. Without this, the final session 
-                        // save at the end of the API call would strip the thumbnails of skipped nodes.
-                        if (node.data) {
-                            const metadata = (node.data as any).outputMetadata;
-                            if (metadata?.thumbnailUrls?.length) {
-                                (node.data as any).outputMetadata = metadata;
-                            }
-                        }
 
                         onStatusUpdate?.(nodeId, 'success', workflow);
 
@@ -364,60 +324,6 @@ export async function executeWorkflowFromNode(
                         (node.data as any).output = result.value.output;
                         // CRITICAL: Persist 'success' status to workflow object for DB save
                         (node.data as any).status = 'success';
-
-                        const outputStr = result.value.output;
-                        if (Array.isArray(outputStr) && outputStr.length > 0 && outputStr[0].url) {
-                            (node.data as any).outputMetadata = { preview_urls: outputStr.slice(0, 4).map((o: any) => o.url) };
-                        } else if (outputStr && typeof outputStr === 'object' && outputStr.url) {
-                            (node.data as any).outputMetadata = { preview_urls: [outputStr.url] };
-                        }
-                    }
-
-                    if (onNodePersist) {
-                        const previousMeta = (node.data as any)?.outputMetadata;
-                        const prevThumbnailPaths: string[] = previousMeta?.thumbnailPaths ?? [];
-
-                        const parentIds = parents.get(node.id) || [];
-                        // We must hash the ACTUAL inputs passed to this node (including text prompts),
-                        // otherwise changing a connected prompt won't bust the cache!
-                        const inputsForHashing = parentIds.flatMap(pid => {
-                            const val = nodeOutputs.get(pid);
-                            // Convert to string representations or extract URLs/text
-                            if (Array.isArray(val)) return val.map(v => typeof v === 'object' ? JSON.stringify(v) : String(v));
-                            if (typeof val === 'object') return [JSON.stringify(val)];
-                            return [String(val)];
-                        });
-
-                        const isLeaf = (children.get(node.id) || []).length === 0;
-
-                        try {
-                            // If the node is explicitly in the targetSet, the user intentionally ran it.
-                            // We MUST force an overwrite to bypass the deterministic DB Cache, generating fresh variants.
-                            const forceOverwrite = targetSet.has(node.id);
-
-                            const persistMeta = await onNodePersist(
-                                node.id,
-                                node.type,
-                                (node.data as any)?.config ?? {},
-                                inputsForHashing,
-                                result.value.output,
-                                prevThumbnailPaths,
-                                isLeaf,
-                                forceOverwrite
-                            );
-                            if (persistMeta && node.data) {
-                                (node.data as any).outputMetadata = {
-                                    ...(node.data as any).outputMetadata,
-                                    thumbnailPaths: persistMeta.thumbnailPaths,
-                                    thumbnailUrls: persistMeta.thumbnailUrls,
-                                    resultPaths: persistMeta.resultPaths,
-                                    resultUrls: persistMeta.resultUrls,
-                                    computedHash: persistMeta.computedHash,
-                                };
-                            }
-                        } catch (persistErr) {
-                            console.warn(`[Persist] Node ${node.id} persist failed:`, persistErr);
-                        }
                     }
 
                     onStatusUpdate?.(node.id, 'success', workflow);
@@ -500,105 +406,4 @@ export async function executeWorkflowFromNode(
         };
     }
 }
-/**
- * Validate workflow structure
- */
-export function validateWorkflow(workflow: Workflow): {
-    valid: boolean;
-    errors: string[];
-} {
-    const errors: string[] = [];
 
-    if (!workflow.nodes || workflow.nodes.length === 0) {
-        errors.push('Workflow must have at least one node');
-    }
-
-    // Check for invalid node types
-    workflow.nodes.forEach(node => {
-        if (!sharedRegistry[node.type as keyof typeof sharedRegistry]) {
-            errors.push(`Invalid node type: ${node.type}`);
-        }
-    });
-
-    // Check for orphaned edges
-    workflow.edges.forEach(edge => {
-        const sourceExists = workflow.nodes.some(n => n.id === edge.source);
-        const targetExists = workflow.nodes.some(n => n.id === edge.target);
-
-        if (!sourceExists) {
-            errors.push(`Edge references non-existent source node: ${edge.source}`);
-        }
-        if (!targetExists) {
-            errors.push(`Edge references non-existent target node: ${edge.target}`);
-        }
-    });
-
-    // Check for cycles (DAG validation) using DFS
-    const adj = new Map<string, string[]>();
-    workflow.nodes.forEach(n => adj.set(n.id, []));
-    workflow.edges.forEach(e => {
-        if (adj.has(e.source)) {
-            adj.get(e.source)!.push(e.target);
-        }
-    });
-
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
-
-    const hasCycle = (nodeId: string): boolean => {
-        if (visiting.has(nodeId)) return true;
-        if (visited.has(nodeId)) return false;
-
-        visiting.add(nodeId);
-        const children = adj.get(nodeId) || [];
-        for (const child of children) {
-            if (hasCycle(child)) return true;
-        }
-        visiting.delete(nodeId);
-        visited.add(nodeId);
-        return false;
-    };
-
-    for (const node of workflow.nodes) {
-        if (!visited.has(node.id)) {
-            if (hasCycle(node.id)) {
-                errors.push('Workflow contains an invalid cycle (feedback loop). Execution rejected.');
-                break;
-            }
-        }
-    }
-
-    return {
-        valid: errors.length === 0,
-        errors,
-    };
-}
-
-/**
- * Strip heavy base64 and output caches from a workflow before saving to the DB.
- * This prevents the massive base64 payloads from causing a Postgres 57014 timeout.
- */
-export function stripHeavyNodeData(workflow: Workflow): Workflow {
-    // Deep clone to avoid mutating the active execution state
-    const cleanWorkflow = JSON.parse(JSON.stringify(workflow)) as Workflow;
-    if (cleanWorkflow.nodes) {
-        cleanWorkflow.nodes.forEach(node => {
-            if (node.data) {
-                const hasThumbnails = (node.data as any).outputMetadata?.thumbnailUrls?.length > 0;
-
-                // Only strip `output` if it's been uploaded to Supabase Storage (i.e. we have thumbnails).
-                // This preserves textual inputs/outputs (Prompt nodes, logic gates) permanently.
-                if (hasThumbnails) {
-                    delete (node.data as any).output;
-                }
-
-                if ((node.data as any).outputMetadata) {
-                    // Remove raw base64 preview_urls — keep persisted storage references
-                    delete (node.data as any).outputMetadata.preview_urls;
-                    // thumbnailPaths, thumbnailUrls, resultPaths, resultUrls, computedHash are KEPT
-                }
-            }
-        });
-    }
-    return cleanWorkflow;
-}
