@@ -14,12 +14,13 @@ interface ChatClientPageProps {
 export default function ChatClientPage({ initialUserName, sessionId }: ChatClientPageProps) {
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
+    const activeExecutionId = useAppStore((state) => state.activeExecutionId);
 
     const addResultRef = useRef<((result: any) => void) | null>(null);
 
-    // Mount execution channel at layout level — NEVER unmounts with Copilot/ChatInterface.
-    // This is the critical fix for live status updates surviving the FAB minimize swap.
-    useExecutionChannel(sessionId);
+    // V2: Mount execution channel at layout level using executionId from store
+    // Listens to executions_v2 table for real-time updates
+    useExecutionChannel(activeExecutionId);
 
     const handleChatReady = (addResult: (result: any) => void) => {
         addResultRef.current = addResult;

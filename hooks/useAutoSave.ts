@@ -96,12 +96,9 @@ export function useAutoSave() {
         const sessionId = activeSessionIdRef.current;
         const store = useAppStore.getState();
 
-        // ✅ PHASE 1 FIX: GUARD - Never save during active execution
-        // This prevents race conditions where auto-save overwrites execution results
-        if (!isEmergency && store.isExecutionActive && store.isExecutionActive()) {
-            console.log('[AutoSave] Blocked: Execution in progress');
-            return;
-        }
+        // V2: No longer block auto-save during execution
+        // Execution state is in executions_v2 table (separate from canvas_state)
+        // Canvas modifications won't affect running executions
 
         if (!workflow || !sessionId || isSavingRemoteRef.current) return;
 

@@ -102,12 +102,19 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         const appUrl = getAppUrl();
         const isLocal = appUrl.startsWith('http://localhost') || appUrl.startsWith('http://127.0.0.1');
-        const webhookUrl = `${appUrl}/api/webhooks/replicate?sessionId=${context.sessionId}&nodeId=${context.nodeId}`;
+        
+        // V2 webhook URL - requires executionId
+        if (!context.executionId) {
+            throw new Error('Missing executionId - cannot create webhook URL. Ensure execution is started via /api/executions/start');
+        }
+        
+        const webhookUrl = `${appUrl}/api/webhooks/replicate-v2?executionId=${context.executionId}&nodeId=${context.nodeId}`;
 
-        console.log(`[AIGeneratorExecutor] Creating prediction for node ${context.nodeId} in session ${context.sessionId}`, { 
+        console.log(`[AIGeneratorExecutor] Creating prediction for node ${context.nodeId}`, { 
             appUrl, 
             isLocal, 
-            webhookUrl 
+            webhookUrl,
+            executionId: context.executionId
         });
 
         // Robust model/version extraction

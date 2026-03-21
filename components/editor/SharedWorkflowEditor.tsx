@@ -17,6 +17,8 @@ import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
+import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
+import { createClient } from '@/lib/supabase/client';
 
 interface SharedWorkflowEditorProps {
     workflow?: Workflow | null;
@@ -214,36 +216,39 @@ export default function SharedWorkflowEditor({
         const activeSessionId = store.activeSessionId;
 
         try {
-            const sanitizedWorkflow = {
-                ...workflow,
-                nodes: workflow.nodes.map((node: any) => {
-                    const isTarget = targetNodeId ? (node.id === targetNodeId) : true;
-                    if (!isTarget) return node;
-                    const { output, outputMetadata, status, ...cleanData } = node.data || {};
-                    return { ...node, data: cleanData };
-                })
-            };
+            // Transform V1 workflow to V2 graph_json format
+            const graph_json = transformWorkflowV1ToV2({
+                nodes: workflow.nodes,
+                edges: workflow.edges || []
+            });
 
-            const bodyPayload: any = {
-                workflow: sanitizedWorkflow,
-                sessionId: activeSessionId,
-                runMode: mode,
-                executionId,
-            };
+            // Get user for V2 API
+            const supabase = createClient();
+            const { data: { user } } = await supabase.auth.getUser();
 
-            if (targetNodeId) {
-                bodyPayload.runFromNodeId = targetNodeId;
-            }
-
-            const res = await fetch('/api/workflow/execute', {
+            // Call V2 API endpoint
+            const res = await fetch('/api/executions/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(bodyPayload)
+                body: JSON.stringify({
+                    session_id: activeSessionId,
+                    user_id: user?.id || 'anonymous',
+                    graph_json,
+                    execution_id: executionId, // Pass our generated ID for context
+                })
             });
 
             if (!res.ok) {
                 const data = await res.json();
                 throw new Error(data.error || 'Execution request failed');
+            }
+
+            const data = await res.json();
+            console.log('[SharedWorkflowEditor] V2 execution started:', data.execution_id);
+            
+            // Update execution ID with V2 response
+            if (data.execution_id) {
+                store.setActiveExecutionId(data.execution_id);
             }
 
         } catch (err: any) {
