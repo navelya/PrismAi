@@ -87,12 +87,14 @@ export async function POST(request: NextRequest) {
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
-    // STEP 4: Event-driven trigger handles dispatch automatically
-    // After execution is created, trigger manual notification to start the flow
-    console.log(`[Execution/Start] Triggering initial notification for event-driven dispatch`);
+    // STEP 4: Trigger initial dispatch
+    // Since Edge Function listener is not deployed yet, call check-and-dispatch directly
+    console.log(`[Execution/Start] Triggering initial check-and-dispatch`);
     
-    await supabase.rpc('trigger_check_and_dispatch', {
-      p_execution_id: execution.id,
+    // Import and call check-and-dispatch directly (don't wait for completion)
+    const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
+    checkAndDispatch(execution.id).catch(error => {
+      console.error(`[Execution/Start] Check-and-dispatch error:`, error);
     });
     
     // Return execution details

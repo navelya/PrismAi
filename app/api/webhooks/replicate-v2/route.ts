@@ -123,10 +123,14 @@ export async function POST(request: NextRequest) {
       
       console.log(`[Webhook/Replicate-v2] Successfully processed completion for node ${nodeId}`);
       
-      // STEP 4: Event-driven trigger automatically dispatches downstream nodes
-      // The Postgres trigger on executions_v2 will fire NOTIFY when node_states changes
-      // No need to manually call check-and-dispatch here
-      console.log(`[Webhook/Replicate-v2] Event-driven trigger will handle downstream dispatch`);
+      // STEP 4: Trigger downstream dispatch
+      // Since Edge Function listener is not deployed yet, call check-and-dispatch directly
+      console.log(`[Webhook/Replicate-v2] Triggering check-and-dispatch for downstream nodes`);
+      
+      const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
+      checkAndDispatch(executionId).catch(error => {
+        console.error(`[Webhook/Replicate-v2] Check-and-dispatch error:`, error);
+      });
       
     } else if (status === 'failed' || status === 'canceled') {
       console.error(`[Webhook/Replicate-v2] Node ${nodeId} failed:`, predictionError);
