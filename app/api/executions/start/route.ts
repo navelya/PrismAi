@@ -111,17 +111,30 @@ export async function POST(request: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 
                    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
     
+    const dispatchUrl = `${appUrl}/api/executions/check-and-dispatch`;
+    
+    console.log(`[Execution/Start] 🔗 Dispatch URL: ${dispatchUrl}`);
+    console.log(`[Execution/Start] 🔑 Auth header present: ${!!process.env.SUPABASE_SERVICE_ROLE_KEY}`);
+    console.log(`[Execution/Start] 📦 Payload:`, { execution_id: execution.id });
+    
     // Make internal fetch to check-and-dispatch endpoint
     // This runs in a separate serverless invocation and won't be killed
-    fetch(`${appUrl}/api/executions/check-and-dispatch`, {
+    fetch(dispatchUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ execution_id: execution.id }),
+    }).then(async response => {
+      const status = response.status;
+      const text = await response.text();
+      console.log(`[Execution/Start] ✅ Dispatch fetch responded: ${status}`);
+      if (!response.ok) {
+        console.error(`[Execution/Start] ❌ Dispatch fetch error: ${status} - ${text}`);
+      }
     }).catch(error => {
-      console.error(`[Execution/Start] Failed to trigger check-and-dispatch:`, error);
+      console.error(`[Execution/Start] ❌ Dispatch fetch failed:`, error);
     });
     
     console.log(`[Execution/Start] Check-and-dispatch API call initiated in separate process`);
