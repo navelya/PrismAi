@@ -31,13 +31,13 @@ export async function dispatchNode(
       return await dispatchEphemeralNode(executionId, nodeId, nodeConfig, inputs);
     }
     
-    // Check if this is a Replicate-based node
-    if (isReplicateNode(nodeType)) {
+    // Check if this is a Replicate-based node (dynamic check based on model field)
+    if (isReplicateNode(nodeConfig)) {
       return await dispatchReplicateNode(executionId, nodeId, nodeConfig, inputs);
     }
     
     // Unsupported node type
-    console.error(`[Dispatch] Unknown node type: ${nodeType}`);
+    console.error(`[Dispatch] Unknown node type: ${nodeType} - no model field and not ephemeral`);
     
     // Update node state to failed
     await updateNodeState(executionId, nodeId, {
@@ -284,19 +284,12 @@ async function logExecutionEvent(
 }
 
 /**
- * Check if a node type requires Replicate
+ * Check if a node requires Replicate execution
+ * 
+ * DYNAMIC: Checks if node has a model field, not a hardcoded list.
+ * Any node with model/version is considered a Replicate node.
  */
-function isReplicateNode(nodeType: string): boolean {
-  // Common Replicate node types
-  const replicateNodeTypes = [
-    'ai_generate_image',
-    'ai_upscale',
-    'ai_style_transfer',
-    'remove_background',
-    'flux_dev',
-    'flux_schnell',
-    'stable_diffusion',
-  ];
-  
-  return replicateNodeTypes.includes(nodeType);
+function isReplicateNode(nodeConfig: NodeConfig): boolean {
+  // If node has model or version field, it needs Replicate
+  return !!(nodeConfig.data?.model || nodeConfig.data?.version);
 }
