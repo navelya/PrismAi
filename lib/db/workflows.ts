@@ -216,7 +216,10 @@ export async function upsertNodeExecution(
  */
 export async function getSessionExecutions(
     sessionId: string
-): Promise<Array<{ nodeId: string; status: string; output: any; outputMetadata?: any; error?: string; updatedAt: string }>> {
+): Promise<{ 
+    executions: Array<{ nodeId: string; status: string; output: any; outputMetadata?: any; error?: string; updatedAt: string }>;
+    latestExecutionId: string | null;
+}> {
     try {
         // V3: Get all executions for this session
         const { data: executions, error: execError } = await supabase
@@ -227,7 +230,7 @@ export async function getSessionExecutions(
 
         if (execError || !executions || executions.length === 0) {
             if (execError) console.error('[getSessionExecutions] Exec fetch error:', execError);
-            return [];
+            return { executions: [], latestExecutionId: null };
         }
 
         // Map execution IDs array and query all node results 
@@ -241,7 +244,7 @@ export async function getSessionExecutions(
 
         if (error) {
             console.error('[getSessionExecutions] Results fetch error:', error);
-            return [];
+            return { executions: [], latestExecutionId: null };
         }
 
         // Keep only the latest result per node (first seen due to descending order)
@@ -252,20 +255,23 @@ export async function getSessionExecutions(
             }
         }
 
-        return Array.from(latestResults.values()).map((row: any) => ({
-            nodeId: row.node_id,
-            status: row.status,
-            output: row.result_url ? { url: row.result_url } : undefined,
-            outputMetadata: {
-                preview_urls: row.result_url ? [row.result_url] : [],
-                resultUrls: row.result_url ? [row.result_url] : []
-            },
-            error: row.error,
-            updatedAt: row.updated_at
-        }));
+        return {
+            executions: Array.from(latestResults.values()).map((row: any) => ({
+                nodeId: row.node_id,
+                status: row.status,
+                output: row.result_url ? { url: row.result_url } : undefined,
+                outputMetadata: {
+                    preview_urls: row.result_url ? [row.result_url] : [],
+                    resultUrls: row.result_url ? [row.result_url] : []
+                },
+                error: row.error,
+                updatedAt: row.updated_at
+            })),
+            latestExecutionId: executions[0].id
+        };
     } catch (err) {
         console.error('[getSessionExecutions] Exception:', err);
-        return [];
+        return { executions: [], latestExecutionId: null };
     }
 }
 

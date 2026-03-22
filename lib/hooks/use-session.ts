@@ -164,11 +164,15 @@ export function useSession() {
                 store.clearNodeOutputs();
 
                 // Fetch execution state from node_executions table
-                const executions = await getSessionExecutions(sessionId);
+                const { executions, latestExecutionId } = await getSessionExecutions(sessionId);
+                
+                if (latestExecutionId) {
+                    store.setActiveExecutionId(latestExecutionId);
+                }
                 
                 // Create lookup map for quick access
                 const executionMap = new Map(
-                    executions.map(exec => [exec.nodeId, exec])
+                    executions.map((exec: any) => [exec.nodeId, exec])
                 );
 
                 const isCompleted = lastWorkflowMsgStatus === 'completed' || lastWorkflowMsgStatus === 'failed';
@@ -180,7 +184,10 @@ export function useSession() {
                     if (execution) {
                         // Use execution state from node_executions table (authoritative)
                         if (execution.status) {
-                            store.setNodeStatus(node.id, execution.status as import('@/lib/nodes/types').NodeStatus);
+                            let mappedStatus = execution.status;
+                            if (mappedStatus === 'completed') mappedStatus = 'success';
+                            if (mappedStatus === 'failed') mappedStatus = 'error';
+                            store.setNodeStatus(node.id, mappedStatus as import('@/lib/nodes/types').NodeStatus);
                         }
                         
                         // Priority 1: Check the new outputMetadata property (from the new DB column)
