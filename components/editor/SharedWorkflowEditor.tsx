@@ -262,6 +262,8 @@ export default function SharedWorkflowEditor({
                         edges: workflow.edges || []
                     },
                     execution_id: executionId, // Pass our generated ID for context
+                    targetNodeId,
+                    mode,
                 })
             });
 

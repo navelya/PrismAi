@@ -107,23 +107,12 @@ export function useExecutionChannel(executionId: string | null | undefined) {
             }
         };
 
-        // V3: Subscribe to node_results table changes for this execution
         const channel = supabase
             .channel(`results_${executionId}`)
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT', 
-                    schema: 'public',
-                    table: 'node_results',
-                    filter: `execution_id=eq.${executionId}`
-                },
-                handleResultChange
-            )
-            .on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE', 
+                    event: '*', 
                     schema: 'public',
                     table: 'node_results',
                     filter: `execution_id=eq.${executionId}`
@@ -151,17 +140,7 @@ export function useExecutionChannel(executionId: string | null | undefined) {
                     .on(
                         'postgres_changes',
                         {
-                            event: 'INSERT',
-                            schema: 'public',
-                            table: 'node_results',
-                            filter: `execution_id=eq.${executionId}`
-                        },
-                        handleResultChange
-                    )
-                    .on(
-                        'postgres_changes',
-                        {
-                            event: 'UPDATE',
+                            event: '*',
                             schema: 'public',
                             table: 'node_results',
                             filter: `execution_id=eq.${executionId}`

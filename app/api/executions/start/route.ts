@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json();
-    const { session_id, workflow, user_id } = body;
+    const { session_id, workflow, user_id, targetNodeId, mode } = body;
     let graph_json: GraphJson = body.graph_json;
     
     // Validate required fields
@@ -53,9 +53,32 @@ export async function POST(request: NextRequest) {
     graph_json.nodes.forEach((node: NodeConfig) => {
       uniqueNodesMap.set(node.id, node);
     });
-    const uniqueNodes = Array.from(uniqueNodesMap.values());
+    const allUniqueNodes = Array.from(uniqueNodesMap.values());
     
-    console.log(`[Execution/Start] Starting execution for session ${session_id} with ${uniqueNodes.length} unique nodes (from ${graph_json.nodes.length} total)`);
+    // Determine which nodes to actually execute
+    let nodesToExecute = [...allUniqueNodes];
+    if (targetNodeId && mode === 'solo') {
+        nodesToExecute = allUniqueNodes.filter(n => n.id === targetNodeId);
+    } else if (targetNodeId && mode === 'chain') {
+        // Simple BFS to find descendants
+        const descendants = new Set<string>();
+        const queue = [targetNodeId];
+        while (queue.length > 0) {
+            const current = queue.shift()!;
+            const outgoingEdges = (graph_json.edges || []).filter(e => e.source === current);
+            for (const edge of outgoingEdges) {
+                if (!descendants.has(edge.target)) {
+                    descendants.add(edge.target);
+                    queue.push(edge.target);
+                }
+            }
+        }
+        nodesToExecute = allUniqueNodes.filter(n => n.id === targetNodeId || descendants.has(n.id));
+    } else if (targetNodeId && mode === 'ab_test') {
+        nodesToExecute = allUniqueNodes.filter(n => n.id === targetNodeId);
+    }
+    
+    console.log(`[Execution/Start] Starting execution for session ${session_id} with ${nodesToExecute.length} execution nodes (from ${graph_json.nodes.length} total)`);
     
     const supabase = createServiceClient();
     
@@ -65,7 +88,7 @@ export async function POST(request: NextRequest) {
       .insert({
         session_id,
         status: 'pending',
-        graph_json: { ...graph_json, nodes: uniqueNodes }, // Save deduplicated nodes
+        graph_json: { ...graph_json, nodes: allUniqueNodes }, // Save full deduplicated graph for context
       })
       .select()
       .single();
@@ -84,8 +107,8 @@ export async function POST(request: NextRequest) {
     const { origin } = new URL(request.url);
     console.log(`[Execution/Start] Using origin for webhooks: ${origin}`);
     
-    // Initialize node_results for all unique nodes so the UI sees them as pending
-    const initialNodeResults = uniqueNodes.map((node: NodeConfig) => ({
+    // Initialize node_results for execution nodes so the UI sees them as pending
+    const initialNodeResults = nodesToExecute.map((node: NodeConfig) => ({
       execution_id: execution.id,
       node_id: node.id,
       status: 'pending',
@@ -106,8 +129,8 @@ export async function POST(request: NextRequest) {
     // 2. Fetch their results.
     // 3. Dispatch Replicate nodes with the resolved inputs.
     
-    const ephemeralNodes = uniqueNodes.filter(node => isEphemeralNode(node.type));
-    const aiNodes = uniqueNodes.filter(node => !isEphemeralNode(node.type));
+    const ephemeralNodes = nodesToExecute.filter(node => isEphemeralNode(node.type));
+    const aiNodes = nodesToExecute.filter(node => !isEphemeralNode(node.type));
     
     const resultUrlMap = new Map();
     
@@ -134,7 +157,7 @@ export async function POST(request: NextRequest) {
         for (const edge of incomingEdges) {
             const result = resultUrlMap.get(edge.source);
             if (result) {
-                const sourceNode = uniqueNodes.find(n => n.id === edge.source);
+                const sourceNode = allUniqueNodes.find(n => n.id === edge.source);
                 const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
                 
                 // If the source is a prompt node, map its result directly to the 'prompt' input
