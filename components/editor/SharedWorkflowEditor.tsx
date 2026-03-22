@@ -17,7 +17,6 @@ import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
-import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { createClient } from '@/lib/supabase/client';
 
 interface SharedWorkflowEditorProps {
@@ -216,24 +215,22 @@ export default function SharedWorkflowEditor({
         const activeSessionId = store.activeSessionId;
 
         try {
-            // Transform V1 workflow to V2 graph_json format (async - fetches model data)
-            const graph_json = await transformWorkflowV1ToV2({
-                nodes: workflow.nodes,
-                edges: workflow.edges || []
-            });
-
             // Get user for V2 API
             const supabase = createClient();
             const { data: { user } } = await supabase.auth.getUser();
 
-            // Call V2 API endpoint
+            // Call V2 API endpoint with RAW workflow data
+            // The server will handle the V1 -> V2 transformation
             const res = await fetch('/api/executions/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     session_id: activeSessionId,
                     user_id: user?.id || 'anonymous',
-                    graph_json,
+                    workflow: {
+                        nodes: workflow.nodes,
+                        edges: workflow.edges || []
+                    },
                     execution_id: executionId, // Pass our generated ID for context
                 })
             });

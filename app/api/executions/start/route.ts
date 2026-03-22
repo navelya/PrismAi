@@ -6,24 +6,40 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson } from '@/lib/workflow/types-v2';
+import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
   
   try {
     const body = await request.json();
-    const { session_id, graph_json, user_id } = body;
+    const { session_id, workflow, user_id } = body;
+    let { graph_json } = body;
     
     // Validate required fields
-    if (!session_id || !graph_json) {
+    if (!session_id || (!graph_json && !workflow)) {
       return NextResponse.json(
-        { error: 'Missing required fields: session_id, graph_json' },
+        { error: 'Missing required fields: session_id, and either graph_json or workflow' },
         { status: 400 }
       );
     }
+
+    // If workflow is provided (V1 format), transform it to graph_json (V2 format)
+    if (workflow && !graph_json) {
+      console.log('[Execution/Start] Transforming V1 workflow to V2 graph_json on server');
+      try {
+        graph_json = await transformWorkflowV1ToV2(workflow);
+      } catch (transformError) {
+        console.error('[Execution/Start] Transformation failed:', transformError);
+        return NextResponse.json(
+          { error: `Workflow transformation failed: ${transformError instanceof Error ? transformError.message : 'Unknown error'}` },
+          { status: 500 }
+        );
+      }
+    }
     
     // Validate graph structure
-    if (!graph_json.nodes || !Array.isArray(graph_json.nodes)) {
+    if (!graph_json || !graph_json.nodes || !Array.isArray(graph_json.nodes)) {
       return NextResponse.json(
         { error: 'Invalid graph_json: must contain nodes array' },
         { status: 400 }
