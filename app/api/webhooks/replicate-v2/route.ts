@@ -136,13 +136,9 @@ export async function POST(request: NextRequest) {
       console.log(`[Webhook/Replicate-v2] Successfully processed completion for node ${nodeId}`);
       
       // STEP 4: Trigger downstream dispatch
-      // Since Edge Function listener is not deployed yet, call check-and-dispatch directly
-      console.log(`[Webhook/Replicate-v2] Triggering check-and-dispatch for downstream nodes`);
-      
-      const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
-      await checkAndDispatch(executionId);
-      
-      console.log(`[Webhook/Replicate-v2] ✅ Downstream check-and-dispatch completed`);
+      // We rely on the Supabase Database Webhook to trigger the next step.
+      // This ensures durability: if the API is down, the DB will retry the webhook.
+      console.log(`[Webhook/Replicate-v2] Node ${nodeId} finished. Handing over to Database Webhook.`);
       
     } else if (status === 'failed' || status === 'canceled') {
       console.error(`[Webhook/Replicate-v2] Node ${nodeId} failed:`, predictionError);

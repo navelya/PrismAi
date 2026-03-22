@@ -123,12 +123,11 @@ export async function executeEphemeralNode(
     
     console.log(`[EphemeralExecutor] Node ${nodeId} completed successfully`);
     
-    // 9. TRIGGER NEXT DISPATCH (Important for chaining!)
-    const { checkAndDispatch } = await import('./check-and-dispatch-v2');
-    
-    // AWAIT this so the process stays alive to start the next node
-    console.log(`[EphemeralExecutor] Awaiting downstream dispatch for ${executionId}`);
-    await checkAndDispatch(executionId);
+    // 9. TRIGGER NEXT DISPATCH
+    // We NO LONGER call checkAndDispatch directly here.
+    // Instead, we rely on the Supabase Database Webhook to trigger the next step.
+    // This is the "Durable Handover" pattern used by companies like Weavy.
+    console.log(`[EphemeralExecutor] Node ${nodeId} finished. Handing over to Database Webhook for next dispatch.`);
     
     return { success: true, result_url: resultUrl };
     
