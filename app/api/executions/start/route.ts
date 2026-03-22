@@ -8,6 +8,10 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 
+// NOTE: Cannot use Edge Runtime because check-and-dispatch uses Sharp (Node.js only)
+// For instant response, deploy the Supabase Edge Function (STEP 4)
+// That provides event-driven dispatch without blocking this endpoint
+
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
   
@@ -103,18 +107,18 @@ export async function POST(request: NextRequest) {
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
-    // SOLUTION: Just await checkAndDispatch directly
-    // Fetch approach doesn't work in serverless - process terminates before fetch completes
-    // This makes the API slower (~2-3 seconds) but guarantees execution completes
-    console.log(`[Execution/Start] Starting check-and-dispatch (awaiting completion)`);
+    // V2 ARCHITECTURE: Database trigger → Edge Function → Dispatch
+    // The Postgres trigger will fire NOTIFY, Edge Function picks it up and dispatches
+    // For now: await to ensure execution (TODO: Deploy Edge Function for instant response)
+    console.log(`[Execution/Start] Starting check-and-dispatch (awaiting until Edge Function deployed)`);
     
     try {
       const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
       await checkAndDispatch(execution.id);
-      console.log(`[Execution/Start] ✅ Check-and-dispatch completed successfully`);
+      console.log(`[Execution/Start] ✅ Check-and-dispatch completed`);
     } catch (error) {
       console.error(`[Execution/Start] ❌ Check-and-dispatch failed:`, error);
-      // Don't fail the request - execution is created, dispatch will be retried
+      // Don't fail the request - execution is created, can be retried
     }
     
     // Return execution details
