@@ -109,27 +109,19 @@ export async function POST(request: NextRequest) {
     const ephemeralNodes = uniqueNodes.filter(node => isEphemeralNode(node.type));
     const aiNodes = uniqueNodes.filter(node => !isEphemeralNode(node.type));
     
+    const resultUrlMap = new Map();
+    
     // Step 1: Run ephemeral nodes sequentially
     for (const node of ephemeralNodes) {
         try {
-            await dispatchNode(execution.id, node.id, node, {}, origin);
+            const dispatchResult = await dispatchNode(execution.id, node.id, node, {}, origin);
+            if (dispatchResult.success && dispatchResult.data !== undefined) {
+                resultUrlMap.set(node.id, dispatchResult.data);
+            }
         } catch (err) {
             console.error(`[Execution/Start] Error dispatching ephemeral node ${node.id}:`, err);
         }
     }
-    
-    // Step 2: Fetch results to build inputs for AI nodes
-    const { data: currentResults } = await supabase
-      .from('node_results')
-      .select('*')
-      .eq('execution_id', execution.id);
-      
-    const resultUrlMap = new Map();
-    (currentResults || []).forEach(r => {
-        if (r.status === 'completed' && r.result_url) {
-            resultUrlMap.set(r.node_id, r.result_url);
-        }
-    });
     
     // Step 3: Dispatch AI nodes with resolved inputs
     console.log(`[Execution/Start] Graph edges:`, JSON.stringify(graph_json.edges, null, 2));

@@ -20,7 +20,7 @@ export async function dispatchNode(
   nodeConfig: NodeConfig,
   inputs: Record<string, any> = {},
   baseUrl?: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; data?: any; error?: string }> {
   const currentBaseUrl = baseUrl || WEBHOOK_BASE_URL;
   console.log(`[Dispatch] Starting dispatch for node ${nodeId} in execution ${executionId} (BaseURL: ${currentBaseUrl})`);
   
@@ -73,7 +73,7 @@ async function dispatchEphemeralNode(
   nodeId: string,
   nodeConfig: NodeConfig,
   inputs: Record<string, any>
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; data?: any; error?: string }> {
   
   console.log(`[Dispatch/Ephemeral] Executing node ${nodeId} DIRECTLY`, { nodeType: nodeConfig.type });
   
@@ -100,7 +100,7 @@ async function dispatchEphemeralNode(
     
     console.log(`[Dispatch/Ephemeral] ✅ Successfully executed node ${nodeId} directly`);
     
-    return { success: true };
+    return { success: true, data: result.result_url };
     
   } catch (error) {
     console.error(`[Dispatch/Ephemeral] ❌ Error:`, error);
@@ -108,8 +108,10 @@ async function dispatchEphemeralNode(
   }
 }
 
+import { aiGeneratorExecutor } from '../nodes/core/ai-generator-executor';
+
 /**
- * Dispatch a node to Replicate API
+ * Dispatch a node to Replicate API using the battle-tested executor
  */
 async function dispatchReplicateNode(
   executionId: string,
@@ -117,76 +119,40 @@ async function dispatchReplicateNode(
   nodeConfig: NodeConfig,
   inputs: Record<string, any>,
   baseUrl: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; data?: any; error?: string }> {
   
-  console.log(`[Dispatch/Replicate] Dispatching node ${nodeId}`, { nodeConfig, inputs });
+  console.log(`[Dispatch/Replicate] Dispatching node ${nodeId} via aiGeneratorExecutor`, { nodeConfig, inputs });
   
   try {
-    // Build Replicate input from node config and upstream inputs
-    const replicateInput = buildReplicateInput(nodeConfig, inputs);
+    // We pass the raw nodeConfig.data.config (where V1 stores settings) or nodeConfig.data
+    const config = nodeConfig.data.config || nodeConfig.data || {};
     
-    // Get model version from node config
-    const model = nodeConfig.data.model || nodeConfig.data.version;
-    
-    if (!model) {
-      throw new Error('No model specified in node configuration');
-    }
-    
-    // Construct webhook URL with context parameters
-    const webhookUrl = `${baseUrl}/api/webhooks/replicate-v2?executionId=${executionId}&nodeId=${nodeId}`;
-    
-    // TIER 2 FIX: Detailed webhook URL logging for debugging
-    console.log('═══════════════════════════════════════════════════════════════');
-    console.log('[Dispatch/Replicate] 🔔 WEBHOOK URL DEBUG:');
-    console.log('  Using BaseURL:', baseUrl);
-    console.log('  Full webhook URL:', webhookUrl);
-    console.log('  Execution ID:', executionId);
-    console.log('  Node ID:', nodeId);
-    console.log('  Model:', model);
-    console.log('═══════════════════════════════════════════════════════════════');
-    
-    // Create prediction with webhook
-    // SDK handles 'version' as a 64-char string or 'model' as 'owner/name'
-    const isVersionHash = /^[a-f0-9]{64}$/.test(model);
-    
-    const predictionOptions: any = {
-      input: replicateInput,
-      webhook: webhookUrl,
-      webhook_events_filter: ['completed'],
-    };
-
-    if (isVersionHash) {
-      predictionOptions.version = model;
-    } else {
-      predictionOptions.model = model;
-    }
-
-    console.log(`[Dispatch/Replicate] Calling Replicate API with:`, {
-      ...predictionOptions,
-      input: { ...replicateInput, prompt: (replicateInput.prompt as string)?.substring(0, 50) + '...' }
+    // Call the robust aiGeneratorExecutor which handles DB schema mapping
+    const result = await aiGeneratorExecutor(config, inputs, {
+      sessionId: 'server-execution', // Dummy for webhook validation
+      executionId: executionId,
+      nodeId: nodeId,
+      workflowId: executionId,
+      data: nodeConfig.data
     });
-
-    const prediction = await replicate.predictions.create(predictionOptions);
     
-    console.log(`[Dispatch/Replicate] ✅ Prediction created:`, {
-      predictionId: prediction.id,
-      status: prediction.status,
-    });
+    if (!result.success) {
+      throw new Error(result.error || 'AI Generator Executor failed');
+    }
     
     // Update node state to running with prediction ID
     await updateNodeState(executionId, nodeId, {
       status: 'running',
-      replicate_prediction_id: prediction.id,
+      replicate_prediction_id: result.data?.id,
       dispatched_at: new Date().toISOString(),
     });
     
     // Log event
     await logExecutionEvent(executionId, nodeId, 'dispatched', {
-      replicate_prediction_id: prediction.id,
-      model,
+      replicate_prediction_id: result.data?.id,
     });
     
-    return { success: true };
+    return { success: true, data: result.data };
     
   } catch (error) {
     console.error(`[Dispatch/Replicate] Error:`, error);
@@ -194,43 +160,9 @@ async function dispatchReplicateNode(
   }
 }
 
-/**
- * Build Replicate input from node config and upstream inputs
- */
-function buildReplicateInput(
-  nodeConfig: NodeConfig,
-  upstreamInputs: Record<string, any>
-): Record<string, any> {
-  
-  // Extract all possible static inputs and control values from the UI
-  const baseInput = nodeConfig.data.input || {};
-  const controlValues = nodeConfig.data.control_values || {};
-  
-  // Dynamically concatenate options and edge inputs at the same level.
-  // Upstream edge inputs OVERRIDE the default static UI control values.
-  const input = {
-    ...controlValues,
-    ...baseInput,
-    ...upstreamInputs,
-  };
-  
-  // Clean up any empty strings or nulls from the static config that might 
-  // accidentally override valid upstream data (e.g. prompt: "")
-  for (const key in input) {
-    if (input[key] === "" || input[key] === null || input[key] === undefined) {
-      delete input[key];
-    }
-  }
+// Remove the old buildReplicateInput since aiGeneratorExecutor handles it
+// We also need to update isReplicateNode
 
-  // Ensure prompt exists if we specifically extracted it in the mapper
-  if (!input.prompt && nodeConfig.data.prompt) {
-    input.prompt = nodeConfig.data.prompt;
-  }
-  
-  console.log(`[Dispatch] Built Replicate input keys:`, Object.keys(input));
-  
-  return input;
-}
 
 /**
  * Update node state in the node_results table
@@ -313,6 +245,11 @@ async function logExecutionEvent(
  * Any node with model/version is considered a Replicate node.
  */
 function isReplicateNode(nodeConfig: NodeConfig): boolean {
-  // If node has model or version field, it needs Replicate
-  return !!(nodeConfig.data?.model || nodeConfig.data?.version);
+  // Check V1 format (data.config.model_id) or V2 flattened format (data.model)
+  return !!(
+    nodeConfig.data?.model || 
+    nodeConfig.data?.version || 
+    nodeConfig.data?.config?.model_id ||
+    nodeConfig.type === 'ai_generator'
+  );
 }

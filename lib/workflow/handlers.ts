@@ -273,9 +273,14 @@ async function handlePrompt(
   inputs: Record<string, any>
 ): Promise<string> {
   
-  const text = properties.text || properties.prompt || '';
+  // Aggressively search for the text in all known possible locations
+  const text = properties.prompt || 
+               properties.text || 
+               properties.config?.text || 
+               properties.config?.prompt || 
+               '';
   
-  console.log(`[Handler/Prompt] Returning text: "${text.substring(0, 50)}..."`);
+  console.log(`[Handler/Prompt] Returning text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
   
   return text;
 }

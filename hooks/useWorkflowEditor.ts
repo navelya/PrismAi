@@ -276,14 +276,23 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     const onNodesChange = useCallback((changes: NodeChange[]) => {
         setEditorState((prev) => {
             const nextNodes = applyNodeChanges(changes, prev.nodes);
+            
+            // 🛡️ THE ULTIMATE ROOT FIX: Deduplicate nodes immediately after any React Flow change
+            // This guarantees duplicates can never enter the editor state in the first place.
+            const uniqueNodesMap = new Map();
+            nextNodes.forEach(n => {
+                uniqueNodesMap.set(n.id, n);
+            });
+            const deduplicatedNodes = Array.from(uniqueNodesMap.values());
+
             // 🛡️ SANITY CHECK: Only validate if nodes were added or modified
             // For simple position changes, React Flow ensures positions are valid.
             const hasStructuralChanges = changes.some(c => c.type === 'add' || c.type === 'reset');
             if (!hasStructuralChanges) {
-                return { ...prev, nodes: nextNodes };
+                return { ...prev, nodes: deduplicatedNodes };
             }
 
-            const validatedNodes = nextNodes.map(n => !n.position ? { ...n, position: { x: 0, y: 0 } } : n);
+            const validatedNodes = deduplicatedNodes.map((n: any) => !n.position ? { ...n, position: { x: 0, y: 0 } } : n);
             return {
                 ...prev,
                 nodes: validatedNodes
@@ -323,6 +332,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
         touchInteraction();
         const newNode = createNodeFromType(type, position, nodeTypeId);
         setEditorState((prev) => {
+            // 🛡️ ROOT FIX: Prevent duplicate IDs
+            if (prev.nodes.some(n => n.id === newNode.id)) return prev;
+
             const maxZ = Math.max(0, ...prev.nodes.map(n => n.zIndex || 0));
             return {
                 ...prev,
@@ -371,8 +383,14 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     // Duplicate Nodes
     const duplicateNodes = useCallback((newNodes: any[], newEdges: any[]) => {
         setEditorState((prev) => {
+            // 🛡️ ROOT FIX: Prevent duplicate IDs
+            const existingIds = new Set(prev.nodes.map(n => n.id));
+            const uniqueNewNodes = newNodes.filter(n => !existingIds.has(n.id));
+
+            if (uniqueNewNodes.length === 0 && newEdges.length === 0) return prev;
+
             const maxZ = Math.max(0, ...prev.nodes.map(n => n.zIndex || 0));
-            const nodesWithZ = newNodes.map((n, i) => ({ ...n, zIndex: maxZ + 1 + i }));
+            const nodesWithZ = uniqueNewNodes.map((n, i) => ({ ...n, zIndex: maxZ + 1 + i }));
             return {
                 ...prev,
                 nodes: [...prev.nodes, ...nodesWithZ],
@@ -416,9 +434,17 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
 
     // Get current workflow (snapshot)
     const getWorkflow = useCallback((): Workflow => {
+        // Deduplicate nodes by ID at the root level to prevent ANY duplicates 
+        // from leaking into the UI state, payload, or auto-save.
+        const uniqueNodesMap = new Map();
+        editorState.nodes.forEach(n => {
+            uniqueNodesMap.set(n.id, n);
+        });
+        const uniqueNodes = Array.from(uniqueNodesMap.values());
+
         return {
             name: editorState.name,
-            nodes: editorState.nodes.map(n => ({
+            nodes: uniqueNodes.map(n => ({
                 id: n.id,
                 type: n.type as NodeType,
                 position: n.position,

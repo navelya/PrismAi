@@ -35,12 +35,9 @@ interface V1Edge {
  * It only normalizes the data structure and resolves database references.
  */
 export async function transformNodeV1ToV2(v1Node: V1Node): Promise<NodeConfig> {
-  // DEBUG LOGGING for prompt extraction
   console.log(`[NodeMapper] Transforming node ${v1Node.id} of type ${v1Node.type}`);
-  // console.log(`[NodeMapper] Raw node data:`, JSON.stringify(v1Node.data, null, 2));
 
   // V1 nodes have data nested under "config"
-  const config = v1Node.data?.config || v1Node.data || {};
   const cleanData = { ...v1Node.data };
   
   // Remove execution-specific fields (these shouldn't be in graph_json)
@@ -49,67 +46,15 @@ export async function transformNodeV1ToV2(v1Node: V1Node): Promise<NodeConfig> {
   delete cleanData.status;
   delete cleanData.error;
   
-  // For nodes with model_id, resolve to replicate_model_id string
-  // This is needed because V2 dispatch needs the actual model string, not a database ID
-  let modelVersion = config.model || config.version;
+  // Keep the exact original data structure from the UI.
+  // The UI stores its config in `data.config`, `data.control_values`, etc.
+  // We should NOT flatten this, because the execution engine handlers 
+  // (like aiGeneratorExecutor) expect exactly this structure.
   
-  if (config.model_id && !modelVersion) {
-    try {
-      const supabase = createServiceClient();
-      const { data: modelData } = await supabase
-        .from('ai_models')
-        .select('replicate_model_id')
-        .eq('id', config.model_id)
-        .single();
-      
-      if (modelData?.replicate_model_id) {
-        modelVersion = modelData.replicate_model_id;
-        console.log(`[NodeMapper] Resolved model_id ${config.model_id} to ${modelVersion}`);
-      } else {
-        console.error(`[NodeMapper] Model with ID ${config.model_id} not found in database`);
-      }
-    } catch (err) {
-      console.error(`[NodeMapper] Failed to resolve model_id ${config.model_id}:`, err);
-    }
-  }
-  
-  // Extract control values (prompt, etc.)
-  const controlValues = config.control_values || config.input || {};
-  
-  // LOG the possible prompt locations
-  // console.log(`[NodeMapper] Node ${v1Node.id} prompt check:`, {
-  //   controlValuesPrompt: controlValues.prompt,
-  //   configPrompt: config.prompt,
-  //   cleanDataPrompt: cleanData.prompt,
-  //   configInputPrompt: config.input?.prompt
-  // });
-
-  const prompt = controlValues.prompt || config.prompt || cleanData.prompt || config.input?.prompt || "";
-  
-  if (!prompt && v1Node.type === 'ai_generator') {
-    console.warn(`[NodeMapper] ⚠️ No prompt found for ai_generator node ${v1Node.id}`);
-  } else if (prompt) {
-    console.log(`[NodeMapper] ✅ Extracted prompt for ${v1Node.id}: "${prompt.substring(0, 30)}..."`);
-  }
-
-  // Return normalized V2 format
-  // KEEP ORIGINAL TYPE - don't change node types!
   return {
     id: v1Node.id,
-    type: v1Node.type, // Keep original type - nodes are dynamic!
-    data: {
-      ...cleanData,
-      // Normalize fields for V2 execution
-      label: cleanData.label,
-      model: modelVersion,
-      version: modelVersion,
-      prompt: prompt,
-      input: {
-        ...controlValues,
-        prompt: prompt // Ensure prompt is in input too
-      },
-      control_values: controlValues, // Keep original for compatibility
-    },
+    type: v1Node.type, 
+    data: cleanData, // Preserve the exact structure!
     position: v1Node.position,
   };
 }
