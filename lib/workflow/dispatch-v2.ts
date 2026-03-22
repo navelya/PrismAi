@@ -146,12 +146,27 @@ async function dispatchReplicateNode(
     console.log('═══════════════════════════════════════════════════════════════');
     
     // Create prediction with webhook
-    const prediction = await replicate.predictions.create({
-      version: model,
+    // SDK handles 'version' as a 64-char string or 'model' as 'owner/name'
+    const isVersionHash = /^[a-f0-9]{64}$/.test(model);
+    
+    const predictionOptions: any = {
       input: replicateInput,
       webhook: webhookUrl,
       webhook_events_filter: ['completed'],
+    };
+
+    if (isVersionHash) {
+      predictionOptions.version = model;
+    } else {
+      predictionOptions.model = model;
+    }
+
+    console.log(`[Dispatch/Replicate] Calling Replicate API with:`, {
+      ...predictionOptions,
+      input: { ...replicateInput, prompt: (replicateInput.prompt as string)?.substring(0, 50) + '...' }
     });
+
+    const prediction = await replicate.predictions.create(predictionOptions);
     
     console.log(`[Dispatch/Replicate] ✅ Prediction created:`, {
       predictionId: prediction.id,

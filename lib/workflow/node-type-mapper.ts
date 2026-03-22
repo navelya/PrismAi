@@ -35,6 +35,10 @@ interface V1Edge {
  * It only normalizes the data structure and resolves database references.
  */
 export async function transformNodeV1ToV2(v1Node: V1Node): Promise<NodeConfig> {
+  // DEBUG LOGGING for prompt extraction
+  console.log(`[NodeMapper] Transforming node ${v1Node.id} of type ${v1Node.type}`);
+  // console.log(`[NodeMapper] Raw node data:`, JSON.stringify(v1Node.data, null, 2));
+
   // V1 nodes have data nested under "config"
   const config = v1Node.data?.config || v1Node.data || {};
   const cleanData = { ...v1Node.data };
@@ -71,8 +75,23 @@ export async function transformNodeV1ToV2(v1Node: V1Node): Promise<NodeConfig> {
   
   // Extract control values (prompt, etc.)
   const controlValues = config.control_values || config.input || {};
-  const prompt = controlValues.prompt || config.prompt || cleanData.prompt || "";
   
+  // LOG the possible prompt locations
+  // console.log(`[NodeMapper] Node ${v1Node.id} prompt check:`, {
+  //   controlValuesPrompt: controlValues.prompt,
+  //   configPrompt: config.prompt,
+  //   cleanDataPrompt: cleanData.prompt,
+  //   configInputPrompt: config.input?.prompt
+  // });
+
+  const prompt = controlValues.prompt || config.prompt || cleanData.prompt || config.input?.prompt || "";
+  
+  if (!prompt && v1Node.type === 'ai_generator') {
+    console.warn(`[NodeMapper] ⚠️ No prompt found for ai_generator node ${v1Node.id}`);
+  } else if (prompt) {
+    console.log(`[NodeMapper] ✅ Extracted prompt for ${v1Node.id}: "${prompt.substring(0, 30)}..."`);
+  }
+
   // Return normalized V2 format
   // KEEP ORIGINAL TYPE - don't change node types!
   return {

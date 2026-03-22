@@ -47,7 +47,14 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    console.log(`[Execution/Start] Starting execution for session ${session_id} with ${graph_json.nodes.length} nodes`);
+    // Deduplicate nodes by ID to prevent database constraint violations
+    const uniqueNodesMap = new Map<string, NodeConfig>();
+    graph_json.nodes.forEach((node: NodeConfig) => {
+      uniqueNodesMap.set(node.id, node);
+    });
+    const uniqueNodes = Array.from(uniqueNodesMap.values());
+    
+    console.log(`[Execution/Start] Starting execution for session ${session_id} with ${uniqueNodes.length} unique nodes (from ${graph_json.nodes.length} total)`);
     
     const supabase = createServiceClient();
     
@@ -57,7 +64,7 @@ export async function POST(request: NextRequest) {
       .insert({
         session_id,
         status: 'pending',
-        graph_json: graph_json, // Save the immutable graph snapshot
+        graph_json: { ...graph_json, nodes: uniqueNodes }, // Save deduplicated nodes
       })
       .select()
       .single();
@@ -76,8 +83,8 @@ export async function POST(request: NextRequest) {
     const { origin } = new URL(request.url);
     console.log(`[Execution/Start] Using origin for webhooks: ${origin}`);
     
-    // Initialize node_results for all nodes so the UI sees them as pending
-    const initialNodeResults = graph_json.nodes.map((node: NodeConfig) => ({
+    // Initialize node_results for all unique nodes so the UI sees them as pending
+    const initialNodeResults = uniqueNodes.map((node: NodeConfig) => ({
       execution_id: execution.id,
       node_id: node.id,
       status: 'pending',
@@ -96,7 +103,7 @@ export async function POST(request: NextRequest) {
     // FIRE-AND-FORGET DISPATCH:
     // In "Simple V3" we just dispatch everything immediately.
     // In a full engine, we'd only dispatch root nodes.
-    const dispatchPromises = graph_json.nodes.map((node: NodeConfig) => {
+    const dispatchPromises = uniqueNodes.map((node: NodeConfig) => {
         // For now, pass an empty inputs object - will be populated by check-and-dispatch later
         // In simple mode, it assumes nodes have all info in their config (data)
         return dispatchNode(execution.id, node.id, node, {}, origin);
