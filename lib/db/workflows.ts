@@ -218,33 +218,41 @@ export async function getSessionExecutions(
     sessionId: string
 ): Promise<Array<{ nodeId: string; status: string; output: any; outputMetadata?: any; error?: string; updatedAt: string }>> {
     try {
-        // V3: Get latest execution and its results
-        // Use sessionId as filter - if the column is named workflow_id in the DB, this will fail
-        // until the migration is run.
-        const { data: latestExec, error: execError } = await supabase
+        // V3: Get all executions for this session
+        const { data: executions, error: execError } = await supabase
             .from('executions')
             .select('id')
             .eq('session_id', sessionId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .order('created_at', { ascending: false });
 
-        if (execError || !latestExec) {
+        if (execError || !executions || executions.length === 0) {
             if (execError) console.error('[getSessionExecutions] Exec fetch error:', execError);
             return [];
         }
 
+        // Map execution IDs array and query all node results 
+        // belonging to these executions, ordered by newest first
+        const executionIds = executions.map((e: any) => e.id);
         const { data, error } = await supabase
             .from('node_results')
             .select('*')
-            .eq('execution_id', latestExec.id);
+            .in('execution_id', executionIds)
+            .order('created_at', { ascending: false });
 
         if (error) {
             console.error('[getSessionExecutions] Results fetch error:', error);
             return [];
         }
 
-        return (data || []).map((row: any) => ({
+        // Keep only the latest result per node (first seen due to descending order)
+        const latestResults = new Map();
+        for (const row of (data || [])) {
+            if (!latestResults.has(row.node_id)) {
+                latestResults.set(row.node_id, row);
+            }
+        }
+
+        return Array.from(latestResults.values()).map((row: any) => ({
             nodeId: row.node_id,
             status: row.status,
             output: row.result_url ? { url: row.result_url } : undefined,

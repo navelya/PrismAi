@@ -124,6 +124,35 @@ export async function POST(request: NextRequest) {
       // Non-critical, continue with dispatch
     }
     
+    
+    // Create map for node results, seeded with historical successful results
+    // so chained API requests can access upstream outputs from previous executions
+    const resultUrlMap = new Map();
+    
+    const { data: previousExecutions } = await supabase
+        .from('executions')
+        .select('id')
+        .eq('session_id', session_id)
+        .order('created_at', { ascending: false });
+        
+    if (previousExecutions && previousExecutions.length > 0) {
+        const pExecIds = previousExecutions.map(e => e.id);
+        const { data: previousResults } = await supabase
+            .from('node_results')
+            .select('node_id, result_url')
+            .in('execution_id', pExecIds)
+            .eq('status', 'completed')
+            .order('created_at', { ascending: true }); // Ascending so newest overrides older
+            
+        if (previousResults) {
+            previousResults.forEach(r => {
+                if (r.result_url) resultUrlMap.set(r.node_id, r.result_url);
+            });
+        }
+    }
+    
+    console.log(`[Execution/Start] Seeded ${resultUrlMap.size} historical result URLs for AI chaining`);
+
     // SIMPLE V3 SEQUENTIAL DISPATCH:
     // 1. Dispatch ephemeral nodes (like prompts) and wait for them to finish.
     // 2. Fetch their results.
@@ -131,8 +160,6 @@ export async function POST(request: NextRequest) {
     
     const ephemeralNodes = nodesToExecute.filter(node => isEphemeralNode(node.type));
     const aiNodes = nodesToExecute.filter(node => !isEphemeralNode(node.type));
-    
-    const resultUrlMap = new Map();
     
     // Step 1: Run ephemeral nodes sequentially
     for (const node of ephemeralNodes) {

@@ -41,10 +41,7 @@ export default function SharedWorkflowEditor({
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
     const isDragging = useAppStore((state) => state.isDragging);
     const activeExecutionId = useAppStore((state) => state.activeExecutionId);
-    
-    // Subscribe to execution channel for realtime status updates
-    useExecutionChannel(activeExecutionId);
-    
+    // useExecutionChannel is mounted at the layout level in ChatClientPage to avoid duplicate subscriptions
     // Global Catalog State
     const models = useAppStore(state => state.models);
     const isModelsLoading = useAppStore(state => state.isModelsLoading);

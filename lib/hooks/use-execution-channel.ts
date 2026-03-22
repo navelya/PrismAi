@@ -163,7 +163,12 @@ export function useExecutionChannel(executionId: string | null | undefined) {
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (executionChannelRef.current && supabaseRef.current) {
-                supabaseRef.current.removeChannel(executionChannelRef.current);
+                try {
+                    executionChannelRef.current.unsubscribe();
+                    supabaseRef.current.removeChannel(executionChannelRef.current);
+                } catch (e) {
+                    console.log('Error cleaning up channel:', e);
+                }
                 executionChannelRef.current = null;
             }
         };
