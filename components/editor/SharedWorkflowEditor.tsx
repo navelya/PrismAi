@@ -8,7 +8,6 @@ import ResultsPanel from './ResultsPanel';
 import { useWorkflowEditor } from '@/hooks/useWorkflowEditor';
 import { NodeType, Workflow } from '@/lib/nodes/types';
 import { saveWorkflow } from '@/lib/db/workflows';
-import { executeWorkflow, executeWorkflowFromNode } from '@/lib/workflow-engine';
 import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { useAutoSave } from '@/hooks/useAutoSave';

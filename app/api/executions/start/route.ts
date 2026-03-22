@@ -107,20 +107,6 @@ export async function POST(request: NextRequest) {
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
-    // V2 ARCHITECTURE: Database trigger → Edge Function → Dispatch
-    // The Postgres trigger will fire NOTIFY, Edge Function picks it up and dispatches
-    // For now: await to ensure execution (TODO: Deploy Edge Function for instant response)
-    console.log(`[Execution/Start] Starting check-and-dispatch (awaiting until Edge Function deployed)`);
-    
-    try {
-      const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
-      await checkAndDispatch(execution.id);
-      console.log(`[Execution/Start] ✅ Check-and-dispatch completed`);
-    } catch (error) {
-      console.error(`[Execution/Start] ❌ Check-and-dispatch failed:`, error);
-      // Don't fail the request - execution is created, can be retried
-    }
-    
     // Return execution details
     return NextResponse.json({
       success: true,

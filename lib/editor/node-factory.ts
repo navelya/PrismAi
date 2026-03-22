@@ -13,11 +13,6 @@ export function createNodeFromType(
 
     // Default configurations for each node type
     const defaultConfigs: Record<NodeType, NodeConfig> = {
-        ai_generate_image: {
-            prompt: 'A beautiful image',
-            model: 'gemini-2.5-flash-image' as const,
-            aspectRatio: '1:1' as const,
-        },
         media_input: {
             images: [],
         },

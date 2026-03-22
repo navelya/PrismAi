@@ -91,7 +91,7 @@ Return ONLY valid JSON with this structure:
 {
   "isModification": boolean,
   "type": "add_node" | "remove_node" | "update_config" | "new_workflow",
-  "nodeType": "ai_generate_image" | "prompt" | "media_input" | "compositor" (if adding),
+  "nodeType": "ai_generator" | "prompt" | "media_input" | "compositor" (if adding),
   "nodeId": "id of node to modify/remove" (if updating/removing),
   "config": {partial config object} (if updating config),
   "shouldExecute": true/false (whether to auto-run after modification)
@@ -139,7 +139,7 @@ function parseFallback(
         let nodeType: NodeType | undefined;
 
         if (lowerCommand.includes('generate') || lowerCommand.includes('ai') || lowerCommand.includes('create')) {
-            nodeType = 'ai_generate_image';
+            nodeType = 'ai_generator';
         } else if (lowerCommand.includes('prompt')) {
             nodeType = 'prompt';
         }
@@ -161,7 +161,7 @@ function parseFallback(
 
         // Find node to remove based on type mention
         if (lowerCommand.includes('generate') || lowerCommand.includes('ai')) {
-            nodeId = currentWorkflow.nodes.find(n => n.type === 'ai_generate_image')?.id;
+            nodeId = currentWorkflow.nodes.find(n => n.type === 'ai_generator')?.id;
         } else if (lowerCommand.includes('prompt')) {
             nodeId = currentWorkflow.nodes.find(n => n.type === 'prompt')?.id;
         }
@@ -181,7 +181,7 @@ function parseFallback(
     if (lowerCommand.includes('change') || lowerCommand.includes('set') || lowerCommand.includes('update')) {
         // AI Generate Image updates
         if (lowerCommand.includes('prompt')) {
-            const generateNode = currentWorkflow.nodes.find(n => n.type === 'ai_generate_image');
+            const generateNode = currentWorkflow.nodes.find(n => n.type === 'ai_generator');
             if (generateNode) {
                 // Logic would go here
             }

@@ -148,14 +148,6 @@ export async function POST(request: NextRequest) {
     
     console.log(`[API/Dispatch-Ephemeral] Node ${node_id} completed successfully`);
     
-    // CRITICAL: Trigger downstream dispatch
-    // Without this, downstream nodes never execute!
-    console.log(`[Ephemeral] Triggering check-and-dispatch for downstream nodes`);
-    const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
-    checkAndDispatch(execution_id).catch(error => {
-      console.error(`[Ephemeral] Check-and-dispatch error:`, error);
-    });
-    
     // Return success (trigger will handle downstream dispatch)
     return NextResponse.json({
       success: true,

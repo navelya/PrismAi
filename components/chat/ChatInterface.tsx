@@ -13,7 +13,6 @@ import { useAppStore } from '@/lib/store/app-store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { generateNodeId, generateEdgeId, formatRelativeTime } from '@/lib/utils';
 import { stableStringify, cleanWorkflowForSave } from '@/lib/utils/stable-stringify';
-import { executeWorkflow } from '@/lib/workflow-engine';
 
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
