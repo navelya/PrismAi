@@ -7,6 +7,7 @@ import { replicate } from '@/lib/ai/replicate-client';
 import { createServiceClient } from '@/lib/supabase/service';
 import { NodeConfig, NodeState } from './types-v2';
 import { isEphemeralNode } from './handlers';
+import { executeEphemeralNode } from './ephemeral-executor';
 
 const WEBHOOK_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
@@ -72,7 +73,7 @@ async function dispatchEphemeralNode(
   inputs: Record<string, any>
 ): Promise<{ success: boolean; error?: string }> {
   
-  console.log(`[Dispatch/Ephemeral] Dispatching node ${nodeId}`, { nodeType: nodeConfig.type });
+  console.log(`[Dispatch/Ephemeral] Executing node ${nodeId} DIRECTLY`, { nodeType: nodeConfig.type });
   
   try {
     // Update node state to running
@@ -85,31 +86,22 @@ async function dispatchEphemeralNode(
     await logExecutionEvent(executionId, nodeId, 'dispatched', {
       handler: nodeConfig.type,
       ephemeral: true,
+      execution_mode: 'direct'
     });
     
-    // Call internal API to process ephemeral node
-    const response = await fetch(`${WEBHOOK_BASE_URL}/api/executions/dispatch-ephemeral`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        execution_id: executionId,
-        node_id: nodeId,
-      }),
-    });
+    // CALL DIRECTLY (This fixes the ECONNREFUSED localhost:3000 error)
+    const result = await executeEphemeralNode(executionId, nodeId);
     
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Ephemeral dispatch failed: ${error}`);
+    if (!result.success) {
+      throw new Error(result.error || 'Ephemeral execution failed');
     }
     
-    console.log(`[Dispatch/Ephemeral] Successfully dispatched node ${nodeId}`);
+    console.log(`[Dispatch/Ephemeral] ✅ Successfully executed node ${nodeId} directly`);
     
     return { success: true };
     
   } catch (error) {
-    console.error(`[Dispatch/Ephemeral] Error:`, error);
+    console.error(`[Dispatch/Ephemeral] ❌ Error:`, error);
     throw error;
   }
 }
