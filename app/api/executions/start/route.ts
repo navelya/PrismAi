@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { GraphJson } from '@/lib/workflow/types-v2';
+import { GraphJson, NodeConfig } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { dispatchNode } from '@/lib/workflow/dispatch-v2';
 
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { session_id, workflow, user_id } = body;
-    let { graph_json } = body;
+    let graph_json: GraphJson = body.graph_json;
     
     // Validate required fields
     if (!session_id || (!graph_json && !workflow)) {
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
     // Initialize node_results for all nodes so the UI sees them as pending
-    const initialNodeResults = graph_json.nodes.map(node => ({
+    const initialNodeResults = graph_json.nodes.map((node: NodeConfig) => ({
       execution_id: execution.id,
       node_id: node.id,
       status: 'pending',
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
     // FIRE-AND-FORGET DISPATCH:
     // In "Simple V3" we just dispatch everything immediately.
     // In a full engine, we'd only dispatch root nodes.
-    const dispatchPromises = graph_json.nodes.map(node => {
+    const dispatchPromises = graph_json.nodes.map((node: NodeConfig) => {
         // For now, pass an empty inputs object - will be populated by check-and-dispatch later
         // In simple mode, it assumes nodes have all info in their config (data)
         return dispatchNode(execution.id, node.id, node, {});
