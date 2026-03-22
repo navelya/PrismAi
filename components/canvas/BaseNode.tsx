@@ -2,7 +2,7 @@
 
 import React, { memo } from 'react';
 import { Handle, Position, useReactFlow, useEdges, Connection } from 'reactflow';
-import { Play, Copy, X, Loader2, Check, Circle, FastForward } from 'lucide-react';
+import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -53,7 +53,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
     // Status and Store Actions
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
-    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const edges = useEdges();
 
@@ -96,16 +95,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             };
             addNodes(newNode);
         }
-    };
-
-    const handleRunSolo = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        triggerRunFromNode(id, 'solo');
-    };
-
-    const handleRunChain = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        triggerRunFromNode(id, 'chain');
     };
 
     // --- DRY Connection Validation ---
@@ -197,26 +186,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         >
             {/* Action Buttons */}
             <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                {sharedDef?.category === 'generative' && (
-                    <>
-                        <button
-                            onClick={handleRunSolo}
-                            className="w-6 h-6 rounded-lg bg-accent-primary/20 border border-accent-primary/30 backdrop-blur-md
-                                       flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-primary transition-all duration-200 group/btn"
-                            title="Run Solo (This node only)"
-                        >
-                            <Play className="w-3 h-3 text-accent-primary group-hover/btn:text-white fill-current" />
-                        </button>
-                        <button
-                            onClick={handleRunChain}
-                            className="w-6 h-6 rounded-lg bg-accent-secondary/20 border border-accent-secondary/30 backdrop-blur-md
-                                       flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-secondary transition-all duration-200 group/btn"
-                            title="Run Chain (This node + all downstream)"
-                        >
-                            <FastForward className="w-3.5 h-3.5 text-accent-secondary group-hover/btn:text-white fill-current" />
-                        </button>
-                    </>
-                )}
                 {/* Input nodes don't have manual triggers anymore. Utility nodes compute reactively. */}
                 {customActions}
                 <button
