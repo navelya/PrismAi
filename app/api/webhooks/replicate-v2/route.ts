@@ -73,57 +73,107 @@ export async function POST(request: NextRequest) {
     
     const supabase = createServiceClient();
     
-    // 1. Find the corresponding row in node_results (Step 6)
-    const { data: resultRow, error: findError } = await supabase
-      .from('node_results')
-      .select('id, execution_id, node_id')
-      .eq('replicate_id', predictionId)
+    // Fetch current execution
+    const { data: execution, error: fetchError } = await supabase
+      .from('executions_v2')
+      .select('node_states, graph_json')
+      .eq('id', executionId)
       .single();
     
-    if (findError || !resultRow) {
-      console.error('[Webhook/Replicate-v2] ❌ Result row not found for prediction:', predictionId);
-      return NextResponse.json({ error: 'Result row not found' }, { status: 404 });
+    if (fetchError || !execution) {
+      console.error('[Webhook/Replicate-v2] Execution not found:', fetchError);
+      return NextResponse.json(
+        { error: 'Execution not found' },
+        { status: 404 }
+      );
     }
-
-    // 2. Handle Completion (Step 5 & 6)
+    
+    // Handle different prediction statuses
     if (status === 'succeeded') {
+      console.log(`[Webhook/Replicate-v2] Node ${nodeId} completed successfully`);
+      
+      // Normalize output to standard format
       const normalizedOutput = normalizeReplicateOutput(output);
       const resultUrl = normalizedOutput?.url || (Array.isArray(normalizedOutput) ? normalizedOutput[0]?.url : null);
       
-      console.log(`[Webhook/Replicate-v2] ✅ Node ${resultRow.node_id} succeeded. URL: ${resultUrl}`);
-
-      // Update node_results (Your Step 5: Store url in different table)
-      await supabase
-        .from('node_results')
-        .update({
+      // Update node state to completed
+      const updatedNodeStates = {
+        ...execution.node_states,
+        [nodeId]: {
+          ...execution.node_states[nodeId],
           status: 'completed',
           result_url: resultUrl,
+          output: normalizedOutput,
+          completed_at: new Date().toISOString(),
+        },
+      };
+      
+      // Update execution
+      const { error: updateError } = await supabase
+        .from('executions_v2')
+        .update({
+          node_states: updatedNodeStates,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', resultRow.id);
-
-      // Update the parent execution status
-      await supabase
-        .from('executions')
-        .update({ status: 'completed', updated_at: new Date().toISOString() })
-        .eq('id', resultRow.execution_id);
+        .eq('id', executionId);
+      
+      if (updateError) {
+        console.error('[Webhook/Replicate-v2] Failed to update execution:', updateError);
+        return NextResponse.json(
+          { error: 'Failed to update execution' },
+          { status: 500 }
+        );
+      }
+      
+      // Log completion event
+      await supabase.rpc('log_execution_event', {
+        p_execution_id: executionId,
+        p_node_id: nodeId,
+        p_event_type: 'completed',
+        p_payload: { result_url: resultUrl },
+      });
+      
+      console.log(`[Webhook/Replicate-v2] Successfully processed completion for node ${nodeId}`);
+      
+      // STEP 4: Trigger downstream dispatch
+      // We rely on the Supabase Database Webhook to trigger the next step.
+      // This ensures durability: if the API is down, the DB will retry the webhook.
+      console.log(`[Webhook/Replicate-v2] Node ${nodeId} finished. Handing over to Database Webhook.`);
       
     } else if (status === 'failed' || status === 'canceled') {
-      console.error(`[Webhook/Replicate-v2] ❌ Node ${resultRow.node_id} failed:`, predictionError);
+      console.error(`[Webhook/Replicate-v2] Node ${nodeId} failed:`, predictionError);
       
-      await supabase
-        .from('node_results')
-        .update({
+      // Update node state to failed
+      const updatedNodeStates = {
+        ...execution.node_states,
+        [nodeId]: {
+          ...execution.node_states[nodeId],
           status: 'failed',
           error: predictionError || `Prediction ${status}`,
+          completed_at: new Date().toISOString(),
+        },
+      };
+      
+      // Update execution to failed
+      await supabase
+        .from('executions_v2')
+        .update({
+          node_states: updatedNodeStates,
+          status: 'failed',
           updated_at: new Date().toISOString(),
         })
-        .eq('id', resultRow.id);
-
-      await supabase
-        .from('executions')
-        .update({ status: 'failed', updated_at: new Date().toISOString() })
-        .eq('id', resultRow.execution_id);
+        .eq('id', executionId);
+      
+      // Log failure event
+      await supabase.rpc('log_execution_event', {
+        p_execution_id: executionId,
+        p_node_id: nodeId,
+        p_event_type: 'failed',
+        p_payload: { error: predictionError || `Prediction ${status}` },
+      });
+      
+    } else {
+      console.log(`[Webhook/Replicate-v2] Ignoring intermediate status: ${status}`);
     }
     
     return NextResponse.json({ success: true });
