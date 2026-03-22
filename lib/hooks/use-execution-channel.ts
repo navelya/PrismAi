@@ -54,9 +54,13 @@ async function subscribeWithRetry(
 export function useExecutionChannel(executionId: string | null | undefined) {
     const executionChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
     const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+    const visibilityHandlerRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
-        if (!executionId) return;
+        if (!executionId) {
+            console.log('[ExecutionChannel] No executionId provided, skipping subscription');
+            return;
+        }
 
         const supabase = createClient();
         supabaseRef.current = supabase;
@@ -109,7 +113,17 @@ export function useExecutionChannel(executionId: string | null | undefined) {
             .on(
                 'postgres_changes',
                 {
-                    event: '*', 
+                    event: 'INSERT', 
+                    schema: 'public',
+                    table: 'node_results',
+                    filter: `execution_id=eq.${executionId}`
+                },
+                handleResultChange
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE', 
                     schema: 'public',
                     table: 'node_results',
                     filter: `execution_id=eq.${executionId}`
@@ -137,7 +151,17 @@ export function useExecutionChannel(executionId: string | null | undefined) {
                     .on(
                         'postgres_changes',
                         {
-                            event: '*',
+                            event: 'INSERT',
+                            schema: 'public',
+                            table: 'node_results',
+                            filter: `execution_id=eq.${executionId}`
+                        },
+                        handleResultChange
+                    )
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: 'UPDATE',
                             schema: 'public',
                             table: 'node_results',
                             filter: `execution_id=eq.${executionId}`
@@ -154,12 +178,13 @@ export function useExecutionChannel(executionId: string | null | undefined) {
             }
         };
 
+        visibilityHandlerRef.current = handleVisibilityChange;
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
-            if (executionChannelRef.current) {
-                supabase.removeChannel(executionChannelRef.current);
+            if (executionChannelRef.current && supabaseRef.current) {
+                supabaseRef.current.removeChannel(executionChannelRef.current);
                 executionChannelRef.current = null;
             }
         };
