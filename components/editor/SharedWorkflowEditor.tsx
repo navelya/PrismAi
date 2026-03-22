@@ -347,7 +347,6 @@ export default function SharedWorkflowEditor({
     };
 
     const handleRun = async () => {
-        if (isExecuting) return;
         const { cost, count } = calculateExecutionCost(null, 'all');
 
         if (cost > 0) {
@@ -364,7 +363,7 @@ export default function SharedWorkflowEditor({
     const runMode = useAppStore((state) => state.runMode);
 
     useEffect(() => {
-        if (!runFromNodeId || isExecuting || !runMode) return;
+        if (!runFromNodeId || !runMode) return;
 
         const clearRunFromNode = useAppStore.getState().clearRunFromNode;
         const targetId = runFromNodeId;

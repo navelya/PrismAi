@@ -14,13 +14,13 @@ interface ChatClientPageProps {
 export default function ChatClientPage({ initialUserName, sessionId }: ChatClientPageProps) {
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
-    const activeExecutionId = useAppStore((state) => state.activeExecutionId);
+    const activeSessionId = useAppStore((state) => state.activeSessionId);
 
     const addResultRef = useRef<((result: any) => void) | null>(null);
 
-    // V3: Mount execution channel at layout level using executionId from store
-    // Listens to node_results table for real-time updates
-    useExecutionChannel(activeExecutionId);
+    // V3: Mount execution channel at layout level using activeSessionId from store
+    // Listens to node_results table for real-time updates for the entire session
+    useExecutionChannel(activeSessionId);
 
     const handleChatReady = (addResult: (result: any) => void) => {
         addResultRef.current = addResult;

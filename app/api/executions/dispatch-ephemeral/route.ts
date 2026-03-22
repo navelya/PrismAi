@@ -145,6 +145,7 @@ export async function POST(request: NextRequest) {
       .upsert({
         execution_id: execution_id,
         node_id: node_id,
+        session_id: execution.session_id,
         status: 'completed',
         result_url: resultUrl,
         updated_at: new Date().toISOString(),

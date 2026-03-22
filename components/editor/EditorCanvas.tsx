@@ -423,8 +423,23 @@ function EditorCanvasInner({
         setContextMenu(null);
     }, [reactFlowInstance, onDrop]);
 
+    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+        if (!reactFlowWrapper.current) return;
+        const rect = reactFlowWrapper.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        reactFlowWrapper.current.style.setProperty('--mouse-x', `${x}px`);
+        reactFlowWrapper.current.style.setProperty('--mouse-y', `${y}px`);
+    }, []);
+
     return (
-        <div ref={reactFlowWrapper} className="w-full h-full relative" onContextMenu={handleContextMenu}>
+        <div 
+            ref={reactFlowWrapper} 
+            className="w-full h-full relative canvas-container" 
+            onContextMenu={handleContextMenu}
+            onMouseMove={handleMouseMove}
+        >
+            <div className="canvas-spotlight" />
             <ReactFlow
                 nodes={displayNodes}
                 edges={memoizedEdges}
@@ -473,9 +488,9 @@ function EditorCanvasInner({
                 <Background
                     variant={BackgroundVariant.Dots}
                     gap={16}
-                    size={1}
+                    size={1.5}
                     style={{ backgroundColor: 'rgb(var(--canvas-bg))' }}
-                    color="rgb(var(--canvas-dots))"
+                    color="rgba(255, 255, 255, 0.18)"
                 />
 
                 <Panel position="bottom-center" className="!mb-4">

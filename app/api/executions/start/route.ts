@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
     const initialNodeResults = nodesToExecute.map((node: NodeConfig) => ({
       execution_id: execution.id,
       node_id: node.id,
+      session_id: session_id,
       status: 'pending',
       updated_at: new Date().toISOString(),
     }));
@@ -164,7 +165,7 @@ export async function POST(request: NextRequest) {
     // Step 1: Run ephemeral nodes sequentially
     for (const node of ephemeralNodes) {
         try {
-            const dispatchResult = await dispatchNode(execution.id, node.id, node, {}, origin);
+            const dispatchResult = await dispatchNode(execution.id, node.id, node, {}, origin, session_id);
             if (dispatchResult.success && dispatchResult.data !== undefined) {
                 resultUrlMap.set(node.id, dispatchResult.data);
             }
@@ -201,7 +202,7 @@ export async function POST(request: NextRequest) {
         
         console.log(`[Execution/Start] Mapped inputs for AI node ${node.id}:`, inputs);
         
-        return dispatchNode(execution.id, node.id, node, inputs, origin);
+        return dispatchNode(execution.id, node.id, node, inputs, origin, session_id);
     });
     
     try {

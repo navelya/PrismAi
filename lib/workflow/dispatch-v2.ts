@@ -19,7 +19,8 @@ export async function dispatchNode(
   nodeId: string,
   nodeConfig: NodeConfig,
   inputs: Record<string, any> = {},
-  baseUrl?: string
+  baseUrl?: string,
+  sessionId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   const currentBaseUrl = baseUrl || WEBHOOK_BASE_URL;
   console.log(`[Dispatch] Starting dispatch for node ${nodeId} in execution ${executionId} (BaseURL: ${currentBaseUrl})`);
@@ -31,12 +32,12 @@ export async function dispatchNode(
     const nodeType = nodeConfig.type;
     
     if (isEphemeralNode(nodeType)) {
-      return await dispatchEphemeralNode(executionId, nodeId, nodeConfig, inputs);
+      return await dispatchEphemeralNode(executionId, nodeId, nodeConfig, inputs, sessionId);
     }
     
     // Check if this is a Replicate-based node (dynamic check based on model field)
     if (isReplicateNode(nodeConfig)) {
-      return await dispatchReplicateNode(executionId, nodeId, nodeConfig, inputs, currentBaseUrl);
+      return await dispatchReplicateNode(executionId, nodeId, nodeConfig, inputs, currentBaseUrl, sessionId);
     }
     
     // Unsupported node type
@@ -46,7 +47,7 @@ export async function dispatchNode(
     await updateNodeState(executionId, nodeId, {
       status: 'failed',
       error: `Unsupported node type: ${nodeType}`,
-    });
+    }, sessionId);
     
     return { success: false, error: `Unsupported node type: ${nodeType}` };
     
@@ -56,7 +57,7 @@ export async function dispatchNode(
     await updateNodeState(executionId, nodeId, {
       status: 'failed',
       error: error instanceof Error ? error.message : 'Unknown dispatch error',
-    });
+    }, sessionId);
     
     return { 
       success: false, 
@@ -72,7 +73,8 @@ async function dispatchEphemeralNode(
   executionId: string,
   nodeId: string,
   nodeConfig: NodeConfig,
-  inputs: Record<string, any>
+  inputs: Record<string, any>,
+  sessionId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   
   console.log(`[Dispatch/Ephemeral] Executing node ${nodeId} DIRECTLY`, { nodeType: nodeConfig.type });
@@ -82,7 +84,7 @@ async function dispatchEphemeralNode(
     await updateNodeState(executionId, nodeId, {
       status: 'running',
       dispatched_at: new Date().toISOString(),
-    });
+    }, sessionId);
     
     // Log dispatch event
     await logExecutionEvent(executionId, nodeId, 'dispatched', {
@@ -118,7 +120,8 @@ async function dispatchReplicateNode(
   nodeId: string,
   nodeConfig: NodeConfig,
   inputs: Record<string, any>,
-  baseUrl: string
+  baseUrl: string,
+  sessionId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   
   console.log(`[Dispatch/Replicate] Dispatching node ${nodeId} via aiGeneratorExecutor`, { nodeConfig, inputs });
@@ -145,7 +148,7 @@ async function dispatchReplicateNode(
       status: 'running',
       replicate_prediction_id: result.data?.id,
       dispatched_at: new Date().toISOString(),
-    });
+    }, sessionId);
     
     // Log event
     await logExecutionEvent(executionId, nodeId, 'dispatched', {
@@ -170,7 +173,8 @@ async function dispatchReplicateNode(
 async function updateNodeState(
   executionId: string,
   nodeId: string,
-  state: Partial<NodeState>
+  state: Partial<NodeState>,
+  sessionId?: string
 ): Promise<void> {
   
   const supabase = createServiceClient();
@@ -181,6 +185,7 @@ async function updateNodeState(
     .upsert({
       execution_id: executionId,
       node_id: nodeId,
+      session_id: sessionId,
       status: state.status || 'running',
       result_url: state.result_url,
       error: state.error,

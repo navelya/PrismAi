@@ -47,18 +47,18 @@ async function subscribeWithRetry(
  * CRITICAL: This hook MUST be instantiated at a component level that is
  * NEVER unmounted while the session is active.
  *
- * V3 Changes:
- *  - Listens to node_results table instead of executions_v2
- *  - Each row corresponds to a single node's state change
+ * V3.1 Changes:
+ *  - Listens to node_results table by session_id instead of execution_id
+ *  - Catch all updates for the current session, enabling concurrent runs
  */
-export function useExecutionChannel(executionId: string | null | undefined) {
+export function useExecutionChannel(sessionId: string | null | undefined) {
     const executionChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
     const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
     const visibilityHandlerRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
-        if (!executionId) {
-            console.log('[ExecutionChannel] No executionId provided, skipping subscription');
+        if (!sessionId) {
+            console.log('[ExecutionChannel] No sessionId provided, skipping subscription');
             return;
         }
 
@@ -68,7 +68,7 @@ export function useExecutionChannel(executionId: string | null | undefined) {
 
         // V3: Handler for node_results changes
         const handleResultChange = (payload: any) => {
-            console.log(`[ExecutionChannel] Received payload:`, payload.eventType, payload);
+            console.log(`[ExecutionChannel] Received payload for session ${sessionId}:`, payload.eventType, payload);
             
             const record = payload.new;
             if (!record) return;
@@ -108,14 +108,14 @@ export function useExecutionChannel(executionId: string | null | undefined) {
         };
 
         const channel = supabase
-            .channel(`results_${executionId}`)
+            .channel(`session_results_${sessionId}`)
             .on(
                 'postgres_changes',
                 {
                     event: '*', 
                     schema: 'public',
                     table: 'node_results',
-                    filter: `execution_id=eq.${executionId}`
+                    filter: `session_id=eq.${sessionId}`
                 },
                 handleResultChange
             );
@@ -136,14 +136,14 @@ export function useExecutionChannel(executionId: string | null | undefined) {
                 if (executionChannelRef.current) supabase.removeChannel(executionChannelRef.current);
                 
                 const reconnected = supabase
-                    .channel(`results_${executionId}`)
+                    .channel(`session_results_${sessionId}`)
                     .on(
                         'postgres_changes',
                         {
                             event: '*',
                             schema: 'public',
                             table: 'node_results',
-                            filter: `execution_id=eq.${executionId}`
+                            filter: `session_id=eq.${sessionId}`
                         },
                         handleResultChange
                     );
@@ -172,5 +172,5 @@ export function useExecutionChannel(executionId: string | null | undefined) {
                 executionChannelRef.current = null;
             }
         };
-    }, [executionId]);
+    }, [sessionId]);
 }
