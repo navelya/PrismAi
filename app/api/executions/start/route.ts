@@ -72,6 +72,10 @@ export async function POST(request: NextRequest) {
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
+    // Get the origin for webhook construction
+    const { origin } = new URL(request.url);
+    console.log(`[Execution/Start] Using origin for webhooks: ${origin}`);
+    
     // Initialize node_results for all nodes so the UI sees them as pending
     const initialNodeResults = graph_json.nodes.map((node: NodeConfig) => ({
       execution_id: execution.id,
@@ -95,7 +99,7 @@ export async function POST(request: NextRequest) {
     const dispatchPromises = graph_json.nodes.map((node: NodeConfig) => {
         // For now, pass an empty inputs object - will be populated by check-and-dispatch later
         // In simple mode, it assumes nodes have all info in their config (data)
-        return dispatchNode(execution.id, node.id, node, {});
+        return dispatchNode(execution.id, node.id, node, {}, origin);
     });
     
     // We wait for dispatch to start but not for nodes to complete

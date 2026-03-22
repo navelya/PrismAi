@@ -70,8 +70,8 @@ export async function transformNodeV1ToV2(v1Node: V1Node): Promise<NodeConfig> {
   }
   
   // Extract control values (prompt, etc.)
-  const controlValues = config.control_values || {};
-  const prompt = controlValues.prompt || config.prompt;
+  const controlValues = config.control_values || config.input || {};
+  const prompt = controlValues.prompt || config.prompt || cleanData.prompt || "";
   
   // Return normalized V2 format
   // KEEP ORIGINAL TYPE - don't change node types!
@@ -85,7 +85,10 @@ export async function transformNodeV1ToV2(v1Node: V1Node): Promise<NodeConfig> {
       model: modelVersion,
       version: modelVersion,
       prompt: prompt,
-      input: controlValues,
+      input: {
+        ...controlValues,
+        prompt: prompt // Ensure prompt is in input too
+      },
       control_values: controlValues, // Keep original for compatibility
     },
     position: v1Node.position,

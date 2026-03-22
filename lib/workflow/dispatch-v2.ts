@@ -18,9 +18,11 @@ export async function dispatchNode(
   executionId: string,
   nodeId: string,
   nodeConfig: NodeConfig,
-  inputs: Record<string, any> = {}
+  inputs: Record<string, any> = {},
+  baseUrl?: string
 ): Promise<{ success: boolean; error?: string }> {
-  console.log(`[Dispatch] Starting dispatch for node ${nodeId} in execution ${executionId}`);
+  const currentBaseUrl = baseUrl || WEBHOOK_BASE_URL;
+  console.log(`[Dispatch] Starting dispatch for node ${nodeId} in execution ${executionId} (BaseURL: ${currentBaseUrl})`);
   
   const supabase = createServiceClient();
   
@@ -34,7 +36,7 @@ export async function dispatchNode(
     
     // Check if this is a Replicate-based node (dynamic check based on model field)
     if (isReplicateNode(nodeConfig)) {
-      return await dispatchReplicateNode(executionId, nodeId, nodeConfig, inputs);
+      return await dispatchReplicateNode(executionId, nodeId, nodeConfig, inputs, currentBaseUrl);
     }
     
     // Unsupported node type
@@ -113,7 +115,8 @@ async function dispatchReplicateNode(
   executionId: string,
   nodeId: string,
   nodeConfig: NodeConfig,
-  inputs: Record<string, any>
+  inputs: Record<string, any>,
+  baseUrl: string
 ): Promise<{ success: boolean; error?: string }> {
   
   console.log(`[Dispatch/Replicate] Dispatching node ${nodeId}`, { nodeConfig, inputs });
@@ -130,12 +133,12 @@ async function dispatchReplicateNode(
     }
     
     // Construct webhook URL with context parameters
-    const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhooks/replicate-v2?executionId=${executionId}&nodeId=${nodeId}`;
+    const webhookUrl = `${baseUrl}/api/webhooks/replicate-v2?executionId=${executionId}&nodeId=${nodeId}`;
     
     // TIER 2 FIX: Detailed webhook URL logging for debugging
     console.log('═══════════════════════════════════════════════════════════════');
     console.log('[Dispatch/Replicate] 🔔 WEBHOOK URL DEBUG:');
-    console.log('  Environment WEBHOOK_BASE_URL:', WEBHOOK_BASE_URL);
+    console.log('  Using BaseURL:', baseUrl);
     console.log('  Full webhook URL:', webhookUrl);
     console.log('  Execution ID:', executionId);
     console.log('  Node ID:', nodeId);
