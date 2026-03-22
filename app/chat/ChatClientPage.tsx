@@ -18,8 +18,8 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
 
     const addResultRef = useRef<((result: any) => void) | null>(null);
 
-    // V2: Mount execution channel at layout level using executionId from store
-    // Listens to executions_v2 table for real-time updates
+    // V3: Mount execution channel at layout level using executionId from store
+    // Listens to node_results table for real-time updates
     useExecutionChannel(activeExecutionId);
 
     const handleChatReady = (addResult: (result: any) => void) => {

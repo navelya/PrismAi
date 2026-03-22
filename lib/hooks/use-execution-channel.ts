@@ -42,15 +42,14 @@ async function subscribeWithRetry(
 }
 
 /**
- * Subscribes to Supabase Realtime for execution updates on executions_v2 table.
+ * Subscribes to Supabase Realtime for execution updates on node_results table.
  *
  * CRITICAL: This hook MUST be instantiated at a component level that is
  * NEVER unmounted while the session is active.
  *
- * V2 Changes:
- *  - Listens to executions_v2 table instead of node_executions
- *  - Parses node_states JSONB column for individual node statuses
- *  - Provides better real-time performance via event-driven architecture
+ * V3 Changes:
+ *  - Listens to node_results table instead of executions_v2
+ *  - Each row corresponds to a single node's state change
  */
 export function useExecutionChannel(executionId: string | null | undefined) {
     const executionChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
@@ -63,63 +62,50 @@ export function useExecutionChannel(executionId: string | null | undefined) {
         supabaseRef.current = supabase;
         const store = useAppStore.getState();
 
-        // V2: Handler for executions_v2 changes
-        const handleExecutionChange = (payload: any) => {
-            const eventType = payload.eventType; // INSERT, UPDATE, DELETE
-            const record = payload.new || payload.old;
-
+        // V3: Handler for node_results changes
+        const handleResultChange = (payload: any) => {
+            const record = payload.new;
             if (!record) return;
 
-            const { node_states: nodeStates } = record;
+            const { node_id: nodeId, status, result_url: resultUrl, error } = record;
 
-            if (!nodeStates || typeof nodeStates !== 'object') return;
+            console.log(`[ExecutionChannel] node_results update for ${nodeId}: ${status}`);
 
-            console.log(`[ExecutionChannel] executions_v2 ${eventType}: ${Object.keys(nodeStates).length} nodes`);
+            // Update status in Zustand
+            if (status) {
+                store.setNodeStatus(nodeId, status);
+            }
 
-            // Update each node from node_states JSONB
-            Object.entries(nodeStates).forEach(([nodeId, state]: [string, any]) => {
-                const { status, result_url, error, output } = state;
+            // Update output if completed
+            if (status === 'completed' && resultUrl) {
+                const imageObject = {
+                    url: resultUrl,
+                    resolution: { width: 1024, height: 1024 },
+                    metadata: { title: 'Output', source: 'V3 Execution' },
+                };
+                store.setNodeOutput(nodeId, [imageObject]);
+            }
 
-                // Update status in Zustand
-                if (status) {
-                    store.setNodeStatus(nodeId, status);
-                }
-
-                // Update output if completed
-                if (status === 'completed' && result_url) {
-                    // V2 stores result_url for images
-                    const imageObject = {
-                        url: result_url,
-                        resolution: { width: 1024, height: 1024 },
-                        metadata: { title: 'Output', source: 'V2 Execution' },
-                    };
-                    store.setNodeOutput(nodeId, [imageObject]);
-                } else if (status === 'completed' && output !== undefined) {
-                    // For non-image outputs (text, JSON, etc.)
-                    store.setNodeOutput(nodeId, output);
-                }
-
-                // Clear output on error
-                if (status === 'failed' && error) {
-                    console.error(`[ExecutionChannel] Node ${nodeId} error:`, error);
-                    store.setNodeStatus(nodeId, 'error');
-                    store.setNodeOutput(nodeId, null);
-                }
-            });
+            // Clear output on error
+            if (status === 'failed') {
+                console.error(`[ExecutionChannel] Node ${nodeId} error:`, error);
+                store.setNodeStatus(nodeId, 'error');
+                store.setNodeOutput(nodeId, null);
+            }
         };
 
-        // V2: Subscribe to executions_v2 table changes
+        // V3: Subscribe to node_results table changes for this execution
         const channel = supabase
-            .channel(`execution_${executionId}`)
+            .channel(`results_${executionId}`)
             .on(
                 'postgres_changes',
                 {
-                    event: '*', // Listen to INSERT, UPDATE, DELETE
+                    event: '*', 
                     schema: 'public',
-                    table: 'executions_v2',
-                    filter: `id=eq.${executionId}`
+                    table: 'node_results',
+                    filter: `execution_id=eq.${executionId}`
                 },
-                handleExecutionChange
+                handleResultChange
             );
 
         executionChannelRef.current = channel;
@@ -138,16 +124,16 @@ export function useExecutionChannel(executionId: string | null | undefined) {
                 if (executionChannelRef.current) supabase.removeChannel(executionChannelRef.current);
                 
                 const reconnected = supabase
-                    .channel(`execution_${executionId}`)
+                    .channel(`results_${executionId}`)
                     .on(
                         'postgres_changes',
                         {
                             event: '*',
                             schema: 'public',
-                            table: 'executions_v2',
-                            filter: `id=eq.${executionId}`
+                            table: 'node_results',
+                            filter: `execution_id=eq.${executionId}`
                         },
-                        handleExecutionChange
+                        handleResultChange
                     );
                     
                 executionChannelRef.current = reconnected;

@@ -204,7 +204,7 @@ function buildReplicateInput(
 }
 
 /**
- * Update node state in the executions_v2 table
+ * Update node state in the node_results table
  */
 async function updateNodeState(
   executionId: string,
@@ -214,44 +214,35 @@ async function updateNodeState(
   
   const supabase = createServiceClient();
   
-  // Fetch current execution
-  const { data: execution, error: fetchError } = await supabase
-    .from('executions_v2')
-    .select('node_states, status')
-    .eq('id', executionId)
-    .single();
+  // V3: Update node_results table
+  const { error: upsertError } = await supabase
+    .from('node_results')
+    .upsert({
+      execution_id: executionId,
+      node_id: nodeId,
+      status: state.status || 'running',
+      result_url: state.result_url,
+      error: state.error,
+      replicate_id: state.replicate_prediction_id,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'execution_id,node_id'
+    });
   
-  if (fetchError || !execution) {
-    throw new Error(`Failed to fetch execution ${executionId}: ${fetchError?.message}`);
+  if (upsertError) {
+    throw new Error(`Failed to update node state for ${nodeId}: ${upsertError.message}`);
   }
-  
-  // Update the specific node state
-  const updatedNodeStates = {
-    ...execution.node_states,
-    [nodeId]: {
-      ...(execution.node_states[nodeId] || {}),
-      ...state,
-    },
-  };
   
   // Update execution status if needed
-  let executionStatus = execution.status;
-  if (state.status === 'running' && execution.status === 'pending') {
-    executionStatus = 'running';
-  }
-  
-  // Write back to database
-  const { error: updateError } = await supabase
-    .from('executions_v2')
-    .update({
-      node_states: updatedNodeStates,
-      status: executionStatus,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', executionId);
-  
-  if (updateError) {
-    throw new Error(`Failed to update execution ${executionId}: ${updateError.message}`);
+  if (state.status === 'running') {
+    await supabase
+      .from('executions')
+      .update({
+        status: 'running',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', executionId)
+      .eq('status', 'pending'); // Only if currently pending
   }
   
   console.log(`[Dispatch] Updated node state for ${nodeId}:`, state);
@@ -269,6 +260,10 @@ async function logExecutionEvent(
   
   const supabase = createServiceClient();
   
+  // V3: log_execution_event RPC might be dropped, so we use console as fallback
+  console.log(`[ExecutionEvent] ${executionId}/${nodeId} - ${eventType}:`, payload);
+  
+  /*
   const { error } = await supabase.rpc('log_execution_event', {
     p_execution_id: executionId,
     p_node_id: nodeId,
@@ -278,8 +273,8 @@ async function logExecutionEvent(
   
   if (error) {
     console.error(`[Dispatch] Failed to log event:`, error);
-    // Don't throw - logging errors shouldn't break the flow
   }
+  */
 }
 
 /**

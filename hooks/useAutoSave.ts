@@ -96,8 +96,8 @@ export function useAutoSave() {
         const sessionId = activeSessionIdRef.current;
         const store = useAppStore.getState();
 
-        // V2: No longer block auto-save during execution
-        // Execution state is in executions_v2 table (separate from canvas_state)
+        // V3: No longer block auto-save during execution
+        // Execution state is in node_results table (separate from canvas_state)
         // Canvas modifications won't affect running executions
 
         if (!workflow || !sessionId || isSavingRemoteRef.current) return;

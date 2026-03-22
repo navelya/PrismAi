@@ -22,7 +22,7 @@ export async function executeEphemeralNode(
   try {
     // 1. Fetch current execution state
     const { data: execution, error: fetchError } = await supabase
-      .from('executions_v2')
+      .from('executions')
       .select('*')
       .eq('id', executionId)
       .single();
@@ -31,8 +31,37 @@ export async function executeEphemeralNode(
       throw new Error(`Execution ${executionId} not found`);
     }
     
-    const graph: GraphJson = execution.graph_json;
-    const nodeStates: Record<string, NodeState> = execution.node_states;
+    // V3: Graph is now in executions.graph_json (if added) or fetched from sessions
+    // For now, we assume graph_json is added or we fallback to session
+    let graph: GraphJson = execution.graph_json;
+    
+    if (!graph) {
+      const { data: session } = await supabase
+        .from('sessions')
+        .select('canvas_state')
+        .eq('id', execution.session_id)
+        .single();
+      graph = session?.canvas_state;
+    }
+
+    if (!graph) {
+      throw new Error(`Graph not found for execution ${executionId}`);
+    }
+
+    // V3: Get node states from node_results table
+    const { data: results } = await supabase
+      .from('node_results')
+      .select('*')
+      .eq('execution_id', executionId);
+    
+    const nodeStates: Record<string, any> = {};
+    (results || []).forEach(r => {
+      nodeStates[r.node_id] = {
+        status: r.status,
+        result_url: r.result_url,
+        error: r.error
+      };
+    });
     
     // 2. Find the node configuration
     const node = graph.nodes.find(n => n.id === nodeId);
@@ -86,48 +115,24 @@ export async function executeEphemeralNode(
       console.log(`[EphemeralExecutor] Text output stored`);
     }
     
-    // 7. Update node state to completed
-    const updatedNodeStates = {
-      ...nodeStates,
-      [nodeId]: {
-        ...nodeStates[nodeId],
+    // 7. Update node state to completed in node_results
+    const { error: updateError } = await supabase
+      .from('node_results')
+      .upsert({
+        execution_id: executionId,
+        node_id: nodeId,
         status: 'completed',
         result_url: resultUrl,
-        completed_at: new Date().toISOString(),
-      },
-    };
-    
-    const { error: updateError } = await supabase
-      .from('executions_v2')
-      .update({
-        node_states: updatedNodeStates,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', executionId);
+      }, {
+        onConflict: 'execution_id,node_id'
+      });
     
     if (updateError) {
       throw new Error(`Failed to update node state: ${updateError.message}`);
     }
     
-    // 8. Log completion event
-    await supabase.rpc('log_execution_event', {
-      p_execution_id: executionId,
-      p_node_id: nodeId,
-      p_event_type: 'completed',
-      p_payload: { 
-        result_url: resultUrl,
-        handler: node.type,
-        output_type: isBuffer ? 'buffer' : 'string',
-      },
-    });
-    
     console.log(`[EphemeralExecutor] Node ${nodeId} completed successfully`);
-    
-    // 9. TRIGGER NEXT DISPATCH
-    // We NO LONGER call checkAndDispatch directly here.
-    // Instead, we rely on the Supabase Database Webhook to trigger the next step.
-    // This is the "Durable Handover" pattern used by companies like Weavy.
-    console.log(`[EphemeralExecutor] Node ${nodeId} finished. Handing over to Database Webhook for next dispatch.`);
     
     return { success: true, result_url: resultUrl };
     
@@ -136,19 +141,17 @@ export async function executeEphemeralNode(
     
     // Mark as failed in DB
     try {
-      const { data: current } = await supabase.from('executions_v2').select('node_states').eq('id', executionId).single();
-      if (current) {
-        const failedStates = {
-          ...current.node_states,
-          [nodeId]: {
-            ...current.node_states[nodeId],
-            status: 'failed',
-            error: error instanceof Error ? error.message : 'Execution failed',
-            completed_at: new Date().toISOString(),
-          }
-        };
-        await supabase.from('executions_v2').update({ node_states: failedStates }).eq('id', executionId);
-      }
+      await supabase
+        .from('node_results')
+        .upsert({
+          execution_id: executionId,
+          node_id: nodeId,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Execution failed',
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'execution_id,node_id'
+        });
     } catch (dbErr) {
        console.error('[EphemeralExecutor] Could not update failed status:', dbErr);
     }

@@ -54,42 +54,11 @@ export async function POST(request: NextRequest) {
     
     const supabase = createServiceClient();
     
-    // Validate graph structure using DB function
-    try {
-      const { data: isValid, error: validationError } = await supabase
-        .rpc('validate_graph_json', { graph: graph_json });
-      
-      if (validationError) {
-        console.error('[Execution/Start] Graph validation failed:', validationError);
-        return NextResponse.json(
-          { error: `Graph validation failed: ${validationError.message}` },
-          { status: 400 }
-        );
-      }
-    } catch (validationError) {
-      console.error('[Execution/Start] Graph validation error:', validationError);
-      return NextResponse.json(
-        { error: 'Graph validation failed' },
-        { status: 400 }
-      );
-    }
-    
-    // Initialize node_states - all nodes start as pending
-    const initialNodeStates: Record<string, any> = {};
-    for (const node of graph_json.nodes) {
-      initialNodeStates[node.id] = {
-        status: 'pending',
-      };
-    }
-    
     // Create execution record
     const { data: execution, error: createError } = await supabase
-      .from('executions_v2')
+      .from('executions')
       .insert({
         session_id,
-        user_id: user_id || null,
-        graph_json,
-        node_states: initialNodeStates,
         status: 'pending',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

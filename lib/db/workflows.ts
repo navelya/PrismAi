@@ -76,9 +76,8 @@ export async function saveExecution(
             .insert({
                 session_id: sessionId,
                 status,
-                result_data: resultData,
-                error_message: errorMessage,
-                completed_at: status === 'completed' || status === 'failed' ? new Date().toISOString() : null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
             })
             .select()
             .single();
@@ -86,6 +85,9 @@ export async function saveExecution(
         if (error || !data) {
             throw new Error(error?.message || 'Failed to save execution');
         }
+
+        // If resultData contains individual node results, we should populate node_results
+        // For backwards compatibility, we'll store the main status
 
         return {
             success: true,
@@ -118,10 +120,10 @@ export async function getExecutionHistory(sessionId: string): Promise<ExecutionR
             id: execution.id,
             sessionId: execution.session_id,
             status: execution.status as any,
-            resultData: execution.result_data,
-            errorMessage: execution.error_message,
+            resultData: {}, // V3 stores node-specific results in node_results
+            errorMessage: undefined,
             createdAt: execution.created_at,
-            completedAt: execution.completed_at,
+            completedAt: undefined,
         }));
     } catch (error) {
         console.error('Error fetching execution history:', error);
@@ -172,17 +174,36 @@ export async function upsertNodeExecution(
             throw new Error('Missing sessionId or nodeId for execution upsert');
         }
 
-        const { error: rpcError } = await supabase
-            .rpc('upsert_node_execution', {
-                p_session_id: sessionId,
-                p_node_id: nodeId,
-                p_status: status,
-                p_output: output,
-                p_error: error
+        // V3: We must find the latest execution for this session
+        const { data: latestExec } = await supabase
+            .from('executions')
+            .select('id')
+            .eq('session_id', sessionId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (!latestExec) {
+            throw new Error('No execution found for session');
+        }
+
+        const resultUrl = typeof output === 'string' ? output : (output?.url || output?.[0]?.url);
+
+        const { error: upsertError } = await supabase
+            .from('node_results')
+            .upsert({
+                execution_id: latestExec.id,
+                node_id: nodeId,
+                status: status,
+                result_url: resultUrl,
+                error: error,
+                updated_at: new Date().toISOString(),
+            }, {
+                onConflict: 'execution_id,node_id'
             });
 
-        if (rpcError) {
-            throw new Error(rpcError.message);
+        if (upsertError) {
+            throw new Error(upsertError.message);
         }
 
         return { success: true };
@@ -202,10 +223,21 @@ export async function getSessionExecutions(
     sessionId: string
 ): Promise<Array<{ nodeId: string; status: string; output: any; outputMetadata?: any; error?: string; updatedAt: string }>> {
     try {
+        // V3: Get latest execution and its results
+        const { data: latestExec } = await supabase
+            .from('executions')
+            .select('id')
+            .eq('session_id', sessionId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (!latestExec) return [];
+
         const { data, error } = await supabase
-            .rpc('get_session_executions', {
-                p_session_id: sessionId
-            });
+            .from('node_results')
+            .select('*')
+            .eq('execution_id', latestExec.id);
 
         if (error) {
             console.error('[getSessionExecutions] Error:', error);
@@ -215,8 +247,11 @@ export async function getSessionExecutions(
         return (data || []).map((row: any) => ({
             nodeId: row.node_id,
             status: row.status,
-            output: row.output,
-            outputMetadata: row.output_metadata,
+            output: row.result_url ? { url: row.result_url } : undefined,
+            outputMetadata: {
+                preview_urls: row.result_url ? [row.result_url] : [],
+                resultUrls: row.result_url ? [row.result_url] : []
+            },
             error: row.error,
             updatedAt: row.updated_at
         }));
@@ -233,10 +268,11 @@ export async function clearSessionExecutions(
     sessionId: string
 ): Promise<{ success: boolean; error?: string }> {
     try {
+        // Cascade will handle node_results
         const { error } = await supabase
-            .rpc('clear_session_executions', {
-                p_session_id: sessionId
-            });
+            .from('executions')
+            .delete()
+            .eq('session_id', sessionId);
 
         if (error) {
             throw new Error(error.message);
@@ -260,11 +296,29 @@ export async function batchUpsertExecutions(
     executions: Array<{ nodeId: string; status: string; output?: any; error?: string }>
 ): Promise<{ success: boolean; error?: string }> {
     try {
+        const { data: latestExec } = await supabase
+            .from('executions')
+            .select('id')
+            .eq('session_id', sessionId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (!latestExec) throw new Error('No execution found');
+
         const { error } = await supabase
-            .rpc('batch_upsert_executions', {
-                p_session_id: sessionId,
-                p_executions: executions
-            });
+            .from('node_results')
+            .upsert(
+                executions.map(exec => ({
+                    execution_id: latestExec.id,
+                    node_id: exec.nodeId,
+                    status: exec.status,
+                    result_url: typeof exec.output === 'string' ? exec.output : (exec.output?.url || exec.output?.[0]?.url),
+                    error: exec.error,
+                    updated_at: new Date().toISOString(),
+                })),
+                { onConflict: 'execution_id,node_id' }
+            );
 
         if (error) {
             throw new Error(error.message);

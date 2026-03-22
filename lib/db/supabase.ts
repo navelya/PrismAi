@@ -33,12 +33,22 @@ export interface Database {
     };
     executions: {
         id: string;
-        workflow_id: string;
+        session_id: string;
         status: string;
-        result_data: any;
-        error_message?: string;
         created_at: string;
-        completed_at?: string;
+        updated_at: string;
+        graph_json?: any; // To be added for V3 compatibility
+    };
+    node_results: {
+        id: string;
+        execution_id: string;
+        node_id: string;
+        status: string;
+        result_url?: string;
+        error?: string;
+        replicate_id?: string;
+        created_at: string;
+        updated_at: string;
     };
     sessions: {
         id: string;
@@ -55,16 +65,5 @@ export interface Database {
         content: string;
         images?: string[];
         created_at: string;
-    };
-    node_executions: {
-        id: string;
-        session_id: string;
-        node_id: string;
-        status: string;
-        output: any;
-        error?: string;
-        created_at: string;
-        updated_at: string;
-        user_id?: string;
     };
 }
