@@ -76,8 +76,6 @@ export async function saveExecution(
             .insert({
                 session_id: sessionId,
                 status,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
             })
             .select()
             .single();
@@ -85,9 +83,6 @@ export async function saveExecution(
         if (error || !data) {
             throw new Error(error?.message || 'Failed to save execution');
         }
-
-        // If resultData contains individual node results, we should populate node_results
-        // For backwards compatibility, we'll store the main status
 
         return {
             success: true,
@@ -224,15 +219,20 @@ export async function getSessionExecutions(
 ): Promise<Array<{ nodeId: string; status: string; output: any; outputMetadata?: any; error?: string; updatedAt: string }>> {
     try {
         // V3: Get latest execution and its results
-        const { data: latestExec } = await supabase
+        // Use sessionId as filter - if the column is named workflow_id in the DB, this will fail
+        // until the migration is run.
+        const { data: latestExec, error: execError } = await supabase
             .from('executions')
             .select('id')
             .eq('session_id', sessionId)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
-        if (!latestExec) return [];
+        if (execError || !latestExec) {
+            if (execError) console.error('[getSessionExecutions] Exec fetch error:', execError);
+            return [];
+        }
 
         const { data, error } = await supabase
             .from('node_results')
@@ -240,7 +240,7 @@ export async function getSessionExecutions(
             .eq('execution_id', latestExec.id);
 
         if (error) {
-            console.error('[getSessionExecutions] Error:', error);
+            console.error('[getSessionExecutions] Results fetch error:', error);
             return [];
         }
 
@@ -256,7 +256,7 @@ export async function getSessionExecutions(
             updatedAt: row.updated_at
         }));
     } catch (err) {
-        console.error('[getSessionExecutions] Error:', err);
+        console.error('[getSessionExecutions] Exception:', err);
         return [];
     }
 }
