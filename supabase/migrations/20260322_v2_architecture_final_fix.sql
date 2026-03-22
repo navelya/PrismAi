@@ -1,4 +1,4 @@
--- PRISMAI V2 ARCHITECTURE FINAL FIX
+-- PRISMAI V2 ARCHITECTURE FINAL FIX (REVISED)
 -- Date: 2026-03-22
 -- Description: Cleans up all redundant/failing event-driven logic from previous migrations.
 --              Specifically targeting the LISTEN/NOTIFY and pgnet approaches.
@@ -55,20 +55,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 ALTER TABLE public.executions_v2 
 ALTER COLUMN node_states SET DEFAULT '{}'::jsonb;
 
--- 5. LOG THE ARCHITECTURE UPDATE
-INSERT INTO execution_events (
-  execution_id,
-  event_type,
-  payload,
-  created_at
-) VALUES (
-  '00000000-0000-0000-0000-000000000000',
-  'architecture_fix_applied',
-  jsonb_build_object(
-    'description', 'Cleaned up redundant V2 triggers and modernized atomic claim logic',
-    'timestamp', NOW()
-  ),
-  NOW()
-) ON CONFLICT DO NOTHING;
+-- 5. FINAL NOTICE
+DO $$ 
+BEGIN 
+  RAISE NOTICE '✅ Architecture cleanup complete.';
+  RAISE NOTICE '🚀 ACTION REQUIRED: Ensure your Dashboard Webhook is set up to call /api/executions/check-and-dispatch';
+END $$;
 
 COMMENT ON FUNCTION public.claim_node_for_dispatch IS 'Final V2 Logic: Atomically claims a pending node for dispatching.';
