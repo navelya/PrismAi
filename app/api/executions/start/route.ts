@@ -103,43 +103,21 @@ export async function POST(request: NextRequest) {
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
-    // CRITICAL FIX: Trigger dispatch in separate serverless invocation
-    // Fire-and-forget was causing process termination before dispatch completed
-    console.log(`[Execution/Start] Triggering check-and-dispatch via separate API call`);
+    // SOLUTION: Just await checkAndDispatch directly
+    // Fetch approach doesn't work in serverless - process terminates before fetch completes
+    // This makes the API slower (~2-3 seconds) but guarantees execution completes
+    console.log(`[Execution/Start] Starting check-and-dispatch (awaiting completion)`);
     
-    // Get app URL for internal API call
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    try {
+      const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
+      await checkAndDispatch(execution.id);
+      console.log(`[Execution/Start] ✅ Check-and-dispatch completed successfully`);
+    } catch (error) {
+      console.error(`[Execution/Start] ❌ Check-and-dispatch failed:`, error);
+      // Don't fail the request - execution is created, dispatch will be retried
+    }
     
-    const dispatchUrl = `${appUrl}/api/executions/check-and-dispatch`;
-    
-    console.log(`[Execution/Start] 🔗 Dispatch URL: ${dispatchUrl}`);
-    console.log(`[Execution/Start] 🔑 Auth header present: ${!!process.env.SUPABASE_SERVICE_ROLE_KEY}`);
-    console.log(`[Execution/Start] 📦 Payload:`, { execution_id: execution.id });
-    
-    // Make internal fetch to check-and-dispatch endpoint
-    // This runs in a separate serverless invocation and won't be killed
-    fetch(dispatchUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ execution_id: execution.id }),
-    }).then(async response => {
-      const status = response.status;
-      const text = await response.text();
-      console.log(`[Execution/Start] ✅ Dispatch fetch responded: ${status}`);
-      if (!response.ok) {
-        console.error(`[Execution/Start] ❌ Dispatch fetch error: ${status} - ${text}`);
-      }
-    }).catch(error => {
-      console.error(`[Execution/Start] ❌ Dispatch fetch failed:`, error);
-    });
-    
-    console.log(`[Execution/Start] Check-and-dispatch API call initiated in separate process`);
-    
-    // Return execution details immediately
+    // Return execution details
     return NextResponse.json({
       success: true,
       execution_id: execution.id,
