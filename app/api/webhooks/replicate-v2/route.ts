@@ -140,9 +140,9 @@ export async function POST(request: NextRequest) {
       console.log(`[Webhook/Replicate-v2] Triggering check-and-dispatch for downstream nodes`);
       
       const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
-      checkAndDispatch(executionId).catch(error => {
-        console.error(`[Webhook/Replicate-v2] Check-and-dispatch error:`, error);
-      });
+      await checkAndDispatch(executionId);
+      
+      console.log(`[Webhook/Replicate-v2] ✅ Downstream check-and-dispatch completed`);
       
     } else if (status === 'failed' || status === 'canceled') {
       console.error(`[Webhook/Replicate-v2] Node ${nodeId} failed:`, predictionError);

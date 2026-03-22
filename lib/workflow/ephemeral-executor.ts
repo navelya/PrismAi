@@ -125,10 +125,10 @@ export async function executeEphemeralNode(
     
     // 9. TRIGGER NEXT DISPATCH (Important for chaining!)
     const { checkAndDispatch } = await import('./check-and-dispatch-v2');
-    // Don't await this, let it run in background to find next ready nodes
-    checkAndDispatch(executionId).catch(err => {
-      console.error(`[EphemeralExecutor] Downstream dispatch failed:`, err);
-    });
+    
+    // AWAIT this so the process stays alive to start the next node
+    console.log(`[EphemeralExecutor] Awaiting downstream dispatch for ${executionId}`);
+    await checkAndDispatch(executionId);
     
     return { success: true, result_url: resultUrl };
     

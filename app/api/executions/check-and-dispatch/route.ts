@@ -36,10 +36,13 @@ export async function POST(request: NextRequest) {
     
     // Parse request body
     const body = await request.json();
-    const executionId = body.execution_id;
+    console.log('[API/Check-and-Dispatch] 📦 REQUEST BODY:', JSON.stringify(body, null, 2));
+    
+    // Support both direct calls and Supabase Webhook payload format
+    const executionId = body.execution_id || body.record?.id || body.old_record?.id;
     
     if (!executionId) {
-      console.error('[API/Check-and-Dispatch] ❌ Missing execution_id in body');
+      console.error('[API/Check-and-Dispatch] ❌ Missing execution_id in body (looked in body, body.record, body.old_record)');
       return NextResponse.json(
         { error: 'Missing execution_id' },
         { status: 400 }
