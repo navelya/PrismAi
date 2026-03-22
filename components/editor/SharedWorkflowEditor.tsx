@@ -427,7 +427,7 @@ export default function SharedWorkflowEditor({
                                     if (copiedNode) {
                                         const newNode = {
                                             ...JSON.parse(JSON.stringify(copiedNode)),
-                                            id: `node_${Date.now()}`,
+                                            id: generateNodeId(), // 🛡️ ROOT FIX: Guaranteed unique UUID
                                             position: {
                                                 x: copiedNode.position.x + 50,
                                                 y: copiedNode.position.y + 50
