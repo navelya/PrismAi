@@ -85,10 +85,13 @@ export async function checkAndDispatch(executionId: string): Promise<void> {
       if (claimed) {
         console.log(`[Check-and-Dispatch] Claimed node ${node.id} for dispatch`);
         
-        // Dispatch the node (async, don't wait)
-        dispatchNode(executionId, node.id, node, inputs).catch(error => {
-          console.error(`[Check-and-Dispatch] Failed to dispatch node ${node.id}:`, error);
-        });
+        try {
+          // AWAIT the dispatch (crucial for serverless environments)
+          await dispatchNode(executionId, node.id, node, inputs);
+          console.log(`[Check-and-Dispatch] ✅ Node ${node.id} dispatched successfully`);
+        } catch (error) {
+          console.error(`[Check-and-Dispatch] ❌ Failed to dispatch node ${node.id}:`, error);
+        }
       } else {
         console.log(`[Check-and-Dispatch] Node ${node.id} was already claimed by another process`);
       }
