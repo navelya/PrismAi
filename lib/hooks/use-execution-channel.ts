@@ -108,6 +108,9 @@ export function useExecutionChannel(executionId: string | null | undefined) {
         };
 
         // V3: Subscribe to node_results table changes for this execution
+        // NOTE: We don't use a filter here because RLS handles security
+        // Using execution_id filter causes "mismatch between server and client bindings"
+        // because the RLS policy uses a JOIN with sessions table
         const channel = supabase
             .channel(`results_${executionId}`)
             .on(
@@ -115,20 +118,30 @@ export function useExecutionChannel(executionId: string | null | undefined) {
                 {
                     event: 'INSERT', 
                     schema: 'public',
-                    table: 'node_results',
-                    filter: `execution_id=eq.${executionId}`
+                    table: 'node_results'
+                    // No filter - RLS policy handles security
                 },
-                handleResultChange
+                (payload: any) => {
+                    // Filter client-side for this execution
+                    if (payload.new?.execution_id === executionId) {
+                        handleResultChange(payload);
+                    }
+                }
             )
             .on(
                 'postgres_changes',
                 {
                     event: 'UPDATE', 
                     schema: 'public',
-                    table: 'node_results',
-                    filter: `execution_id=eq.${executionId}`
+                    table: 'node_results'
+                    // No filter - RLS policy handles security
                 },
-                handleResultChange
+                (payload: any) => {
+                    // Filter client-side for this execution
+                    if (payload.new?.execution_id === executionId) {
+                        handleResultChange(payload);
+                    }
+                }
             );
 
         executionChannelRef.current = channel;
@@ -153,20 +166,26 @@ export function useExecutionChannel(executionId: string | null | undefined) {
                         {
                             event: 'INSERT',
                             schema: 'public',
-                            table: 'node_results',
-                            filter: `execution_id=eq.${executionId}`
+                            table: 'node_results'
                         },
-                        handleResultChange
+                        (payload: any) => {
+                            if (payload.new?.execution_id === executionId) {
+                                handleResultChange(payload);
+                            }
+                        }
                     )
                     .on(
                         'postgres_changes',
                         {
                             event: 'UPDATE',
                             schema: 'public',
-                            table: 'node_results',
-                            filter: `execution_id=eq.${executionId}`
+                            table: 'node_results'
                         },
-                        handleResultChange
+                        (payload: any) => {
+                            if (payload.new?.execution_id === executionId) {
+                                handleResultChange(payload);
+                            }
+                        }
                     );
                     
                 executionChannelRef.current = reconnected;
