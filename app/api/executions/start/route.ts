@@ -103,27 +103,30 @@ export async function POST(request: NextRequest) {
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
-    // STEP 4: Trigger initial dispatch
-    // Since Edge Function listener is not deployed yet, call check-and-dispatch directly
-    console.log(`[Execution/Start] Triggering initial check-and-dispatch`);
+    // CRITICAL FIX: Trigger dispatch in separate serverless invocation
+    // Fire-and-forget was causing process termination before dispatch completed
+    console.log(`[Execution/Start] Triggering check-and-dispatch via separate API call`);
     
-    try {
-      // Import and call check-and-dispatch directly
-      const { checkAndDispatch } = await import('@/lib/workflow/check-and-dispatch-v2');
-      
-      console.log(`[Execution/Start] Successfully imported check-and-dispatch, calling now...`);
-      
-      // Call check-and-dispatch (don't wait for full completion, but catch errors)
-      checkAndDispatch(execution.id).catch(error => {
-        console.error(`[Execution/Start] Check-and-dispatch error:`, error);
-      });
-      
-      console.log(`[Execution/Start] Check-and-dispatch call initiated`);
-    } catch (importError) {
-      console.error(`[Execution/Start] Failed to import check-and-dispatch:`, importError);
-    }
+    // Get app URL for internal API call
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 
+                   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
     
-    // Return execution details
+    // Make internal fetch to check-and-dispatch endpoint
+    // This runs in a separate serverless invocation and won't be killed
+    fetch(`${appUrl}/api/executions/check-and-dispatch`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ execution_id: execution.id }),
+    }).catch(error => {
+      console.error(`[Execution/Start] Failed to trigger check-and-dispatch:`, error);
+    });
+    
+    console.log(`[Execution/Start] Check-and-dispatch API call initiated in separate process`);
+    
+    // Return execution details immediately
     return NextResponse.json({
       success: true,
       execution_id: execution.id,

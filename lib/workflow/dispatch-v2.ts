@@ -140,8 +140,15 @@ async function dispatchReplicateNode(
     // Construct webhook URL with context parameters
     const webhookUrl = `${WEBHOOK_BASE_URL}/api/webhooks/replicate-v2?executionId=${executionId}&nodeId=${nodeId}`;
     
-    console.log(`[Dispatch/Replicate] Creating prediction for model: ${model}`);
-    console.log(`[Dispatch/Replicate] Webhook URL: ${webhookUrl}`);
+    // TIER 2 FIX: Detailed webhook URL logging for debugging
+    console.log('═══════════════════════════════════════════════════════════════');
+    console.log('[Dispatch/Replicate] 🔔 WEBHOOK URL DEBUG:');
+    console.log('  Environment WEBHOOK_BASE_URL:', WEBHOOK_BASE_URL);
+    console.log('  Full webhook URL:', webhookUrl);
+    console.log('  Execution ID:', executionId);
+    console.log('  Node ID:', nodeId);
+    console.log('  Model:', model);
+    console.log('═══════════════════════════════════════════════════════════════');
     
     // Create prediction with webhook
     const prediction = await replicate.predictions.create({
@@ -151,7 +158,7 @@ async function dispatchReplicateNode(
       webhook_events_filter: ['completed'],
     });
     
-    console.log(`[Dispatch/Replicate] Prediction created:`, {
+    console.log(`[Dispatch/Replicate] ✅ Prediction created:`, {
       predictionId: prediction.id,
       status: prediction.status,
     });

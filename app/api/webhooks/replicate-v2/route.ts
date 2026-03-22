@@ -9,6 +9,18 @@ import { REPLICATE_WEBHOOK_SIGNING_SECRET, normalizeReplicateOutput } from '@/li
 import { Webhook } from 'standardwebhooks';
 
 export async function POST(request: NextRequest) {
+  // TIER 2 FIX: Detailed webhook logging
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('[Webhook/Replicate-v2] 📨 RECEIVED WEBHOOK FROM REPLICATE:');
+  console.log('  Request URL:', request.url);
+  console.log('  Method:', request.method);
+  console.log('  Headers:', {
+    'webhook-id': request.headers.get('webhook-id'),
+    'webhook-timestamp': request.headers.get('webhook-timestamp'),
+    'content-type': request.headers.get('content-type'),
+  });
+  console.log('═══════════════════════════════════════════════════════════════');
+  
   try {
     const { searchParams } = new URL(request.url);
     const executionId = searchParams.get('executionId');
@@ -16,7 +28,7 @@ export async function POST(request: NextRequest) {
     
     // Validate context parameters
     if (!executionId || !nodeId) {
-      console.error('[Webhook/Replicate-v2] Missing context:', {
+      console.error('[Webhook/Replicate-v2] ❌ Missing context:', {
         executionId,
         nodeId,
         url: request.url,
@@ -27,7 +39,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    console.log(`[Webhook/Replicate-v2] Received callback for node ${nodeId} in execution ${executionId}`);
+    console.log(`[Webhook/Replicate-v2] ✅ Received callback for node ${nodeId} in execution ${executionId}`);
     
     // Verify webhook signature if secret is configured
     const bodyText = await request.text();
