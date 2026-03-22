@@ -17,6 +17,7 @@ import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
 import { createClient } from '@/lib/supabase/client';
+import { useExecutionChannel } from '@/lib/hooks/use-execution-channel';
 
 interface SharedWorkflowEditorProps {
     workflow?: Workflow | null;
@@ -39,6 +40,10 @@ export default function SharedWorkflowEditor({
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
     const isDragging = useAppStore((state) => state.isDragging);
+    const activeExecutionId = useAppStore((state) => state.activeExecutionId);
+    
+    // Subscribe to execution channel for realtime status updates
+    useExecutionChannel(activeExecutionId);
     
     // Global Catalog State
     const models = useAppStore(state => state.models);
@@ -99,6 +104,7 @@ export default function SharedWorkflowEditor({
     const [pendingExecutionTarget, setPendingExecutionTarget] = useState<{ id: string | null, mode: 'all' | 'solo' | 'chain' | 'ab_test' } | null>(null);
     const [pendingCost, setPendingCost] = useState(0);
     const [pendingNodeCount, setPendingNodeCount] = useState(0);
+    const executionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const isMountedRef = useRef(true);
     useEffect(() => {
@@ -151,6 +157,31 @@ export default function SharedWorkflowEditor({
             }
         }
     }, [nodes, edges, workflowName, isDragging, onWorkflowChange, getCurrentWorkflow]);
+
+    // 🔄 Watch for execution completion via websocket updates
+    const nodeStatuses = useAppStore((state) => state.nodeStatuses);
+    useEffect(() => {
+        if (!isExecuting || !activeExecutionId) return;
+
+        // Check if all nodes have completed (no pending or running statuses)
+        const hasActiveNodes = Object.values(nodeStatuses).some(
+            (status: any) => status === 'pending' || status === 'running'
+        );
+
+        if (!hasActiveNodes && Object.keys(nodeStatuses).length > 0) {
+            console.log('[SharedWorkflowEditor] All nodes completed via websocket - resetting execution state');
+            setIsExecuting(false);
+            useAppStore.getState().setActiveExecutionId(null);
+            useAppStore.getState().setExecutionStartTime(null);
+            activeRunCountRef.current = 0;
+            
+            // Clear the safety timeout
+            if (executionTimeoutRef.current) {
+                clearTimeout(executionTimeoutRef.current);
+                executionTimeoutRef.current = null;
+            }
+        }
+    }, [nodeStatuses, isExecuting, activeExecutionId]);
 
     const handleNodeClick = (_event: any, node: any) => {
         if (readOnly) return;
@@ -247,6 +278,18 @@ export default function SharedWorkflowEditor({
                 store.setActiveExecutionId(data.execution_id);
             }
 
+            // Set a safety timeout to force reset if something goes catastrophically wrong (60 seconds)
+            if (executionTimeoutRef.current) {
+                clearTimeout(executionTimeoutRef.current);
+            }
+            executionTimeoutRef.current = setTimeout(() => {
+                console.warn('[SharedWorkflowEditor] Execution timeout reached - forcing reset');
+                setIsExecuting(false);
+                store.setActiveExecutionId(null);
+                store.setExecutionStartTime(null);
+                activeRunCountRef.current = 0;
+            }, 60000); // 60 second timeout
+
         } catch (err: any) {
             setExecutionError(err.message || 'Execution failed to start');
             setExecutionResult(null);
@@ -263,6 +306,12 @@ export default function SharedWorkflowEditor({
                     setIsExecuting(false);
                     store.setActiveExecutionId(null);
                     store.setExecutionStartTime(null);
+                    
+                    // Clear the safety timeout since execution completed normally
+                    if (executionTimeoutRef.current) {
+                        clearTimeout(executionTimeoutRef.current);
+                        executionTimeoutRef.current = null;
+                    }
                 }
             }
         }

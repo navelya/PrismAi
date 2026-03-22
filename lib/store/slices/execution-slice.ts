@@ -25,6 +25,7 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
         const { nodeStatuses } = get();
         
         // Check if any node has a "live" status (pending/running)
+        // 'success', 'error', 'completed', 'failed', 'idle' are all terminal/inactive states
         const hasLiveStatuses = Object.values(nodeStatuses).some(
             (status: any) => status === 'pending' || status === 'running'
         );

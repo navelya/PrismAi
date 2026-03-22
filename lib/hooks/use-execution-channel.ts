@@ -64,16 +64,26 @@ export function useExecutionChannel(executionId: string | null | undefined) {
 
         // V3: Handler for node_results changes
         const handleResultChange = (payload: any) => {
+            console.log(`[ExecutionChannel] Received payload:`, payload.eventType, payload);
+            
             const record = payload.new;
             if (!record) return;
 
             const { node_id: nodeId, status, result_url: resultUrl, error } = record;
 
-            console.log(`[ExecutionChannel] node_results update for ${nodeId}: ${status}`);
+            console.log(`[ExecutionChannel] node_results ${payload.eventType} for ${nodeId}: status=${status}`);
 
-            // Update status in Zustand
+            // Update status in Zustand - use the exact status from the database
             if (status) {
-                store.setNodeStatus(nodeId, status);
+                // Map database statuses to UI statuses
+                if (status === 'completed') {
+                    store.setNodeStatus(nodeId, 'success');
+                } else if (status === 'failed') {
+                    store.setNodeStatus(nodeId, 'error');
+                } else {
+                    // 'pending' and 'running' pass through directly
+                    store.setNodeStatus(nodeId, status);
+                }
             }
 
             // Update output if completed
@@ -89,7 +99,6 @@ export function useExecutionChannel(executionId: string | null | undefined) {
             // Clear output on error
             if (status === 'failed') {
                 console.error(`[ExecutionChannel] Node ${nodeId} error:`, error);
-                store.setNodeStatus(nodeId, 'error');
                 store.setNodeOutput(nodeId, null);
             }
         };
