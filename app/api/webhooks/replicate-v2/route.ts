@@ -103,6 +103,18 @@ export async function POST(request: NextRequest) {
         );
       }
       
+      // Also update the overall execution status to completed and store the final result
+      // This solves the issue of the 'executions' table not having the final result_data
+      await supabase
+        .from('executions')
+        .update({
+          status: 'completed',
+          result_data: resultUrl, // V3 Simple mode assumes the AI node result is the final result
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', executionId);
+      
       console.log(`[Webhook/Replicate-v2] Successfully processed completion for node ${nodeId}`);
       
     } else if (status === 'failed' || status === 'canceled') {
@@ -122,7 +134,16 @@ export async function POST(request: NextRequest) {
           onConflict: 'execution_id,node_id'
         });
       
-      // Update execution status if failed? (Optional: depending on engine logic)
+      // Update overall execution status to failed
+      await supabase
+        .from('executions')
+        .update({
+          status: 'failed',
+          error: predictionError || `Prediction ${status}`,
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', executionId);
       
     } else {
       console.log(`[Webhook/Replicate-v2] Ignoring intermediate status: ${status}`);

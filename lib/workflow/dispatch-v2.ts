@@ -202,21 +202,32 @@ function buildReplicateInput(
   upstreamInputs: Record<string, any>
 ): Record<string, any> {
   
+  // Extract all possible static inputs and control values from the UI
   const baseInput = nodeConfig.data.input || {};
+  const controlValues = nodeConfig.data.control_values || {};
   
-  // Merge upstream outputs into the input
-  // For now, simple merge - later we'll add proper input mapping
+  // Dynamically concatenate options and edge inputs at the same level.
+  // Upstream edge inputs OVERRIDE the default static UI control values.
   const input = {
+    ...controlValues,
     ...baseInput,
     ...upstreamInputs,
   };
   
-  // Special handling for common fields
-  if (nodeConfig.data.prompt) {
+  // Clean up any empty strings or nulls from the static config that might 
+  // accidentally override valid upstream data (e.g. prompt: "")
+  for (const key in input) {
+    if (input[key] === "" || input[key] === null || input[key] === undefined) {
+      delete input[key];
+    }
+  }
+
+  // Ensure prompt exists if we specifically extracted it in the mapper
+  if (!input.prompt && nodeConfig.data.prompt) {
     input.prompt = nodeConfig.data.prompt;
   }
   
-  console.log(`[Dispatch] Built Replicate input:`, input);
+  console.log(`[Dispatch] Built Replicate input keys:`, Object.keys(input));
   
   return input;
 }
