@@ -132,6 +132,8 @@ export async function POST(request: NextRequest) {
     });
     
     // Step 3: Dispatch AI nodes with resolved inputs
+    console.log(`[Execution/Start] Graph edges:`, JSON.stringify(graph_json.edges, null, 2));
+    
     const aiDispatchPromises = aiNodes.map(async (node: NodeConfig) => {
         // Build inputs based on edges targeting this node
         const inputs: Record<string, any> = {};
@@ -140,15 +142,22 @@ export async function POST(request: NextRequest) {
         for (const edge of incomingEdges) {
             const result = resultUrlMap.get(edge.source);
             if (result) {
+                const sourceNode = uniqueNodes.find(n => n.id === edge.source);
                 const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
-                inputs[inputKey] = result;
                 
-                // Special mapping: if the edge is a prompt connection, ensure it maps to 'prompt'
-                if (inputKey.toLowerCase().includes('prompt')) {
+                // If the source is a prompt node, map its result directly to the 'prompt' input
+                if (sourceNode?.type === 'prompt') {
                     inputs['prompt'] = result;
+                } else {
+                    inputs[inputKey] = result;
+                    if (inputKey.toLowerCase().includes('prompt')) {
+                        inputs['prompt'] = result;
+                    }
                 }
             }
         }
+        
+        console.log(`[Execution/Start] Mapped inputs for AI node ${node.id}:`, inputs);
         
         return dispatchNode(execution.id, node.id, node, inputs, origin);
     });
