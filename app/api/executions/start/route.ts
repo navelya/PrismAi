@@ -7,10 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
-
-// NOTE: Cannot use Edge Runtime because check-and-dispatch uses Sharp (Node.js only)
-// For instant response, deploy the Supabase Edge Function (STEP 4)
-// That provides event-driven dispatch without blocking this endpoint
+import { dispatchNode } from '@/lib/workflow/dispatch-v2';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
@@ -54,12 +51,13 @@ export async function POST(request: NextRequest) {
     
     const supabase = createServiceClient();
     
-    // Create execution record
+    // Create execution record with graph snapshot
     const { data: execution, error: createError } = await supabase
       .from('executions')
       .insert({
         session_id,
         status: 'pending',
+        graph_json: graph_json, // Save the immutable graph snapshot
       })
       .select()
       .single();
@@ -73,6 +71,37 @@ export async function POST(request: NextRequest) {
     }
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
+    
+    // Initialize node_results for all nodes so the UI sees them as pending
+    const initialNodeResults = graph_json.nodes.map(node => ({
+      execution_id: execution.id,
+      node_id: node.id,
+      status: 'pending',
+      updated_at: new Date().toISOString(),
+    }));
+    
+    const { error: initError } = await supabase
+      .from('node_results')
+      .insert(initialNodeResults);
+      
+    if (initError) {
+      console.warn('[Execution/Start] Failed to initialize node_results:', initError);
+      // Non-critical, continue with dispatch
+    }
+    
+    // FIRE-AND-FORGET DISPATCH:
+    // In "Simple V3" we just dispatch everything immediately.
+    // In a full engine, we'd only dispatch root nodes.
+    const dispatchPromises = graph_json.nodes.map(node => {
+        // For now, pass an empty inputs object - will be populated by check-and-dispatch later
+        // In simple mode, it assumes nodes have all info in their config (data)
+        return dispatchNode(execution.id, node.id, node, {});
+    });
+    
+    // We wait for dispatch to start but not for nodes to complete
+    Promise.all(dispatchPromises).catch(err => {
+        console.error('[Execution/Start] ❌ Dispatch error:', err);
+    });
     
     // Return execution details
     return NextResponse.json({

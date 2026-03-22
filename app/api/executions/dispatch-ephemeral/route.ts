@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     
     // Fetch execution
     const { data: execution, error: fetchError } = await supabase
-      .from('executions_v2')
+      .from('executions')
       .select('*')
       .eq('id', execution_id)
       .single();
@@ -48,7 +48,21 @@ export async function POST(request: NextRequest) {
     }
     
     const graph: GraphJson = execution.graph_json;
-    const nodeStates: Record<string, NodeState> = execution.node_states;
+    
+    // V3: Get node states from node_results table
+    const { data: results } = await supabase
+      .from('node_results')
+      .select('*')
+      .eq('execution_id', execution_id);
+    
+    const nodeStates: Record<string, any> = {};
+    (results || []).forEach(r => {
+      nodeStates[r.node_id] = {
+        status: r.status,
+        result_url: r.result_url,
+        error: r.error
+      };
+    });
     
     // Find the node
     const node = graph.nodes.find(n => n.id === node_id);
@@ -127,12 +141,16 @@ export async function POST(request: NextRequest) {
     };
     
     await supabase
-      .from('executions_v2')
-      .update({
-        node_states: updatedNodeStates,
+      .from('node_results')
+      .upsert({
+        execution_id: execution_id,
+        node_id: node_id,
+        status: 'completed',
+        result_url: resultUrl,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', execution_id);
+      }, {
+        onConflict: 'execution_id,node_id'
+      });
     
     // Log completion event
     await supabase.rpc('log_execution_event', {
@@ -166,30 +184,23 @@ export async function POST(request: NextRequest) {
       if (execution_id && node_id) {
         const supabase = createServiceClient();
         
-        const { data: execution } = await supabase
-          .from('executions_v2')
-          .select('node_states')
-          .eq('id', execution_id)
+        const { data: result } = await supabase
+          .from('node_results')
+          .select('status')
+          .eq('execution_id', execution_id)
+          .eq('node_id', node_id)
           .single();
         
-        if (execution) {
-          const updatedNodeStates = {
-            ...execution.node_states,
-            [node_id]: {
-              ...execution.node_states[node_id],
+        if (result) {
+          await supabase
+            .from('node_results')
+            .update({
               status: 'failed',
               error: error instanceof Error ? error.message : 'Unknown error',
-              completed_at: new Date().toISOString(),
-            },
-          };
-          
-          await supabase
-            .from('executions_v2')
-            .update({
-              node_states: updatedNodeStates,
               updated_at: new Date().toISOString(),
             })
-            .eq('id', execution_id);
+            .eq('execution_id', execution_id)
+            .eq('node_id', node_id);
         }
       }
     } catch (markError) {
