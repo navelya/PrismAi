@@ -8,6 +8,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson, NodeConfig } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { dispatchNode } from '@/lib/workflow/dispatch-v2';
+import { isEphemeralNode } from '@/lib/workflow/handlers';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
@@ -100,19 +101,63 @@ export async function POST(request: NextRequest) {
       // Non-critical, continue with dispatch
     }
     
-    // FIRE-AND-FORGET DISPATCH:
-    // In "Simple V3" we just dispatch everything immediately.
-    // In a full engine, we'd only dispatch root nodes.
-    const dispatchPromises = uniqueNodes.map((node: NodeConfig) => {
-        // For now, pass an empty inputs object - will be populated by check-and-dispatch later
-        // In simple mode, it assumes nodes have all info in their config (data)
-        return dispatchNode(execution.id, node.id, node, {}, origin);
+    // SIMPLE V3 SEQUENTIAL DISPATCH:
+    // 1. Dispatch ephemeral nodes (like prompts) and wait for them to finish.
+    // 2. Fetch their results.
+    // 3. Dispatch Replicate nodes with the resolved inputs.
+    
+    const ephemeralNodes = uniqueNodes.filter(node => isEphemeralNode(node.type));
+    const aiNodes = uniqueNodes.filter(node => !isEphemeralNode(node.type));
+    
+    // Step 1: Run ephemeral nodes sequentially
+    for (const node of ephemeralNodes) {
+        try {
+            await dispatchNode(execution.id, node.id, node, {}, origin);
+        } catch (err) {
+            console.error(`[Execution/Start] Error dispatching ephemeral node ${node.id}:`, err);
+        }
+    }
+    
+    // Step 2: Fetch results to build inputs for AI nodes
+    const { data: currentResults } = await supabase
+      .from('node_results')
+      .select('*')
+      .eq('execution_id', execution.id);
+      
+    const resultUrlMap = new Map();
+    (currentResults || []).forEach(r => {
+        if (r.status === 'completed' && r.result_url) {
+            resultUrlMap.set(r.node_id, r.result_url);
+        }
     });
     
-    // We wait for dispatch to start but not for nodes to complete
-    Promise.all(dispatchPromises).catch(err => {
-        console.error('[Execution/Start] ❌ Dispatch error:', err);
+    // Step 3: Dispatch AI nodes with resolved inputs
+    const aiDispatchPromises = aiNodes.map(async (node: NodeConfig) => {
+        // Build inputs based on edges targeting this node
+        const inputs: Record<string, any> = {};
+        const incomingEdges = (graph_json.edges || []).filter((e: any) => e.target === node.id);
+        
+        for (const edge of incomingEdges) {
+            const result = resultUrlMap.get(edge.source);
+            if (result) {
+                const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
+                inputs[inputKey] = result;
+                
+                // Special mapping: if the edge is a prompt connection, ensure it maps to 'prompt'
+                if (inputKey.toLowerCase().includes('prompt')) {
+                    inputs['prompt'] = result;
+                }
+            }
+        }
+        
+        return dispatchNode(execution.id, node.id, node, inputs, origin);
     });
+    
+    try {
+        await Promise.all(aiDispatchPromises);
+    } catch (err) {
+        console.error('[Execution/Start] ❌ AI Dispatch error:', err);
+    }
     
     // Return execution details
     return NextResponse.json({
