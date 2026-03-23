@@ -439,7 +439,7 @@ function EditorCanvasInner({
             onContextMenu={handleContextMenu}
             onMouseMove={handleMouseMove}
         >
-            <div className="canvas-spotlight" />
+
             <ReactFlow
                 nodes={displayNodes}
                 edges={memoizedEdges}
@@ -485,13 +485,41 @@ function EditorCanvasInner({
                 onMoveStart={() => setContextMenu(null)}
                 proOptions={{ hideAttribution: true }}
             >
+                {/* 1. Base Subtle Grid (Small Gap) */}
                 <Background
                     variant={BackgroundVariant.Dots}
-                    gap={16}
-                    size={1.5}
+                    gap={20}
+                    size={1}
                     style={{ backgroundColor: 'rgb(var(--canvas-bg))' }}
-                    color="rgba(255, 255, 255, 0.18)"
+                    color="rgba(var(--accent-primary) / 0.15)"
+                    id="base-grid"
                 />
+
+                {/* 2. Secondary Structural Grid (Large Gap) */}
+                <Background
+                    variant={BackgroundVariant.Dots}
+                    gap={100}
+                    size={1.5}
+                    color="rgba(var(--accent-primary) / 0.25)"
+                    id="structural-grid"
+                />
+
+                {/* 3. Mouse Spotlight Grid (Masked) */}
+                <div 
+                    className="absolute inset-0 pointer-events-none z-0"
+                    style={{
+                        maskImage: `radial-gradient(180px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
+                        WebkitMaskImage: `radial-gradient(180px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
+                    }}
+                >
+                    <Background
+                        variant={BackgroundVariant.Dots}
+                        gap={20}
+                        size={1.2}
+                        color="rgba(var(--accent-primary) / 0.8)"
+                        id="spotlight-grid"
+                    />
+                </div>
 
                 <Panel position="bottom-center" className="!mb-4">
                     <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl">
