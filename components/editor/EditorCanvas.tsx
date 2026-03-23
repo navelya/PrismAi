@@ -84,15 +84,6 @@ function EditorCanvasInner({
     const [isMouseActive, setIsMouseActive] = useState(false);
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const { resolvedTheme } = useTheme();
-    const { zoom } = useViewport();
-
-    // Determine the active grid level based on zoom thresholds
-    // Using static layers toggled via opacity avoids re-mounting and zooming lag
-    const activeLevel = useMemo(() => {
-        if (zoom > 0.4) return 0;  // Level 0: Gap 20, Size 1.5
-        if (zoom > 0.15) return 1; // Level 1: Gap 80, Size 3.0
-        return 2;                  // Level 2: Gap 320, Size 5.0
-    }, [zoom]);
 
     const setIsDragging = useAppStore((state) => state.setIsDragging);
     const setLiveNodePosition = useAppStore((state) => state.setLiveNodePosition);
@@ -257,6 +248,20 @@ function EditorCanvasInner({
             rafId.current = requestAnimationFrame(flushNodeChanges);
         }
     }, [flushNodeChanges]);
+
+    // 🛡️ UX FIX: Prevent global browser zoom (Ctrl + MouseWheel) when interacting with the app.
+    // This ensures that Ctrl+Scroll only zooms the canvas and doesn't scale the whole UI.
+    useEffect(() => {
+        const handleWheel = (event: WheelEvent) => {
+            if (event.ctrlKey) {
+                event.preventDefault();
+            }
+        };
+
+        window.addEventListener('wheel', handleWheel, { passive: false });
+        // Also capture cmd+scroll on mac if needed (though usually it's the same wheel event)
+        return () => window.removeEventListener('wheel', handleWheel);
+    }, []);
 
     useEffect(() => {
         return () => {
@@ -514,85 +519,11 @@ function EditorCanvasInner({
                 onMoveStart={() => setContextMenu(null)}
                 proOptions={{ hideAttribution: true }}
             >
-                {/* 1. Base Grid (Static Layers for zero-lag zooming) */}
-                <Background
-                    id="base-grid-0"
-                    variant={BackgroundVariant.Dots}
-                    gap={20}
-                    size={1.5}
-                    style={{
-                        backgroundColor: 'rgb(var(--canvas-bg))',
-                        opacity: activeLevel === 0 ? 0.5 : 0,
-                        visibility: activeLevel === 0 ? 'visible' : 'hidden'
-                    }}
-                    color="rgba(var(--accent-primary))"
-                />
-                <Background
-                    id="base-grid-1"
-                    variant={BackgroundVariant.Dots}
-                    gap={80}
-                    size={5}
-                    style={{
-                        opacity: activeLevel === 1 ? 0.5 : 0,
-                        visibility: activeLevel === 1 ? 'visible' : 'hidden'
-                    }}
-                    color="rgba(var(--accent-primary))"
-                />
-                <Background
-                    id="base-grid-2"
-                    variant={BackgroundVariant.Dots}
-                    gap={320}
-                    size={14}
-                    style={{
-                        opacity: activeLevel === 2 ? 0.5 : 0,
-                        visibility: activeLevel === 2 ? 'visible' : 'hidden'
-                    }}
-                    color="rgba(var(--accent-primary))"
-                />
+                {/* 1. Base Grid (Isolated for zero-lag zooming) */}
+                <BaseGridLayers />
 
-                {/* 3. Mouse Spotlight Grid (Masked) */}
-                <div
-                    className="absolute inset-0 pointer-events-none z-0 transition-opacity duration-500"
-                    style={{
-                        maskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
-                        WebkitMaskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
-                        opacity: isMouseActive ? 1 : 0,
-                    }}
-                >
-                    <Background
-                        id="spotlight-grid-0"
-                        variant={BackgroundVariant.Dots}
-                        gap={20}
-                        size={1.5}
-                        style={{
-                            opacity: activeLevel === 0 ? 1 : 0,
-                            visibility: activeLevel === 0 ? 'visible' : 'hidden'
-                        }}
-                        color="rgba(var(--accent-primary))"
-                    />
-                    <Background
-                        id="spotlight-grid-1"
-                        variant={BackgroundVariant.Dots}
-                        gap={80}
-                        size={6}
-                        style={{
-                            opacity: activeLevel === 1 ? 1 : 0,
-                            visibility: activeLevel === 1 ? 'visible' : 'hidden'
-                        }}
-                        color="rgba(var(--accent-primary))"
-                    />
-                    <Background
-                        id="spotlight-grid-2"
-                        variant={BackgroundVariant.Dots}
-                        gap={320}
-                        size={24}
-                        style={{
-                            opacity: activeLevel === 2 ? 1 : 0,
-                            visibility: activeLevel === 2 ? 'visible' : 'hidden'
-                        }}
-                        color="rgba(var(--accent-primary))"
-                    />
-                </div>
+                {/* 3. Mouse Spotlight Grid (Isolated for zero-lag zooming) */}
+                <SpotlightGridLayers isMouseActive={isMouseActive} />
 
                 <Panel position="bottom-center" className="!mb-4">
                     <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl">
@@ -808,9 +739,122 @@ function ToolbarDivider() {
 
 function ZoomDisplay() {
     const { zoom } = useViewport();
+    // 🛡️ FIX: Provide fallback zoom to prevent NaN display
+    const displayZoom = zoom || 0.8;
     return (
         <span className="px-2 text-xs font-medium text-content-secondary min-w-[40px] text-center tabular-nums">
-            {Math.round(zoom * 100)}%
+            {Math.round(displayZoom * 100)}%
         </span>
+    );
+}
+
+/**
+ * 🚀 PERFORMANCE OPTIMIZATION: 
+ * We isolate the Background layers into their own component.
+ * This ensures that when 'zoom' changes (at 60fps during animation), 
+ * ONLY these 3 Background components re-render.
+ * The entire EditorCanvasInner (and all nodes) will NOT re-render.
+ */
+function BaseGridLayers() {
+    const { zoom } = useViewport();
+
+    const activeLevel = useMemo(() => {
+        if (zoom > 0.4) return 0;
+        if (zoom > 0.15) return 1;
+        return 2;
+    }, [zoom]);
+
+    return (
+        <>
+            <Background
+                id="base-grid-0"
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1.5}
+                style={{
+                    backgroundColor: 'rgb(var(--canvas-bg))',
+                    opacity: activeLevel === 0 ? 0.5 : 0,
+                    visibility: activeLevel === 0 ? 'visible' : 'hidden'
+                }}
+                color="rgba(var(--accent-primary))"
+            />
+            <Background
+                id="base-grid-1"
+                variant={BackgroundVariant.Dots}
+                gap={80}
+                size={5}
+                style={{
+                    opacity: activeLevel === 1 ? 0.5 : 0,
+                    visibility: activeLevel === 1 ? 'visible' : 'hidden'
+                }}
+                color="rgba(var(--accent-primary))"
+            />
+            <Background
+                id="base-grid-2"
+                variant={BackgroundVariant.Dots}
+                gap={320}
+                size={14}
+                style={{
+                    opacity: activeLevel === 2 ? 0.5 : 0,
+                    visibility: activeLevel === 2 ? 'visible' : 'hidden'
+                }}
+                color="rgba(var(--accent-primary))"
+            />
+        </>
+    );
+}
+
+function SpotlightGridLayers({ isMouseActive }: { isMouseActive: boolean }) {
+    const { zoom } = useViewport();
+
+    const activeLevel = useMemo(() => {
+        if (zoom > 0.4) return 0;
+        if (zoom > 0.15) return 1;
+        return 2;
+    }, [zoom]);
+
+    return (
+        <div
+            className="absolute inset-0 pointer-events-none z-0 transition-opacity duration-500"
+            style={{
+                maskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
+                WebkitMaskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
+                opacity: isMouseActive ? 1 : 0,
+            }}
+        >
+            <Background
+                id="spotlight-grid-0"
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1.5}
+                style={{
+                    opacity: activeLevel === 0 ? 1 : 0,
+                    visibility: activeLevel === 0 ? 'visible' : 'hidden'
+                }}
+                color="rgba(var(--accent-primary))"
+            />
+            <Background
+                id="spotlight-grid-1"
+                variant={BackgroundVariant.Dots}
+                gap={80}
+                size={6}
+                style={{
+                    opacity: activeLevel === 1 ? 1 : 0,
+                    visibility: activeLevel === 1 ? 'visible' : 'hidden'
+                }}
+                color="rgba(var(--accent-primary))"
+            />
+            <Background
+                id="spotlight-grid-2"
+                variant={BackgroundVariant.Dots}
+                gap={320}
+                size={24}
+                style={{
+                    opacity: activeLevel === 2 ? 1 : 0,
+                    visibility: activeLevel === 2 ? 'visible' : 'hidden'
+                }}
+                color="rgba(var(--accent-primary))"
+            />
+        </div>
     );
 }
