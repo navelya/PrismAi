@@ -83,9 +83,16 @@ function EditorCanvasInner({
     const [isPanMode, setIsPanMode] = useState(false);
     const [isMouseActive, setIsMouseActive] = useState(false);
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    // Theme context for dynamic updates
     const { resolvedTheme } = useTheme();
+    const { zoom } = useViewport();
+
+    // Determine the active grid level based on zoom thresholds
+    // Using static layers toggled via opacity avoids re-mounting and zooming lag
+    const activeLevel = useMemo(() => {
+        if (zoom > 0.4) return 0;  // Level 0: Gap 20, Size 1.5
+        if (zoom > 0.15) return 1; // Level 1: Gap 80, Size 3.0
+        return 2;                  // Level 2: Gap 320, Size 5.0
+    }, [zoom]);
 
     const setIsDragging = useAppStore((state) => state.setIsDragging);
     const setLiveNodePosition = useAppStore((state) => state.setLiveNodePosition);
@@ -507,14 +514,40 @@ function EditorCanvasInner({
                 onMoveStart={() => setContextMenu(null)}
                 proOptions={{ hideAttribution: true }}
             >
-                {/* 1. Base Grid (Increased Visibility) */}
+                {/* 1. Base Grid (Static Layers for zero-lag zooming) */}
                 <Background
+                    id="base-grid-0"
                     variant={BackgroundVariant.Dots}
                     gap={20}
                     size={1.5}
-                    style={{ backgroundColor: 'rgb(var(--canvas-bg))' }}
-                    color="rgba(var(--accent-primary) / 0.5)"
-                    id="base-grid"
+                    style={{
+                        backgroundColor: 'rgb(var(--canvas-bg))',
+                        opacity: activeLevel === 0 ? 0.5 : 0,
+                        visibility: activeLevel === 0 ? 'visible' : 'hidden'
+                    }}
+                    color="rgba(var(--accent-primary))"
+                />
+                <Background
+                    id="base-grid-1"
+                    variant={BackgroundVariant.Dots}
+                    gap={80}
+                    size={5}
+                    style={{
+                        opacity: activeLevel === 1 ? 0.5 : 0,
+                        visibility: activeLevel === 1 ? 'visible' : 'hidden'
+                    }}
+                    color="rgba(var(--accent-primary))"
+                />
+                <Background
+                    id="base-grid-2"
+                    variant={BackgroundVariant.Dots}
+                    gap={320}
+                    size={14}
+                    style={{
+                        opacity: activeLevel === 2 ? 0.5 : 0,
+                        visibility: activeLevel === 2 ? 'visible' : 'hidden'
+                    }}
+                    color="rgba(var(--accent-primary))"
                 />
 
                 {/* 3. Mouse Spotlight Grid (Masked) */}
@@ -527,11 +560,37 @@ function EditorCanvasInner({
                     }}
                 >
                     <Background
+                        id="spotlight-grid-0"
                         variant={BackgroundVariant.Dots}
                         gap={20}
                         size={1.5}
+                        style={{
+                            opacity: activeLevel === 0 ? 1 : 0,
+                            visibility: activeLevel === 0 ? 'visible' : 'hidden'
+                        }}
                         color="rgba(var(--accent-primary))"
-                        id="spotlight-grid"
+                    />
+                    <Background
+                        id="spotlight-grid-1"
+                        variant={BackgroundVariant.Dots}
+                        gap={80}
+                        size={6}
+                        style={{
+                            opacity: activeLevel === 1 ? 1 : 0,
+                            visibility: activeLevel === 1 ? 'visible' : 'hidden'
+                        }}
+                        color="rgba(var(--accent-primary))"
+                    />
+                    <Background
+                        id="spotlight-grid-2"
+                        variant={BackgroundVariant.Dots}
+                        gap={320}
+                        size={24}
+                        style={{
+                            opacity: activeLevel === 2 ? 1 : 0,
+                            visibility: activeLevel === 2 ? 'visible' : 'hidden'
+                        }}
+                        color="rgba(var(--accent-primary))"
                     />
                 </div>
 
