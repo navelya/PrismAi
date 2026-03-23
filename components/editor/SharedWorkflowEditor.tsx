@@ -225,16 +225,16 @@ export default function SharedWorkflowEditor({
         store.setExecutionStartTime(Date.now());
 
         if (targetNodeId && mode === 'solo') {
-            store.setNodeStatus(targetNodeId, 'pending');
+            store.setNodeStatus(targetNodeId, 'running');
         } else if (targetNodeId && mode === 'chain') {
             const { getDescendants } = require('@/lib/utils/graph-traversal');
             const descendants = getDescendants(targetNodeId, edges);
-            store.setNodeStatus(targetNodeId, 'pending');
-            descendants.forEach((id: string) => store.setNodeStatus(id, 'pending'));
+            store.setNodeStatus(targetNodeId, 'running');
+            descendants.forEach((id: string) => store.setNodeStatus(id, 'running'));
         } else if (targetNodeId && mode === 'ab_test') {
-            store.setNodeStatus(targetNodeId, 'pending');
+            store.setNodeStatus(targetNodeId, 'running');
         } else {
-            nodes.forEach(n => store.setNodeStatus(n.id, 'pending'));
+            nodes.forEach(n => store.setNodeStatus(n.id, 'running'));
             store.clearNodeOutputs();
         }
 
