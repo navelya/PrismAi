@@ -190,10 +190,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                     </div>
                 )}
 
-                {/* Loading State */}
-                {status === 'running' && <GlassyLoader />}
-
-                {/* Content Preview (Matching CustomNode Logic) */}
+                {/* Content Preview */}
                 {previewOutput && (
                     <OutputPreview
                         output={previewOutput}
@@ -211,10 +208,12 @@ function AIGeneratorNode({ id, data, selected }: any) {
                                 openLightbox(activeImageIndex);
                             }
                         }}
-                        // We pass these handlers to prevent node selection when clicking inputs/previews
                         onInteraction={(e: React.MouseEvent | React.PointerEvent) => e.stopPropagation()}
                     />
                 )}
+
+                {/* Loading State Overlay (Always renders on top of Output if running) */}
+                {status === 'running' && <GlassyLoader containerClassName="z-50 bg-black/40 backdrop-blur-md" />}
 
                 {/* View Toggles (Matching CustomNode) */}
                 {Array.isArray(previewOutput) && previewOutput.length > 1 && (
@@ -349,22 +348,6 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
 
     if (previewMode === 'single') {
         const url = urls[activeImageIndex] || urls[0];
-        
-        // ⭐ DOUBLE BUFFERING: Keep the previous image visible while the new one loads
-        const [currentUrl, setCurrentUrl] = useState(url);
-        const [lastLoadedUrl, setLastLoadedUrl] = useState<string | null>(null);
-        const [isNewImageLoading, setIsNewImageLoading] = useState(false);
-
-        useEffect(() => {
-            if (url && url !== currentUrl) {
-                // If we had a successful image before, keep it as the buffer
-                if (!isNewImageLoading && currentUrl) {
-                    setLastLoadedUrl(currentUrl);
-                }
-                setCurrentUrl(url);
-                setIsNewImageLoading(true);
-            }
-        }, [url, currentUrl, isNewImageLoading]);
 
         if (type === 'video') {
             return (
@@ -403,47 +386,13 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
                 onClick={onPreviewClick}
-                style={{ aspectRatio: lastLoadedUrl ? undefined : '1/1' }}
             >
-                {/* Layer 1: The OLD (Buffered) Image - Visible while loading */}
-                {lastLoadedUrl && isNewImageLoading && (
-                    <div className="absolute inset-0 z-0">
-                        <img 
-                            src={lastLoadedUrl} 
-                            alt="" 
-                            className="w-full h-full object-contain blur-md opacity-50 scale-105"
-                        />
-                    </div>
-                )}
-
-                {/* Layer 2: The NEW Image - Fades in when loaded */}
-                <motion.img
-                    key={currentUrl}
-                    initial={{ opacity: lastLoadedUrl ? 0 : 1, filter: lastLoadedUrl ? 'blur(10px)' : 'none' }}
-                    animate={{ 
-                        opacity: isNewImageLoading ? (lastLoadedUrl ? 0 : 0.5) : 1,
-                        filter: isNewImageLoading ? 'blur(10px)' : 'none',
-                        scale: isNewImageLoading ? 0.98 : 1
-                    }}
-                    transition={{ duration: 0.6, ease: "easeOut" }}
-                    src={currentUrl}
+                <img
+                    src={url}
                     alt="Output"
                     className="relative z-10 w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
-                    onLoad={() => {
-                        setIsNewImageLoading(false);
-                        // We don't clear lastLoadedUrl here to keep it ready for the NEXT swap
-                    }}
                     style={{ maxHeight: MAX_HEIGHT }}
                 />
-
-                {/* Shimmer overlay during load */}
-                {isNewImageLoading && (
-                    <motion.div
-                        animate={{ x: ['-100%', '100%'] }}
-                        transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                        className="absolute inset-0 z-20 bg-gradient-to-r from-transparent via-white/5 to-transparent pointer-events-none"
-                    />
-                )}
             </div>
         );
     }
