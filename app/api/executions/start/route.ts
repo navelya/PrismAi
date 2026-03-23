@@ -107,14 +107,22 @@ export async function POST(request: NextRequest) {
     const { origin } = new URL(request.url);
     console.log(`[Execution/Start] Using origin for webhooks: ${origin}`);
     
-    // Initialize node_results for execution nodes so the UI sees them as pending
-    const initialNodeResults = nodesToExecute.map((node: NodeConfig) => ({
-      execution_id: execution.id,
-      node_id: node.id,
-      session_id: session_id,
-      status: 'pending',
-      updated_at: new Date().toISOString(),
-    }));
+    // Initialize node_results for execution nodes with mathematically accurate initial statuses
+    // A node is dispatchable immediately (running) if it has NO unresolved dependencies 
+    // within the current execution batch. Otherwise, it must wait (pending).
+    const initialNodeResults = nodesToExecute.map((node: NodeConfig) => {
+      const isDependent = (graph_json.edges || []).some(
+        (edge: any) => edge.target === node.id && nodesToExecute.find(n => n.id === edge.source)
+      );
+      
+      return {
+        execution_id: execution.id,
+        node_id: node.id,
+        session_id: session_id,
+        status: isDependent ? 'pending' : 'running',
+        updated_at: new Date().toISOString(),
+      };
+    });
     
     const { error: initError } = await supabase
       .from('node_results')

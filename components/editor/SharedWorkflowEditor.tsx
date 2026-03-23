@@ -229,13 +229,21 @@ export default function SharedWorkflowEditor({
         } else if (targetNodeId && mode === 'chain') {
             const { getDescendants } = require('@/lib/utils/graph-traversal');
             const descendants = getDescendants(targetNodeId, edges);
-            store.setNodeStatus(targetNodeId, 'running');
-            descendants.forEach((id: string) => store.setNodeStatus(id, 'running'));
+            
+            store.setNodeStatus(targetNodeId, 'running'); // The root explicitly clicked is always running
+            
+            // Downstream nodes in the chain should be pending until their parents finish
+            descendants.forEach((id: string) => store.setNodeStatus(id, 'pending'));
+            
         } else if (targetNodeId && mode === 'ab_test') {
             store.setNodeStatus(targetNodeId, 'running');
         } else {
-            nodes.forEach(n => store.setNodeStatus(n.id, 'running'));
+            // In full execution mode, nodes with no incoming dependencies start running
             store.clearNodeOutputs();
+            nodes.forEach(n => {
+                const hasIncomingEdges = edges.some(e => e.target === n.id);
+                store.setNodeStatus(n.id, hasIncomingEdges ? 'pending' : 'running');
+            });
         }
 
         const workflow = getCurrentWorkflow();

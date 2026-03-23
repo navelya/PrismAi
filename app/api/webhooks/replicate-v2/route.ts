@@ -80,7 +80,72 @@ export async function POST(request: NextRequest) {
       
       // Normalize output to standard format
       const normalizedOutput = normalizeReplicateOutput(output);
-      const resultUrl = normalizedOutput?.url || (Array.isArray(normalizedOutput) ? normalizedOutput[0]?.url : null);
+      let finalResultUrl = normalizedOutput?.url || (Array.isArray(normalizedOutput) ? normalizedOutput[0]?.url : null);
+      
+      // Feature: Download Replicate image to permanent Supabase Storage
+      if (finalResultUrl && finalResultUrl.startsWith('http')) {
+        try {
+          console.log(`[Webhook/Replicate-v2] Downloading image from Replicate: ${finalResultUrl}`);
+          
+          // 1. Fetch execution context to build storage path
+          const { data: executionCtx, error: ctxError } = await supabase
+            .from('executions')
+            .select('session_id, sessions(user_id)')
+            .eq('id', executionId)
+            .single();
+            
+          if (ctxError || !executionCtx) {
+             console.error('[Webhook/Replicate-v2] Warning: Could not fetch execution context for path. Falling back to simple path.', ctxError);
+          }
+          
+          const sessionId = executionCtx?.session_id || 'unknown_session';
+          // Handle nested sessions(user_id) join
+          const sessionsJoin = executionCtx?.sessions as any;
+          const userId = sessionsJoin?.user_id || 'unknown_user';
+          
+          // 2. Download the image
+          const response = await fetch(finalResultUrl);
+          if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+          
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          
+          // 3. Upload to Supabase 'chat-assets'
+          const timestamp = Date.now();
+          // Extract extension from original URL or default to png
+          const extUrlMatch = finalResultUrl.match(/\.(png|jpe?g|webp)(\?|$)/i);
+          const ext = extUrlMatch ? extUrlMatch[1] : 'png';
+          
+          const storagePath = `${userId}/${sessionId}/thumbnails/${nodeId}/result_${timestamp}.${ext}`;
+          
+          console.log(`[Webhook/Replicate-v2] Uploading to Supabase Storage: chat-assets/${storagePath}`);
+          
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('chat-assets')
+            .upload(storagePath, buffer, {
+              contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+              cacheControl: '3600',
+              upsert: true
+            });
+            
+          if (uploadError) {
+             throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
+          }
+          
+          // 4. Get the permanent public URL
+          const { data: urlData } = supabase.storage
+            .from('chat-assets')
+            .getPublicUrl(storagePath);
+            
+          console.log(`[Webhook/Replicate-v2] ✅ Successfully mirrored to Supabase: ${urlData.publicUrl}`);
+          finalResultUrl = urlData.publicUrl;
+          
+        } catch (uploadJobError) {
+          console.error('[Webhook/Replicate-v2] ❌ Failed to mirror image to S3. Falling back to temporary Replicate URL.', uploadJobError);
+          // If the S3 upload fails, we intelligently fallback to the original Replicate URL
+          // so the UI still works, even if the URL is temporary.
+        }
+      }
       
       // V3: Update node_results table
       const { error: updateError } = await supabase
@@ -89,7 +154,7 @@ export async function POST(request: NextRequest) {
           execution_id: executionId,
           node_id: nodeId,
           status: 'completed',
-          result_url: resultUrl,
+          result_url: finalResultUrl,
           replicate_id: predictionId,
           updated_at: new Date().toISOString(),
         }, {
@@ -110,7 +175,7 @@ export async function POST(request: NextRequest) {
         .from('executions')
         .update({
           status: 'completed',
-          result_data: resultUrl, // V3 Simple mode assumes the AI node result is the final result
+          result_data: finalResultUrl, // V3 Simple mode assumes the AI node result is the final result
           completed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
