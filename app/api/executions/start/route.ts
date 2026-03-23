@@ -204,8 +204,30 @@ export async function POST(request: NextRequest) {
     
     // Step 1: Run ephemeral nodes sequentially
     for (const node of ephemeralNodes) {
+        const inputs: Record<string, any> = {};
+        const incomingEdges = (graph_json.edges || []).filter((e: any) => e.target === node.id);
+        
+        for (const edge of incomingEdges) {
+            const result = resultUrlMap.get(edge.source);
+            if (result) {
+                const sourceNode = allUniqueNodes.find(n => n.id === edge.source);
+                const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
+                
+                if (sourceNode?.type === 'prompt') {
+                    inputs['prompt'] = result;
+                } else {
+                    inputs[inputKey] = result;
+                    if (inputKey.toLowerCase().includes('prompt')) {
+                        inputs['prompt'] = result;
+                    }
+                }
+            }
+        }
+        
+        console.log(`[Execution/Start] Mapped inputs for ephemeral node ${node.id}:`, Object.keys(inputs));
+        
         try {
-            const dispatchResult = await dispatchNode(execution.id, node.id, node, {}, origin, session_id);
+            const dispatchResult = await dispatchNode(execution.id, node.id, node, inputs, origin, session_id);
             if (dispatchResult.success && dispatchResult.data !== undefined) {
                 resultUrlMap.set(node.id, dispatchResult.data);
             }

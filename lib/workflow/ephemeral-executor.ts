@@ -13,7 +13,8 @@ import { GraphJson, NodeState, NodeConfig } from './types-v2';
 export async function executeEphemeralNode(
   executionId: string, 
   nodeId: string,
-  sessionId?: string
+  sessionId?: string,
+  providedInputs?: Record<string, any>
 ): Promise<{ success: boolean; result_url?: string; error?: string }> {
   
   console.log(`[EphemeralExecutor] Processing node ${nodeId} in execution ${executionId} (Session: ${sessionId})`);
@@ -52,22 +53,29 @@ export async function executeEphemeralNode(
       throw new Error(`Graph not found for execution ${executionId}`);
     }
 
-    // V3: Get node states from node_results table
-    const { data: results } = await supabase
-      .from('node_results')
-      .select('*')
-      .eq('execution_id', executionId);
+    let inputs = providedInputs;
     
-    const nodeStates: Record<string, any> = {};
-    (results || []).forEach(r => {
-      nodeStates[r.node_id] = {
-        status: r.status,
-        result_url: r.result_url,
-        error: r.error
-      };
-    });
+    if (!inputs) {
+      // V3: Get node states from node_results table (Fallback)
+      const { data: results } = await supabase
+        .from('node_results')
+        .select('*')
+        .eq('execution_id', executionId);
+      
+      const nodeStates: Record<string, any> = {};
+      (results || []).forEach(r => {
+        nodeStates[r.node_id] = {
+          status: r.status,
+          result_url: r.result_url,
+          error: r.error
+        };
+      });
+      
+      // 4. Build inputs from upstream nodes
+      inputs = buildNodeInputs(nodeId, graph, nodeStates);
+    }
     
-    // 2. Find the node configuration
+    // 2. Find the node configuration (moved down here)
     const node = graph.nodes.find(n => n.id === nodeId);
     if (!node) {
       throw new Error(`Node ${nodeId} not found in graph`);
@@ -79,10 +87,7 @@ export async function executeEphemeralNode(
       throw new Error(`No handler found for node type: ${node.type}`);
     }
     
-    // 4. Build inputs from upstream nodes
-    const inputs = buildNodeInputs(nodeId, graph, nodeStates);
-    
-    console.log(`[EphemeralExecutor] Executing ${node.type} handler`);
+    console.log(`[EphemeralExecutor] Executing ${node.type} handler with inputs:`, Object.keys(inputs || {}));
     
     // 5. Execute handler logic
     const output = await handler(node.data || {}, inputs);
