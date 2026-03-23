@@ -94,7 +94,7 @@ async function dispatchEphemeralNode(
     });
     
     // CALL DIRECTLY (This fixes the ECONNREFUSED localhost:3000 error)
-    const result = await executeEphemeralNode(executionId, nodeId);
+    const result = await executeEphemeralNode(executionId, nodeId, sessionId);
     
     if (!result.success) {
       throw new Error(result.error || 'Ephemeral execution failed');

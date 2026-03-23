@@ -12,12 +12,14 @@ import { GraphJson, NodeState, NodeConfig } from './types-v2';
  */
 export async function executeEphemeralNode(
   executionId: string, 
-  nodeId: string
+  nodeId: string,
+  sessionId?: string
 ): Promise<{ success: boolean; result_url?: string; error?: string }> {
   
-  console.log(`[EphemeralExecutor] Processing node ${nodeId} in execution ${executionId}`);
+  console.log(`[EphemeralExecutor] Processing node ${nodeId} in execution ${executionId} (Session: ${sessionId})`);
   
   const supabase = createServiceClient();
+  let currentSessionId = sessionId;
   
   try {
     // 1. Fetch current execution state
@@ -30,6 +32,8 @@ export async function executeEphemeralNode(
     if (fetchError || !execution) {
       throw new Error(`Execution ${executionId} not found`);
     }
+    
+    if (!currentSessionId) currentSessionId = execution.session_id;
     
     // V3: Graph is now in executions.graph_json (if added) or fetched from sessions
     // For now, we assume graph_json is added or we fallback to session
@@ -121,6 +125,7 @@ export async function executeEphemeralNode(
       .upsert({
         execution_id: executionId,
         node_id: nodeId,
+        session_id: currentSessionId,
         status: 'completed',
         result_url: resultUrl,
         updated_at: new Date().toISOString(),
@@ -146,6 +151,7 @@ export async function executeEphemeralNode(
         .upsert({
           execution_id: executionId,
           node_id: nodeId,
+          session_id: currentSessionId,
           status: 'failed',
           error: error instanceof Error ? error.message : 'Execution failed',
           updated_at: new Date().toISOString(),
