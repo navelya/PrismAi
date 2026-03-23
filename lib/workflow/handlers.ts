@@ -26,6 +26,7 @@ export const EPHEMERAL_HANDLERS: Record<string, HandlerFunction> = {
   rotate: handleRotate,
   resize: handleResize,
   prompt: handlePrompt,
+  compositor: handleCompositor,
 };
 
 /**
@@ -283,4 +284,100 @@ async function handlePrompt(
   console.log(`[Handler/Prompt] Returning text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
   
   return text;
+}
+
+/**
+ * Compositor Handler
+ * Takes an array of image layers, transforms them, and composites them onto a canvas
+ */
+async function handleCompositor(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<Buffer> {
+  // Extract compositor config
+  // Note: in ephemeral-executor, properties corresponds to `node.data`
+  const config = properties.config || properties;
+  
+  const width = Math.round(config.canvasWidth || 1920);
+  const height = Math.round(config.canvasHeight || 1080);
+  const layers = config.layers || [];
+  
+  console.log(`[Handler/Compositor] Starting composition. Canvas: ${width}x${height}, Layers: ${layers.length}`);
+
+  // Base canvas (transparent)
+  let baseCanvas = sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    }
+  });
+
+  const overlays = [];
+
+  for (const layer of layers) {
+    if (!layer.visible) continue;
+
+    // Use the sourceHandleId (e.g. 'layer_0') to fetch from inputs
+    const imageUrl = inputs[layer.sourceHandleId];
+    if (!imageUrl) {
+      console.log(`[Handler/Compositor] Skipping layer ${layer.name} - No input mapped to ${layer.sourceHandleId}`);
+      continue;
+    }
+
+    try {
+      console.log(`[Handler/Compositor] Processing layer ${layer.name} from ${imageUrl}`);
+      
+      const response = await fetch(imageUrl);
+      if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+      const arrayBuffer = await response.arrayBuffer();
+      const inputBuffer = Buffer.from(arrayBuffer);
+
+      // Parse transform
+      const tf = layer.transform || {};
+      const targetW = Math.max(1, Math.round(tf.width || width));
+      const targetH = Math.max(1, Math.round(tf.height || height));
+      const rotation = tf.rotation || 0;
+      
+      let imgSharp = sharp(inputBuffer)
+        .resize(targetW, targetH, { fit: 'fill' });
+
+      if (tf.flipX) imgSharp = imgSharp.flop();
+      if (tf.flipY) imgSharp = imgSharp.flip();
+      
+      if (rotation !== 0) {
+        imgSharp = imgSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+      }
+
+      // Convert the layer to a fresh buffer
+      const processedBuffer = await imgSharp.toBuffer();
+
+      overlays.push({
+        input: processedBuffer,
+        left: Math.round(tf.x || 0),
+        top: Math.round(tf.y || 0)
+      });
+      
+    } catch (err) {
+      console.error(`[Handler/Compositor] Failed to process layer ${layer.name}:`, err);
+      // Skip failed layers but attempt to complete the rest
+    }
+  }
+
+  // Composite all overlays onto the base canvas
+  if (overlays.length > 0) {
+    console.log(`[Handler/Compositor] Compositing ${overlays.length} overlays...`);
+    baseCanvas = baseCanvas.composite(overlays);
+  }
+
+  const format = config.outputFormat || 'png';
+  if (format === 'jpg' || format === 'jpeg') {
+    return await baseCanvas.jpeg({ quality: Math.round((config.outputQuality || 1) * 100) }).toBuffer();
+  } else if (format === 'webp') {
+    return await baseCanvas.webp({ quality: Math.round((config.outputQuality || 1) * 100) }).toBuffer();
+  } else {
+    // PNG default
+    return await baseCanvas.png().toBuffer();
+  }
 }
