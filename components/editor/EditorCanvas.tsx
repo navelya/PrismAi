@@ -2,8 +2,6 @@
 
 import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import ReactFlow, {
-    Background,
-    BackgroundVariant,
     NodeMouseHandler,
     ReactFlowProvider,
     Edge,
@@ -12,17 +10,15 @@ import ReactFlow, {
     getIncomers,
     getOutgoers,
     getConnectedEdges,
-    useReactFlow,
     Connection,
     Panel,
-    useViewport,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
+import { CanvasToolbar } from './canvas/CanvasToolbar';
 import { NodeType } from '@/lib/nodes/types';
-import { clientRegistry, FallbackNode } from '@/lib/nodes/core/client-registry';
-import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { useAppStore } from '@/lib/store/app-store';
-import { Undo2, Redo2, Network, Trash2, Copy, Hand, Minus, Plus, Maximize2 } from 'lucide-react';
+import { Trash2, Copy } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
@@ -63,9 +59,6 @@ function EditorCanvasInner({
     onNodeClick,
     onDrop,
     updatePositions,
-    selectionMode = false,
-    onSelectionToggle,
-    // Undo/Redo & Props
     undo,
     redo,
     canUndo,
@@ -74,8 +67,6 @@ function EditorCanvasInner({
     onNodeDragStop,
     onDuplicate,
     onDelete,
-    onCopy,
-    onPaste,
 }: EditorCanvasProps) {
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
@@ -87,7 +78,6 @@ function EditorCanvasInner({
 
     const setIsDragging = useAppStore((state) => state.setIsDragging);
     const setLiveNodePosition = useAppStore((state) => state.setLiveNodePosition);
-    const syncLivePositionsToWorkflow = useAppStore((state) => state.syncLivePositionsToWorkflow);
     const liveNodePositions = useAppStore((state) => state.liveNodePositions);
 
     const copyNode = useAppStore((state) => state.copyNode);
@@ -525,54 +515,19 @@ function EditorCanvasInner({
                 {/* 3. Mouse Spotlight Grid (Isolated for zero-lag zooming) */}
                 <SpotlightGridLayers isMouseActive={isMouseActive} />
 
-                <Panel position="bottom-center" className="!mb-4">
-                    <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl">
-                        <ToolbarButton
-                            icon={Undo2}
-                            onClick={handleUndo}
-                            disabled={!canUndo}
-                            title="Undo (Ctrl+Z)"
-                        />
-                        <ToolbarButton
-                            icon={Redo2}
-                            onClick={handleRedo}
-                            disabled={!canRedo}
-                            title="Redo (Ctrl+Y)"
-                        />
-                        <ToolbarDivider />
-
-                        <ToolbarButton
-                            icon={Network}
-                            onClick={handleAutoLayout}
-                            disabled={nodes.length === 0}
-                            title="Auto Layout"
-                        />
-                        <ToolbarButton
-                            icon={Hand}
-                            onClick={() => setIsPanMode(!isPanMode)}
-                            active={isPanMode}
-                            title={isPanMode ? 'Exit Pan Mode' : 'Pan Mode'}
-                        />
-                        <ToolbarButton
-                            icon={Maximize2}
-                            onClick={() => reactFlowInstance?.fitView({ padding: 0.3, duration: 800 })}
-                            title="Fit View"
-                        />
-                        <ToolbarDivider />
-
-                        <ToolbarButton
-                            icon={Minus}
-                            onClick={() => reactFlowInstance?.zoomOut({ duration: 300 })}
-                            title="Zoom Out"
-                        />
-                        <ZoomDisplay />
-                        <ToolbarButton
-                            icon={Plus}
-                            onClick={() => reactFlowInstance?.zoomIn({ duration: 300 })}
-                            title="Zoom In"
-                        />
-                    </div>
-                </Panel>
+                <CanvasToolbar
+                    undo={handleUndo}
+                    redo={handleRedo}
+                    canUndo={canUndo}
+                    canRedo={canRedo}
+                    onAutoLayout={handleAutoLayout}
+                    isPanMode={isPanMode}
+                    onTogglePanMode={setIsPanMode}
+                    onFitView={() => reactFlowInstance?.fitView({ padding: 0.3, duration: 800 })}
+                    onZoomIn={() => reactFlowInstance?.zoomIn({ duration: 300 })}
+                    onZoomOut={() => reactFlowInstance?.zoomOut({ duration: 300 })}
+                    isNodesEmpty={nodes.length === 0}
+                />
 
                 {multiSelectCount >= 2 && reactFlowInstance && (() => {
                     const NODE_WIDTH = 200;
@@ -693,168 +648,3 @@ export default function EditorCanvas(props: EditorCanvasProps) {
     );
 }
 
-import { Tooltip } from '@/components/ui/Tooltip';
-
-interface ToolbarButtonProps {
-    icon: React.ComponentType<{ className?: string }>;
-    onClick: () => void;
-    disabled?: boolean;
-    active?: boolean;
-    title?: string;
-}
-
-function ToolbarButton({ icon: Icon, onClick, disabled, active, title }: ToolbarButtonProps) {
-    const button = (
-        <button
-            onClick={onClick}
-            disabled={disabled}
-            className={`
-                w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200
-                ${disabled
-                    ? 'opacity-40 cursor-not-allowed text-content-tertiary'
-                    : active
-                        ? 'bg-accent-primary text-content-inverted'
-                        : 'text-content-primary hover:bg-surface-tertiary hover:text-accent-primary'
-                }
-            `}
-        >
-            <Icon className="w-4 h-4" />
-        </button>
-    );
-
-    if (title && !disabled) {
-        return (
-            <Tooltip content={title} position="top">
-                {button}
-            </Tooltip>
-        );
-    }
-
-    return button;
-}
-
-function ToolbarDivider() {
-    return <div className="w-px h-5 bg-stroke-subtle mx-1" />;
-}
-
-function ZoomDisplay() {
-    const { zoom } = useViewport();
-    // 🛡️ FIX: Provide fallback zoom to prevent NaN display
-    const displayZoom = zoom || 0.8;
-    return (
-        <span className="px-2 text-xs font-medium text-content-secondary min-w-[40px] text-center tabular-nums">
-            {Math.round(displayZoom * 100)}%
-        </span>
-    );
-}
-
-/**
- * 🚀 PERFORMANCE OPTIMIZATION: 
- * We isolate the Background layers into their own component.
- * This ensures that when 'zoom' changes (at 60fps during animation), 
- * ONLY these 3 Background components re-render.
- * The entire EditorCanvasInner (and all nodes) will NOT re-render.
- */
-function BaseGridLayers() {
-    const { zoom } = useViewport();
-
-    const activeLevel = useMemo(() => {
-        if (zoom > 0.4) return 0;
-        if (zoom > 0.15) return 1;
-        return 2;
-    }, [zoom]);
-
-    return (
-        <>
-            <Background
-                id="base-grid-0"
-                variant={BackgroundVariant.Dots}
-                gap={20}
-                size={1.5}
-                style={{
-                    backgroundColor: 'rgb(var(--canvas-bg))',
-                    opacity: activeLevel === 0 ? 0.5 : 0,
-                    visibility: activeLevel === 0 ? 'visible' : 'hidden'
-                }}
-                color="rgba(var(--accent-primary))"
-            />
-            <Background
-                id="base-grid-1"
-                variant={BackgroundVariant.Dots}
-                gap={80}
-                size={5}
-                style={{
-                    opacity: activeLevel === 1 ? 0.5 : 0,
-                    visibility: activeLevel === 1 ? 'visible' : 'hidden'
-                }}
-                color="rgba(var(--accent-primary))"
-            />
-            <Background
-                id="base-grid-2"
-                variant={BackgroundVariant.Dots}
-                gap={320}
-                size={14}
-                style={{
-                    opacity: activeLevel === 2 ? 0.5 : 0,
-                    visibility: activeLevel === 2 ? 'visible' : 'hidden'
-                }}
-                color="rgba(var(--accent-primary))"
-            />
-        </>
-    );
-}
-
-function SpotlightGridLayers({ isMouseActive }: { isMouseActive: boolean }) {
-    const { zoom } = useViewport();
-
-    const activeLevel = useMemo(() => {
-        if (zoom > 0.4) return 0;
-        if (zoom > 0.15) return 1;
-        return 2;
-    }, [zoom]);
-
-    return (
-        <div
-            className="absolute inset-0 pointer-events-none z-0 transition-opacity duration-500"
-            style={{
-                maskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
-                WebkitMaskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
-                opacity: isMouseActive ? 1 : 0,
-            }}
-        >
-            <Background
-                id="spotlight-grid-0"
-                variant={BackgroundVariant.Dots}
-                gap={20}
-                size={1.5}
-                style={{
-                    opacity: activeLevel === 0 ? 1 : 0,
-                    visibility: activeLevel === 0 ? 'visible' : 'hidden'
-                }}
-                color="rgba(var(--accent-primary))"
-            />
-            <Background
-                id="spotlight-grid-1"
-                variant={BackgroundVariant.Dots}
-                gap={80}
-                size={6}
-                style={{
-                    opacity: activeLevel === 1 ? 1 : 0,
-                    visibility: activeLevel === 1 ? 'visible' : 'hidden'
-                }}
-                color="rgba(var(--accent-primary))"
-            />
-            <Background
-                id="spotlight-grid-2"
-                variant={BackgroundVariant.Dots}
-                gap={320}
-                size={24}
-                style={{
-                    opacity: activeLevel === 2 ? 1 : 0,
-                    visibility: activeLevel === 2 ? 'visible' : 'hidden'
-                }}
-                color="rgba(var(--accent-primary))"
-            />
-        </div>
-    );
-}
