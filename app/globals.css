@@ -116,26 +116,10 @@
     background-image: radial-gradient(circle at 2px 2px, rgb(var(--text-primary) / 0.03) 1px, transparent 0);
     background-size: 24px 24px;
   }
-
-  .canvas-spotlight {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    /* Large soft radial glow following the mouse */
-    background: radial-gradient(
-      800px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-      rgba(var(--accent-primary) / 0.12),
-      transparent 70%
-    );
-    opacity: 0;
-    transition: opacity 0.8s ease;
-  }
 }
 
-.canvas-container:hover .canvas-spotlight {
-  opacity: 1;
-}
+
+
 
 /* React Flow Grid Patterns */
 /* This makes the background SVG pattern respond to the spotlight better */

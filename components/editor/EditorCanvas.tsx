@@ -81,6 +81,8 @@ function EditorCanvasInner({
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
     const [isPanMode, setIsPanMode] = useState(false);
+    const [isMouseActive, setIsMouseActive] = useState(false);
+    const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Theme context for dynamic updates
     const { resolvedTheme } = useTheme();
@@ -123,7 +125,7 @@ function EditorCanvasInner({
     })), [edges, edgeStyle]);
 
     const touchInteraction = useAppStore((state) => state.touchInteraction);
-    
+
     // 🛡️ STABILITY FIX: Memoize nodeTypes and edgeTypes at top level to maintain ref identity
     const nodeTypes = useMemo(() => stableNodeTypes, []);
     const edgeTypes = useMemo(() => stableEdgeTypes, []);
@@ -213,7 +215,7 @@ function EditorCanvasInner({
         state.clearLiveNodePositions();
         setIsDragging(false);
         touchInteraction();
-        
+
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
     }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions]);
 
@@ -226,7 +228,7 @@ function EditorCanvasInner({
             // Filter out position changes during drag - they are handled by liveNodePositions
             // BUT if we are NOT dragging (e.g. final drop), we must include them to sync React Flow's state
             const isDragging = useAppStore.getState().isDragging;
-            const importantChanges = isDragging 
+            const importantChanges = isDragging
                 ? pendingNodeChanges.current.filter(c => c.type !== 'position')
                 : pendingNodeChanges.current;
 
@@ -253,6 +255,9 @@ function EditorCanvasInner({
         return () => {
             if (rafId.current) {
                 cancelAnimationFrame(rafId.current);
+            }
+            if (mouseTimeoutRef.current) {
+                clearTimeout(mouseTimeoutRef.current);
             }
         };
     }, []);
@@ -425,6 +430,15 @@ function EditorCanvasInner({
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (!reactFlowWrapper.current) return;
+
+        setIsMouseActive(true);
+        if (mouseTimeoutRef.current) {
+            clearTimeout(mouseTimeoutRef.current);
+        }
+        mouseTimeoutRef.current = setTimeout(() => {
+            setIsMouseActive(false);
+        }, 600);
+
         const rect = reactFlowWrapper.current.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
@@ -432,12 +446,20 @@ function EditorCanvasInner({
         reactFlowWrapper.current.style.setProperty('--mouse-y', `${y}px`);
     }, []);
 
+    const handleMouseLeave = useCallback(() => {
+        setIsMouseActive(false);
+        if (mouseTimeoutRef.current) {
+            clearTimeout(mouseTimeoutRef.current);
+        }
+    }, []);
+
     return (
-        <div 
-            ref={reactFlowWrapper} 
-            className="w-full h-full relative canvas-container" 
+        <div
+            ref={reactFlowWrapper}
+            className="w-full h-full relative canvas-container"
             onContextMenu={handleContextMenu}
             onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
         >
 
             <ReactFlow
@@ -485,38 +507,30 @@ function EditorCanvasInner({
                 onMoveStart={() => setContextMenu(null)}
                 proOptions={{ hideAttribution: true }}
             >
-                {/* 1. Base Subtle Grid (Small Gap) */}
+                {/* 1. Base Grid (Increased Visibility) */}
                 <Background
                     variant={BackgroundVariant.Dots}
                     gap={20}
-                    size={1}
+                    size={1.5}
                     style={{ backgroundColor: 'rgb(var(--canvas-bg))' }}
-                    color="rgba(var(--accent-primary) / 0.15)"
+                    color="rgba(var(--accent-primary) / 0.5)"
                     id="base-grid"
                 />
 
-                {/* 2. Secondary Structural Grid (Large Gap) */}
-                <Background
-                    variant={BackgroundVariant.Dots}
-                    gap={100}
-                    size={1.5}
-                    color="rgba(var(--accent-primary) / 0.25)"
-                    id="structural-grid"
-                />
-
                 {/* 3. Mouse Spotlight Grid (Masked) */}
-                <div 
-                    className="absolute inset-0 pointer-events-none z-0"
+                <div
+                    className="absolute inset-0 pointer-events-none z-0 transition-opacity duration-500"
                     style={{
-                        maskImage: `radial-gradient(180px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
-                        WebkitMaskImage: `radial-gradient(180px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
+                        maskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
+                        WebkitMaskImage: `radial-gradient(120px circle at var(--mouse-x) var(--mouse-y), black 0%, transparent 100%)`,
+                        opacity: isMouseActive ? 1 : 0,
                     }}
                 >
                     <Background
                         variant={BackgroundVariant.Dots}
                         gap={20}
-                        size={1.2}
-                        color="rgba(var(--accent-primary) / 0.8)"
+                        size={1.5}
+                        color="rgba(var(--accent-primary))"
                         id="spotlight-grid"
                     />
                 </div>
