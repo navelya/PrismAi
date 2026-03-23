@@ -58,7 +58,36 @@ export async function POST(request: NextRequest) {
     // Determine which nodes to actually execute
     let nodesToExecute = [...allUniqueNodes];
     if (targetNodeId && mode === 'solo') {
-        nodesToExecute = allUniqueNodes.filter(n => n.id === targetNodeId);
+        const targetNode = allUniqueNodes.find(n => n.id === targetNodeId);
+        if (!targetNode) {
+            return NextResponse.json({ error: 'Target node not found' }, { status: 404 });
+        }
+        
+        // Tracing backwards to collect necessary upstream ephemeral nodes (e.g. Prompts)
+        const upstreamNodes = new Set<string>();
+        const queue = [targetNode.id];
+        
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            // Find edges that target the current node
+            const incomingEdges = (graph_json.edges || []).filter((e: any) => e.target === currentId);
+            
+            for (const edge of incomingEdges) {
+                if (!upstreamNodes.has(edge.source)) {
+                    const sourceNode = allUniqueNodes.find(n => n.id === edge.source);
+                    // Only automatically pull in Ephemeral nodes backwards.
+                    // We don't want to auto-run a heavy AI node backwards in 'solo' mode.
+                    if (sourceNode && isEphemeralNode(sourceNode.type)) {
+                        upstreamNodes.add(edge.source);
+                        queue.push(edge.source);
+                    }
+                }
+            }
+        }
+        
+        const ephemeralAncestors = allUniqueNodes.filter(n => upstreamNodes.has(n.id));
+        nodesToExecute = [...ephemeralAncestors, targetNode];
+        
     } else if (targetNodeId && mode === 'chain') {
         // Simple BFS to find descendants
         const descendants = new Set<string>();
@@ -108,18 +137,21 @@ export async function POST(request: NextRequest) {
     console.log(`[Execution/Start] Using origin for webhooks: ${origin}`);
     
     // Initialize node_results for execution nodes with mathematically accurate initial statuses
-    // A node is dispatchable immediately (running) if it has NO unresolved dependencies 
-    // within the current execution batch. Otherwise, it must wait (pending).
+    // A node is dispatchable immediately (running) if it has NO unresolved heavy dependencies.
+    // Waiting for an ephemeral node (which executes instantly in 0.001s) shouldn't cause a visual 'pending' flicker.
     const initialNodeResults = nodesToExecute.map((node: NodeConfig) => {
-      const isDependent = (graph_json.edges || []).some(
-        (edge: any) => edge.target === node.id && nodesToExecute.find(n => n.id === edge.source)
-      );
+      const isDependentOnHeavyNode = (graph_json.edges || []).some((edge: any) => {
+          if (edge.target !== node.id) return false;
+          const sourceNode = nodesToExecute.find(n => n.id === edge.source);
+          // If the source is executing, AND it's not an instant ephemeral node, we must wait.
+          return sourceNode && !isEphemeralNode(sourceNode.type);
+      });
       
       return {
         execution_id: execution.id,
         node_id: node.id,
         session_id: session_id,
-        status: isDependent ? 'pending' : 'running',
+        status: isDependentOnHeavyNode ? 'pending' : 'running',
         updated_at: new Date().toISOString(),
       };
     });
