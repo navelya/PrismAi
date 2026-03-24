@@ -4,10 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-interface BlurryImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'onDrag' | 'onDragStart' | 'onDragEnd' | 'onAnimationStart'> {
+interface BlurryImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'onDrag' | 'onDragStart' | 'onDragEnd' | 'onAnimationStart' | 'onLoad'> {
     containerClassName?: string;
     blurAmount?: string;
     transitionDuration?: number;
+    onLoad?: () => void;
 }
 
 export default function BlurryImage({
@@ -17,6 +18,7 @@ export default function BlurryImage({
     containerClassName,
     blurAmount = "20px",
     transitionDuration = 0.8,
+    onLoad,
     ...props
 }: BlurryImageProps) {
     const [isLoaded, setIsLoaded] = useState(false);
@@ -48,7 +50,10 @@ export default function BlurryImage({
                         duration: transitionDuration, 
                         ease: [0.4, 0, 0.2, 1] 
                     }}
-                    onLoad={() => setIsLoaded(true)}
+                    onLoad={() => {
+                        setIsLoaded(true);
+                        onLoad?.();
+                    }}
                     className={cn(
                         "w-full h-auto block object-contain",
                         className

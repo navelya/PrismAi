@@ -41,6 +41,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     const nodeTypes = useAppStore(state => state.nodeTypes);
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
+    const [imageLoaded, setImageLoaded] = useState(false);
 
     // Lightbox state
     const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -60,6 +61,20 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
     const selectedModel = filteredModels.find(m => m.id === data.config?.model_id) || null;
     const selectedNodeType = nodeTypes.find(nt => nt.id === nodeTypeId) || null;
+
+    // Reset image loaded state when output changes to a new one
+    useEffect(() => {
+        if (output) {
+            setImageLoaded(false);
+        }
+    }, [output]);
+
+    // Also reset if we start running
+    useEffect(() => {
+        if (status === 'running') {
+            setImageLoaded(false);
+        }
+    }, [status]);
 
     // Initial load for auto-selecting if empty
     useEffect(() => {
@@ -169,7 +184,9 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 layout
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
-                    "transition-all duration-500"
+                    "transition-all duration-500",
+                    // Smart min-height: Only apply when generating, empty, or image is still loading
+                    (status === 'running' || !output || !imageLoaded) ? "min-h-[140px]" : "min-h-0"
                 )}
             >
                 {/* Frosty Placeholder background */}
@@ -178,7 +195,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 {/* Empty State / Connection Placeholder */}
                 {!output && (
                     <div 
-                        className="w-full min-h-[200px] flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500 cursor-pointer"
+                        className="w-full h-full flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500 cursor-pointer"
                         onMouseDown={(e) => e.stopPropagation()}
                         onPointerDown={(e) => e.stopPropagation()}
                     >
@@ -198,6 +215,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                         type={previewType}
                         previewMode={previewMode}
                         activeImageIndex={activeImageIndex}
+                        onImageLoad={() => setImageLoaded(true)}
                         onImageClick={(idx: number, e: React.MouseEvent) => {
                             e.stopPropagation();
                             setActiveImageIndex(idx);
@@ -292,7 +310,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
 // OUTPUT PREVIEW (Parity with CustomNode)
 // =============================================================================
 
-function OutputPreview({ output, type, previewMode, activeImageIndex, onImageClick, onPreviewClick, onInteraction }: any) {
+function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction }: any) {
     const items = Array.isArray(output) ? output : [output];
     const urls = items.map((o: any) => (typeof o === 'string' ? o : o?.url)).filter(Boolean);
     const textContent = typeof output === 'string' ? output : (output?.text || items[0]?.text || null);
@@ -338,7 +356,7 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
     if (urls.length === 0) {
         return (
             <div 
-                className="w-full min-h-[120px] p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4 flex items-center justify-center text-center"
+                className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4 flex items-center justify-center text-center"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
             >
@@ -383,7 +401,7 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
 
         return (
             <div 
-                className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden min-h-[200px]" 
+                className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden" 
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
                 onClick={onPreviewClick}
@@ -391,6 +409,7 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
                 <BlurryImage
                     src={url}
                     alt="Output"
+                    onLoad={onImageLoad}
                     className="relative z-10 transition-transform duration-700 group-hover/preview:scale-[1.03]"
                     style={{ maxHeight: MAX_HEIGHT }}
                 />
@@ -418,7 +437,7 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
                             {type === 'video' ? (
                                 <video src={url} className="w-full h-full object-cover" />
                             ) : (
-                                <BlurryImage src={url} alt="" className="w-full h-full object-cover" />
+                                <BlurryImage src={url} alt="" onLoad={onImageLoad} className="w-full h-full object-cover" />
                             )}
                             {isActive && (
                                 <div className="absolute inset-0 bg-accent-primary/10 flex items-center justify-center">
