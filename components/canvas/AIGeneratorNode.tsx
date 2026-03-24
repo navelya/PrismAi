@@ -10,6 +10,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from '@/components/canvas/BaseNode';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
+import BlurryImage from '@/components/ui/BlurryImage';
 
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
@@ -387,10 +388,10 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
                 onPointerDown={onInteraction}
                 onClick={onPreviewClick}
             >
-                <img
+                <BlurryImage
                     src={url}
                     alt="Output"
-                    className="relative z-10 w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                    className="relative z-10 transition-transform duration-700 group-hover/preview:scale-[1.03]"
                     style={{ maxHeight: MAX_HEIGHT }}
                 />
             </div>
@@ -417,7 +418,7 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageCli
                             {type === 'video' ? (
                                 <video src={url} className="w-full h-full object-cover" />
                             ) : (
-                                <img src={url} alt="" className="w-full h-full object-cover" />
+                                <BlurryImage src={url} alt="" className="w-full h-full object-cover" />
                             )}
                             {isActive && (
                                 <div className="absolute inset-0 bg-accent-primary/10 flex items-center justify-center">
