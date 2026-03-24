@@ -11,6 +11,8 @@ import { executeEphemeralNode } from './ephemeral-executor';
 
 const WEBHOOK_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
+import { checkAndDispatchChildren } from './orchestrator';
+
 /**
  * Main dispatch function - routes to appropriate handler based on node type
  */
@@ -25,14 +27,11 @@ export async function dispatchNode(
   const currentBaseUrl = baseUrl || WEBHOOK_BASE_URL;
   console.log(`[Dispatch] Starting dispatch for node ${nodeId} in execution ${executionId} (BaseURL: ${currentBaseUrl})`);
   
-  const supabase = createServiceClient();
-  
   try {
-    // STEP 5: Check if this is an ephemeral node
     const nodeType = nodeConfig.type;
     
     if (isEphemeralNode(nodeType)) {
-      return await dispatchEphemeralNode(executionId, nodeId, nodeConfig, inputs, sessionId);
+      return await dispatchEphemeralNode(executionId, nodeId, nodeConfig, inputs, currentBaseUrl, sessionId);
     }
     
     // Check if this is a Replicate-based node (dynamic check based on model field)
@@ -43,11 +42,10 @@ export async function dispatchNode(
     // Unsupported node type
     console.error(`[Dispatch] Unknown node type: ${nodeType} - no model field and not ephemeral`);
     
-    // Update node state to failed
     await updateNodeState(executionId, nodeId, {
       status: 'failed',
       error: `Unsupported node type: ${nodeType}`,
-    }, sessionId);
+    }, sessionId, currentBaseUrl);
     
     return { success: false, error: `Unsupported node type: ${nodeType}` };
     
@@ -57,7 +55,7 @@ export async function dispatchNode(
     await updateNodeState(executionId, nodeId, {
       status: 'failed',
       error: error instanceof Error ? error.message : 'Unknown dispatch error',
-    }, sessionId);
+    }, sessionId, currentBaseUrl);
     
     return { 
       success: false, 
@@ -74,33 +72,32 @@ async function dispatchEphemeralNode(
   nodeId: string,
   nodeConfig: NodeConfig,
   inputs: Record<string, any>,
+  baseUrl: string,
   sessionId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   
   console.log(`[Dispatch/Ephemeral] Executing node ${nodeId} DIRECTLY`, { nodeType: nodeConfig.type });
   
   try {
-    // Update node state to running
     await updateNodeState(executionId, nodeId, {
       status: 'running',
       dispatched_at: new Date().toISOString(),
-    }, sessionId);
+    }, sessionId, baseUrl);
     
-    // Log dispatch event
-    await logExecutionEvent(executionId, nodeId, 'dispatched', {
-      handler: nodeConfig.type,
-      ephemeral: true,
-      execution_mode: 'direct'
-    });
-    
-    // CALL DIRECTLY (This fixes the ECONNREFUSED localhost:3000 error)
     const result = await executeEphemeralNode(executionId, nodeId, sessionId, inputs);
     
     if (!result.success) {
       throw new Error(result.error || 'Ephemeral execution failed');
     }
     
-    console.log(`[Dispatch/Ephemeral] ✅ Successfully executed node ${nodeId} directly`);
+    console.log(`[Dispatch/Ephemeral] ✅ Successfully executed node ${nodeId} directly. Triggering children.`);
+    
+    // MARK AS COMPLETED - this will trigger children via updateNodeState
+    await updateNodeState(executionId, nodeId, {
+        status: 'completed',
+        result_url: result.result_url,
+        completed_at: new Date().toISOString()
+    }, sessionId, baseUrl);
     
     return { success: true, data: result.result_url };
     
@@ -124,15 +121,13 @@ async function dispatchReplicateNode(
   sessionId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   
-  console.log(`[Dispatch/Replicate] Dispatching node ${nodeId} via aiGeneratorExecutor`, { nodeConfig, inputs });
+  console.log(`[Dispatch/Replicate] Dispatching node ${nodeId} via aiGeneratorExecutor`, { inputs });
   
   try {
-    // We pass the raw nodeConfig.data.config (where V1 stores settings) or nodeConfig.data
     const config = nodeConfig.data.config || nodeConfig.data || {};
     
-    // Call the robust aiGeneratorExecutor which handles DB schema mapping
     const result = await aiGeneratorExecutor(config, inputs, {
-      sessionId: 'server-execution', // Dummy for webhook validation
+      sessionId: sessionId || 'server-execution',
       executionId: executionId,
       nodeId: nodeId,
       workflowId: executionId,
@@ -143,17 +138,23 @@ async function dispatchReplicateNode(
       throw new Error(result.error || 'AI Generator Executor failed');
     }
     
-    // Update node state to running with prediction ID
-    await updateNodeState(executionId, nodeId, {
-      status: 'running',
-      replicate_prediction_id: result.data?.id,
-      dispatched_at: new Date().toISOString(),
-    }, sessionId);
-    
-    // Log event
-    await logExecutionEvent(executionId, nodeId, 'dispatched', {
-      replicate_prediction_id: result.data?.id,
-    });
+    if (result.status === 'success') {
+        // LOCAL DEVELOPMENT: Synchronous result returned directly
+        console.log(`[Dispatch/Replicate] ✅ Synchronous result for node ${nodeId}. Triggering children.`);
+        await updateNodeState(executionId, nodeId, {
+            status: 'completed',
+            result_url: result.data as string,
+            dispatched_at: new Date().toISOString(),
+            completed_at: new Date().toISOString()
+        }, sessionId, baseUrl);
+    } else {
+        // PRODUCTION: Asynchronous result via Webhook
+        await updateNodeState(executionId, nodeId, {
+            status: 'running',
+            replicate_prediction_id: (result.data as any)?.id,
+            dispatched_at: new Date().toISOString(),
+        }, sessionId, baseUrl);
+    }
     
     return { success: true, data: result.data };
     
@@ -163,23 +164,20 @@ async function dispatchReplicateNode(
   }
 }
 
-// Remove the old buildReplicateInput since aiGeneratorExecutor handles it
-// We also need to update isReplicateNode
-
-
 /**
  * Update node state in the node_results table
+ * If status is 'completed' or 'failed', it triggers the orchestrator for children.
  */
 async function updateNodeState(
   executionId: string,
   nodeId: string,
   state: Partial<NodeState>,
-  sessionId?: string
+  sessionId?: string,
+  baseUrl?: string
 ): Promise<void> {
   
   const supabase = createServiceClient();
   
-  // V3: Update node_results table
   const { error: upsertError } = await supabase
     .from('node_results')
     .upsert({
@@ -199,19 +197,22 @@ async function updateNodeState(
     throw new Error(`Failed to update node state for ${nodeId}: ${upsertError.message}`);
   }
   
-  // Update execution status if needed
-  if (state.status === 'running') {
+  // If node is now finished, trigger the "Chain Reaction"
+  if (state.status === 'completed' || state.status === 'failed') {
+      // Non-blocking call to orchestrator
+      checkAndDispatchChildren(executionId, nodeId, baseUrl).catch(err => {
+          console.error(`[Dispatch] Background orchestrator error for node ${nodeId}:`, err);
+      });
+  } else if (state.status === 'running') {
+    // Ensure overall execution is marked as running
     await supabase
       .from('executions')
-      .update({
-        status: 'running',
-        updated_at: new Date().toISOString(),
-      })
+      .update({ status: 'running', updated_at: new Date().toISOString() })
       .eq('id', executionId)
-      .eq('status', 'pending'); // Only if currently pending
+      .eq('status', 'pending');
   }
   
-  console.log(`[Dispatch] Updated node state for ${nodeId}:`, state);
+  console.log(`[Dispatch] Updated node state for ${nodeId} to ${state.status}`);
 }
 
 /**

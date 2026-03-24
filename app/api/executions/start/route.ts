@@ -55,225 +55,121 @@ export async function POST(request: NextRequest) {
     });
     const allUniqueNodes = Array.from(uniqueNodesMap.values());
     
-    // Determine which nodes to actually execute
+    // Determine which nodes to actually execute (The "Target Set")
     let nodesToExecute = [...allUniqueNodes];
-    if (targetNodeId && mode === 'solo') {
-        const targetNode = allUniqueNodes.find(n => n.id === targetNodeId);
-        if (!targetNode) {
-            return NextResponse.json({ error: 'Target node not found' }, { status: 404 });
-        }
+    let edgesToInclude = [...(graph_json.edges || [])];
+
+    if (targetNodeId) {
+      const targetNode = allUniqueNodes.find(n => n.id === targetNodeId);
+      if (!targetNode) {
+        return NextResponse.json({ error: 'Target node not found' }, { status: 404 });
+      }
+
+      const relevantNodeIds = new Set<string>();
+      
+      if (mode === 'solo' || mode === 'chain') {
+        // Mode 'solo' needs ancestors; Mode 'chain' needs ancestors AND descendants
         
-        // Tracing backwards to collect necessary upstream ephemeral nodes (e.g. Prompts)
-        const upstreamNodes = new Set<string>();
-        const queue = [targetNode.id];
+        // 1. Always trace backwards to get required inputs (Ancestors)
+        const ancestorQueue = [targetNodeId];
+        relevantNodeIds.add(targetNodeId);
         
-        while (queue.length > 0) {
-            const currentId = queue.shift()!;
-            // Find edges that target the current node
-            const incomingEdges = (graph_json.edges || []).filter((e: any) => e.target === currentId);
-            
-            for (const edge of incomingEdges) {
-                if (!upstreamNodes.has(edge.source)) {
-                    const sourceNode = allUniqueNodes.find(n => n.id === edge.source);
-                    // Only automatically pull in Ephemeral nodes backwards.
-                    // We don't want to auto-run a heavy AI node backwards in 'solo' mode.
-                    if (sourceNode && isEphemeralNode(sourceNode.type)) {
-                        upstreamNodes.add(edge.source);
-                        queue.push(edge.source);
-                    }
-                }
+        while (ancestorQueue.length > 0) {
+          const currentId = ancestorQueue.shift()!;
+          const incomingEdges = edgesToInclude.filter(e => e.target === currentId);
+          for (const edge of incomingEdges) {
+            if (!relevantNodeIds.has(edge.source)) {
+              const sourceNode = allUniqueNodes.find(n => n.id === edge.source);
+              // In solo/chain mode, we pull in ephemeral ancestors automatically.
+              // For AI ancestors, we only pull them in if we need their existing results.
+              if (sourceNode) {
+                relevantNodeIds.add(edge.source);
+                ancestorQueue.push(edge.source);
+              }
             }
+          }
         }
-        
-        const ephemeralAncestors = allUniqueNodes.filter(n => upstreamNodes.has(n.id));
-        nodesToExecute = [...ephemeralAncestors, targetNode];
-        
-    } else if (targetNodeId && mode === 'chain') {
-        // Simple BFS to find descendants
-        const descendants = new Set<string>();
-        const queue = [targetNodeId];
-        while (queue.length > 0) {
-            const current = queue.shift()!;
-            const outgoingEdges = (graph_json.edges || []).filter(e => e.source === current);
+
+        if (mode === 'chain') {
+          // 2. Trace forwards to get descendants
+          const descendantQueue = [targetNodeId];
+          while (descendantQueue.length > 0) {
+            const currentId = descendantQueue.shift()!;
+            const outgoingEdges = edgesToInclude.filter(e => e.source === currentId);
             for (const edge of outgoingEdges) {
-                if (!descendants.has(edge.target)) {
-                    descendants.add(edge.target);
-                    queue.push(edge.target);
-                }
+              if (!relevantNodeIds.has(edge.target)) {
+                relevantNodeIds.add(edge.target);
+                descendantQueue.push(edge.target);
+              }
             }
+          }
         }
-        nodesToExecute = allUniqueNodes.filter(n => n.id === targetNodeId || descendants.has(n.id));
-    } else if (targetNodeId && mode === 'ab_test') {
-        nodesToExecute = allUniqueNodes.filter(n => n.id === targetNodeId);
+      } else if (mode === 'ab_test') {
+        relevantNodeIds.add(targetNodeId);
+      }
+
+      nodesToExecute = allUniqueNodes.filter(n => relevantNodeIds.has(n.id));
+      edgesToInclude = edgesToInclude.filter(e => relevantNodeIds.has(e.source) && relevantNodeIds.has(e.target));
     }
     
-    console.log(`[Execution/Start] Starting execution for session ${session_id} with ${nodesToExecute.length} execution nodes (from ${graph_json.nodes.length} total)`);
+    console.log(`[Execution/Start] Target Set: ${nodesToExecute.length} nodes, ${edgesToInclude.length} edges`);
     
     const supabase = createServiceClient();
     
-    // Create execution record with graph snapshot
+    // Create execution record with a surgical snapshot of the TARGET subgraph
     const { data: execution, error: createError } = await supabase
       .from('executions')
       .insert({
         session_id,
         status: 'pending',
-        graph_json: { ...graph_json, nodes: allUniqueNodes }, // Save full deduplicated graph for context
+        graph_json: { nodes: nodesToExecute, edges: edgesToInclude },
       })
       .select()
       .single();
     
     if (createError || !execution) {
       console.error('[Execution/Start] Failed to create execution:', createError);
-      return NextResponse.json(
-        { error: `Failed to create execution: ${createError?.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Failed to create execution: ${createError?.message}` }, { status: 500 });
     }
     
     console.log(`[Execution/Start] Created execution ${execution.id}`);
     
-    // Get the origin for webhook construction
     const { origin } = new URL(request.url);
-    console.log(`[Execution/Start] Using origin for webhooks: ${origin}`);
     
-    // Initialize node_results for execution nodes with mathematically accurate initial statuses
-    // A node is dispatchable immediately (running) if it has NO unresolved heavy dependencies.
-    // Waiting for an ephemeral node (which executes instantly in 0.001s) shouldn't cause a visual 'pending' flicker.
-    const initialNodeResults = nodesToExecute.map((node: NodeConfig) => {
-      const isDependentOnHeavyNode = (graph_json.edges || []).some((edge: any) => {
-          if (edge.target !== node.id) return false;
-          const sourceNode = nodesToExecute.find(n => n.id === edge.source);
-          // If the source is executing, AND it's not an instant ephemeral node, we must wait.
-          return sourceNode && !isEphemeralNode(sourceNode.type);
-      });
-      
-      return {
+    // Initialize node_results for the entire target set
+    const initialNodeResults = nodesToExecute.map((node: NodeConfig) => ({
         execution_id: execution.id,
         node_id: node.id,
         session_id: session_id,
-        status: isDependentOnHeavyNode ? 'pending' : 'running',
+        status: 'pending', // All start as pending
         updated_at: new Date().toISOString(),
-      };
-    });
+    }));
     
     const { error: initError } = await supabase
       .from('node_results')
       .insert(initialNodeResults);
       
-    if (initError) {
-      console.warn('[Execution/Start] Failed to initialize node_results:', initError);
-      // Non-critical, continue with dispatch
-    }
+    if (initError) console.warn('[Execution/Start] Failed to initialize node_results:', initError);
     
-    
-    // Create map for node results, seeded with historical successful results
-    // so chained API requests can access upstream outputs from previous executions
-    const resultUrlMap = new Map();
-    
-    const { data: previousExecutions } = await supabase
-        .from('executions')
-        .select('id')
-        .eq('session_id', session_id)
-        .order('created_at', { ascending: false });
-        
-    if (previousExecutions && previousExecutions.length > 0) {
-        const pExecIds = previousExecutions.map(e => e.id);
-        const { data: previousResults } = await supabase
-            .from('node_results')
-            .select('node_id, result_url')
-            .in('execution_id', pExecIds)
-            .eq('status', 'completed')
-            .order('created_at', { ascending: true }); // Ascending so newest overrides older
-            
-        if (previousResults) {
-            previousResults.forEach(r => {
-                if (r.result_url) resultUrlMap.set(r.node_id, r.result_url);
-            });
-        }
-    }
-    
-    console.log(`[Execution/Start] Seeded ${resultUrlMap.size} historical result URLs for AI chaining`);
-
-    // SIMPLE V3 SEQUENTIAL DISPATCH:
-    // 1. Dispatch ephemeral nodes (like prompts) and wait for them to finish.
-    // 2. Fetch their results.
-    // 3. Dispatch Replicate nodes with the resolved inputs.
-    
-    const ephemeralNodes = nodesToExecute.filter(node => isEphemeralNode(node.type));
-    const aiNodes = nodesToExecute.filter(node => !isEphemeralNode(node.type));
-    
-    // Step 1: Run ephemeral nodes sequentially
-    for (const node of ephemeralNodes) {
-        const inputs: Record<string, any> = {};
-        const incomingEdges = (graph_json.edges || []).filter((e: any) => e.target === node.id);
-        
-        for (const edge of incomingEdges) {
-            const result = resultUrlMap.get(edge.source);
-            if (result) {
-                const sourceNode = allUniqueNodes.find(n => n.id === edge.source);
-                const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
-                
-                if (sourceNode?.type === 'prompt') {
-                    inputs['prompt'] = result;
-                } else {
-                    inputs[inputKey] = result;
-                    if (inputKey.toLowerCase().includes('prompt')) {
-                        inputs['prompt'] = result;
-                    }
-                }
-            }
-        }
-        
-        console.log(`[Execution/Start] Mapped inputs for ephemeral node ${node.id}:`, Object.keys(inputs));
-        
-        try {
-            const dispatchResult = await dispatchNode(execution.id, node.id, node, inputs, origin, session_id);
-            if (dispatchResult.success && dispatchResult.data !== undefined) {
-                resultUrlMap.set(node.id, dispatchResult.data);
-            }
-        } catch (err) {
-            console.error(`[Execution/Start] Error dispatching ephemeral node ${node.id}:`, err);
-        }
-    }
-    
-    // Step 3: Dispatch AI nodes with resolved inputs
-    console.log(`[Execution/Start] Graph edges:`, JSON.stringify(graph_json.edges, null, 2));
-    
-    const aiDispatchPromises = aiNodes.map(async (node: NodeConfig) => {
-        // Build inputs based on edges targeting this node
-        const inputs: Record<string, any> = {};
-        const incomingEdges = (graph_json.edges || []).filter((e: any) => e.target === node.id);
-        
-        for (const edge of incomingEdges) {
-            const result = resultUrlMap.get(edge.source);
-            if (result) {
-                const sourceNode = allUniqueNodes.find(n => n.id === edge.source);
-                const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
-                
-                // If the source is a prompt node, map its result directly to the 'prompt' input
-                if (sourceNode?.type === 'prompt') {
-                    inputs['prompt'] = result;
-                } else {
-                    inputs[inputKey] = result;
-                    if (inputKey.toLowerCase().includes('prompt')) {
-                        inputs['prompt'] = result;
-                    }
-                }
-            }
-        }
-        
-        console.log(`[Execution/Start] Mapped inputs for AI node ${node.id}:`, inputs);
-        
-        return dispatchNode(execution.id, node.id, node, inputs, origin, session_id);
+    // IDENTIFY ROOT NODES: Nodes in the target set that have NO parents within the target set
+    const rootNodes = nodesToExecute.filter(node => {
+        const hasParentInSet = edgesToInclude.some(e => e.target === node.id);
+        return !hasParentInSet;
     });
     
-    try {
-        await Promise.all(aiDispatchPromises);
-    } catch (err) {
-        console.error('[Execution/Start] ❌ AI Dispatch error:', err);
-    }
+    console.log(`[Execution/Start] Kickoff: Dispatching ${rootNodes.length} root nodes: ${rootNodes.map(n => n.id).join(', ')}`);
+
+    // We don't need a resultUrlMap here anymore because dispatchNode will now
+    // internally fetch results from node_results via buildInputsFromParents or similar.
+    // However, to keep it simple for the kickoff, we'll just dispatch with empty inputs
+    // since root nodes by definition have no parents to provide inputs.
+
+    const kickoffPromises = rootNodes.map(node => 
+        dispatchNode(execution.id, node.id, node, {}, origin, session_id)
+    );
     
-    // Return execution details
+    await Promise.all(kickoffPromises);
+    
     return NextResponse.json({
       success: true,
       execution_id: execution.id,

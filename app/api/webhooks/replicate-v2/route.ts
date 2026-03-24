@@ -8,7 +8,10 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { REPLICATE_WEBHOOK_SIGNING_SECRET, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
 import { Webhook } from 'standardwebhooks';
 
+import { checkAndDispatchChildren } from '@/lib/workflow/orchestrator';
+
 export async function POST(request: NextRequest) {
+  // ... (existing logging and parameter extraction)
   // TIER 2 FIX: Detailed webhook logging
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('[Webhook/Replicate-v2] 📨 RECEIVED WEBHOOK FROM REPLICATE:');
@@ -169,19 +172,11 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      // Also update the overall execution status to completed and store the final result
-      // This solves the issue of the 'executions' table not having the final result_data
-      await supabase
-        .from('executions')
-        .update({
-          status: 'completed',
-          result_data: finalResultUrl, // V3 Simple mode assumes the AI node result is the final result
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', executionId);
+      console.log(`[Webhook/Replicate-v2] Successfully processed completion for node ${nodeId}. Triggering orchestrator.`);
       
-      console.log(`[Webhook/Replicate-v2] Successfully processed completion for node ${nodeId}`);
+      // TRIGGER THE CHAIN REACTION: Check if children are ready to run
+      const { origin } = new URL(request.url);
+      await checkAndDispatchChildren(executionId, nodeId, origin);
       
     } else if (status === 'failed' || status === 'canceled') {
       console.error(`[Webhook/Replicate-v2] Node ${nodeId} failed:`, predictionError);
@@ -200,16 +195,9 @@ export async function POST(request: NextRequest) {
           onConflict: 'execution_id,node_id'
         });
       
-      // Update overall execution status to failed
-      await supabase
-        .from('executions')
-        .update({
-          status: 'failed',
-          error: predictionError || `Prediction ${status}`,
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', executionId);
+      // Trigger orchestrator even on failure so it can mark the execution as failed
+      const { origin } = new URL(request.url);
+      await checkAndDispatchChildren(executionId, nodeId, origin);
       
     } else {
       console.log(`[Webhook/Replicate-v2] Ignoring intermediate status: ${status}`);
