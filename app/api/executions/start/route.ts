@@ -151,24 +151,55 @@ export async function POST(request: NextRequest) {
       
     if (initError) console.warn('[Execution/Start] Failed to initialize node_results:', initError);
     
-    // IDENTIFY ROOT NODES: Nodes in the target set that have NO parents within the target set
+    // Seed with historical results from node_results to support incremental runs (Solo/Chain)
+    const resultUrlMap = new Map<string, string>();
+    const { data: previousResults } = await supabase
+        .from('node_results')
+        .select('node_id, result_url')
+        .eq('session_id', session_id)
+        .eq('status', 'completed')
+        .order('updated_at', { ascending: true }); // Newest will override
+        
+    if (previousResults) {
+        previousResults.forEach(r => {
+            if (r.result_url) resultUrlMap.set(r.node_id, r.result_url);
+        });
+    }
+    
+    console.log(`[Execution/Start] Seeded ${resultUrlMap.size} historical results`);
+
+    // IDENTIFY ROOT NODES
     const rootNodes = nodesToExecute.filter(node => {
         const hasParentInSet = edgesToInclude.some(e => e.target === node.id);
         return !hasParentInSet;
     });
     
-    console.log(`[Execution/Start] Kickoff: Dispatching ${rootNodes.length} root nodes: ${rootNodes.map(n => n.id).join(', ')}`);
+    console.log(`[Execution/Start] Kickoff: Dispatching ${rootNodes.length} root nodes`);
 
-    // We don't need a resultUrlMap here anymore because dispatchNode will now
-    // internally fetch results from node_results via buildInputsFromParents or similar.
-    // However, to keep it simple for the kickoff, we'll just dispatch with empty inputs
-    // since root nodes by definition have no parents to provide inputs.
-
-    const kickoffPromises = rootNodes.map(node => 
-        dispatchNode(execution.id, node.id, node, {}, origin, session_id)
-    );
+    // KICKOFF - DO NOT AWAIT (NON-BLOCKING)
+    // This prevents the API from hanging in local development where Replicate is synchronous
+    const startExecution = async () => {
+        for (const node of rootNodes) {
+            // Build initial inputs from historical map
+            const inputs: Record<string, any> = {};
+            const incomingEdges = (graph_json.edges || []).filter(e => e.target === node.id);
+            for (const edge of incomingEdges) {
+                const result = resultUrlMap.get(edge.source);
+                if (result) {
+                    const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
+                    inputs[inputKey] = result;
+                    if (inputKey.toLowerCase().includes('prompt')) inputs['prompt'] = result;
+                }
+            }
+            
+            await dispatchNode(execution.id, node.id, node, inputs, origin, session_id);
+        }
+    };
     
-    await Promise.all(kickoffPromises);
+    // Fire and forget kickoff
+    startExecution().catch(err => {
+        console.error('[Execution/Start] Background kickoff error:', err);
+    });
     
     return NextResponse.json({
       success: true,

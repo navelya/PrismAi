@@ -167,6 +167,8 @@ async function dispatchReplicateNode(
 /**
  * Update node state in the node_results table
  * If status is 'completed' or 'failed', it triggers the orchestrator for children.
+ * 
+ * V3.1: Also mirrors status into the sessions table (canvas_state) to satisfy the current UI.
  */
 async function updateNodeState(
   executionId: string,
@@ -178,6 +180,7 @@ async function updateNodeState(
   
   const supabase = createServiceClient();
   
+  // 1. Update node_results table (Engine source of truth)
   const { error: upsertError } = await supabase
     .from('node_results')
     .upsert({
@@ -196,8 +199,8 @@ async function updateNodeState(
   if (upsertError) {
     throw new Error(`Failed to update node state for ${nodeId}: ${upsertError.message}`);
   }
-  
-  // If node is now finished, trigger the "Chain Reaction"
+
+  // 2. If node is now finished, trigger the "Chain Reaction"
   if (state.status === 'completed' || state.status === 'failed') {
       // Non-blocking call to orchestrator
       checkAndDispatchChildren(executionId, nodeId, baseUrl).catch(err => {

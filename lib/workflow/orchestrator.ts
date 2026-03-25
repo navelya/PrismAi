@@ -58,11 +58,14 @@ export async function checkAndDispatchChildren(
       const parentEdges = (graph.edges || []).filter(edge => edge.target === childId);
       const parentIds = parentEdges.map(edge => edge.source);
       
+      // Check for completion across the entire SESSION, not just this execution
+      // This allows solo/chain runs to pick up results from previous executions
       const { data: parentResults, error: resultsError } = await supabase
         .from('node_results')
         .select('node_id, status')
-        .eq('execution_id', executionId)
-        .in('node_id', parentIds);
+        .eq('session_id', sessionId)
+        .in('node_id', parentIds)
+        .eq('status', 'completed');
         
       if (resultsError) {
         console.error(`[Orchestrator] Failed to check parent results for child ${childId}:`, resultsError);
@@ -70,21 +73,20 @@ export async function checkAndDispatchChildren(
       }
       
       const allParentsCompleted = parentIds.every(pid => 
-        parentResults?.some(r => r.node_id === pid && r.status === 'completed')
+        parentResults?.some(r => r.node_id === pid)
       );
       
       if (allParentsCompleted) {
         console.log(`[Orchestrator] ✅ All parents completed for child ${childId}. DISPATCHING.`);
         
-        // Build inputs for the child from its completed parents
-        const inputs = await buildInputsFromParents(executionId, childId, graph);
+        // Build inputs for the child from its completed parents (session-wide)
+        const inputs = await buildInputsFromParents(executionId, childId, graph, sessionId);
         
         // Dispatch child node
         await dispatchNode(executionId, childId, childNode, inputs, baseUrl, sessionId);
       } else {
-        const incomplete = parentIds.filter(pid => 
-          !parentResults?.some(r => r.node_id === pid && r.status === 'completed')
-        );
+        const completedIds = parentResults?.map(r => r.node_id) || [];
+        const incomplete = parentIds.filter(pid => !completedIds.includes(pid));
         console.log(`[Orchestrator] ⏳ Child ${childId} is still waiting for parents: ${incomplete.join(', ')}`);
       }
     }
@@ -95,27 +97,30 @@ export async function checkAndDispatchChildren(
 }
 
 /**
- * Builds an input object for a node by gathering result_urls from its parents
+ * Builds an input object for a node by gathering result_urls from its parents (session-wide)
  */
 async function buildInputsFromParents(
   executionId: string,
   nodeId: string,
-  graph: GraphJson
+  graph: GraphJson,
+  sessionId: string
 ): Promise<Record<string, any>> {
   const supabase = createServiceClient();
   const inputs: Record<string, any> = {};
-  
+
   const incomingEdges = (graph.edges || []).filter(e => e.target === nodeId);
   const parentIds = incomingEdges.map(e => e.source);
-  
+
+  // Fetch from the entire session to support solo runs with historical inputs
   const { data: results } = await supabase
     .from('node_results')
     .select('node_id, result_url')
-    .eq('execution_id', executionId)
+    .eq('session_id', sessionId)
     .in('node_id', parentIds)
     .eq('status', 'completed');
-    
+
   if (!results) return inputs;
+
   
   for (const edge of incomingEdges) {
     const parentResult = results.find(r => r.node_id === edge.source);
@@ -176,12 +181,29 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
     const anyFailed = results.some(r => r.status === 'failed');
     const finalStatus = anyFailed ? 'failed' : 'completed';
     
+    // Find the "Final Result" (result from a node with no children in this target set)
+    const leafNodeIds = targetNodeIds.filter(id => 
+        !graph.edges.some(e => e.source === id)
+    );
+    
+    // Get the result of the most recently updated leaf node
+    const { data: finalNodeResult } = await supabase
+        .from('node_results')
+        .select('result_url')
+        .eq('execution_id', executionId)
+        .in('node_id', leafNodeIds)
+        .eq('status', 'completed')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .single();
+
     console.log(`[Orchestrator] 🏁 All nodes finished in execution ${executionId}. Final Status: ${finalStatus}`);
     
     await supabase
       .from('executions')
       .update({
         status: finalStatus,
+        result_data: finalNodeResult?.result_url || null, // Save final image to execution record
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })

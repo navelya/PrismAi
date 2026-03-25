@@ -229,44 +229,10 @@ export function useChatRealtime({
                 setServerWorkflowHash(newWorkflow);
                 store.setCurrentWorkflow(newWorkflow);
 
-                // Live Sync Node Statuses & outputs from Worker execution
-                if (newWorkflow.nodes) {
-                    const currentStatuses = store.nodeStatuses;
-                    // If any node is ACTIVELY running, do NOT overwrite statuses from the DB snapshot.
-                    // The live status comes from the execution Realtime channel (useExecutionChannel).
-                    // Syncing from DB here would clobber 'running' with stale 'pending'/'idle' data.
-                    const isExecutionInProgress = Object.values(currentStatuses).some(
-                        (s) => s === 'running' || s === 'pending'
-                    );
-
-                    newWorkflow.nodes.forEach((node: any) => {
-                        if (!isExecutionInProgress && node.data?.status) {
-                            const currentStatus = currentStatuses[node.id];
-                            // Only promote from non-terminal states; never downgrade success/error.
-                            if (currentStatus !== 'success' && currentStatus !== 'error') {
-                                store.setNodeStatus(node.id, node.data.status);
-                            }
-                        }
-
-                        // Always sync persisted imageURLs from outputMetadata (these are permanent
-                        // Supabase Storage URLs that reflect the most recent completed execution).
-                        const meta = node.data?.outputMetadata;
-                        if (meta?.thumbnailUrls && Array.isArray(meta.thumbnailUrls) && meta.thumbnailUrls.length > 0) {
-                            // Only update outputs if we're NOT mid-execution (would clobber live stream)
-                            if (!isExecutionInProgress) {
-                                const imageObjects = meta.thumbnailUrls.map((url: string, idx: number) => ({
-                                    url,
-                                    resolution: { width: 1024, height: 1024 },
-                                    metadata: { title: `Output ${idx + 1}`, source: 'Persisted' },
-                                }));
-                                store.setNodeOutput(node.id, imageObjects);
-                            }
-                        } else if (!isExecutionInProgress && node.data?.output !== undefined) {
-                            // Priority 2: inline output (non-image nodes or legacy)
-                            store.setNodeOutput(node.id, node.data.output);
-                        }
-                    });
-                }
+                // V3.1: Live state (status, output) is now handled EXCLUSIVELY by node_results table
+                // via useExecutionChannel. We no longer sync it from canvas_state to avoid 
+                // clobbering live execution state with stale data from the sessions table.
+                console.log('[Realtime] Workflow structure updated from server. Ignoring execution state in canvas_state.');
             }
         };
 
