@@ -58,12 +58,13 @@ export async function checkAndDispatchChildren(
       const parentEdges = (graph.edges || []).filter(edge => edge.target === childId);
       const parentIds = parentEdges.map(edge => edge.source);
       
-      // Check for completion across the entire SESSION, not just this execution
-      // This allows solo/chain runs to pick up results from previous executions
+      // Check for completion within THIS execution only.
+      // Using session_id would pick up results from prior runs, causing nodes
+      // to be dispatched before their current parents actually finish.
       const { data: parentResults, error: resultsError } = await supabase
         .from('node_results')
         .select('node_id, status')
-        .eq('session_id', sessionId)
+        .eq('execution_id', executionId)
         .in('node_id', parentIds)
         .eq('status', 'completed');
         
@@ -79,8 +80,8 @@ export async function checkAndDispatchChildren(
       if (allParentsCompleted) {
         console.log(`[Orchestrator] ✅ All parents completed for child ${childId}. DISPATCHING.`);
         
-        // Build inputs for the child from its completed parents (session-wide)
-        const inputs = await buildInputsFromParents(executionId, childId, graph, sessionId);
+        // Build inputs for the child from its completed parents in this execution
+        const inputs = await buildInputsFromParents(executionId, childId, graph);
         
         // Dispatch child node
         await dispatchNode(executionId, childId, childNode, inputs, baseUrl, sessionId);
@@ -102,8 +103,7 @@ export async function checkAndDispatchChildren(
 async function buildInputsFromParents(
   executionId: string,
   nodeId: string,
-  graph: GraphJson,
-  sessionId: string
+  graph: GraphJson
 ): Promise<Record<string, any>> {
   const supabase = createServiceClient();
   const inputs: Record<string, any> = {};
@@ -111,11 +111,12 @@ async function buildInputsFromParents(
   const incomingEdges = (graph.edges || []).filter(e => e.target === nodeId);
   const parentIds = incomingEdges.map(e => e.source);
 
-  // Fetch from the entire session to support solo runs with historical inputs
+  // Fetch ONLY from the current execution to avoid using stale URLs from prior runs.
+  // Solo/chain modes pre-seed historical inputs into the execution record at start time.
   const { data: results } = await supabase
     .from('node_results')
     .select('node_id, result_url')
-    .eq('session_id', sessionId)
+    .eq('execution_id', executionId)
     .in('node_id', parentIds)
     .eq('status', 'completed');
 
