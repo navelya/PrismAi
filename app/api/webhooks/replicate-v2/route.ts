@@ -77,6 +77,21 @@ export async function POST(request: NextRequest) {
     
     const supabase = createServiceClient();
     
+    // Fetch session_id from the execution record.
+    // WHY: useExecutionChannel filters node_results by session_id.
+    // If we upsert without it, the Supabase realtime event filter won't match
+    // and the UI will never receive the update — it stays stuck on 'running'.
+    const { data: executionCtxForSession } = await supabase
+      .from('executions')
+      .select('session_id')
+      .eq('id', executionId)
+      .single();
+    const sessionId = executionCtxForSession?.session_id || null;
+    
+    if (!sessionId) {
+      console.warn(`[Webhook/Replicate-v2] Could not resolve session_id for execution ${executionId}. Realtime updates may be delayed.`);
+    }
+    
     // Handle different prediction statuses
     if (status === 'succeeded') {
       console.log(`[Webhook/Replicate-v2] Node ${nodeId} completed successfully`);
@@ -150,12 +165,13 @@ export async function POST(request: NextRequest) {
         }
       }
       
-      // V3: Update node_results table
+      // V3: Update node_results table — include session_id so realtime fires
       const { error: updateError } = await supabase
         .from('node_results')
         .upsert({
           execution_id: executionId,
           node_id: nodeId,
+          session_id: sessionId,
           status: 'completed',
           result_url: finalResultUrl,
           replicate_id: predictionId,
@@ -181,12 +197,13 @@ export async function POST(request: NextRequest) {
     } else if (status === 'failed' || status === 'canceled') {
       console.error(`[Webhook/Replicate-v2] Node ${nodeId} failed:`, predictionError);
       
-      // V3: Update node_results table to failed
+      // V3: Update node_results table to failed — include session_id so realtime fires
       await supabase
         .from('node_results')
         .upsert({
           execution_id: executionId,
           node_id: nodeId,
+          session_id: sessionId,
           status: 'failed',
           error: predictionError || `Prediction ${status}`,
           replicate_id: predictionId,
