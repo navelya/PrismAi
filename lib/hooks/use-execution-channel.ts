@@ -73,6 +73,13 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
             const record = payload.new;
             if (!record) return;
 
+            // Client-side session filter (we removed the server-side filter to avoid
+            // RLS blocking UPDATE events from service role webhook writes).
+            // Only process events that belong to our current session.
+            if (record.session_id && record.session_id !== sessionId) {
+                return;
+            }
+
             const { node_id: nodeId, status, result_url: resultUrl, error } = record;
 
             console.log(`[ExecutionChannel] node_results ${payload.eventType} for ${nodeId}: status=${status}`);
@@ -107,6 +114,13 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
             }
         };
 
+        // WHY: The server-side filter `session_id=eq.${sessionId}` passes through
+        // Supabase RLS evaluation. UPDATE events written by the service role webhook
+        // are silently dropped when the RLS SELECT policy fails to match for the
+        // authenticated client context. Removing the filter means ALL node_results
+        // changes for the authenticated user are broadcast. We then filter client-side
+        // by session_id in handleResultChange. This is equally efficient at this scale
+        // and eliminates the RLS-blocking issue entirely.
         const channel = supabase
             .channel(`session_results_${sessionId}`)
             .on(
@@ -115,7 +129,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                     event: '*', 
                     schema: 'public',
                     table: 'node_results',
-                    filter: `session_id=eq.${sessionId}`
+                    // No server-side filter — client filters by session_id below
                 },
                 handleResultChange
             );
@@ -143,7 +157,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                             event: '*',
                             schema: 'public',
                             table: 'node_results',
-                            filter: `session_id=eq.${sessionId}`
+                            // No server-side filter — client filters by session_id below
                         },
                         handleResultChange
                     );
