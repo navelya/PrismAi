@@ -136,50 +136,48 @@ export async function POST(request: NextRequest) {
     
     const { origin } = new URL(request.url);
     
-    // Initialize node_results for the entire target set
-    const initialNodeResults = nodesToExecute.map((node: NodeConfig) => ({
+    // 1. Identify which nodes actually need to be initialized in this execution
+    // We only initialize nodes that aren't already completed in the session
+    const nodesToInitialize = nodesToExecute.filter(node => !resultUrlMap.has(node.id));
+    
+    // Initialize node_results for the target set (only those that aren't already done)
+    const initialNodeResults = nodesToInitialize.map((node: NodeConfig) => ({
         execution_id: execution.id,
         node_id: node.id,
         session_id: session_id,
-        status: 'pending', // All start as pending
+        status: 'pending',
         updated_at: new Date().toISOString(),
     }));
     
-    const { error: initError } = await supabase
-      .from('node_results')
-      .insert(initialNodeResults);
-      
-    if (initError) console.warn('[Execution/Start] Failed to initialize node_results:', initError);
-    
-    // Seed with historical results from node_results to support incremental runs (Solo/Chain)
-    const resultUrlMap = new Map<string, string>();
-    const { data: previousResults } = await supabase
-        .from('node_results')
-        .select('node_id, result_url')
-        .eq('session_id', session_id)
-        .eq('status', 'completed')
-        .order('updated_at', { ascending: true }); // Newest will override
-        
-    if (previousResults) {
-        previousResults.forEach(r => {
-            if (r.result_url) resultUrlMap.set(r.node_id, r.result_url);
-        });
+    if (initialNodeResults.length > 0) {
+        const { error: initError } = await supabase
+          .from('node_results')
+          .insert(initialNodeResults);
+        if (initError) console.warn('[Execution/Start] Failed to initialize node_results:', initError);
     }
     
-    console.log(`[Execution/Start] Seeded ${resultUrlMap.size} historical results`);
-
-    // IDENTIFY ROOT NODES
+    // 2. IDENTIFY STARTING POINTS
+    // Roots of the target subgraph
     const rootNodes = nodesToExecute.filter(node => {
         const hasParentInSet = edgesToInclude.some(e => e.target === node.id);
         return !hasParentInSet;
     });
     
-    console.log(`[Execution/Start] Kickoff: Dispatching ${rootNodes.length} root nodes`);
+    console.log(`[Execution/Start] Kickoff: ${rootNodes.length} root nodes`);
 
-    // KICKOFF - DO NOT AWAIT (NON-BLOCKING)
-    // This prevents the API from hanging in local development where Replicate is synchronous
-    const startExecution = async () => {
-        for (const node of rootNodes) {
+    // 3. EXECUTE KICKOFF (AWAITED to ensure persistence)
+    for (const node of rootNodes) {
+        const isAlreadyDone = resultUrlMap.has(node.id);
+        
+        if (isAlreadyDone) {
+            console.log(`[Execution/Start] Root node ${node.id} already completed. Triggering children via orchestrator.`);
+            // If the root is already done, we manually trigger its children in the NEW execution
+            // We use a non-blocking call here because the primary request logic is satisfied
+            const { checkAndDispatchChildren } = await import('@/lib/workflow/orchestrator');
+            checkAndDispatchChildren(execution.id, node.id, origin).catch(e => 
+                console.error(`[Execution/Start] Orchestrator trigger failed for ${node.id}:`, e)
+            );
+        } else {
             // Build initial inputs from historical map
             const inputs: Record<string, any> = {};
             const incomingEdges = (graph_json.edges || []).filter(e => e.target === node.id);
@@ -192,14 +190,10 @@ export async function POST(request: NextRequest) {
                 }
             }
             
+            // AWAIT the first dispatch to ensure it survives Next.js lifecycle
             await dispatchNode(execution.id, node.id, node, inputs, origin, session_id);
         }
-    };
-    
-    // Fire and forget kickoff
-    startExecution().catch(err => {
-        console.error('[Execution/Start] Background kickoff error:', err);
-    });
+    }
     
     return NextResponse.json({
       success: true,

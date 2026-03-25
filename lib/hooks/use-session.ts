@@ -84,9 +84,23 @@ export function useSession() {
                 return;
             }
 
-            // Hydrate Workflow from Session State (primary source of truth for canvas)
+            // Hydrate Workflow from Session State (primary source of truth for blueprint/layout)
             if (session.canvas_state && session.canvas_state.nodes && session.canvas_state.nodes.length > 0) {
                 const workflow = session.canvas_state as Workflow;
+                
+                // V3.1: Strip any legacy status/output from the blueprint nodes
+                // This ensures we don't show "Success" from 2 days ago while loading fresh results
+                workflow.nodes = workflow.nodes.map((n: any) => ({
+                    ...n,
+                    data: {
+                        ...n.data,
+                        status: undefined,
+                        output: undefined,
+                        outputMetadata: undefined,
+                        error: undefined
+                    }
+                }));
+
                 // Stamp the server hash so auto-save skips the echo write after page load
                 setServerWorkflowHash(workflow);
                 store.setCurrentWorkflow(workflow, false); // NOT dirty on initial load!
