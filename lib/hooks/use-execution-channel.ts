@@ -17,6 +17,15 @@ function applyNodeResult(record: any, sessionId: string) {
     if (recordSessionId && recordSessionId !== sessionId) return;
     if (!nodeId || !status) return;
 
+    // Don't allow a 'pending' DB event to downgrade a node that's already
+    // 'running' or 'success' in the UI. This prevents the flash caused by
+    // the server inserting non-root nodes as 'pending' after the client has
+    // already optimistically set them to 'running' from the user's click.
+    if (status === 'pending') {
+        const currentStatus = useAppStore.getState().nodeStatuses[nodeId];
+        if (currentStatus === 'running' || currentStatus === 'success') return;
+    }
+
     // Map DB statuses to UI statuses
     if (status === 'completed') {
         store.setNodeStatus(nodeId, 'success');
