@@ -185,8 +185,11 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
                     "transition-all duration-500",
-                    // Smart min-height: Only apply when generating, empty, or image is still loading
-                    (status === 'running' || !output || !imageLoaded) ? "min-h-[140px]" : "min-h-0"
+                    // Heights:
+                    //  - No output (empty placeholder): 200px — generous presence on canvas
+                    //  - Running/loading: 200px — space for the glassy loader overlay
+                    //  - Image loaded: shrink to fit naturally (min-h-0)
+                    (!output || status === 'running' || !imageLoaded) ? "min-h-[200px]" : "min-h-0"
                 )}
             >
                 {/* Frosty Placeholder background */}

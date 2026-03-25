@@ -298,10 +298,23 @@ export default function SharedWorkflowEditor({
             }, 60000); // 60 second timeout
 
         } catch (err: any) {
-            setExecutionError(err.message || 'Execution failed to start');
+            const errorMsg = err.message || 'Execution failed to start';
+            setExecutionError(errorMsg);
             setExecutionResult(null);
-            // Don't reset node statuses on error - DB state is authoritative
-            // User can see which nodes completed before the error
+            // Reset any optimistically-set node statuses so the UI doesn't get
+            // permanently stuck on 'running'. The server failed before the DB
+            // was in a consistent state, so we must correct client-side state here.
+            const { nodeStatuses } = useAppStore.getState();
+            Object.entries(nodeStatuses).forEach(([nId, nStatus]) => {
+                if (nStatus === 'running' || nStatus === 'pending') {
+                    useAppStore.getState().setNodeStatus(nId, 'error');
+                }
+            });
+            setIsExecuting(false);
+            if (executionTimeoutRef.current) {
+                clearTimeout(executionTimeoutRef.current);
+                executionTimeoutRef.current = null;
+            }
         } finally {
             activeRunCountRef.current -= 1;
             if (activeRunCountRef.current <= 0) {

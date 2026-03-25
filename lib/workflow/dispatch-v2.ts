@@ -139,11 +139,27 @@ async function dispatchReplicateNode(
     }
     
     if (result.status === 'success') {
-        // LOCAL DEVELOPMENT: Synchronous result returned directly
-        console.log(`[Dispatch/Replicate] ✅ Synchronous result for node ${nodeId}. Triggering children.`);
+        // LOCAL DEVELOPMENT: Synchronous result returned directly by replicate.run()
+        // normalizeReplicateOutput returns { url: '...' } objects or arrays of them.
+        // We must extract the actual URL string before storing in node_results.
+        const rawData = result.data;
+        let resultUrl: string | undefined;
+        
+        if (Array.isArray(rawData)) {
+            // Multiple outputs (e.g. batch images) — pick the first URL
+            const first = rawData[0];
+            resultUrl = typeof first === 'string' ? first : first?.url;
+        } else if (typeof rawData === 'string') {
+            resultUrl = rawData;
+        } else if (rawData?.url) {
+            resultUrl = rawData.url;
+        }
+        
+        console.log(`[Dispatch/Replicate] ✅ Synchronous result for node ${nodeId}: ${resultUrl?.substring(0, 80) ?? 'NO URL EXTRACTED'}`);
+        
         await updateNodeState(executionId, nodeId, {
             status: 'completed',
-            result_url: result.data as string,
+            result_url: resultUrl,
             dispatched_at: new Date().toISOString(),
             completed_at: new Date().toISOString()
         }, sessionId, baseUrl);

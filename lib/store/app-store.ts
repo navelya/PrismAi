@@ -97,6 +97,11 @@ export const useAppStore = create<RootState>()(
                     'statusMessage',
                     'isCopilotMinimized',
                     'liveNodePositions',
+                    // Ephemeral trigger signals — must NOT persist across refresh.
+                    // If these survive rehydration, the useEffect in SharedWorkflowEditor
+                    // re-fires the execution on every page load.
+                    'runFromNodeId',
+                    'runMode',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {
