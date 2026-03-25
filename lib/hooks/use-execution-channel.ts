@@ -5,7 +5,77 @@ import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
 
 /**
- * Helper function to subscribe to channel with exponential backoff retry
+ * Apply a node_results record directly to the Zustand store.
+ * Used both by the realtime handler and the hydration catch-up query.
+ */
+function applyNodeResult(record: any, sessionId: string) {
+    const store = useAppStore.getState();
+    const { node_id: nodeId, status, result_url: resultUrl, error, session_id: recordSessionId } = record;
+
+    // Client-side session guard — only process rows belonging to this session.
+    // We removed the server-side filter to avoid RLS blocking service-role UPDATE events.
+    if (recordSessionId && recordSessionId !== sessionId) return;
+    if (!nodeId || !status) return;
+
+    // Map DB statuses to UI statuses
+    if (status === 'completed') {
+        store.setNodeStatus(nodeId, 'success');
+        if (resultUrl) {
+            store.setNodeOutput(nodeId, [{
+                url: resultUrl,
+                resolution: { width: 1024, height: 1024 },
+                metadata: { title: 'Output', source: 'V3 Execution' },
+            }]);
+        }
+    } else if (status === 'failed') {
+        store.setNodeStatus(nodeId, 'error');
+        store.setNodeOutput(nodeId, null);
+        console.error(`[ExecutionChannel] Node ${nodeId} failed:`, error);
+    } else {
+        // 'pending' and 'running' pass through directly
+        store.setNodeStatus(nodeId, status);
+    }
+}
+
+/**
+ * After the subscription is confirmed SUBSCRIBED, query the DB for the latest
+ * node_results rows for this session and apply them to the store.
+ *
+ * WHY: There is a window between component mount and subscription confirmation
+ * (~200-500ms). Any DB writes during that window are missed by the realtime
+ * listener. This catch-up query ensures the UI always reflects the true DB state
+ * regardless of subscription timing or page refreshes.
+ */
+async function hydrateFromDb(supabase: ReturnType<typeof createClient>, sessionId: string) {
+    console.log(`[ExecutionChannel] Hydrating current state from DB for session ${sessionId}`);
+    
+    const { data: rows, error } = await supabase
+        .from('node_results')
+        .select('node_id, status, result_url, error, session_id, updated_at')
+        .eq('session_id', sessionId)
+        .order('updated_at', { ascending: false });
+
+    if (error) {
+        console.warn('[ExecutionChannel] Hydration query failed:', error.message);
+        return;
+    }
+
+    if (!rows || rows.length === 0) return;
+
+    // De-duplicate: keep only the most recent row per node_id (already ordered by updated_at desc)
+    const seenNodes = new Set<string>();
+    for (const row of rows) {
+        if (seenNodes.has(row.node_id)) continue;
+        seenNodes.add(row.node_id);
+        applyNodeResult(row, sessionId);
+    }
+
+    console.log(`[ExecutionChannel] Hydrated ${seenNodes.size} node(s) from DB`);
+}
+
+/**
+ * Subscribe to a channel with exponential backoff retry.
+ * Resolves when SUBSCRIBED, rejects after all retries exhausted.
  */
 async function subscribeWithRetry(
     channel: ReturnType<ReturnType<typeof createClient>['channel']>,
@@ -17,17 +87,16 @@ async function subscribeWithRetry(
             await new Promise<void>((resolve, reject) => {
                 channel.subscribe((status: string, err?: any) => {
                     if (err) {
-                        console.error(`[ExecutionChannel] Subscription attempt ${attempt + 1} failed:`, err);
                         reject(err);
                     } else if (status === 'SUBSCRIBED') {
-                        console.log(`[ExecutionChannel] Successfully subscribed on attempt ${attempt + 1}`);
+                        console.log(`[ExecutionChannel] Subscribed (attempt ${attempt + 1})`);
                         resolve();
                     } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                        reject(new Error(`Subscription failed with status: ${status}`));
+                        reject(new Error(`Subscription failed: ${status}`));
                     }
                 });
             });
-            return; // Success - exit retry loop
+            return;
         } catch (err) {
             if (attempt < maxRetries - 1) {
                 const delay = initialDelay * Math.pow(2, attempt);
@@ -42,14 +111,15 @@ async function subscribeWithRetry(
 }
 
 /**
- * Subscribes to Supabase Realtime for execution updates on node_results table.
+ * Subscribes to Supabase Realtime for execution updates on node_results.
+ * Mounted at the top-level layout (ChatClientPage) so it is NEVER unmounted
+ * while the session is active.
  *
- * CRITICAL: This hook MUST be instantiated at a component level that is
- * NEVER unmounted while the session is active.
- *
- * V3.1 Changes:
- *  - Listens to node_results table by session_id instead of execution_id
- *  - Catch all updates for the current session, enabling concurrent runs
+ * Key design decisions:
+ * - NO server-side filter: prevents RLS from silently dropping service-role
+ *   UPDATE events (e.g. from the Replicate webhook). Filters client-side instead.
+ * - On-subscribe hydration: queries current DB state immediately after the
+ *   WebSocket connection is confirmed, closing the missed-event window.
  */
 export function useExecutionChannel(sessionId: string | null | undefined) {
     const executionChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
@@ -58,116 +128,58 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
     useEffect(() => {
         if (!sessionId) {
-            console.log('[ExecutionChannel] No sessionId provided, skipping subscription');
+            console.log('[ExecutionChannel] No sessionId, skipping');
             return;
         }
 
         const supabase = createClient();
         supabaseRef.current = supabase;
-        const store = useAppStore.getState();
 
-        // V3: Handler for node_results changes
         const handleResultChange = (payload: any) => {
-            console.log(`[ExecutionChannel] Received payload for session ${sessionId}:`, payload.eventType, payload);
-            
             const record = payload.new;
             if (!record) return;
-
-            // Client-side session filter (we removed the server-side filter to avoid
-            // RLS blocking UPDATE events from service role webhook writes).
-            // Only process events that belong to our current session.
-            if (record.session_id && record.session_id !== sessionId) {
-                return;
-            }
-
-            const { node_id: nodeId, status, result_url: resultUrl, error } = record;
-
-            console.log(`[ExecutionChannel] node_results ${payload.eventType} for ${nodeId}: status=${status}`);
-
-            // Update status in Zustand - use the exact status from the database
-            if (status) {
-                // Map database statuses to UI statuses
-                if (status === 'completed') {
-                    store.setNodeStatus(nodeId, 'success');
-                } else if (status === 'failed') {
-                    store.setNodeStatus(nodeId, 'error');
-                } else {
-                    // 'pending' and 'running' pass through directly
-                    store.setNodeStatus(nodeId, status);
-                }
-            }
-
-            // Update output if completed
-            if (status === 'completed' && resultUrl) {
-                const imageObject = {
-                    url: resultUrl,
-                    resolution: { width: 1024, height: 1024 },
-                    metadata: { title: 'Output', source: 'V3 Execution' },
-                };
-                store.setNodeOutput(nodeId, [imageObject]);
-            }
-
-            // Clear output on error
-            if (status === 'failed') {
-                console.error(`[ExecutionChannel] Node ${nodeId} error:`, error);
-                store.setNodeOutput(nodeId, null);
-            }
+            console.log(`[ExecutionChannel] ${payload.eventType} → node ${record.node_id}: ${record.status}`);
+            applyNodeResult(record, sessionId);
         };
 
-        // WHY: The server-side filter `session_id=eq.${sessionId}` passes through
-        // Supabase RLS evaluation. UPDATE events written by the service role webhook
-        // are silently dropped when the RLS SELECT policy fails to match for the
-        // authenticated client context. Removing the filter means ALL node_results
-        // changes for the authenticated user are broadcast. We then filter client-side
-        // by session_id in handleResultChange. This is equally efficient at this scale
-        // and eliminates the RLS-blocking issue entirely.
-        const channel = supabase
-            .channel(`session_results_${sessionId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: '*', 
-                    schema: 'public',
-                    table: 'node_results',
-                    // No server-side filter — client filters by session_id below
-                },
-                handleResultChange
-            );
+        const buildChannel = () =>
+            supabase
+                .channel(`session_results_${sessionId}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'node_results',
+                        // No server-side filter — see hydrateFromDb and applyNodeResult
+                    },
+                    handleResultChange
+                );
 
+        const channel = buildChannel();
         executionChannelRef.current = channel;
 
-        // Subscribe with retry logic
-        subscribeWithRetry(channel, 3, 1000).catch((err) => {
-            console.error('[ExecutionChannel] Failed to subscribe after all retries:', err);
-        });
+        // Subscribe, then immediately hydrate from DB to catch any missed events
+        subscribeWithRetry(channel, 3, 1000)
+            .then(() => hydrateFromDb(supabase, sessionId))
+            .catch((err) => {
+                console.error('[ExecutionChannel] Failed to subscribe:', err);
+            });
 
-        // Reconnect when tab becomes visible again
+        // Reconnect + re-hydrate when the tab becomes visible again
         const handleVisibilityChange = async () => {
             if (document.visibilityState !== 'visible') return;
             const channelState = (executionChannelRef.current as any)?.state;
             if (channelState === 'closed' || channelState === 'errored') {
-                console.log('[ExecutionChannel] Reconnecting due to visibility change...');
+                console.log('[ExecutionChannel] Reconnecting after visibility change...');
                 if (executionChannelRef.current) supabase.removeChannel(executionChannelRef.current);
-                
-                const reconnected = supabase
-                    .channel(`session_results_${sessionId}`)
-                    .on(
-                        'postgres_changes',
-                        {
-                            event: '*',
-                            schema: 'public',
-                            table: 'node_results',
-                            // No server-side filter — client filters by session_id below
-                        },
-                        handleResultChange
-                    );
-                    
+                const reconnected = buildChannel();
                 executionChannelRef.current = reconnected;
-                
-                // Retry reconnection
-                subscribeWithRetry(reconnected, 3, 1000).catch((err) => {
-                    console.error('[ExecutionChannel] Reconnection failed after all retries:', err);
-                });
+                subscribeWithRetry(reconnected, 3, 1000)
+                    .then(() => hydrateFromDb(supabase, sessionId))
+                    .catch((err) => {
+                        console.error('[ExecutionChannel] Reconnection failed:', err);
+                    });
             }
         };
 
@@ -181,7 +193,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                     executionChannelRef.current.unsubscribe();
                     supabaseRef.current.removeChannel(executionChannelRef.current);
                 } catch (e) {
-                    console.log('Error cleaning up channel:', e);
+                    console.log('[ExecutionChannel] Cleanup error:', e);
                 }
                 executionChannelRef.current = null;
             }

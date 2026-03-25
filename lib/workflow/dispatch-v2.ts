@@ -218,10 +218,16 @@ async function updateNodeState(
 
   // 2. If node is now finished, trigger the "Chain Reaction"
   if (state.status === 'completed' || state.status === 'failed') {
-      // Non-blocking call to orchestrator
-      checkAndDispatchChildren(executionId, nodeId, baseUrl).catch(err => {
-          console.error(`[Dispatch] Background orchestrator error for node ${nodeId}:`, err);
-      });
+      // AWAIT the orchestrator — do NOT fire-and-forget.
+      // In Next.js App Router, background promises are killed when the HTTP response
+      // is returned from the route. Logs confirmed: orchestrator logged "Checking for
+      // children" but never reached "Dispatching" because the request context ended.
+      // Awaiting it keeps the orchestrator alive within the full call chain.
+      try {
+          await checkAndDispatchChildren(executionId, nodeId, baseUrl);
+      } catch (err) {
+          console.error(`[Dispatch] Orchestrator error for node ${nodeId}:`, err);
+      }
   } else if (state.status === 'running') {
     // Ensure overall execution is marked as running
     await supabase
