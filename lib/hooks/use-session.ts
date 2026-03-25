@@ -86,7 +86,10 @@ export function useSession() {
 
             // Hydrate Workflow from Session State (primary source of truth for blueprint/layout)
             if (session.canvas_state && session.canvas_state.nodes && session.canvas_state.nodes.length > 0) {
-                const workflow = session.canvas_state as Workflow;
+                const workflow = { 
+                    ...session.canvas_state,
+                    id: session.id // 🆔 Inject session ID to ensure unique identity
+                } as Workflow;
                 
                 // V3.1: Strip any legacy status/output from the blueprint nodes
                 // This ensures we don't show "Success" from 2 days ago while loading fresh results

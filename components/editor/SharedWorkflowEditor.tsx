@@ -114,23 +114,25 @@ export default function SharedWorkflowEditor({
     // 🛡️ Enable Global Auto-Save Persistence
     useAutoSave();
 
-    // 🔄 Sync local editor state to global store for auto-save
-    const lastSyncedStateRef = useRef<string>('');
-    
+    // Sync state for auto-save
+    const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+
     useEffect(() => {
-        if (isDragging) return;
+        // 🛑 GUARD: Do not sync back to the global store if the session is still
+        // loading or if we are bootstrapping. This prevents the local editor
+        // state (which might be empty on mount/clear) from overwriting the 
+        // canonical version just loaded from the DB.
+        if (isDragging || isLoadingSession || isBooting) return;
         
         const workflow = getCurrentWorkflow();
         
-        // ✅ PHASE 1 FIX: Sanitize workflow before syncing to store
-        // Strip execution state to prevent stale data from entering auto-save pipeline
+        // Sanitize for auto-save (strip execution state)
         const cleanWorkflow = {
             ...workflow,
             nodes: workflow.nodes.map(n => ({
                 ...n,
                 data: {
                     ...n.data,
-                    // Execution state is managed separately in Zustand nodeStatuses/nodeOutputs
                     status: undefined,
                     output: undefined,
                     outputMetadata: undefined,
@@ -144,7 +146,7 @@ export default function SharedWorkflowEditor({
             lastSyncedStateRef.current = currentHash;
             setCurrentWorkflow(cleanWorkflow);
         }
-    }, [nodes, edges, isDragging, getCurrentWorkflow, setCurrentWorkflow]);
+    }, [nodes, edges, isDragging, isLoadingSession, isBooting, getCurrentWorkflow, setCurrentWorkflow]);
 
     useEffect(() => {
         if (nodes.length > 0 || edges.length > 0) {
