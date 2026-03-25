@@ -116,6 +116,7 @@ export default function SharedWorkflowEditor({
 
     // Sync state for auto-save
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+    const lastSyncedStateRef = useRef<string>('');
 
     useEffect(() => {
         // 🛑 GUARD: Do not sync back to the global store if the session is still
