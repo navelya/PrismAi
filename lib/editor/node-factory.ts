@@ -81,6 +81,7 @@ export function createNodeFromType(
         data: {
             label: type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
             config,
+            isNew: true,
         },
     };
 }

@@ -141,6 +141,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             type="media_input"
             label={data.label}
             selected={selected}
+            isNew={(data as any).isNew}
             badgeCount={images.length}
             className={cn(isDragOver && "ring-2 ring-accent-primary ring-offset-2")}
             onDragOver={handleDragOver}

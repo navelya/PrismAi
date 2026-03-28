@@ -1,4 +1,4 @@
-import { streamText, tool } from 'ai';
+import { streamText, tool, stepCountIs } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -44,24 +44,24 @@ const cleanNodesDocs = getCleanNodesContext();
 // 1. PROPER TOOL DEFINITION
 // Dynamic schema docs are injected directly into the Zod description.
 const prismTools = {
-    build_workflow: tool({
-        description: 'Generates or updates the entire workflow canvas. Call this ONLY when the user explicitly asks to create, modify, or add to a workflow.',
+    add_node: tool({
+        description: 'Adds exactly ONE node to the workflow canvas. Call this tool once per node. Do NOT call it in parallel — call it, wait for the result, then call it again for the next node.',
         inputSchema: z.object({
-            name: z.string().describe('A short, creative name for this workflow.'),
-            nodes: z.array(z.object({
-                id: z.string(),
-                type: z.string(),
-                position: z.object({ x: z.number(), y: z.number() }),
-                data: z.object({ config: z.any() })
-            })).describe(`Array of workflow nodes. CRITICAL: You MUST populate data.config strictly according to these schemas for each node type:\n\n${cleanNodesDocs}`),
-            edges: z.array(z.object({
-                id: z.string(),
-                source: z.string(),
-                target: z.string(),
-                sourceHandle: z.string(),
-                targetHandle: z.string()
-            })).describe('Array of workflow edges connecting the nodes. Ensure you use the exact sourceHandle and targetHandle IDs specified in the node docs.')
-        })
+            type: z.string().describe('The type of node to add (e.g., "prompt", "compositor", "media_input").'),
+            position: z.object({
+                x: z.number().describe('X coordinate. Space nodes out logically to prevent overlapping.'),
+                y: z.number().describe('Y coordinate. Keep them roughly aligned.')
+            }),
+            data: z.object({
+                config: z.any()
+            }).describe(`CRITICAL: Populate config strictly according to the schema for the requested node type:\n\n${cleanNodesDocs}`)
+        }),
+        execute: async (args) => {
+            return {
+                success: true,
+                message: `Node successfully scheduled to be added to the canvas.`
+            };
+        }
     })
 };
 
@@ -117,20 +117,14 @@ export async function POST(req: Request) {
         - Canvas: Use your tools to build or modify the actual workflow.
 
         RULES OF ENGAGEMENT:
-        1. Chat Naturally: If the user asks a general question, respond conversationally. Do NOT generate a workflow.
-        2. Think Aloud & Act: When the user asks you to build or modify a workflow, first reply with a brief text message explaining what you are about to do. Then, call the 'build_workflow' tool.
-        3. Node Connections: For all image inputs, use "prompt_in" or the first available handle ID. NEVER use "images_in".
+        1. Chat Naturally: If the user asks a general question, respond conversationally via text. Do NOT generate a workflow.
+        2. One intro, then tools: When the user asks you to build a workflow, give a SINGLE brief intro message (e.g. "Sure! Adding 10 nodes now."). Then call add_node repeatedly — one call per step — until done. Do NOT add commentary between tool calls. After all nodes are added, give a SHORT completion summary.
+        3. Sequential ONLY: NEVER call add_node in parallel. Call it EXACTLY ONCE per step, wait for the result, then call it again for the next node.
+        4. Node Connections: For all image inputs, use "prompt_in" or the first available handle ID. NEVER use "images_in".
         
         AVAILABLE NODE TYPES: ${availableNodes}
         ${workflowContext}
         ${imagesContext}`;
-
-        const result = streamText({
-            model: google('gemini-2.5-flash'),
-            system: systemPrompt,
-            messages: mappedHistory,
-            tools: prismTools,
-        });
 
         const stream = new ReadableStream({
             start(controller) {
@@ -139,19 +133,29 @@ export async function POST(req: Request) {
 
                 waitUntil((async () => {
                     let finalContent = "";
-                    let finalWorkflow = null;
-                    let workflowName = "";
+                    let newlyAddedNodes: any[] = []; // Track nodes created in this specific session
                     let hasContent = false;
+                    let lastToolCallTime = 0; // Track timing for server-side throttling
 
                     try {
+                        const result = streamText({
+                            model: google('gemini-2.5-flash'),
+                            system: systemPrompt,
+                            messages: mappedHistory,
+                            tools: prismTools,
+                            stopWhen: stepCountIs(50),
+                        });
+
                         for await (const part of result.fullStream as any) {
+                            if (!isClientConnected) break;
+
                             // 3. SEPARATED STREAMING LOGIC
                             if (part.type === 'text-delta') {
                                 const textChunk = part.textDelta || part.text || "";
-                                if (textChunk) hasContent = true;
-                                finalContent += textChunk;
+                                if (textChunk) {
+                                    hasContent = true;
+                                    finalContent += textChunk;
 
-                                if (isClientConnected) {
                                     try {
                                         controller.enqueue(encoder.encode(JSON.stringify({ type: 'text', content: textChunk }) + '\n'));
                                     } catch (e) { isClientConnected = false; }
@@ -159,16 +163,42 @@ export async function POST(req: Request) {
                             }
                             else if (part.type === 'tool-call') {
                                 hasContent = true;
-                                const args = part.args || part.input || {};
-                                finalWorkflow = args;
-                                workflowName = args.name || "";
 
-                                if (isClientConnected) {
+                                if (part.toolName === 'add_node') {
+                                    // SERVER-SIDE THROTTLING: Enforce minimum 400ms between node additions
+                                    const now = Date.now();
+                                    const timeSinceLastCall = now - lastToolCallTime;
+                                    const minimumDelay = 400;
+                                    
+                                    if (lastToolCallTime > 0 && timeSinceLastCall < minimumDelay) {
+                                        const waitTime = minimumDelay - timeSinceLastCall;
+                                        await new Promise(r => setTimeout(r, waitTime));
+                                    }
+                                    lastToolCallTime = Date.now();
+
+                                    const aiArgs = part.args || part.input || {};
+
+                                    // 1. SERVER generates the secure UUID
+                                    const realNodeId = crypto.randomUUID();
+
+                                    // 2. Assemble the safe node object
+                                    const safeNodePayload = {
+                                        id: realNodeId,
+                                        type: aiArgs.type,
+                                        position: aiArgs.position,
+                                        data: aiArgs.data,
+                                        serverTime: Date.now() // Add timestamp for client tracking
+                                    };
+
+                                    // 3. Keep track of it for the database update later
+                                    newlyAddedNodes.push(safeNodePayload);
+
+                                    // 5. Stream the single node immediately to the UI
                                     try {
                                         controller.enqueue(encoder.encode(JSON.stringify({
                                             type: 'tool',
-                                            name: part.toolName,
-                                            workflow: args
+                                            name: 'add_node',
+                                            workflow: safeNodePayload
                                         }) + '\n'));
                                     } catch (e) { isClientConnected = false; }
                                 }
@@ -194,20 +224,19 @@ export async function POST(req: Request) {
                                 });
                             }
 
-                            if (finalWorkflow) {
-                                const sessionUpdate: any = {
-                                    canvas_state: finalWorkflow,
-                                    updated_at: new Date().toISOString()
+                            if (newlyAddedNodes.length > 0) {
+                                const existingNodes = previousWorkflow?.nodes || [];
+                                const existingEdges = previousWorkflow?.edges || [];
+
+                                const updatedCanvasState = {
+                                    nodes: [...existingNodes, ...newlyAddedNodes],
+                                    edges: existingEdges // Edges remain untouched for now
                                 };
 
-                                if (workflowName && workflowName !== 'New Workflow') {
-                                    let officialTitle = workflowName.replace(/^Workflow:\s*/i, '');
-                                    if (officialTitle.length > 2) {
-                                        sessionUpdate.title = officialTitle;
-                                    }
-                                }
-
-                                await supabase.from('sessions').update(sessionUpdate).eq('id', sessionId);
+                                await supabase.from('sessions').update({
+                                    canvas_state: updatedCanvasState,
+                                    updated_at: new Date().toISOString()
+                                }).eq('id', sessionId);
                             }
                         }
 

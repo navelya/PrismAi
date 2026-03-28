@@ -217,6 +217,7 @@ export interface WorkflowNode {
         outputMetadata?: any; // Metadata about node outputs (e.g. thumbnails)
         status?: NodeStatus; // Current execution status of this specific node
         errorMessage?: string; // Error message if the node failed
+        isNew?: boolean; // Ephemeral flag for initial animations
         __originalType?: string; // Track original type for legacy/deprecated nodes
     };
     zIndex?: number;

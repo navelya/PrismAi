@@ -65,11 +65,13 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
             type={type}
             label={data.label}
             selected={selected}
+            isNew={(data as any).isNew}
             badgeCount={Array.isArray(output) ? output.length : undefined}
             className="transition-all duration-500 ease-in-out"
             width={output && aspectRatio ? Math.min(MAX_WIDTH, 320 * aspectRatio) : 320}
         >
             <motion.div
+                layout={((status === 'running' || status === 'success') && !!output) ? "position" : false}
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 shadow-inner group/node",
                     !output ? "bg-white/5" : "bg-transparent",

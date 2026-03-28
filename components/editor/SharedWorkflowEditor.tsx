@@ -137,6 +137,7 @@ export default function SharedWorkflowEditor({
                     status: undefined,
                     output: undefined,
                     outputMetadata: undefined,
+                    isNew: undefined,
                 }
             }))
         };

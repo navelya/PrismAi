@@ -265,22 +265,43 @@ export function useChatMessages({
                 if (parsed.type === 'text') {
                     networkText += parsed.content;
                 }
-                else if (parsed.type === 'tool' && parsed.name === 'build_workflow') {
+                else if (parsed.type === 'tool' && parsed.name === 'add_node') {
                     if (parsed.message) {
                         networkText += (networkText ? '\n\n' : '') + parsed.message;
                     }
-                    const safeNodes = (parsed.workflow.nodes || []).map((node: any) => ({
-                        ...node,
-                        position: node.position || { x: 0, y: 0 }
-                    }));
-                    const safeWorkflow = { ...parsed.workflow, nodes: safeNodes };
-                    finalWorkflow = safeWorkflow;
+                    
+                    // Process the new incoming node - read count BEFORE appending
+                    const existingBaseCount = useAppStore.getState().currentWorkflow?.nodes?.length || 0;
+                    const newNode = {
+                        ...parsed.workflow,
+                        position: parsed.workflow.position?.x
+                            ? parsed.workflow.position
+                            : { x: 100 + (existingBaseCount * 320), y: 100 }
+                    };
 
-                    useAppStore.getState().updateMessage(assistantMsgId, {
-                        workflow: safeWorkflow
+                    // Retrieve the existing workflow state to append to
+                    const appStore = useAppStore.getState();
+                    const currentWorkflow = appStore.currentWorkflow;
+                    
+                    const existingNodes = currentWorkflow?.nodes || [];
+                    const existingEdges = currentWorkflow?.edges || [];
+                    
+                    const newWorkflow = {
+                        id: currentWorkflow?.id || 'temp-id',
+                        name: currentWorkflow?.name || 'New Workflow',
+                        nodes: [...existingNodes, newNode],
+                        edges: existingEdges
+                    };
+                    
+                    finalWorkflow = newWorkflow;
+
+                    // Update the message so it shows the growing workflow in the chat log
+                    appStore.updateMessage(assistantMsgId, {
+                        workflow: newWorkflow
                     });
 
-                    if (onWorkflowGenerated) onWorkflowGenerated(safeWorkflow);
+                    // Sync to React Flow (which triggers the UI 'pop' effect)
+                    appStore.appendNodeStream(newNode);
                 }
                 else if (parsed.type === 'error') {
                     useAppStore.getState().updateMessage(assistantMsgId, {
@@ -291,12 +312,29 @@ export function useChatMessages({
                 }
             };
 
+            // Queue-based line processor: ensures each node is visually painted
+            // before the next one is processed, giving a real sequential appearance.
+            const lineQueue: string[] = [];
+
+            const drainQueue = async () => {
+                while (lineQueue.length > 0) {
+                    const line = lineQueue.shift()!;
+                    if (!line.trim()) continue;
+                    try {
+                        const parsed = JSON.parse(line);
+                        processStreamLine(parsed);
+                        if (parsed.type === 'tool' && parsed.name === 'add_node') {
+                            await new Promise(r => setTimeout(r, 300));
+                        }
+                    } catch (e) {}
+                }
+            };
+
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) {
-                    if (buffer.trim()) {
-                        try { processStreamLine(JSON.parse(buffer)); } catch (e) { }
-                    }
+                    if (buffer.trim()) lineQueue.push(buffer);
+                    await drainQueue();
                     streamDone = true;
                     break;
                 }
@@ -304,11 +342,10 @@ export function useChatMessages({
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
+                for (const line of lines) lineQueue.push(line);
 
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    try { processStreamLine(JSON.parse(line)); } catch (e) { }
-                }
+                // Drain after each network chunk so nodes appear as they arrive
+                await drainQueue();
             }
 
         } catch (error) {

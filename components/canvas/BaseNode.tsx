@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
+import { motion } from 'framer-motion';
 
 export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     id: string;
@@ -27,6 +28,7 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     customActions?: React.ReactNode;
     icon?: string;
     hideStatus?: boolean;
+    isNew?: boolean;
 }
 
 const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
@@ -46,8 +48,16 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     customActions,
     icon,
     hideStatus = false,
+    isNew,
+    onDrag,
+    onDragStart,
+    onDragEnd,
+    onAnimationStart,
+    onAnimationEnd,
+    onTransitionEnd,
     ...props
 }, ref) => {
+    const isDragging = useAppStore((state) => state.isDragging);
     const sharedDef = sharedRegistry[type as keyof typeof sharedRegistry];
     const metadata = sharedDef?.meta;
 
@@ -167,11 +177,14 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const inputsToRender = customInputs || sharedDef?.handles?.inputs;
 
     return (
-        <div
-            ref={ref}
+        <motion.div
+            ref={ref as any}
+            initial={isNew ? { scale: 0.8, opacity: 0 } : false}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={isDragging ? { duration: 0 } : { type: "spring", bounce: 0.5, duration: 0.6 }}
             className={cn(
                 "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40",
-                "transition-[border-color,box-shadow,background-color] duration-500 ease-out",
+                !isDragging && "transition-[border-color,box-shadow,background-color] duration-500 ease-out",
                 selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] ring-1 ring-accent-primary/20" : "border-stroke-subtle shadow-xl",
                 "hover:border-stroke-strong hover:bg-surface-elevated/50 hover:shadow-2xl",
                 typeof width === 'string' ? width : '',
@@ -180,6 +193,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             style={{
                 width: typeof width === 'number' ? width : undefined,
                 willChange: 'transform',
+                transition: isDragging ? 'none' : undefined,
                 ...props.style
             }}
             {...props}
@@ -368,7 +382,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     </Handle>
                 )
             )}
-        </div>
+        </motion.div>
     );
 });
 

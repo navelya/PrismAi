@@ -181,7 +181,7 @@ function LivePreview({
     );
 }
 
-function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
+function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const stageRef = useRef<any>(null);
@@ -321,6 +321,8 @@ function CompositorNode({ data, id }: NodeProps<CompositorNodeData>) {
                 id={id}
                 type="compositor"
                 label={data.label}
+                selected={selected}
+                isNew={(data as any).isNew}
                 badgeCount={config.layers.length}
                 width={320}
                 customInputs={inputHandles}

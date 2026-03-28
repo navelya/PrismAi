@@ -181,7 +181,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
             width={320}
         >
             <motion.div
-                layout
+                layout={((status === 'running' || status === 'success') && !!output) ? "position" : false}
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
                     "transition-all duration-500",
