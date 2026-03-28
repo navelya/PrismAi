@@ -34,6 +34,19 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         });
     },
 
+    appendEdgeStream: (edge) => {
+        const currentWorkflow = get().currentWorkflow;
+        if (!currentWorkflow) return;
+        
+        set({
+            currentWorkflow: {
+                ...currentWorkflow,
+                edges: [...(currentWorkflow.edges || []), edge]
+            },
+            isWorkflowDirty: true
+        });
+    },
+
     setCurrentWorkflow: (workflow, isDirty = true) => {
         if (!workflow) {
             set({ currentWorkflow: null, isWorkflowDirty: isDirty });

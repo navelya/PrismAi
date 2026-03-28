@@ -251,6 +251,15 @@ export function useChatMessages({
                     }
                     await nextFrame();
                 }
+                
+                // Update message with final workflow after streaming completes
+                if (finalWorkflow) {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        content: displayedText,
+                        workflow: finalWorkflow
+                    });
+                }
+                
                 setIsLoading(false);
                 setStatusMessage(null);
 
@@ -270,50 +279,45 @@ export function useChatMessages({
                         networkText += (networkText ? '\n\n' : '') + parsed.message;
                     }
                     
-                    // Process the new incoming node - read count BEFORE appending
+                    // Process the new incoming node
                     const existingBaseCount = useAppStore.getState().currentWorkflow?.nodes?.length || 0;
                     const newNode = {
                         ...parsed.workflow,
                         position: parsed.workflow.position?.x
                             ? parsed.workflow.position
-                            : { x: 100 + (existingBaseCount * 320), y: 100 }
+                            : { x: 100 + (existingBaseCount * 400), y: 100 }
                     };
 
-                    // Retrieve the existing workflow state to append to
+                    // Just append to React Flow - don't update message workflow yet
+                    useAppStore.getState().appendNodeStream(newNode);
+                    
+                    // Track for final workflow
                     const appStore = useAppStore.getState();
                     const currentWorkflow = appStore.currentWorkflow;
-                    
-                    const existingNodes = currentWorkflow?.nodes || [];
-                    const existingEdges = currentWorkflow?.edges || [];
-                    
-                    const newWorkflow = {
-                        id: currentWorkflow?.id || 'temp-id',
-                        name: currentWorkflow?.name || 'New Workflow',
-                        nodes: [...existingNodes, newNode],
-                        edges: existingEdges
+                    finalWorkflow = currentWorkflow;
+                }
+                else if (parsed.type === 'tool' && parsed.name === 'add_connection') {
+                    // Process the new incoming edge
+                    const newEdge = {
+                        ...parsed.edge,
+                        type: 'smoothstep',
+                        animated: true
                     };
                     
-                    finalWorkflow = newWorkflow;
-
-                    // Update the message so it shows the growing workflow in the chat log
-                    appStore.updateMessage(assistantMsgId, {
-                        workflow: newWorkflow
-                    });
-
-                    // Sync to React Flow (which triggers the UI 'pop' effect)
-                    appStore.appendNodeStream(newNode);
+                    // Just append to React Flow - don't update message workflow yet
+                    useAppStore.getState().appendEdgeStream(newEdge);
+                    
+                    // Track for final workflow
+                    const appStore = useAppStore.getState();
+                    const currentWorkflow = appStore.currentWorkflow;
+                    finalWorkflow = currentWorkflow;
                 }
                 else if (parsed.type === 'error') {
-                    useAppStore.getState().updateMessage(assistantMsgId, {
-                        content: parsed.content,
-                        status: 'error'
-                    });
-                    throw new Error(parsed.content);
+                    networkText += (networkText ? '\n\n' : '') + `⚠️ ${parsed.content}`;
                 }
             };
 
-            // Queue-based line processor: ensures each node is visually painted
-            // before the next one is processed, giving a real sequential appearance.
+            // Queue-based line processor: ensures sequential processing
             const lineQueue: string[] = [];
 
             const drainQueue = async () => {
@@ -323,9 +327,7 @@ export function useChatMessages({
                     try {
                         const parsed = JSON.parse(line);
                         processStreamLine(parsed);
-                        if (parsed.type === 'tool' && parsed.name === 'add_node') {
-                            await new Promise(r => setTimeout(r, 300));
-                        }
+                        // NO DELAYS - stream naturally as fast as it arrives
                     } catch (e) {}
                 }
             };
