@@ -1,4 +1,4 @@
-import { streamText } from 'ai';
+import { streamText, tool } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -13,6 +13,7 @@ const google = createGoogleGenerativeAI({
     apiKey: process.env.GEMINI_API_KEY!
 });
 
+// Helper to generate dynamic schema docs for the tool description
 function getCleanNodesContext() {
     let nodesStr = '';
     try {
@@ -38,27 +39,30 @@ function getCleanNodesContext() {
     return nodesStr;
 }
 
-const prismTools: any = {
-    build_workflow: {
-        description: 'Create or modify a workflow canvas based on the user request. YOU MUST provide valid nodes and edges.',
-        parameters: z.object({
-            name: z.string().describe('CRITICAL: A short, creative name for this workflow.'),
-            message: z.string().describe('MANDATORY: Your natural, short conversational response to the user explaining what you built.'),
+const cleanNodesDocs = getCleanNodesContext();
+
+// 1. PROPER TOOL DEFINITION
+// Dynamic schema docs are injected directly into the Zod description.
+const prismTools = {
+    build_workflow: tool({
+        description: 'Generates or updates the entire workflow canvas. Call this ONLY when the user explicitly asks to create, modify, or add to a workflow.',
+        inputSchema: z.object({
+            name: z.string().describe('A short, creative name for this workflow.'),
             nodes: z.array(z.object({
                 id: z.string(),
                 type: z.string(),
                 position: z.object({ x: z.number(), y: z.number() }),
                 data: z.object({ config: z.any() })
-            })).describe('Array of workflow nodes. You MUST include id, type, position {x,y}, and data {config} for each node.'),
+            })).describe(`Array of workflow nodes. CRITICAL: You MUST populate data.config strictly according to these schemas for each node type:\n\n${cleanNodesDocs}`),
             edges: z.array(z.object({
                 id: z.string(),
                 source: z.string(),
                 target: z.string(),
                 sourceHandle: z.string(),
                 targetHandle: z.string()
-            })).describe('Array of workflow edges to connect the nodes.')
+            })).describe('Array of workflow edges connecting the nodes. Ensure you use the exact sourceHandle and targetHandle IDs specified in the node docs.')
         })
-    }
+    })
 };
 
 export async function POST(req: Request) {
@@ -68,7 +72,7 @@ export async function POST(req: Request) {
 
         const supabase = createServiceClient();
 
-        // 1. Save the new user message to DB (it's the last one in the client's payload)
+        // Save the new user message to DB
         if (sessionId && messages && messages.length > 0) {
             const lastUserMsg = messages[messages.length - 1];
             if (lastUserMsg.type === 'user') {
@@ -82,7 +86,7 @@ export async function POST(req: Request) {
             }
         }
 
-        // 2. Build the sliding window context (last 8 messages)
+        // Build the sliding window context
         const chatWindow = (messages || [])
             .filter((m: any) => m.content && m.content.trim().length > 0)
             .slice(-8);
@@ -94,44 +98,36 @@ export async function POST(req: Request) {
 
         let workflowContext = "";
         if (previousWorkflow && previousWorkflow.nodes && previousWorkflow.nodes.length > 0) {
-            workflowContext = `
-            CURRENT WORKFLOW ON CANVAS:
-            ${JSON.stringify({ nodes: previousWorkflow.nodes, edges: previousWorkflow.edges })}
-
-            CRITICAL MODIFICATION RULE:
-            You must return the ENTIRE updated workflow. Keep existing nodes/edges and just add/connect what the user asked for.`;
+            workflowContext = `\nCURRENT CANVAS STATE:\n${JSON.stringify({ nodes: previousWorkflow.nodes, edges: previousWorkflow.edges })}`;
         }
 
         let imagesContext = "";
         if (attachedImages && attachedImages.length > 0) {
-            imagesContext = `
-            USER ATTACHED IMAGES:
-            The user attached ${attachedImages.length} image(s). Ensure you add your media/upload node to handle them.`;
+            imagesContext = `\nUSER ATTACHED IMAGES: The user attached ${attachedImages.length} image(s). Ensure you add a media_input node.`;
         }
 
-        const cleanNodesContext = getCleanNodesContext();
+        // Lightweight list of available nodes for the chat prompt
+        const availableNodes = Object.keys(sharedRegistry).join(', ');
+
+        // 2. BEHAVIORAL SYSTEM PROMPT
+        const systemPrompt = `You are Prism, an advanced systems architect helping users automate tasks via visual node-based workflows.
+
+        YOUR WORKSPACE:
+        - Chat: Use standard text to answer questions, brainstorm, or explain concepts.
+        - Canvas: Use your tools to build or modify the actual workflow.
+
+        RULES OF ENGAGEMENT:
+        1. Chat Naturally: If the user asks a general question, respond conversationally. Do NOT generate a workflow.
+        2. Think Aloud & Act: When the user asks you to build or modify a workflow, first reply with a brief text message explaining what you are about to do. Then, call the 'build_workflow' tool.
+        3. Node Connections: For all image inputs, use "prompt_in" or the first available handle ID. NEVER use "images_in".
+        
+        AVAILABLE NODE TYPES: ${availableNodes}
+        ${workflowContext}
+        ${imagesContext}`;
 
         const result = streamText({
             model: google('gemini-2.5-flash'),
-            system: `You are Prism AI - an advanced systems architect. 
-            Your primary job is to help users automate tasks by creating visual node-based workflows.
-            
-            CAPABILITIES & AVAILABLE NODES:
-            You can build workflows using ONLY these exact nodes:
-            ${cleanNodesContext}
-
-            ⚠️ CRITICAL: The "remove_background" node type is DEPRECATED. NEVER use it.
-
-            ${workflowContext}
-            ${imagesContext}
-
-            CRITICAL RULES:
-            1. You MUST call the 'build_workflow' tool.
-            2. EXPLAIN YOUR WORK: You MUST write a short, conversational explanation.
-            3. CONNECTIONS: Connect nodes logically. FOR ALL IMAGE INPUTS, USE "prompt_in" OR THE FIRST AVAILABLE HANDLE ID. NEVER USE "images_in".
-            4. CONFIGURATIONS: Populate settings inside 'data.config'.`,
-
-
+            system: systemPrompt,
             messages: mappedHistory,
             tools: prismTools,
         });
@@ -149,6 +145,7 @@ export async function POST(req: Request) {
 
                     try {
                         for await (const part of result.fullStream as any) {
+                            // 3. SEPARATED STREAMING LOGIC
                             if (part.type === 'text-delta') {
                                 const textChunk = part.textDelta || part.text || "";
                                 if (textChunk) hasContent = true;
@@ -166,18 +163,11 @@ export async function POST(req: Request) {
                                 finalWorkflow = args;
                                 workflowName = args.name || "";
 
-                                const toolMsg = args.message || "";
-
-                                if (toolMsg && !finalContent.includes(toolMsg)) {
-                                    finalContent = finalContent ? `${finalContent}\n\n${toolMsg}` : toolMsg;
-                                }
-
                                 if (isClientConnected) {
                                     try {
                                         controller.enqueue(encoder.encode(JSON.stringify({
                                             type: 'tool',
                                             name: part.toolName,
-                                            message: toolMsg,
                                             workflow: args
                                         }) + '\n'));
                                     } catch (e) { isClientConnected = false; }
@@ -192,14 +182,17 @@ export async function POST(req: Request) {
                             }) + '\n'));
                         }
 
+                        // Save assistant response to DB
                         if (sessionId && hasContent) {
-                            await supabase.from('messages').insert({
-                                session_id: sessionId,
-                                role: 'assistant',
-                                content: finalContent,
-                                status: 'completed',
-                                created_at: new Date(Date.now() + 1000).toISOString()
-                            });
+                            if (finalContent) {
+                                await supabase.from('messages').insert({
+                                    session_id: sessionId,
+                                    role: 'assistant',
+                                    content: finalContent,
+                                    status: 'completed',
+                                    created_at: new Date(Date.now() + 1000).toISOString()
+                                });
+                            }
 
                             if (finalWorkflow) {
                                 const sessionUpdate: any = {
