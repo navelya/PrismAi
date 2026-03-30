@@ -113,9 +113,29 @@ function EditorCanvasInner({
     })), [edges, edgeStyle]);
 
     const touchInteraction = useAppStore((state) => state.touchInteraction);
+    const nodeTypesFromStore = useAppStore((state) => state.nodeTypes);
 
     // 🛡️ STABILITY FIX: Memoize nodeTypes and edgeTypes at top level to maintain ref identity
-    const nodeTypes = useMemo(() => stableNodeTypes, []);
+    // ✅ DYNAMIC NODE TYPES: Include all database node types (image_generation, text_generation, etc.)
+    // Each dynamic type uses the AIGeneratorNode component
+    const nodeTypes = useMemo(() => {
+        const dynamicTypes: Record<string, React.ComponentType<any>> = {};
+        
+        // Register all node types from database with AIGeneratorNode
+        nodeTypesFromStore.forEach((nt: any) => {
+            dynamicTypes[nt.id] = stableNodeTypes.ai_generator;
+        });
+        
+        const allTypes = {
+            ...stableNodeTypes,
+            ...dynamicTypes
+        };
+        
+        console.log('🎨 [Canvas] Registered node types:', Object.keys(allTypes));
+        
+        return allTypes;
+    }, [nodeTypesFromStore]);
+    
     const edgeTypes = useMemo(() => stableEdgeTypes, []);
 
     // Keyboard shortcuts for undo/redo

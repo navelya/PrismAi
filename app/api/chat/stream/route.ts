@@ -41,84 +41,137 @@ function getCleanNodesContext() {
 
 const cleanNodesDocs = getCleanNodesContext();
 
-// 1. PROPER TOOL DEFINITIONS
+// 1. UNIFIED TOOL DEFINITION
 const prismTools = {
-    generate_id: tool({
-        description: `Generates a unique UUID for a new node. 
-        
-CRITICAL: Call this BEFORE creating each node to get a unique ID. You will use this ID when calling add_node and add_connection.
+    mutate_workflow: tool({
+        description: `Mutates the workflow canvas in a single atomic operation. This tool replaces the old sequential add_node/add_connection pattern.
 
-WORKFLOW:
-1. Call generate_id() to get an ID
-2. Store/remember that ID
-3. Use it in add_node(id: <that_id>, ...)
-4. Use it in add_connection(source: <that_id>, ...)`,
-        inputSchema: z.object({}),  // No parameters needed
-        execute: async () => {
-            const id = crypto.randomUUID();
-            return {
-                id,
-                message: `Generated ID: ${id}. Use this exact ID in add_node.`
-            };
-        }
-    }),
-    
-    add_node: tool({
-        description: `Adds exactly ONE node to the workflow canvas using a pre-generated ID.
-        
-CRITICAL: You MUST call generate_id() FIRST to get an ID, then provide that ID here. Do NOT skip generate_id().
+CAPABILITIES:
+- Add multiple nodes and edges at once
+- Update existing node configurations  
+- Remove nodes and edges by ID
 
-Call this tool once per node. Do NOT call it in parallel — call it, wait for the result, then call it again for the next node.`,
-        inputSchema: z.object({
-            id: z.string().optional().describe('Node ID from generate_id() - a UUID like "550e8400-e29b-41d4-a716-446655440000". REQUIRED - call generate_id() first!'),
-            type: z.string().describe('The type of node to add. Static types: "prompt", "compositor", "media_input". For AI models, ALWAYS use "ai_generator".'),
-            node_type_id: z.string().optional().describe('REQUIRED when type is "ai_generator"! The node type ID (sub-category) like "image_generation", "remove_background". See DYNAMIC NODE TYPES section.'),
-            model_id: z.number().optional().describe('REQUIRED when type is "ai_generator"! The specific model ID to use. Must belong to the node_type_id. See DYNAMIC NODE TYPES section for available models.'),
-            position: z.object({
-                x: z.number().describe('X coordinate. Space nodes 400px apart horizontally. Use layers: inputs (x:0-400), processing (x:600-1000), outputs (x:1200+).'),
-                y: z.number().describe('Y coordinate. Main flow: y=100, top branch: y=-200, bottom branch: y=400.')
-            }),
-            data: z.object({
-                config: z.any()
-            }).describe(`CRITICAL: Populate config strictly according to the schema for the requested node type:\n\n${cleanNodesDocs}`)
-        }),
-        execute: async (args) => {
-            return {
-                success: true,
-                nodeId: args.id,
-                message: `Node ${args.id} of type ${args.type} scheduled for creation.`
-            };
-        }
-    }),
-    
-    add_connection: tool({
-        description: `Creates a connection (edge) between two nodes in the workflow.
-
-CRITICAL RULES:
-- Both source and target nodes MUST already exist (you created them with add_node)
-- Use the EXACT node IDs from generate_id() (UUIDs like "a1b2c3d4-...")
-- Specify targetHandle for nodes with multiple inputs (e.g., "image", "text", "prompt")
-- For simple single-input nodes, targetHandle can be omitted
-- Cannot create self-connections (source === target)
-- Cannot connect incompatible types (image to text, etc.)
+USAGE:
+1. Analyze the CURRENT CANVAS STATE provided in the system prompt
+2. Use simple temporary IDs (e.g., "new_node_1", "new_node_2") for nodes you're creating
+3. When connecting new nodes, use those same temporary IDs
+4. When connecting to/from EXISTING nodes on canvas, use their exact UUID from the canvas state
+5. The server will automatically map your temporary IDs to permanent UUIDs
 
 EXAMPLES:
-✅ add_connection(source: "uuid-1234-...", target: "uuid-5678-...", targetHandle: "prompt")
-✅ add_connection(source: "uuid-5678-...", target: "uuid-9012-...")
-❌ add_connection(source: "node_1", target: "node_2") // Wrong - must use UUIDs from generate_id`,
+Create new workflow: mutate_workflow({ add_nodes: [...], add_edges: [...] })
+Add to existing: mutate_workflow({ add_nodes: [{id: "new_prompt", ...}], add_edges: [{source: "new_prompt", target: "existing-uuid-123", ...}] })
+Update node: mutate_workflow({ update_nodes: [{id: "existing-uuid", data: {config: {...}}}] })
+Remove items: mutate_workflow({ remove_nodes: ["uuid1", "uuid2"], remove_edges: ["edge-uuid"] })`,
         
         inputSchema: z.object({
-            source: z.string().describe('Source node ID (the UUID from generate_id)'),
-            target: z.string().describe('Target node ID (the UUID from generate_id)'),
-            sourceHandle: z.string().optional().describe('Source output handle ID (usually can be omitted)'),
-            targetHandle: z.string().optional().describe('Target input handle ID (REQUIRED for multi-input nodes like text_overlay, compositor)')
+            add_nodes: z.array(z.object({
+                id: z.string().describe('Use simple IDs for NEW nodes (e.g., "new_node_1", "prompt", "generator"). Server generates UUIDs.'),
+                type: z.string().describe('Node type: "prompt", "compositor", "media_input", or "ai_generator"'),
+                node_type_id: z.string().optional().describe('REQUIRED when type="ai_generator". The sub-category like "image_generation", "remove_background".'),
+                model_id: z.number().optional().describe('REQUIRED when type="ai_generator". The specific model ID.'),
+                position: z.object({
+                    x: z.number().describe('X coordinate. Space 400px apart. Layers: inputs (0-400), processing (600-1000), outputs (1200+)'),
+                    y: z.number().describe('Y coordinate. Main flow: 100, top branch: -200, bottom: 400')
+                }),
+                data: z.object({
+                    config: z.any()
+                }).describe(`Node configuration. Must match schema:\n\n${cleanNodesDocs}`)
+            })).optional().default([]),
+            
+            add_edges: z.array(z.object({
+                source: z.string().describe('Source node ID. Use temporary ID for new nodes, exact UUID for existing nodes.'),
+                target: z.string().describe('Target node ID. Use temporary ID for new nodes, exact UUID for existing nodes.'),
+                sourceHandle: z.string().optional().describe('Source output handle (usually omitted)'),
+                targetHandle: z.string().optional().describe('Target input handle. ai_generator: "prompt"/"image", compositor: "layer_0"/"layer_1"')
+            })).optional().default([]),
+            
+            update_nodes: z.array(z.object({
+                id: z.string().describe('Existing node UUID from canvas state'),
+                data: z.object({
+                    config: z.any().optional()
+                }).describe('Fields to merge into node data')
+            })).optional().default([]),
+            
+            remove_nodes: z.array(z.string()).optional().default([]).describe('Array of node UUIDs to remove'),
+            remove_edges: z.array(z.string()).optional().default([]).describe('Array of edge IDs to remove')
         }),
         
         execute: async (args) => {
-            return {
-                success: true,
-                message: `Connection from ${args.source} to ${args.target} scheduled.`
-            };
+            try {
+                console.log('🔧 mutate_workflow execute called with:', JSON.stringify(args, null, 2));
+                
+                // Create mapping from temporary semantic IDs to permanent UUIDs
+                const idMap = new Map<string, string>();
+                
+                // Generate UUIDs for all new nodes and transform node types
+                const resolvedNodes = args.add_nodes.map(node => {
+                    const uuid = crypto.randomUUID();
+                    idMap.set(node.id, uuid);
+                    
+                    // ✅ CRITICAL FIX: When type="ai_generator" and node_type_id exists,
+                    // the actual type should be the node_type_id (e.g., "image_generation")
+                    // This makes the dynamic nodes render with their specific UI
+                    const actualType = (node.type === 'ai_generator' && node.node_type_id) 
+                        ? node.node_type_id 
+                        : node.type;
+                    
+                    console.log(`  ID mapping: "${node.id}" → "${uuid}" | Type: "${node.type}" → "${actualType}"`);
+                    
+                    // ✅ CRITICAL FIX: Move node_type_id and model_id into data.config
+                    // The AIGeneratorNode component expects them at data.config.node_type_id
+                    const enhancedData = {
+                        ...node.data,
+                        config: {
+                            ...node.data?.config,
+                            ...(node.node_type_id && { node_type_id: node.node_type_id }),
+                            ...(node.model_id && { model_id: node.model_id })
+                        }
+                    };
+                    
+                    return {
+                        ...node,
+                        id: uuid,
+                        type: actualType,
+                        data: enhancedData
+                    };
+                });
+                
+                // Resolve edge IDs: if source/target is in the map, use UUID; otherwise assume it's existing
+                const resolvedEdges = args.add_edges.map(edge => {
+                    const resolvedSource = idMap.get(edge.source) || edge.source;
+                    const resolvedTarget = idMap.get(edge.target) || edge.target;
+                    console.log(`  Edge: "${edge.source}" → "${resolvedSource}", "${edge.target}" → "${resolvedTarget}"`);
+                    return {
+                        ...edge,
+                        id: crypto.randomUUID(),
+                        source: resolvedSource,
+                        target: resolvedTarget
+                    };
+                });
+                
+                const patch = {
+                    addedNodes: resolvedNodes,
+                    addedEdges: resolvedEdges,
+                    updatedNodes: args.update_nodes,
+                    removedNodeIds: args.remove_nodes,
+                    removedEdgeIds: args.remove_edges
+                };
+                
+                console.log('✅ Tool execute returning patch:', JSON.stringify(patch, null, 2));
+                
+                // Return the patch object
+                return {
+                    success: true,
+                    patch
+                };
+            } catch (error) {
+                console.error('❌ Tool execute error:', error);
+                return {
+                    success: false,
+                    error: String(error)
+                };
+            }
         }
     })
 };
@@ -173,7 +226,7 @@ export async function POST(req: Request) {
 
         let workflowContext = "";
         if (previousWorkflow && previousWorkflow.nodes && previousWorkflow.nodes.length > 0) {
-            const nodeList = previousWorkflow.nodes.map(n => `  - ID: "${n.id}", Type: ${n.type}`).join('\n');
+            const nodeList = previousWorkflow.nodes.map((n: any) => `  - ID: "${n.id}", Type: ${n.type}`).join('\n');
             workflowContext = `\nCURRENT CANVAS STATE:
 Existing Nodes:
 ${nodeList}
@@ -193,7 +246,7 @@ Full State: ${JSON.stringify({ nodes: previousWorkflow.nodes, edges: previousWor
         const nodeTypesCatalog = (nodeTypesData || []).map(nt => {
             const modelsForType = (modelsData || []).filter(m => m.node_type_id === nt.id);
             const modelsList = modelsForType.map(m => 
-                `      • Model ID: ${m.id} - ${m.display_name}${m.providers ? ` (${m.providers.name})` : ''}`
+                `      • Model ID: ${m.id} - ${m.display_name}${m.providers && typeof m.providers === 'object' && 'name' in m.providers ? ` (${(m.providers as any).name})` : ''}`
             ).join('\n');
             
             return `  - Node Type: "${nt.id}" (${nt.display_name})
@@ -203,72 +256,36 @@ ${modelsList || '      (No models available)'}`;
         const categoriesList = (categoriesData || []).map(c => `${c.display_name} (${c.id})`).join(', ');
 
         // 2. BEHAVIORAL SYSTEM PROMPT
-        const systemPrompt = `You are Prism, an advanced systems architect helping users automate tasks via visual node-based workflows.
+        const systemPrompt = `You are Prism, an AI assistant that helps users build visual workflows through natural conversation.
 
-        YOUR WORKSPACE:
-        - Chat: Use standard text to answer questions, brainstorm, or explain concepts.
-        - Canvas: Use your tools to build or modify the actual workflow.
+        YOU CAN:
+        - Chat naturally and answer questions about workflows, automation, or AI models
+        - Build and modify workflows on the canvas using the mutate_workflow tool
+        - Understand user intent and act on simple requests immediately
+        - Ask for clarification only when the request is genuinely ambiguous or complex
 
-        WORKFLOW BUILDING PROCESS (3-PHASE APPROACH):
+        WORKFLOW TOOL (mutate_workflow):
+        - For NEW nodes: use simple temporary IDs like "node_1", "node_2"
+        - For EXISTING nodes: use their exact UUID from the canvas state below
+        - Include all changes (additions, updates, removals) in ONE tool call
+        - For AI model nodes: use type="ai_generator" with node_type_id and model_id
         
-        PHASE 0 - Generate Node IDs:
-        - Call generate_id() for EACH node you plan to create
-        - Store these IDs - you'll use them in Phase 1 and Phase 2
-        - Example: id_prompt = generate_id() → returns {id: "550e8400-e29b-..."}
-        
-        PHASE 1 - Create ALL Nodes:
-        - Use add_node with the IDs from Phase 0
-        - add_node(id: <id_from_phase_0>, type: "...", position: {...}, data: {...})
-        - Position nodes in logical layers:
-          * Input nodes (prompts, media): x = 0-400
-          * Processing nodes (generators, transformers): x = 600-1000  
-          * Output nodes: x = 1200+
-        - Space nodes 400px apart horizontally (x: 0, 400, 800, etc.)
-        - Use Y-axis for parallel branches:
-          * Main flow: y = 100
-          * Top branch: y = -200
-          * Bottom branch: y = 400
-        - Call add_node sequentially, one at a time (NEVER in parallel)
-        
-        PHASE 2 - Create ALL Connections:
-        - Use add_connection with the IDs from Phase 0
-        - add_connection(source: <id_from_phase_0>, target: <id_from_phase_0>, ...)
-        - Specify targetHandle for nodes with multiple inputs:
-          * text_overlay: targetHandle "image" or "text"
-          * compositor: targetHandle "layer_0", "layer_1", etc.
-          * ai_generator: targetHandle "prompt" or "image"
-        - For simple single-input nodes, targetHandle can be omitted
-        - Call add_connection sequentially, one at a time
+        CANVAS POSITIONING:
+        - Input nodes: x = 0-400
+        - Processing nodes: x = 600-1000  
+        - Output nodes: x = 1200+
+        - Space nodes 400px apart horizontally
+        - Vertical: Main flow (y=100), branches (y=-200 or y=400)
 
-        COMPLETE EXAMPLE:
-        User: "Create a text-to-image workflow"
-        
-        You: "Sure! Creating a 2-node text-to-image workflow."
-        
-        // PHASE 0: Generate IDs
-        generate_id() → {id: "550e8400-e29b-41d4-a716-446655440000"}  // Store as id_prompt
-        generate_id() → {id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"}  // Store as id_generator
-        
-        // PHASE 1: Create nodes with those IDs
-        add_node(id: "550e8400-e29b-41d4-a716-446655440000", type: "prompt", position: {x: 0, y: 100}, data: {config: {text: ""}})
-        add_node(id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", type: "ai_generator", node_type_id: "image_generation", model_id: 123, position: {x: 500, y: 100}, data: {config: {}})
-        
-        // PHASE 2: Connect using those IDs
-        add_connection(source: "550e8400-e29b-41d4-a716-446655440000", target: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", targetHandle: "prompt")
-        
-        You: "Workflow complete! Ready to execute."
-
-        RULES OF ENGAGEMENT:
-        1. Chat Naturally: If the user asks a general question, respond conversationally via text. Do NOT generate a workflow.
-        2. Workflow Introduction: When building a workflow, give ONE brief intro (e.g. "Sure! Creating a 5-node workflow."). Then proceed with Phase 0 → Phase 1 → Phase 2. Give a SHORT completion summary at the end.
-        3. Sequential ONLY: NEVER call tools in parallel. Always wait for one tool result before calling the next.
-        4. Handle IDs: Always check the node type's input/output handles (provided below). Use exact handle IDs.
-        5. **ID Management: ALWAYS use generate_id() first, then use those exact UUIDs. NEVER make up IDs.**
-        6. **Dynamic Nodes: For AI models, use type="ai_generator" with node_type_id and model_id. Pick the best model for the task.**
+        BE NATURAL:
+        - For simple requests: Just do it and briefly confirm what you did
+        - For complex requests: Ask questions if you need clarity
+        - Always respond with text - never just use a tool silently
+        - Be friendly and conversational
         
         AVAILABLE CATEGORIES: ${categoriesList}
         
-        DYNAMIC NODE TYPES (Sub-categories with available models):
+        DYNAMIC NODE TYPES (AI models grouped by capability):
 ${nodeTypesCatalog}
         
         STATIC NODE TYPES: prompt, compositor, media_input
@@ -282,8 +299,7 @@ ${nodeTypesCatalog}
 
                 waitUntil((async () => {
                     let finalContent = "";
-                    let newlyAddedNodes: any[] = []; // Track nodes created in this specific session
-                    let newlyAddedEdges: any[] = []; // Track edges created in this specific session
+                    let appliedPatch: any = null; // Track the final patch that was applied
                     let hasContent = false;
 
                     try {
@@ -292,12 +308,15 @@ ${nodeTypesCatalog}
                             system: systemPrompt,
                             messages: mappedHistory,
                             tools: prismTools,
-                            maxToolRoundtrips: 25,  // Allow multiple tool calls with results fed back
-                            stopWhen: stepCountIs(50),
                         });
 
                         for await (const part of result.fullStream as any) {
                             if (!isClientConnected) break;
+
+                            // Log all part types for debugging
+                            if (part.type !== 'text-delta') {
+                                console.log(`📡 Stream event type: ${part.type}`, part.toolName || '');
+                            }
 
                             // 3. SEPARATED STREAMING LOGIC
                             if (part.type === 'text-delta') {
@@ -312,268 +331,51 @@ ${nodeTypesCatalog}
                                 }
                             }
                             else if (part.type === 'tool-call') {
+                                // Log tool calls to see if AI is calling the tool
+                                console.log('🔧 Tool called:', part.toolName, 'with args:', JSON.stringify(part.args, null, 2));
+                                hasContent = true;
+                            }
+                            else if (part.type === 'tool-result') {
                                 hasContent = true;
 
-                                if (part.toolName === 'generate_id') {
-                                    // Just a notification - the ID is already returned by execute()
-                                    // No need to stream anything to UI for ID generation
-                                    continue;
-                                }
-                                else if (part.toolName === 'add_node') {
-                                    const aiArgs = part.args || part.input || {};
-
-                                    // AI provides the ID from generate_id()
-                                    let nodeId = aiArgs.id;
+                                if (part.toolName === 'mutate_workflow') {
+                                    console.log('🔍 Tool result received:', JSON.stringify(part, null, 2));
                                     
-                                    // TEMPORARY DEBUG: Generate fallback ID if not provided
-                                    if (!nodeId) {
-                                        nodeId = crypto.randomUUID();
-                                        console.log(`⚠️ AI did NOT provide node ID. Generated fallback: ${nodeId}`);
-                                        // Stream warning to UI
+                                    // The result is in part.output (not part.result)
+                                    const result = (part as any).output || (part as any).result;
+                                    
+                                    if (!result) {
+                                        console.error('❌ Tool result is undefined:', part);
                                         controller.enqueue(encoder.encode(JSON.stringify({
                                             type: 'error',
-                                            content: `⚠️ Warning: AI did not call generate_id() first. Using fallback ID.`
+                                            content: '⚠️ Tool execution returned no result.'
                                         }) + '\n'));
+                                        continue;
+                                    }
+                                    
+                                    console.log('✅ Result extracted:', JSON.stringify(result, null, 2));
+                                    
+                                    // Check if result has the expected structure
+                                    if (result.success && result.patch) {
+                                        appliedPatch = result.patch;
+                                        
+                                        console.log('✅ mutate_workflow applied:', JSON.stringify(appliedPatch, null, 2));
+                                        
+                                        // Stream the patch to the client
+                                        try {
+                                            controller.enqueue(encoder.encode(JSON.stringify({
+                                                type: 'tool',
+                                                name: 'mutate_workflow',
+                                                patch: appliedPatch
+                                            }) + '\n'));
+                                        } catch (e) { isClientConnected = false; }
                                     } else {
-                                        console.log(`✅ AI provided node ID: ${nodeId}`);
-                                    }
-                                    
-                                    // Validate UUID format
-                                    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                                    if (!uuidRegex.test(nodeId)) {
+                                        console.error('❌ Unexpected result structure:', result);
                                         controller.enqueue(encoder.encode(JSON.stringify({
                                             type: 'error',
-                                            content: `Invalid node ID format: "${nodeId}". Must be a valid UUID.`
+                                            content: '⚠️ Tool execution returned invalid structure.'
                                         }) + '\n'));
-                                        continue;
                                     }
-                                    
-                                    // Check for duplicate IDs
-                                    const allNodes = [...(previousWorkflow?.nodes || []), ...newlyAddedNodes];
-                                    if (allNodes.some(n => n.id === nodeId)) {
-                                        controller.enqueue(encoder.encode(JSON.stringify({
-                                            type: 'error',
-                                            content: `Node ID "${nodeId}" already exists. Generate a new ID with generate_id().`
-                                        }) + '\n'));
-                                        continue;
-                                    }
-
-                                    // 🔥 HANDLE DYNAMIC AI_GENERATOR NODES
-                                    let nodeData = aiArgs.data;
-                                    let nodeType = aiArgs.type;
-                                    
-                                    if (aiArgs.type === 'ai_generator') {
-                                        // Validate required parameters
-                                        if (!aiArgs.node_type_id) {
-                                            console.error(`❌ AI did not provide node_type_id for ai_generator node`);
-                                            controller.enqueue(encoder.encode(JSON.stringify({
-                                                type: 'error',
-                                                content: `⚠️ ai_generator nodes require node_type_id (e.g., "image_generation"). See DYNAMIC NODE TYPES section.`
-                                            }) + '\n'));
-                                            continue;
-                                        }
-                                        
-                                        if (!aiArgs.model_id) {
-                                            console.error(`❌ AI did not provide model_id for ai_generator node`);
-                                            controller.enqueue(encoder.encode(JSON.stringify({
-                                                type: 'error',
-                                                content: `⚠️ ai_generator nodes require model_id. See available models under node type "${aiArgs.node_type_id}".`
-                                            }) + '\n'));
-                                            continue;
-                                        }
-                                        
-                                        // Fetch the full model configuration
-                                        const { data: modelData } = await supabase
-                                            .from('ai_models')
-                                            .select('*')
-                                            .eq('id', aiArgs.model_id)
-                                            .single();
-                                        
-                                        if (!modelData) {
-                                            console.error(`❌ Model ID ${aiArgs.model_id} not found`);
-                                            controller.enqueue(encoder.encode(JSON.stringify({
-                                                type: 'error',
-                                                content: `Model ID ${aiArgs.model_id} not found. Please select a valid model from the catalog.`
-                                            }) + '\n'));
-                                            continue;
-                                        }
-                                        
-                                        // Validate model belongs to the specified node type
-                                        if (modelData.node_type_id !== aiArgs.node_type_id) {
-                                            console.error(`❌ Model ${aiArgs.model_id} does not belong to node type ${aiArgs.node_type_id}`);
-                                            controller.enqueue(encoder.encode(JSON.stringify({
-                                                type: 'error',
-                                                content: `Model "${modelData.display_name}" does not belong to node type "${aiArgs.node_type_id}". It belongs to "${modelData.node_type_id}".`
-                                            }) + '\n'));
-                                            continue;
-                                        }
-                                        
-                                        console.log(`✅ AI selected: ${modelData.display_name} (ID: ${modelData.id}) for node type: ${aiArgs.node_type_id}`);
-                                        
-                                        // Populate node data matching the manual drag behavior
-                                        nodeData = {
-                                            config: {
-                                                node_type_id: aiArgs.node_type_id,
-                                                model_id: modelData.id,
-                                                control_values: aiArgs.data?.config?.control_values || {},
-                                            }
-                                        };
-                                    }
-
-                                    // Assemble the safe node object
-                                    const safeNodePayload = {
-                                        id: nodeId,
-                                        type: nodeType,
-                                        position: aiArgs.position,
-                                        data: nodeData,
-                                        serverTime: Date.now()
-                                    };
-
-                                    // Keep track of it for the database update later
-                                    newlyAddedNodes.push(safeNodePayload);
-
-                                    // Stream the single node immediately to the UI
-                                    try {
-                                        controller.enqueue(encoder.encode(JSON.stringify({
-                                            type: 'tool',
-                                            name: 'add_node',
-                                            workflow: safeNodePayload
-                                        }) + '\n'));
-                                    } catch (e) { isClientConnected = false; }
-                                }
-                                else if (part.toolName === 'add_connection') {
-                                    const aiArgs = part.args || {};
-                                    
-                                    // 🔍 DEBUG: Log what AI is actually sending
-                                    console.log('🔗 AI called add_connection with:', JSON.stringify(aiArgs, null, 2));
-                                    
-                                    // VALIDATION 1: Check nodes exist
-                                    const allNodes = [...(previousWorkflow?.nodes || []), ...newlyAddedNodes];
-                                    console.log('📦 Available nodes:', allNodes.map(n => n.id));
-                                    
-                                    const sourceNode = allNodes.find(n => n.id === aiArgs.source);
-                                    const targetNode = allNodes.find(n => n.id === aiArgs.target);
-                                    
-                                    if (!sourceNode || !targetNode) {
-                                        controller.enqueue(encoder.encode(JSON.stringify({
-                                            type: 'error',
-                                            content: `Cannot connect: ${!sourceNode ? 'source' : 'target'} node "${!sourceNode ? aiArgs.source : aiArgs.target}" not found`
-                                        }) + '\n'));
-                                        continue;
-                                    }
-                                    
-                                    // VALIDATION 2: Prevent self-connections
-                                    if (aiArgs.source === aiArgs.target) {
-                                        controller.enqueue(encoder.encode(JSON.stringify({
-                                            type: 'error',
-                                            content: `Cannot create self-connection on node ${aiArgs.source}`
-                                        }) + '\n'));
-                                        continue;
-                                    }
-                                    
-                                    // VALIDATION 3: Auto-detect handles if not specified
-                                    let sourceHandle = aiArgs.sourceHandle;
-                                    let targetHandle = aiArgs.targetHandle;
-                                    
-                                    // Auto-detect source handle
-                                    if (!sourceHandle) {
-                                        const sourceDef = sharedRegistry[sourceNode.type];
-                                        const outputs = sourceDef?.handles?.outputs || [];
-                                        if (outputs.length === 1) {
-                                            sourceHandle = outputs[0].id;
-                                        } else if (outputs.length > 1) {
-                                            sourceHandle = outputs[0].id;
-                                        }
-                                    }
-                                    
-                                    // Auto-detect target handle
-                                    if (!targetHandle) {
-                                        const targetDef = sharedRegistry[targetNode.type];
-                                        const inputs = targetDef?.handles?.inputs || [];
-                                        if (inputs.length === 1) {
-                                            targetHandle = inputs[0].id;
-                                        } else if (inputs.length > 1) {
-                                            // Find first available input (not already connected)
-                                            const existingEdges = [...(previousWorkflow?.edges || []), ...newlyAddedEdges];
-                                            const availableInput = inputs.find(inp => {
-                                                const alreadyConnected = existingEdges.some(e => 
-                                                    e.target === aiArgs.target && e.targetHandle === inp.id
-                                                );
-                                                return !alreadyConnected;
-                                            });
-                                            targetHandle = availableInput?.id || inputs[0].id;
-                                        }
-                                    }
-                                    
-                                    // VALIDATION 4: Check handles exist
-                                    const sourceDef = sharedRegistry[sourceNode.type];
-                                    const targetDef = sharedRegistry[targetNode.type];
-                                    
-                                    const sourceHandleExists = sourceDef?.handles?.outputs?.some(o => o.id === sourceHandle);
-                                    const targetHandleExists = targetDef?.handles?.inputs?.some(i => i.id === targetHandle);
-                                    
-                                    if (!sourceHandleExists || !targetHandleExists) {
-                                        controller.enqueue(encoder.encode(JSON.stringify({
-                                            type: 'error',
-                                            content: `Invalid handle: ${!sourceHandleExists ? 'source' : 'target'} handle "${!sourceHandleExists ? sourceHandle : targetHandle}" not found on ${!sourceHandleExists ? sourceNode.type : targetNode.type}`
-                                        }) + '\n'));
-                                        continue;
-                                    }
-                                    
-                                    // VALIDATION 5: Type compatibility (basic check)
-                                    const sourceHandleDef = sourceDef?.handles?.outputs?.find(o => o.id === sourceHandle);
-                                    const targetHandleDef = targetDef?.handles?.inputs?.find(i => i.id === targetHandle);
-                                    
-                                    const sourceType = String(sourceHandleDef?.dataType || 'any').toLowerCase();
-                                    const targetType = String(targetHandleDef?.expectedType || 'any').toLowerCase();
-                                    
-                                    if (sourceType !== 'any' && targetType !== 'any') {
-                                        const normSource = sourceType.replace('_array', '');
-                                        const normTarget = targetType.replace('_array', '');
-                                        if (normSource !== normTarget) {
-                                            controller.enqueue(encoder.encode(JSON.stringify({
-                                                type: 'error',
-                                                content: `Type mismatch: Cannot connect ${sourceType} to ${targetType}`
-                                            }) + '\n'));
-                                            continue;
-                                        }
-                                    }
-                                    
-                                    // Generate edge ID (same pattern as React Flow)
-                                    const handleSuffix = targetHandle ? `-${targetHandle}` : '';
-                                    const edgeId = `${aiArgs.source}->${aiArgs.target}${handleSuffix}`;
-                                    
-                                    // Check for duplicate
-                                    const existingEdges = [...(previousWorkflow?.edges || []), ...newlyAddedEdges];
-                                    if (existingEdges.some(e => e.id === edgeId)) {
-                                        controller.enqueue(encoder.encode(JSON.stringify({
-                                            type: 'error',
-                                            content: `Connection already exists between these nodes`
-                                        }) + '\n'));
-                                        continue;
-                                    }
-                                    
-                                    // Create the edge
-                                    const safeEdgePayload = {
-                                        id: edgeId,
-                                        source: aiArgs.source,
-                                        target: aiArgs.target,
-                                        sourceHandle: sourceHandle || null,
-                                        targetHandle: targetHandle || null,
-                                        serverTime: Date.now()
-                                    };
-                                    
-                                    // Track it for database update
-                                    newlyAddedEdges.push(safeEdgePayload);
-                                    
-                                    // Stream to UI immediately
-                                    try {
-                                        controller.enqueue(encoder.encode(JSON.stringify({
-                                            type: 'tool',
-                                            name: 'add_connection',
-                                            edge: safeEdgePayload
-                                        }) + '\n'));
-                                    } catch (e) { isClientConnected = false; }
                                 }
                             }
                         }
@@ -597,13 +399,61 @@ ${nodeTypesCatalog}
                                 });
                             }
 
-                            if (newlyAddedNodes.length > 0 || newlyAddedEdges.length > 0) {
-                                const existingNodes = previousWorkflow?.nodes || [];
-                                const existingEdges = previousWorkflow?.edges || [];
+                            if (appliedPatch) {
+                                // State merger: apply the patch to the previous workflow
+                                const prevNodes = previousWorkflow?.nodes || [];
+                                const prevEdges = previousWorkflow?.edges || [];
 
+                                // 1. Filter out removed items
+                                let mergedNodes = prevNodes.filter((node: any) => 
+                                    !appliedPatch.removedNodeIds?.includes(node.id)
+                                );
+                                let mergedEdges = prevEdges.filter((edge: any) => 
+                                    !appliedPatch.removedEdgeIds?.includes(edge.id)
+                                );
+
+                                // 1.5. Also remove edges connected to removed nodes
+                                if (appliedPatch.removedNodeIds && appliedPatch.removedNodeIds.length > 0) {
+                                    const removedNodeSet = new Set(appliedPatch.removedNodeIds);
+                                    mergedEdges = mergedEdges.filter((edge: any) => 
+                                        !removedNodeSet.has(edge.source) && !removedNodeSet.has(edge.target)
+                                    );
+                                    console.log('🗑️ [DB] Cleaned up edges connected to deleted nodes');
+                                }
+
+                                // 2. Apply updates to existing nodes
+                                if (appliedPatch.updatedNodes && appliedPatch.updatedNodes.length > 0) {
+                                    mergedNodes = mergedNodes.map((node: any) => {
+                                        const update = appliedPatch.updatedNodes.find((u: any) => u.id === node.id);
+                                        if (update) {
+                                            return {
+                                                ...node,
+                                                data: {
+                                                    ...node.data,
+                                                    ...update.data,
+                                                    config: {
+                                                        ...node.data?.config,
+                                                        ...update.data?.config
+                                                    }
+                                                }
+                                            };
+                                        }
+                                        return node;
+                                    });
+                                }
+
+                                // 3. Add new nodes and edges
+                                if (appliedPatch.addedNodes) {
+                                    mergedNodes = [...mergedNodes, ...appliedPatch.addedNodes];
+                                }
+                                if (appliedPatch.addedEdges) {
+                                    mergedEdges = [...mergedEdges, ...appliedPatch.addedEdges];
+                                }
+
+                                // 4. Save the merged state
                                 const updatedCanvasState = {
-                                    nodes: [...existingNodes, ...newlyAddedNodes],
-                                    edges: [...existingEdges, ...newlyAddedEdges]
+                                    nodes: mergedNodes,
+                                    edges: mergedEdges
                                 };
 
                                 await supabase.from('sessions').update({

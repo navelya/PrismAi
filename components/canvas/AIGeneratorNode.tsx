@@ -179,6 +179,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
             customInputs={customInputs}
             customOutputs={customOutputs}
             width={320}
+            isNew={(data as any).isNew}
         >
             <motion.div
                 layout={((status === 'running' || status === 'success') && !!output) ? "position" : false}
