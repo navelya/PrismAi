@@ -102,6 +102,9 @@ export const useAppStore = create<RootState>()(
                     // re-fires the execution on every page load.
                     'runFromNodeId',
                     'runMode',
+                    'menuTree',
+                    'menuFlat',
+                    'isMenuLoading',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {
@@ -109,7 +112,6 @@ export const useAppStore = create<RootState>()(
                     state.activeSessionId = null;
                     state.chatMessages = [];
                     state.isDragging = false;
-                    state.currentWorkflow = null;
                     state.nodeStatuses = {};
                     state.nodeOutputs = {};
                     state.executionResults = {};

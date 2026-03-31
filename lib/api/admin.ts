@@ -163,5 +163,54 @@ export const modelsAdminApi = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to delete provider');
         return data.success;
+    },
+
+    /** Context Menu Builder */
+    listContextMenuItems: async () => {
+        const res = await fetch('/api/admin/context-menu');
+        if (!res.ok) throw new Error('Failed to fetch context menu items');
+        return res.json();
+    },
+
+    createContextMenuItem: async (item: any) => {
+        const res = await fetch('/api/admin/context-menu', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create context menu item');
+        return data.item;
+    },
+
+    updateContextMenuItem: async (id: string, updates: any) => {
+        const res = await fetch(`/api/admin/context-menu/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update context menu item');
+        return data.item;
+    },
+
+    deleteContextMenuItem: async (id: string) => {
+        const res = await fetch(`/api/admin/context-menu/${id}`, {
+            method: 'DELETE',
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete context menu item');
+        return data.success;
+    },
+
+    reorder: async (items: { id: string; sort_order: number }[]) => {
+        const res = await fetch('/api/admin/context-menu/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to reorder items');
+        return data.success;
     }
 };

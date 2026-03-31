@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import * as LucideIcons from 'lucide-react';
 import {
     Boxes,
@@ -35,12 +35,28 @@ import { formatDisplayName, parseIconName } from '@/lib/utils/schema-parser';
 import { cn } from '@/lib/utils';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { ModelForm } from '@/components/admin/ModelForm';
+import { ContextMenuBuilder } from '@/components/admin/ContextMenuBuilder';
 
 export default function AdminPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
 
     // View State
-    const [activeTab, setActiveTab] = useState<'models' | 'nodes' | 'providers' | 'management'>('models');
+    const initialTab = searchParams.get('tab') as any;
+    const [activeTab, setActiveTab] = useState<'models' | 'nodes' | 'providers' | 'management' | 'menu_builder'>(
+        (initialTab && ['models', 'nodes', 'providers', 'management', 'menu_builder'].includes(initialTab)) 
+        ? initialTab 
+        : 'models'
+    );
+
+    const handleTabChange = (tab: typeof activeTab) => {
+        setActiveTab(tab);
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('tab', tab);
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    };
+
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
@@ -272,7 +288,7 @@ export default function AdminPage() {
                 {/* Segmented Control */}
                 <div className="flex items-center bg-white/5 p-1 rounded-2xl border border-white/10 shrink-0 backdrop-blur-md">
                     <button
-                        onClick={() => setActiveTab('models')}
+                        onClick={() => handleTabChange('models')}
                         className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'models'
                             ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
                             : 'text-content-tertiary hover:text-content-secondary'
@@ -281,7 +297,7 @@ export default function AdminPage() {
                         Registry
                     </button>
                     <button
-                        onClick={() => setActiveTab('management')}
+                        onClick={() => handleTabChange('management')}
                         className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'management'
                             ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
                             : 'text-content-tertiary hover:text-content-secondary'
@@ -290,7 +306,7 @@ export default function AdminPage() {
                         Management
                     </button>
                     <button
-                        onClick={() => setActiveTab('providers')}
+                        onClick={() => handleTabChange('providers')}
                         className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'providers'
                             ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
                             : 'text-content-tertiary hover:text-content-secondary'
@@ -299,13 +315,22 @@ export default function AdminPage() {
                         Providers
                     </button>
                     <button
-                        onClick={() => setActiveTab('nodes')}
+                        onClick={() => handleTabChange('nodes')}
                         className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'nodes'
                             ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
                             : 'text-content-tertiary hover:text-content-secondary'
                             }`}
                     >
                         Sub Categories
+                    </button>
+                    <button
+                        onClick={() => handleTabChange('menu_builder')}
+                        className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'menu_builder'
+                            ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
+                            : 'text-content-tertiary hover:text-content-secondary'
+                            }`}
+                    >
+                        Menu Builder
                     </button>
                 </div>
             </header>
@@ -847,6 +872,12 @@ export default function AdminPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+                
+                {activeTab === 'menu_builder' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <ContextMenuBuilder />
                     </div>
                 )}
             </main>

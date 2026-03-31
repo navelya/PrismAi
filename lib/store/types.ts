@@ -97,6 +97,12 @@ export interface UISlice {
     triggerRunFromNode: (nodeId: string, runMode?: 'solo' | 'chain' | 'ab_test') => void;
     clearRunFromNode: () => void;
     deleteNodeWithAssets: (nodeId: string) => Promise<void>;
+    
+    // Menu Data
+    menuTree: any[];
+    menuFlat: any[];
+    isMenuLoading: boolean;
+    fetchMenuData: (force?: boolean) => Promise<void>;
 }
 
 export interface LivePositionSlice {

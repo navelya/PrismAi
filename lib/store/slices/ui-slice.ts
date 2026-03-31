@@ -19,6 +19,9 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     isModelsLoading: false,
     runFromNodeId: null,
     runMode: null,
+    menuTree: [],
+    menuFlat: [],
+    isMenuLoading: false,
 
     setEditorState: (newState) =>
         set((state) => ({
@@ -91,6 +94,23 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
 
     triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode }),
     clearRunFromNode: () => set({ runFromNodeId: null, runMode: null }),
+
+    fetchMenuData: async (force = false) => {
+        if (!force && get().menuTree.length > 0) return;
+        set({ isMenuLoading: true });
+        try {
+            const response = await fetch('/api/canvas/context-menu', { cache: 'no-store' });
+            const data = await response.json();
+            set({ 
+                menuTree: data.tree || [], 
+                menuFlat: data.flat || [],
+                isMenuLoading: false 
+            });
+        } catch (error) {
+            console.error('Failed to fetch menu data:', error);
+            set({ isMenuLoading: false });
+        }
+    },
 
     deleteNodeWithAssets: async (nodeId: string) => {
         const state = get();

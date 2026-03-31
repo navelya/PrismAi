@@ -428,6 +428,9 @@ function EditorCanvasInner({
 
     // Context menu right-click handler
     const handleContextMenu = useCallback((event: React.MouseEvent) => {
+        // Ignore our own synthetic events to prevent infinite loops
+        if ((event.nativeEvent as any)._isSynthetic) return;
+        
         event.preventDefault();
         // Only open if we're clicking on the canvas, not on nodes
         const target = event.target as HTMLElement;
@@ -438,14 +441,14 @@ function EditorCanvasInner({
     }, []);
 
     // Handle node creation from context menu
-    const handleContextMenuNodeSelect = useCallback((type: NodeType, position: { x: number; y: number }) => {
+    const handleContextMenuNodeSelect = useCallback((type: NodeType, position: { x: number; y: number }, actionValue?: string) => {
         if (reactFlowInstance && reactFlowWrapper.current) {
             // Convert screen coordinates to flow coordinates
             const flowPosition = reactFlowInstance.screenToFlowPosition({
                 x: position.x,
                 y: position.y,
             });
-            onDrop(type, flowPosition);
+            onDrop(type, flowPosition, actionValue);
         }
         setContextMenu(null);
     }, [reactFlowInstance, onDrop]);
@@ -651,7 +654,6 @@ function EditorCanvasInner({
             {contextMenu && reactFlowWrapper.current && (
                 <CanvasContextMenu
                     position={contextMenu}
-                    canvasBounds={reactFlowWrapper.current.getBoundingClientRect()}
                     onSelectNode={handleContextMenuNodeSelect}
                     onClose={() => setContextMenu(null)}
                 />

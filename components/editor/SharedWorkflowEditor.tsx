@@ -55,6 +55,7 @@ export default function SharedWorkflowEditor({
                 fetchModelCatalog(),
                 fetchCategories(),
                 fetchNodeTypes(),
+                useAppStore.getState().fetchMenuData(),
             ]);
             setIsBooting(false);
         };
