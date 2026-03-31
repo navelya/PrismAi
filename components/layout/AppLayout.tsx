@@ -39,13 +39,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const workflowName = currentWorkflow?.name || 'PrismAI';
 
-    // Hide sidebar on home page and login page
-    const isPublicPage = pathname === '/' || pathname === '/login';
+    // Hide sidebar on home page, login page, and demo page
+    const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo';
 
-    // Public pages get full width, no sidebar
+    // Public pages get full width, no sidebar, and allow scrolling
     if (isPublicPage) {
         return (
-            <div className="w-full h-screen overflow-hidden">
+            <div className="w-full min-h-screen overflow-y-auto">
                 {children}
             </div>
         );
