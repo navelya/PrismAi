@@ -8,6 +8,7 @@ import {
 } from '@radix-ui/react-context-menu';
 import { NodeType, AiModel } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
+import { cn } from '@/lib/utils';
 import * as Icons from 'lucide-react';
 import { Plus, ChevronRight, Search as SearchIcon, Loader2, Inbox, LayoutGrid, Box } from 'lucide-react';
 
@@ -45,7 +46,9 @@ export default function CanvasContextMenu({
     const isMenuLoading = useAppStore(state => state.isMenuLoading);
     
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedIndex, setSelectedIndex] = useState(0);
     const searchInputRef = useRef<HTMLInputElement>(null);
+    const listRef = useRef<HTMLDivElement>(null);
 
     // No longer needs on-demand fetch here as it is pre-fetched by SharedWorkflowEditor
 
@@ -103,13 +106,51 @@ export default function CanvasContextMenu({
 
         // Deduplicate by title to avoid visual clutter in search results
         const seen = new Set<string>();
-        return filtered.filter(item => {
+        const results = filtered.filter(item => {
             const lowerTitle = item.title.toLowerCase();
             if (seen.has(lowerTitle)) return false;
             seen.add(lowerTitle);
             return true;
         });
+
+        // Reset index when results change
+        setSelectedIndex(0);
+        return results;
     }, [searchQuery, flatList]);
+
+    // Scroll selected item into view
+    useEffect(() => {
+        if (searchQuery && listRef.current) {
+            const selectedElement = listRef.current.children[selectedIndex] as HTMLElement;
+            if (selectedElement) {
+                selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        }
+    }, [selectedIndex, searchQuery]);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (searchQuery) {
+            // Search Navigation
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSelectedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSelectedIndex(prev => Math.max(prev - 1, 0));
+            } else if (e.key === 'Enter' && searchResults[selectedIndex]) {
+                e.preventDefault();
+                handleNodeClick(searchResults[selectedIndex]);
+            }
+        } else {
+            // Tree Navigation Bridge
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                // Find the first focusable radix item in the list
+                const firstItem = listRef.current?.querySelector('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]') as HTMLElement;
+                if (firstItem) firstItem.focus();
+            }
+        }
+    };
 
     const renderIcon = (iconName: string | null) => {
         if (!iconName) return <Box className="w-4 h-4" />;
@@ -124,18 +165,32 @@ export default function CanvasContextMenu({
         return <FinalIcon className="w-4 h-4" />;
     };
 
-    const renderItem = (item: ContextMenuItem) => {
+    const renderItem = (item: ContextMenuItem, index?: number) => {
+        const isHighlightedByKbd = searchQuery && selectedIndex === index;
+
         return (
             <Item
                 key={item.id}
                 onSelect={() => handleNodeClick(item)}
-                className="w-full px-2 py-2 flex items-center justify-between transition-colors duration-100 group outline-none cursor-pointer data-[highlighted]:bg-white/10 rounded-lg"
+                className={cn(
+                    "w-full px-2 py-2 flex items-center justify-between transition-colors duration-100 group outline-none cursor-pointer rounded-lg",
+                    "data-[highlighted]:bg-white/10",
+                    isHighlightedByKbd && "bg-white/10 shadow-[inset_0_0_0_1px_rgba(6,182,212,0.3)]"
+                )}
             >
                 <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-md flex items-center justify-center bg-white/5 border border-white/10 group-data-[highlighted]:scale-110 group-data-[highlighted]:bg-accent-primary/20 group-data-[highlighted]:border-accent-primary/30 group-data-[highlighted]:text-accent-primary transition-all duration-150 text-content-tertiary shadow-inner">
+                    <div className={cn(
+                        "w-7 h-7 rounded-md flex items-center justify-center bg-white/5 border border-white/10 transition-all duration-150 text-content-tertiary shadow-inner",
+                        "group-data-[highlighted]:scale-110 group-data-[highlighted]:bg-accent-primary/20 group-data-[highlighted]:border-accent-primary/30 group-data-[highlighted]:text-accent-primary",
+                        isHighlightedByKbd && "scale-110 bg-accent-primary/20 border-accent-primary/30 text-accent-primary"
+                    )}>
                         {renderIcon(item.icon)}
                     </div>
-                    <span className="text-xs font-semibold text-content-secondary group-data-[highlighted]:text-content-primary">
+                    <span className={cn(
+                        "text-xs font-semibold text-content-secondary transition-colors",
+                        "group-data-[highlighted]:text-content-primary",
+                        isHighlightedByKbd && "text-content-primary"
+                    )}>
                         {item.title}
                     </span>
                 </div>
@@ -211,18 +266,21 @@ export default function CanvasContextMenu({
                                 placeholder="Search..."
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
+                                onKeyDown={handleKeyDown}
                                 className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent-primary transition-all shadow-inner"
-                                onKeyDown={e => e.stopPropagation()}
                                 autoFocus
                             />
                         </div>
                     </div>
 
                     {/* Hierarchy/Results list */}
-                    <div className="p-1.5 max-h-[360px] overflow-y-auto custom-scrollbar flex flex-col gap-0.5 relative">
+                    <div 
+                        ref={listRef}
+                        className="p-1.5 max-h-[360px] overflow-y-auto custom-scrollbar flex flex-col gap-0.5 relative"
+                    >
                         {searchQuery ? (
                             searchResults.length > 0 ? (
-                                searchResults.map(item => renderItem(item))
+                                searchResults.map((item, idx) => renderItem(item, idx))
                             ) : (
                                 <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
                                     <Inbox className="w-6 h-6 text-content-tertiary opacity-40" />
