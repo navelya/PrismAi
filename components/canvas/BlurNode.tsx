@@ -135,12 +135,12 @@ function BlurNode({ data, id, selected }: NodeProps<BlurNodeData>) {
             </div>
 
             {/* Image Lightbox */}
-            {previewUrl && (
+            {lightboxOpen && previewUrl && (
                 <ImageLightbox
-                    isOpen={lightboxOpen}
+                    media={previewUrl}
+                    type="image"
+                    initialIndex={0}
                     onClose={() => setLightboxOpen(false)}
-                    imageUrl={previewUrl}
-                    title="Blur Preview"
                 />
             )}
         </BaseNode>

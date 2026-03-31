@@ -289,15 +289,14 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 </div>
             )}
 
-            {/* Lightbox Portal */}
-            {lightboxOpen && previewOutput && createPortal(
+            {/* Image Lightbox */}
+            {lightboxOpen && previewOutput && (
                 <ImageLightbox
                     media={previewOutput}
                     type={previewType as any}
                     initialIndex={lightboxIndex}
                     onClose={() => setLightboxOpen(false)}
-                />,
-                document.body
+                />
             )}
         </BaseNode>
     );

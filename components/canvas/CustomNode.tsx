@@ -200,18 +200,15 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
             </motion.div>
 
 
-            {/* Lightbox Portal */}
-            {
-                lightboxOpen && output && Array.isArray(output) && createPortal(
-                    <ImageLightbox
-                        media={output}
-                        type="image"
-                        initialIndex={lightboxIndex}
-                        onClose={() => setLightboxOpen(false)}
-                    />,
-                    document.body
-                )
-            }
+            {/* Image Lightbox */}
+            {lightboxOpen && output && (
+                <ImageLightbox
+                    media={output}
+                    type="image"
+                    initialIndex={lightboxIndex}
+                    onClose={() => setLightboxOpen(false)}
+                />
+            )}
         </BaseNode >
     );
 }
