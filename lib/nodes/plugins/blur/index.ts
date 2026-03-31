@@ -3,8 +3,8 @@ import { BlurConfig } from './types';
 
 export const blurSharedDef: NodeSharedDef<BlurConfig> = {
     type: 'blur',
-    family: 'transform',
-    category: 'image-processing',
+    family: 'utility',
+    category: 'utility',
     meta: {
         label: 'Blur',
         description: 'Apply Gaussian blur to an image',
@@ -14,7 +14,7 @@ export const blurSharedDef: NodeSharedDef<BlurConfig> = {
     },
     handles: {
         inputs: [
-            { id: 'image', label: 'Image', dataType: 'image' }
+            { id: 'image', label: 'Image', expectedType: 'image' }
         ],
         outputs: [
             { id: 'image_out', label: '', dataType: 'image' }
