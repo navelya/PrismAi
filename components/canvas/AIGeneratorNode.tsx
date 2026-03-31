@@ -202,14 +202,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                         className="w-full h-full flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500 cursor-pointer"
                         onMouseDown={(e) => e.stopPropagation()}
                         onPointerDown={(e) => e.stopPropagation()}
-                    >
-                        <div className="p-4 rounded-2xl bg-white/5 shadow-xl">
-                            <Zap className="w-10 h-10 text-white/40" />
-                        </div>
-                        <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 text-center px-4">
-                            {!data.config?.model_id ? 'Select a Model to Start' : (selectedModel ? `Ready to Run ${selectedModel.display_name}` : 'Model not found in catalog')}
-                        </span>
-                    </div>
+                    />
                 )}
 
                 {/* Content Preview */}
