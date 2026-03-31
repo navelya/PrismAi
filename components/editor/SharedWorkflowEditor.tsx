@@ -196,9 +196,9 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string) => {
+    const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => {
         if (readOnly) return;
-        addNode(type, position, nodeTypeId);
+        addNode(type, position, nodeTypeId, modelId);
     };
 
     const handleSave = async () => {

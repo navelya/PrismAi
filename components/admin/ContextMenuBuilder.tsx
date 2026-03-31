@@ -527,7 +527,7 @@ export function ContextMenuBuilder() {
                                             ...form,
                                             action_value: e.target.value,
                                             title: nt?.display_name || form.title,
-                                            icon: nt?.icon || form.icon
+                                            icon: nt?.icon_reference || form.icon
                                         });
                                     }}
                                     options={[
@@ -555,7 +555,7 @@ export function ContextMenuBuilder() {
                                 />
                             )}
 
-                            {!['header', 'provider', 'ai_model', 'node_type', 'static_node'].includes(form.item_type as string) && (
+                            {!['header', 'provider', 'ai_model'].includes(form.item_type as string) && (
                                 <div className="grid grid-cols-2 gap-4">
                                     <Input
                                         label="Icon (Lucide)"

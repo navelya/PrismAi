@@ -31,7 +31,7 @@ interface EditorCanvasProps {
     onEdgesChange: any;
     onConnect: any;
     onNodeClick?: NodeMouseHandler;
-    onDrop: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string) => void;
+    onDrop: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => void;
     updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
     selectionMode?: boolean;
     onSelectionToggle?: () => void;
@@ -441,14 +441,14 @@ function EditorCanvasInner({
     }, []);
 
     // Handle node creation from context menu
-    const handleContextMenuNodeSelect = useCallback((type: NodeType, position: { x: number; y: number }, actionValue?: string) => {
+    const handleContextMenuNodeSelect = useCallback((type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => {
         if (reactFlowInstance && reactFlowWrapper.current) {
             // Convert screen coordinates to flow coordinates
             const flowPosition = reactFlowInstance.screenToFlowPosition({
                 x: position.x,
                 y: position.y,
             });
-            onDrop(type, flowPosition, actionValue);
+            onDrop(type, flowPosition, nodeTypeId, modelId);
         }
         setContextMenu(null);
     }, [reactFlowInstance, onDrop]);
@@ -656,6 +656,7 @@ function EditorCanvasInner({
                     position={contextMenu}
                     onSelectNode={handleContextMenuNodeSelect}
                     onClose={() => setContextMenu(null)}
+                    models={useAppStore.getState().models}
                 />
             )}
         </div >

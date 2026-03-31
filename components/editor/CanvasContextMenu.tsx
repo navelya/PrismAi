@@ -6,7 +6,7 @@ import {
     Root, Trigger, Portal, Content, Item, 
     Sub, SubTrigger, SubContent 
 } from '@radix-ui/react-context-menu';
-import { NodeType } from '@/lib/nodes/types';
+import { NodeType, AiModel } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import * as Icons from 'lucide-react';
 import { Plus, ChevronRight, Search as SearchIcon, Loader2, Inbox, LayoutGrid, Box } from 'lucide-react';
@@ -25,8 +25,9 @@ interface ContextMenuItem {
 
 interface CanvasContextMenuProps {
     position: { x: number; y: number };
-    onSelectNode: (type: NodeType, position: { x: number; y: number }, actionValue?: string) => void;
+    onSelectNode: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => void;
     onClose: () => void;
+    models?: AiModel[];
 }
 
 const MENU_WIDTH = 260;
@@ -36,6 +37,7 @@ export default function CanvasContextMenu({
     position,
     onSelectNode,
     onClose,
+    models,
 }: CanvasContextMenuProps) {
     const triggerRef = useRef<HTMLSpanElement>(null);
     const tree = useAppStore(state => state.menuTree);
@@ -64,20 +66,49 @@ export default function CanvasContextMenu({
     const handleNodeClick = (item: ContextMenuItem) => {
         // Assume non-static types spawn an AI node that expects the configuration value
         let typePath: NodeType = 'ai_generator'; 
+        let nodeTypeId: string | undefined = item.action_value || undefined;
+        let modelId: number | undefined = undefined;
+
         if (item.item_type === 'static_node') {
             typePath = item.action_value as NodeType || 'prompt';
+            nodeTypeId = undefined;
+        } else if (item.item_type === 'ai_model') {
+            // Find the model to get its node_type_id correctly
+            const modelIdNum = parseInt(item.action_value || '0');
+            const model = models?.find(m => m.id === modelIdNum);
+            if (model) {
+                nodeTypeId = model.node_type_id || undefined;
+                modelId = model.id;
+            } else {
+                // Fallback: If model catalog hasn't loaded yet, we still treat action_value as a model_id
+                // though this is less ideal as we might guess the wrong node_type_id
+                modelId = modelIdNum;
+                nodeTypeId = 'image_generation'; // Default safe fallback
+            }
         }
-        onSelectNode(typePath, position, item.action_value || undefined);
+        
+        onSelectNode(typePath, position, nodeTypeId, modelId);
         onClose();
     };
 
     const searchResults = useMemo(() => {
         if (!searchQuery) return [];
         const query = searchQuery.toLowerCase();
-        return flatList.filter(item => 
+        
+        // Filter by type and query
+        const filtered = flatList.filter(item => 
             ['static_node', 'ai_model', 'node_type'].includes(item.item_type) &&
             item.title.toLowerCase().includes(query)
         );
+
+        // Deduplicate by title to avoid visual clutter in search results
+        const seen = new Set<string>();
+        return filtered.filter(item => {
+            const lowerTitle = item.title.toLowerCase();
+            if (seen.has(lowerTitle)) return false;
+            seen.add(lowerTitle);
+            return true;
+        });
     }, [searchQuery, flatList]);
 
     const renderIcon = (iconName: string | null) => {
