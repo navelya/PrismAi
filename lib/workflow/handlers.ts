@@ -7,6 +7,7 @@
 
 import sharp from 'sharp';
 import { mediaInputExecutor } from '../nodes/plugins/media_input/executor';
+import { blurExecutor } from '../nodes/plugins/blur/executor';
 
 export type HandlerFunction = (
   properties: Record<string, any>,
@@ -54,19 +55,22 @@ export function isEphemeralNode(nodeType: string): boolean {
 
 /**
  * Blur Handler
- * Applies Gaussian blur to an image
+ * Adapter for the blurExecutor - uses the new plugin architecture
  */
 async function handleBlur(
   properties: Record<string, any>,
   inputs: Record<string, any>
 ): Promise<Buffer> {
+  const config = properties.config || properties;
   
+  // The executor expects server environment (not browser)
+  // It will fetch the image and apply blur using Sharp
   const imageUrl = inputs.image;
   if (!imageUrl) {
     throw new Error('Blur node requires "image" input');
   }
   
-  const radius = properties.radius || 5;
+  const radius = config.radius || 5;
   
   console.log(`[Handler/Blur] Applying blur with radius ${radius} to ${imageUrl}`);
   
@@ -74,7 +78,7 @@ async function handleBlur(
   const imageResponse = await fetch(imageUrl);
   const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
   
-  // Apply blur
+  // Apply blur using Sharp
   const output = await sharp(imageBuffer)
     .blur(radius)
     .toBuffer();

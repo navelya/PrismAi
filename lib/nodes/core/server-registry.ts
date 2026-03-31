@@ -5,6 +5,8 @@ import { promptSharedDef } from '../plugins/prompt';
 import { promptExecutor } from '../plugins/prompt/executor';
 import { compositorSharedDef } from '../plugins/compositor';
 import { compositorExecutor } from '../plugins/compositor/executor';
+import { blurSharedDef } from '../plugins/blur';
+import { blurExecutor } from '../plugins/blur/executor';
 import { aiGeneratorExecutor } from './ai-generator-executor';
 
 // The server-side registry mapping definition types
@@ -13,6 +15,7 @@ export const serverRegistry: Record<string, NodeServerDef> = {
     prompt: { ...promptSharedDef, executor: promptExecutor },
     media_input: { ...mediaInputSharedDef, executor: mediaInputExecutor },
     compositor: { ...compositorSharedDef, executor: compositorExecutor },
+    blur: { ...blurSharedDef, executor: blurExecutor },
     ai_generator: {
         type: 'ai_generator',
         family: 'generative',
