@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/Select';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface ContextMenuItem {
     id: string;
@@ -63,6 +64,10 @@ export function ContextMenuBuilder() {
     };
     const [form, setForm] = useState<Partial<ContextMenuItem>>(defaultForm);
 
+    // DnD State
+    const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+    const [dropTarget, setDropTarget] = useState<{ id: string, position: 'top' | 'bottom' | 'inside' } | null>(null);
+
     useEffect(() => {
         loadData();
     }, []);
@@ -93,7 +98,7 @@ export function ContextMenuBuilder() {
     }
 
     function buildTree(flatItems: ContextMenuItem[], parentId: string | null = null): ContextMenuItem[] {
-        return flatItems
+        return [...flatItems]
             .filter(item => item.parent_id === parentId)
             .sort((a, b) => (a.sort_order - b.sort_order) || a.id.localeCompare(b.id))
             .map(item => ({
@@ -101,6 +106,125 @@ export function ContextMenuBuilder() {
                 children: buildTree(flatItems, item.id)
             }));
     }
+
+    // DnD Handlers
+    const handleDragStart = (e: React.DragEvent, id: string) => {
+        e.stopPropagation();
+        setDraggedItemId(id);
+        e.dataTransfer.setData('itemId', id);
+        e.dataTransfer.effectAllowed = 'move';
+        
+        // Set a transparent drag image
+        const img = new Image();
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        e.dataTransfer.setDragImage(img, 0, 0);
+    };
+
+    const handleDragOver = (e: React.DragEvent, targetId: string, itemType: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (draggedItemId === targetId) return;
+
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const h = rect.height;
+
+        let position: 'top' | 'bottom' | 'inside' = 'inside';
+        
+        // Only Submenus and Providers can receive interior drops
+        const canHaveChildren = ['submenu', 'provider'].includes(itemType);
+        
+        if (canHaveChildren) {
+            // Wider 'inside' zone for folders (50% center)
+            if (y < h * 0.25) position = 'top';
+            else if (y > h * 0.75) position = 'bottom';
+            else position = 'inside';
+        } else {
+            // No 'inside' drop for non-folders
+            position = y < h * 0.5 ? 'top' : 'bottom';
+        }
+
+        // Parent-into-child safeguard
+        if (position === 'inside' && isChildOf(draggedItemId!, targetId, items)) {
+            setDropTarget(null);
+            return;
+        }
+
+        setDropTarget({ id: targetId, position });
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!draggedItemId || !dropTarget) {
+            setDraggedItemId(null);
+            setDropTarget(null);
+            return;
+        }
+
+        const sourceId = draggedItemId;
+        const targetId = dropTarget.id;
+        const position = dropTarget.position;
+
+        if (sourceId === targetId) return;
+
+        moveItem(sourceId, targetId, position);
+        
+        setDraggedItemId(null);
+        setDropTarget(null);
+        setHasChanges(true);
+    };
+
+    const isChildOf = (parentId: string, targetId: string, allItems: ContextMenuItem[]): boolean => {
+        let current = allItems.find(i => i.id === targetId);
+        while (current && current.parent_id) {
+            if (current.parent_id === parentId) return true;
+            current = allItems.find(i => i.id === current!.parent_id);
+        }
+        return false;
+    };
+
+    const moveItem = (sourceId: string, targetId: string, position: 'top' | 'bottom' | 'inside') => {
+        setItems(prev => {
+            const newItems = [...prev.map(i => ({ ...i }))];
+            const sourceItem = newItems.find(i => i.id === sourceId);
+            const targetItem = newItems.find(i => i.id === targetId);
+            
+            if (!sourceItem || !targetItem) return prev;
+
+            // 1. Determine new parent
+            if (position === 'inside') {
+                sourceItem.parent_id = targetId;
+                // Move to end of that group
+                const siblings = newItems.filter(i => i.parent_id === targetId);
+                sourceItem.sort_order = siblings.length > 0 ? Math.max(...siblings.map(s => s.sort_order)) + 10 : 0;
+            } else {
+                sourceItem.parent_id = targetItem.parent_id;
+                // Temporary sort order for positioning
+                sourceItem.sort_order = position === 'top' ? targetItem.sort_order - 5 : targetItem.sort_order + 5;
+            }
+
+            // 2. Normalize all sort orders to keep it clean
+            return normalizeSortOrders(newItems);
+        });
+    };
+
+    const normalizeSortOrders = (flatItems: ContextMenuItem[]): ContextMenuItem[] => {
+        const result = [...flatItems];
+        const parents = Array.from(new Set(result.map(i => i.parent_id)));
+        
+        parents.forEach(pid => {
+            const siblings = result
+                .filter(i => i.parent_id === pid)
+                .sort((a, b) => (a.sort_order - b.sort_order) || a.id.localeCompare(b.id));
+            
+            siblings.forEach((item, idx) => {
+                item.sort_order = idx * 10;
+            });
+        });
+
+        return result;
+    };
 
     const toggleExpand = (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -185,7 +309,7 @@ export function ContextMenuBuilder() {
     };
 
     // Robust reordering based on array indices
-    const moveItem = (item: ContextMenuItem, direction: 'up' | 'down', e: React.MouseEvent) => {
+    const moveItemWithArrow = (item: ContextMenuItem, direction: 'up' | 'down', e: React.MouseEvent) => {
         e.stopPropagation();
         
         // 1. Get current sorted siblings
@@ -309,25 +433,61 @@ export function ContextMenuBuilder() {
             const isExpanded = expanded.has(node.id);
 
             return (
-                <div key={node.id} className="flex flex-col">
-                    <div 
+                <div key={node.id} className="flex flex-col relative text-left">
+                    <motion.div 
+                        layout
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
                         className={cn(
-                            "flex items-center justify-between p-3 border-b border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors group",
-                            level === 0 && "border-t"
+                            "relative group transition-all duration-200",
+                            draggedItemId === node.id && "opacity-30 scale-95",
                         )}
-                        style={{ paddingLeft: `${max(0.75, level * 2)}rem` }}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, node.id)}
+                        onDragOver={(e) => handleDragOver(e, node.id, node.item_type)}
+                        onDrop={handleDrop}
+                        onDragEnd={() => {
+                            setDraggedItemId(null);
+                            setDropTarget(null);
+                        }}
                     >
+                        {/* Drop Indicators */}
+                        {dropTarget?.id === node.id && (
+                            <div className="absolute inset-x-0 pointer-events-none z-50">
+                                {dropTarget.position === 'top' && (
+                                    <div className="absolute -top-1 inset-x-0 h-1 bg-accent-primary shadow-[0_0_10px_rgba(6,182,212,1)] rounded-full z-50" />
+                                )}
+                                {dropTarget.position === 'bottom' && (
+                                    <div className="absolute -bottom-1 inset-x-0 h-1 bg-accent-primary shadow-[0_0_10px_rgba(6,182,212,1)] rounded-full z-50" />
+                                )}
+                                {dropTarget.position === 'inside' && (
+                                    <div className="absolute inset-0 bg-accent-primary/10 border-2 border-accent-primary rounded-xl z-50" />
+                                )}
+                            </div>
+                        )}
+
+                        <div className={cn(
+                            "flex items-center justify-between p-3 rounded-xl border border-transparent hover:border-white/10 hover:bg-white/5 transition-all group/row",
+                            editingItem?.id === node.id && "bg-accent-primary/5 border-accent-primary/30",
+                            dropTarget?.id === node.id && dropTarget.position === 'inside' && "bg-accent-primary/5 border-accent-primary/20 scale-[1.02]"
+                        )}>
                         <div className="flex items-center gap-3">
-                            {['submenu', 'provider'].includes(node.item_type) ? (
-                                <button onClick={(e) => toggleExpand(node.id, e)} className="p-1 hover:bg-white/10 rounded">
-                                    {isExpanded ? <ChevronDown className="w-4 h-4 text-content-tertiary" /> : <ChevronRight className="w-4 h-4 text-content-tertiary" />}
+                            <div className="cursor-grab active:cursor-grabbing p-1 text-content-tertiary/40 hover:text-content-secondary transition-colors">
+                                <GripVertical className="w-4 h-4" />
+                            </div>
+                            
+                            {['submenu', 'provider'].includes(node.item_type) && (
+                                <button 
+                                    onClick={(e) => toggleExpand(node.id, e)}
+                                    className="p-1 hover:bg-white/10 rounded transition-colors"
+                                >
+                                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                                 </button>
-                            ) : (
-                                <div className="w-6" /> // spacer
                             )}
                             
-                            {node.item_type !== 'header' && (
-                                <div className="w-8 h-8 rounded bg-white/5 flex items-center justify-center border border-white/10 overflow-hidden">
+                            {Icon && (
+                                <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/5 flex items-center justify-center shadow-inner group-hover/row:scale-110 transition-transform">
                                     {node.icon?.startsWith('http') ? (
                                         <img src={node.icon} alt="" className="w-5 h-5 object-contain" />
                                     ) : (
@@ -350,10 +510,10 @@ export function ContextMenuBuilder() {
                         </div>
 
                         <div className="flex items-center gap-1 opacity-10 group-hover:opacity-100 transition-opacity">
-                            <button onClick={(e) => moveItem(node, 'up', e)} className="p-1.5 hover:bg-white/10 rounded text-content-tertiary">
+                            <button onClick={(e) => moveItemWithArrow(node, 'up', e)} className="p-1.5 hover:bg-white/10 rounded text-content-tertiary">
                                 <LucideIcons.ArrowUp className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={(e) => moveItem(node, 'down', e)} className="p-1.5 hover:bg-white/10 rounded text-content-tertiary">
+                            <button onClick={(e) => moveItemWithArrow(node, 'down', e)} className="p-1.5 hover:bg-white/10 rounded text-content-tertiary">
                                 <LucideIcons.ArrowDown className="w-3.5 h-3.5" />
                             </button>
                             {['submenu', 'provider'].includes(node.item_type) && (
@@ -386,10 +546,18 @@ export function ContextMenuBuilder() {
                     </div>
                     
                     {['submenu', 'provider'].includes(node.item_type) && hasChildren && isExpanded && (
-                        <div className="flex flex-col">
-                            {renderTree(node.children!, level + 1)}
-                        </div>
+                        <motion.div 
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="flex flex-col ml-4 border-l border-white/5 pl-2"
+                        >
+                            <AnimatePresence mode="popLayout">
+                                {renderTree(node.children!, level + 1)}
+                            </AnimatePresence>
+                        </motion.div>
                     )}
+                    </motion.div>
                 </div>
             );
         });
@@ -429,8 +597,10 @@ export function ContextMenuBuilder() {
                     {loading ? (
                         <div className="p-12 flex justify-center"><LucideIcons.Loader2 className="w-6 h-6 animate-spin text-accent-primary" /></div>
                     ) : tree.length > 0 ? (
-                        <div className="flex flex-col">
-                            {renderTree(tree)}
+                        <div className="flex flex-col p-2">
+                            <AnimatePresence mode="popLayout">
+                                {renderTree(tree)}
+                            </AnimatePresence>
                         </div>
                     ) : (
                         <div className="p-12 text-center text-content-tertiary text-sm">
