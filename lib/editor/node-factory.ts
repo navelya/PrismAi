@@ -72,6 +72,9 @@ export function createNodeFromType(
             model_id: modelId,
             control_values: {},
         },
+        blur: {
+            radius: 5,
+        },
     };
 
     const config = defaultConfigs[type];

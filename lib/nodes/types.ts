@@ -193,12 +193,21 @@ export interface AIGeneratorConfig {
     last_output?: any;
 }
 
+/**
+ * Blur Node Configuration
+ */
+export interface BlurConfig {
+    radius: number;
+    edgeMode?: 'clamp' | 'wrap' | 'mirror';
+}
+
 export type NodeConfig =
     | AIGenerateImageConfig
     | MediaInputConfig
     | CompositorConfig
     | PromptConfig
-    | AIGeneratorConfig;
+    | AIGeneratorConfig
+    | BlurConfig;
 
 /**
  * Node definition for workflow
