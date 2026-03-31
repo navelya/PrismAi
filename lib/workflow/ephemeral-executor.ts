@@ -122,6 +122,10 @@ export async function executeEphemeralNode(
     } else if (isString) {
       resultUrl = output;
       console.log(`[EphemeralExecutor] Text output stored`);
+    } else if (output !== null && output !== undefined) {
+      // Serialize objects/arrays to preserve structure in result_url
+      resultUrl = JSON.stringify(output);
+      console.log(`[EphemeralExecutor] Serialized ${typeof output} output stored`);
     }
     
     // 7. Update node state to completed in node_results

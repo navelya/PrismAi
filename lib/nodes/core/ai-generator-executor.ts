@@ -55,12 +55,28 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
                     
                     // If it's an array (e.g. from an output that returns array), flatten it
                     const subItems = Array.isArray(item) ? item : [item];
-                    return subItems.map(sub => {
-                        if (typeof sub === 'object' && sub !== null) {
-                            // Recursively look for url or text if nested
-                            return sub.url || sub.text || (sub.data && sub.data.url) || sub;
+                    return subItems.flatMap(sub => {
+                        let val = sub;
+                        
+                        // If it's a string, it might be a JSON-serialized object from node_results
+                        if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
+                            try {
+                                val = JSON.parse(val);
+                            } catch (e) {
+                                // Not valid JSON, treat as string
+                            }
                         }
-                        return sub;
+
+                        // Handle leaf values (objects with url or plain strings)
+                        // If val is an array (after parsing), map it; otherwise wrap and map
+                        const leaves = Array.isArray(val) ? val : [val];
+                        return leaves.map(leaf => {
+                            if (typeof leaf === 'object' && leaf !== null) {
+                                // Recursively look for url or text if nested
+                                return leaf.url || leaf.text || (leaf.data && leaf.data.url) || leaf;
+                            }
+                            return leaf;
+                        });
                     });
                 }).filter(val => val !== undefined && val !== '');
 

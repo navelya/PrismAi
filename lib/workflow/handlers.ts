@@ -6,6 +6,7 @@
  */
 
 import sharp from 'sharp';
+import { mediaInputExecutor } from '../nodes/plugins/media_input/executor';
 
 export type HandlerFunction = (
   properties: Record<string, any>,
@@ -27,7 +28,22 @@ export const EPHEMERAL_HANDLERS: Record<string, HandlerFunction> = {
   resize: handleResize,
   prompt: handlePrompt,
   compositor: handleCompositor,
+  media_input: handleMediaInput,
 };
+
+/**
+ * Media Input Handler
+ * Adapter for the mediaInputExecutor
+ */
+async function handleMediaInput(
+  properties: Record<string, any>,
+  inputs: Record<string, any>
+): Promise<any> {
+  const config = properties.config || properties;
+  const result = await mediaInputExecutor(config as any, inputs, {} as any);
+  if (!result.success) throw new Error(result.error);
+  return result.data;
+}
 
 /**
  * Check if a node type is ephemeral
@@ -275,10 +291,10 @@ async function handlePrompt(
 ): Promise<string> {
   
   // Aggressively search for the text in all known possible locations
-  const text = properties.prompt || 
-               properties.text || 
-               properties.config?.text || 
-               properties.config?.prompt || 
+  const text = (properties as any).prompt || 
+               (properties as any).text || 
+               (properties as any).config?.text || 
+               (properties as any).config?.prompt || 
                '';
   
   console.log(`[Handler/Prompt] Returning text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);

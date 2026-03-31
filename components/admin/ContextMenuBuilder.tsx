@@ -444,9 +444,9 @@ export function ContextMenuBuilder() {
                             draggedItemId === node.id && "opacity-30 scale-95",
                         )}
                         draggable
-                        onDragStart={(e) => handleDragStart(e, node.id)}
-                        onDragOver={(e) => handleDragOver(e, node.id, node.item_type)}
-                        onDrop={handleDrop}
+                        onDragStart={(e) => handleDragStart(e as any, node.id)}
+                        onDragOver={(e) => handleDragOver(e as any, node.id, node.item_type)}
+                        onDrop={(e) => handleDrop(e as any)}
                         onDragEnd={() => {
                             setDraggedItemId(null);
                             setDropTarget(null);
