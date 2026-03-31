@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import * as LucideIcons from 'lucide-react';
 import {
@@ -38,6 +38,19 @@ import { ModelForm } from '@/components/admin/ModelForm';
 import { ContextMenuBuilder } from '@/components/admin/ContextMenuBuilder';
 
 export default function AdminPage() {
+    return (
+        <Suspense fallback={
+            <div className="w-full h-full flex flex-col items-center justify-center bg-surface-primary py-40 gap-6">
+                <div className="w-12 h-12 border-4 border-accent-primary/20 border-t-accent-primary rounded-full animate-spin" />
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-content-tertiary">Initializing Admin...</p>
+            </div>
+        }>
+            <AdminPageContent />
+        </Suspense>
+    );
+}
+
+function AdminPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const pathname = usePathname();
