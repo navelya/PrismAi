@@ -2,6 +2,7 @@ import { NodeSharedDef } from './types';
 import { promptSharedDef } from '../plugins/prompt';
 import { mediaInputSharedDef } from '../plugins/media_input';
 import { compositorSharedDef } from '../plugins/compositor';
+import { blurSharedDef } from '../plugins/blur';
 
 // The global shared registry mapping definition types
 // This is safe to import { promptSharedDef } from '../plugins/prompt';
@@ -10,6 +11,7 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     prompt: promptSharedDef,
     media_input: mediaInputSharedDef,
     compositor: compositorSharedDef,
+    blur: blurSharedDef,
     ai_generator: {
         type: 'ai_generator',
         family: 'generative',

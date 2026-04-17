@@ -26,8 +26,6 @@ export interface WorkflowSlice {
     setActiveSessionId: (sessionId: string | null) => void;
     currentWorkflow: Workflow | null;
     setCurrentWorkflow: (workflow: Workflow | null, isDirty?: boolean) => void;
-    appendNodeStream: (node: WorkflowNode) => void;
-    appendEdgeStream: (edge: any) => void;
     isDragging: boolean;
     setIsDragging: (isDragging: boolean) => void;
     copiedNode: WorkflowNode | null;

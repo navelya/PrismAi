@@ -18,35 +18,6 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         set({ isWorkflowDirty: isDirty });
     },
 
-    appendNodeStream: (node) => {
-        const currentWorkflow = get().currentWorkflow;
-        if (!currentWorkflow) return;
-        
-        set({
-            currentWorkflow: {
-                ...currentWorkflow,
-                nodes: [...currentWorkflow.nodes, {
-                    ...node,
-                    data: { ...node.data, isNew: true }
-                }]
-            },
-            isWorkflowDirty: true
-        });
-    },
-
-    appendEdgeStream: (edge) => {
-        const currentWorkflow = get().currentWorkflow;
-        if (!currentWorkflow) return;
-        
-        set({
-            currentWorkflow: {
-                ...currentWorkflow,
-                edges: [...(currentWorkflow.edges || []), edge]
-            },
-            isWorkflowDirty: true
-        });
-    },
-
     setCurrentWorkflow: (workflow, isDirty = true) => {
         if (!workflow) {
             set({ currentWorkflow: null, isWorkflowDirty: isDirty });

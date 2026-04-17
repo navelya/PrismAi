@@ -6,6 +6,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
 import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
+import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
 
 
 export interface UseChatMessagesProps {
@@ -235,6 +236,7 @@ export function useChatMessages({
             let streamDone = false;
             let buffer = '';
             let finalWorkflow: Workflow | undefined = undefined;
+            let streamingWorkflowCursor: Workflow | null | undefined = useAppStore.getState().currentWorkflow;
 
             const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
 
@@ -280,109 +282,34 @@ export function useChatMessages({
 
             renderLoop();
 
-            const processStreamLine = (parsed: any) => {
+            const processStreamLine = async (parsed: any) => {
                 if (parsed.type === 'text') {
                     networkText += parsed.content;
                     console.log('📝 [Stream] Text chunk received:', parsed.content, '| Total length:', networkText.length);
                 }
-                else if (parsed.type === 'tool' && parsed.name === 'mutate_workflow') {
+                else if (parsed.type === 'tool' && ['add_node', 'update_node', 'remove_node', 'mutate_workflow'].includes(parsed.name)) {
                     if (parsed.message) {
                         networkText += (networkText ? '\n\n' : '') + parsed.message;
                     }
-                    
-                    console.log('🎨 [FRONTEND] Received mutate_workflow patch:', JSON.stringify(parsed.patch, null, 2));
-                    
-                    // Apply the patch to the current workflow
+
                     const appStore = useAppStore.getState();
-                    const currentWorkflow = appStore.currentWorkflow;
-                    
-                    console.log('🎨 [FRONTEND] Current workflow before patch:', {
-                        nodes: currentWorkflow?.nodes?.length || 0,
-                        edges: currentWorkflow?.edges?.length || 0
-                    });
-                    
-                    if (currentWorkflow && parsed.patch) {
-                        const patch = parsed.patch;
-                        
-                        // 1. Filter out removed items
-                        let updatedNodes = (currentWorkflow.nodes || []).filter(node => 
-                            !patch.removedNodeIds?.includes(node.id)
-                        );
-                        let updatedEdges = (currentWorkflow.edges || []).filter(edge => 
-                            !patch.removedEdgeIds?.includes(edge.id)
-                        );
-                        
-                        // 1.5. Also remove edges connected to removed nodes
-                        if (patch.removedNodeIds && patch.removedNodeIds.length > 0) {
-                            const removedNodeSet = new Set(patch.removedNodeIds);
-                            updatedEdges = updatedEdges.filter(edge => 
-                                !removedNodeSet.has(edge.source) && !removedNodeSet.has(edge.target)
-                            );
-                            console.log('🗑️ [FRONTEND] Removed edges connected to deleted nodes');
-                        }
-                        
-                        // 2. Apply updates to existing nodes
-                        if (patch.updatedNodes && patch.updatedNodes.length > 0) {
-                            updatedNodes = updatedNodes.map(node => {
-                                const update = patch.updatedNodes.find((u: any) => u.id === node.id);
-                                if (update) {
-                                    return {
-                                        ...node,
-                                        data: {
-                                            ...node.data,
-                                            ...update.data,
-                                            config: {
-                                                ...node.data?.config,
-                                                ...update.data?.config
-                                            }
-                                        }
-                                    };
-                                }
-                                return node;
-                            });
-                        }
-                        
-                        // 3. Add new nodes with isNew flag and default positions
-                        if (patch.addedNodes && patch.addedNodes.length > 0) {
-                            const newNodes = patch.addedNodes.map((node: any, idx: number) => ({
-                                ...node,
-                                position: node.position || { 
-                                    x: 100 + (updatedNodes.length + idx) * 400, 
-                                    y: 100 
-                                },
-                                data: { 
-                                    ...node.data, 
-                                    isNew: true 
-                                }
-                            }));
-                            updatedNodes = [...updatedNodes, ...newNodes];
-                            console.log('🎨 [FRONTEND] Added nodes:', newNodes.map((n: any) => ({ id: n.id, type: n.type })));
-                        }
-                        
-                        // 4. Add new edges
-                        if (patch.addedEdges && patch.addedEdges.length > 0) {
-                            const newEdges = patch.addedEdges.map((edge: any) => ({
-                                ...edge,
-                                type: 'smoothstep',
-                                animated: true
-                            }));
-                            updatedEdges = [...updatedEdges, ...newEdges];
-                            console.log('🎨 [FRONTEND] Added edges:', newEdges);
-                        }
-                        
-                        console.log('🎨 [FRONTEND] Final state:', {
-                            nodes: updatedNodes.length,
-                            edges: updatedEdges.length
-                        });
-                        
-                        // Update the store
-                        appStore.setCurrentWorkflow({
-                            ...(currentWorkflow || {}),
-                            nodes: updatedNodes,
-                            edges: updatedEdges
-                        } as any, true);
-                        
-                        finalWorkflow = appStore.currentWorkflow || undefined;
+                    if (parsed.patch) {
+                        const patched = applyWorkflowPatch(streamingWorkflowCursor, parsed.patch);
+                        const styledEdges = (patched.edges || []).map((edge: any) => ({
+                            ...edge,
+                            type: edge.type || 'smoothstep',
+                            animated: typeof edge.animated === 'boolean' ? edge.animated : true
+                        }));
+
+                        streamingWorkflowCursor = {
+                            ...patched,
+                            edges: styledEdges
+                        } as any;
+
+                        appStore.setCurrentWorkflow(streamingWorkflowCursor as any, true);
+
+                        finalWorkflow = streamingWorkflowCursor || undefined;
+                        await nextFrame();
                     }
                 }
                 else if (parsed.type === 'error') {
@@ -399,7 +326,7 @@ export function useChatMessages({
                     if (!line.trim()) continue;
                     try {
                         const parsed = JSON.parse(line);
-                        processStreamLine(parsed);
+                        await processStreamLine(parsed);
                         // NO DELAYS - stream naturally as fast as it arrives
                     } catch (e) {}
                 }

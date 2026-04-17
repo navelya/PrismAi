@@ -150,7 +150,7 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
 
     // Track the last workflow we loaded to avoid re-rendering during drag
     const lastLoadedWorkflowRef = useRef<string | null>(null);
-    const lastSyncedDataRef = useRef<string>('');
+    const lastSyncedSnapshotRef = useRef<string>('');
 
     // ⭐ CRITICAL FIX: Use useLayoutEffect for SYNCHRONOUS state reset before paint
     useLayoutEffect(() => {
@@ -205,36 +205,63 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
 
     const isDragging = useAppStore((state) => state.isDragging);
 
-    // ⭐ Main effect to update state when workflow changes from outside (e.g. loaded from DB or AI generation)
+    // Sync external workflow changes (including add/remove nodes and edges) into editor state.
     useEffect(() => {
-        if (!initialWorkflow || !initialWorkflow.nodes) return;
-
-        // 🛡️ RE-SYNC GUARD: Only sync if the incoming prop data has actually changed
-        // and we are not middle-of-drag.
+        if (!initialWorkflow) return;
         if (isDragging) return;
 
-        const incomingDataStr = stableStringify(initialWorkflow.nodes.map(n => ({ id: n.id, data: n.data })));
-        if (incomingDataStr === lastSyncedDataRef.current) return;
-        
-        lastSyncedDataRef.current = incomingDataStr;
+        const incomingNodes = getInitialNodes(initialWorkflow);
+        const incomingEdges = getInitialEdges(initialWorkflow);
+        const incomingName = initialWorkflow.name || 'Untitled Workflow';
+
+        const incomingSnapshot = stableStringify({
+            name: incomingName,
+            nodes: incomingNodes.map((n) => ({
+                id: n.id,
+                type: n.type,
+                position: n.position,
+                data: n.data,
+                zIndex: n.zIndex || 0,
+            })),
+            edges: incomingEdges.map((e) => ({
+                id: e.id,
+                source: e.source,
+                target: e.target,
+                sourceHandle: e.sourceHandle || null,
+                targetHandle: e.targetHandle || null,
+            })),
+        });
+
+        if (incomingSnapshot === lastSyncedSnapshotRef.current) return;
+        lastSyncedSnapshotRef.current = incomingSnapshot;
 
         setEditorState((prev) => {
-            let changed = false;
-            const newNodes = prev.nodes.map((node) => {
-                const incomingNode = initialWorkflow.nodes.find(n => n.id === node.id);
-                if (!incomingNode) return node;
-
-                const nodeIncomingDataStr = stableStringify(incomingNode.data);
-                const currentNodeDataStr = stableStringify(node.data);
-
-                if (nodeIncomingDataStr !== currentNodeDataStr) {
-                    changed = true;
-                    return { ...node, data: incomingNode.data };
-                }
-                return node;
+            const currentSnapshot = stableStringify({
+                name: prev.name,
+                nodes: prev.nodes.map((n) => ({
+                    id: n.id,
+                    type: n.type,
+                    position: n.position,
+                    data: n.data,
+                    zIndex: n.zIndex || 0,
+                })),
+                edges: prev.edges.map((e) => ({
+                    id: e.id,
+                    source: e.source,
+                    target: e.target,
+                    sourceHandle: e.sourceHandle || null,
+                    targetHandle: e.targetHandle || null,
+                })),
             });
 
-            return changed ? { ...prev, nodes: newNodes } : prev;
+            if (currentSnapshot === incomingSnapshot) return prev;
+
+            return {
+                ...prev,
+                name: incomingName,
+                nodes: incomingNodes,
+                edges: incomingEdges,
+            };
         }, { history: 'replace' });
     }, [initialWorkflow, setEditorState, isDragging]);
 
