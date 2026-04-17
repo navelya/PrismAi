@@ -14,9 +14,9 @@ export interface UseChatRealtimeProps {
 /**
  * A module-level hash of the last workflow received from the server (via Realtime or DB load).
  *
- * The auto-save in ChatInterface.tsx compares the debouncedWorkflow's hash against this.
+ * The autosave pipeline compares outgoing workflow hashes against this value.
  * If they match, the workflow hasn't been user-edited since the last server write,
- * so the auto-save is skipped — breaking the feedback loop:
+ * so autosave is skipped — breaking the feedback loop:
  *
  *   Server writes canvas_state → Realtime → store update → debouncedWorkflow
  *   → auto-save checks hash → SAME → skip → no DB write → no Realtime echo → ✅ loop broken
@@ -204,6 +204,10 @@ export function useChatRealtime({
             }
 
             if (updated.canvas_state) {
+                if (store.isDragging) {
+                    return;
+                }
+
                 const existingWorkflow = store.currentWorkflow;
                 let newWorkflow = updated.canvas_state;
 
@@ -226,8 +230,18 @@ export function useChatRealtime({
                     return;
                 }
 
+                const localHash = existingWorkflow
+                    ? stableStringify(cleanWorkflowForSave(existingWorkflow))
+                    : null;
+
+                if (incomingHash === localHash) {
+                    return;
+                }
+
                 setServerWorkflowHash(newWorkflow);
-                store.setCurrentWorkflow(newWorkflow);
+                // Server-origin updates must not mark the workflow as dirty,
+                // otherwise autosave writes them back and creates an echo loop.
+                store.setCurrentWorkflow(newWorkflow, false);
 
                 // V3.1: Live state (status, output) is now handled EXCLUSIVELY by node_results table
                 // via useExecutionChannel. We no longer sync it from canvas_state to avoid 
@@ -319,7 +333,7 @@ export function useChatRealtime({
                         }
                         if (sessionData.canvas_state && !store.isLoading) {
                             setServerWorkflowHash(sessionData.canvas_state);
-                            store.setCurrentWorkflow(sessionData.canvas_state);
+                            store.setCurrentWorkflow(sessionData.canvas_state, false);
                         }
                     }
                 } catch (e) {

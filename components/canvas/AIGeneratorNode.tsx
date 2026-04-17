@@ -33,6 +33,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     const { setNodes } = useReactFlow();
     const liveOutput = useAppStore(state => state.nodeOutputs[id]);
     const status = useAppStore(state => state.nodeStatuses[id] || 'idle');
+    const isDragging = useAppStore((state) => state.isDragging);
 
     // Fallback to saved output for hydration/reloads
     const output = liveOutput || data.output || data.config?.last_output;
@@ -182,10 +183,10 @@ function AIGeneratorNode({ id, data, selected }: any) {
             isNew={(data as any).isNew}
         >
             <motion.div
-                layout={((status === 'running' || status === 'success') && !!output) ? "position" : false}
+                layout={!isDragging && ((status === 'running' || status === 'success') && !!output) ? "position" : false}
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
-                    "transition-all duration-500",
+                    !isDragging && "transition-all duration-500",
                     // Heights:
                     //  - No output (empty placeholder): 200px — generous presence on canvas
                     //  - Running/loading: 200px — space for the glassy loader overlay
@@ -225,6 +226,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                             }
                         }}
                         onInteraction={(e: React.MouseEvent | React.PointerEvent) => e.stopPropagation()}
+                        isDragging={isDragging}
                     />
                 )}
 
@@ -306,7 +308,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
 // OUTPUT PREVIEW (Parity with CustomNode)
 // =============================================================================
 
-function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction }: any) {
+function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
     const items = Array.isArray(output) ? output : [output];
     const urls = items.map((o: any) => (typeof o === 'string' ? o : o?.url)).filter(Boolean);
     const textContent = typeof output === 'string' ? output : (output?.text || items[0]?.text || null);
@@ -385,7 +387,10 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
                         muted 
                         loop 
                         playsInline
-                        className="w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                        className={cn(
+                            "w-full h-auto block object-contain",
+                            !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                        )}
                         style={{ maxHeight: MAX_HEIGHT }}
                     />
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center">
@@ -406,7 +411,10 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
                     src={url}
                     alt="Output"
                     onLoad={onImageLoad}
-                    className="relative z-10 transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                    className={cn(
+                        "relative z-10",
+                        !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                    )}
                     style={{ maxHeight: MAX_HEIGHT }}
                 />
             </div>

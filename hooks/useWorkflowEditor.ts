@@ -76,6 +76,18 @@ function sanitizeWorkflow(wf: Workflow | null | undefined): Workflow | null {
     };
 }
 
+function stripVolatileNodeData(data: any) {
+    if (!data || typeof data !== 'object') return data;
+    const {
+        status,
+        output,
+        outputMetadata,
+        isNew,
+        ...stableData
+    } = data;
+    return stableData;
+}
+
 export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     // Sanitize incoming workflow immediately
     const initialWorkflow = sanitizeWorkflow(initialWorkflowRaw);
@@ -220,7 +232,7 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
                 id: n.id,
                 type: n.type,
                 position: n.position,
-                data: n.data,
+                data: stripVolatileNodeData(n.data),
                 zIndex: n.zIndex || 0,
             })),
             edges: incomingEdges.map((e) => ({
@@ -242,7 +254,7 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
                     id: n.id,
                     type: n.type,
                     position: n.position,
-                    data: n.data,
+                    data: stripVolatileNodeData(n.data),
                     zIndex: n.zIndex || 0,
                 })),
                 edges: prev.edges.map((e) => ({

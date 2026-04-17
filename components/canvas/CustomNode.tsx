@@ -29,6 +29,7 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
+    const isDragging = useAppStore((state) => state.isDragging);
 
     // Lightbox state
     const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -67,15 +68,15 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
             selected={selected}
             isNew={(data as any).isNew}
             badgeCount={Array.isArray(output) ? output.length : undefined}
-            className="transition-all duration-500 ease-in-out"
+            className="transition-[border-color,box-shadow,background-color] duration-300 ease-out"
             width={output && aspectRatio ? Math.min(MAX_WIDTH, 320 * aspectRatio) : 320}
         >
             <motion.div
-                layout={((status === 'running' || status === 'success') && !!output) ? "position" : false}
+                layout={!isDragging && ((status === 'running' || status === 'success') && !!output) ? "position" : false}
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 shadow-inner group/node",
                     !output ? "bg-white/5" : "bg-transparent",
-                    "transition-all duration-500"
+                    !isDragging && "transition-all duration-500"
                 )}
                 style={{
                     minHeight: output ? 0 : MIN_HEIGHT,
@@ -113,10 +114,13 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
                                         filter: isTransitioning ? 'blur(20px)' : 'blur(0px)',
                                         scale: isTransitioning ? 0.95 : 1
                                     }}
-                                    transition={{ duration: 0.8, ease: "easeOut" }}
+                                    transition={isDragging ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }}
                                     src={imageUrl}
                                     alt="Preview"
-                                    className="w-full h-full object-contain transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                                    className={cn(
+                                        "w-full h-full object-contain",
+                                        !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                                    )}
                                     onLoad={(e) => {
                                         const img = e.target as HTMLImageElement;
                                         setAspectRatio(img.naturalWidth / img.naturalHeight);

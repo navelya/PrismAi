@@ -6,6 +6,7 @@ import { saveWorkflow } from '@/lib/db/workflows';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { saveLocalBackup, removeLocalBackup } from '@/lib/db/local-backup';
 import { throttle } from '@/lib/utils/performance';
+import { setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
 
 /**
  * useAutoSave Hook
@@ -134,6 +135,7 @@ export function useAutoSave() {
                 lastRemoteSavedHashRef.current = currentHash;
                 lastRemoteSaveTimeRef.current = Date.now();
                 setWorkflowDirty(false);
+                setServerWorkflowHash(sanitizedWorkflow);
 
                 // Cleanup local backup after successful remote sync
                 try {

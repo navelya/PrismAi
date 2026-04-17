@@ -10,7 +10,6 @@ import { NodeType, Workflow } from '@/lib/nodes/types';
 import { saveWorkflow } from '@/lib/db/workflows';
 import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import { useAutoSave } from '@/hooks/useAutoSave';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -112,9 +111,6 @@ export default function SharedWorkflowEditor({
         };
     }, []);
 
-    // 🛡️ Enable Global Auto-Save Persistence
-    useAutoSave();
-
     // Sync state for auto-save
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
     const lastSyncedStateRef = useRef<string>('');
@@ -128,7 +124,8 @@ export default function SharedWorkflowEditor({
         
         const workflow = getCurrentWorkflow();
         
-        // Sanitize for auto-save (strip execution state)
+        // Sanitize only volatile flags for store sync.
+        // Keep output/outputMetadata so local editor/store snapshots stay structurally aligned.
         const cleanWorkflow = {
             ...workflow,
             nodes: workflow.nodes.map(n => ({
@@ -137,7 +134,6 @@ export default function SharedWorkflowEditor({
                     ...n.data,
                     status: undefined,
                     output: undefined,
-                    outputMetadata: undefined,
                     isNew: undefined,
                 }
             }))

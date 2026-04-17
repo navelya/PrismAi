@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen, AlertTriangle, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -12,17 +12,14 @@ import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { generateNodeId, generateEdgeId, formatRelativeTime } from '@/lib/utils';
-import { stableStringify, cleanWorkflowForSave } from '@/lib/utils/stable-stringify';
 
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
 import { useChatMessages } from '@/lib/hooks/use-chat-messages';
 import { useSession } from '@/lib/hooks/use-session';
-import { useChatRealtime, serverWorkflowHash, setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
+import { useChatRealtime } from '@/lib/hooks/use-chat-realtime';
 import { NodeStatus } from '@/lib/nodes/types';
-import { sessionsApi, messagesApi, uploadApi, userApi } from '@/lib/api/client';
-import { createClient } from '@/lib/supabase/client';
-import { useDebounce } from '@/lib/hooks/use-debounce';
+import { sessionsApi, uploadApi, userApi } from '@/lib/api/client';
 import { convertImageToWebP } from '@/lib/utils/image-processing';
 
 interface Message {
@@ -139,7 +136,6 @@ const ChatMessageContent = ({
 export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, onReady, userName: initialUserName, sessionId: propSessionId }: ChatInterfaceProps) {
     const params = useParams();
     const router = useRouter();
-    const supabase = useMemo(() => createClient(), []);
     const sessionId = (propSessionId || params?.sessionId || params?.id) as string;
 
     // 👑 STABILITY FIX: מוחק את הזיכרון ברגע שחוזרים לעמוד ריק (New Chat)
@@ -160,135 +156,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const effectiveSessionId = sessionId || storeActiveSessionId;
     const isEmptyState = !effectiveSessionId;
-
-    const storeWorkflow = useAppStore((state) => state.currentWorkflow);
-    const lastInteraction = useAppStore((state) => state.lastInteraction);
-    const isDragging = useAppStore((state) => state.isDragging);
-
-    const memoizedSaveState = useMemo(() => ({
-        workflow: storeWorkflow,
-        sessionId: effectiveSessionId,
-        lastInteraction,
-        isDragging
-    }), [storeWorkflow, effectiveSessionId, lastInteraction, isDragging]);
-
-    const debouncedSaveState = useDebounce(memoizedSaveState, 2000);
-
-    // Serialize autosaves to avoid overlapping writes
-    const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-    const lastSavedHashRef = useRef<string | null>(null);
-    const isSavingRef = useRef(false);
-
-    // Slim the workflow to avoid shipping heavy outputs/base64 on autosave
-    const slimWorkflowForAutosave = useCallback((workflow: Workflow) => {
-        if (!workflow?.nodes) return workflow;
-        return {
-            ...workflow,
-            nodes: workflow.nodes.map((n) => {
-                const data = { ...(n.data || {}) };
-                // Drop heavy runtime data; keep config/label/prompt fields
-                // IMPORTANT: We keep outputMetadata because it contains storage URLs (thumbnails)
-                // that are needed to restore the UI state after a refresh.
-                delete (data as any).output;
-                
-                // Preserve configs and light metadata
-                return {
-                    ...n,
-                    data,
-                };
-            })
-        };
-    }, []);
-
-    useEffect(() => {
-        const { workflow: debouncedWorkflow, sessionId: saveSessionId, isDragging: debouncedIsDragging } = debouncedSaveState || {};
-
-        if (!debouncedWorkflow || !saveSessionId || saveSessionId !== effectiveSessionId) {
-            return;
-        }
-
-        // 🛡️ INTERACTION GUARD: If the user is currently dragging, skip save.
-        // (Even though debounce should handle this, this is an extra safety layer).
-        if (debouncedIsDragging) {
-            return;
-        }
-
-        if (!debouncedWorkflow.nodes?.length && !debouncedWorkflow.edges?.length) return;
-
-        const slimWorkflow = slimWorkflowForAutosave(debouncedWorkflow);
-        const cleanWorkflow = cleanWorkflowForSave(slimWorkflow);
-        const currentHash = stableStringify(cleanWorkflow);
-
-        // 🛡️ AUTOSAVE GUARD: Only block if nodes IN THIS WORKFLOW are currently executing.
-        // Stale statuses from other or deleted nodes should not block persistence.
-        const nodeStatuses = useAppStore.getState().nodeStatuses;
-        const workflowNodeIds = new Set(debouncedWorkflow.nodes.map(n => n.id));
-        const isExecuting = Object.entries(nodeStatuses).some(
-            ([id, status]) => workflowNodeIds.has(id) && (status === 'running' || status === 'pending')
-        );
-
-        if (isExecuting) {
-            return;
-        }
-
-        const isSameHash = currentHash === serverWorkflowHash;
-        if (isSameHash || currentHash === lastSavedHashRef.current) {
-            return;
-        }
-
-        // Enqueue save to prevent overlapping writes
-        const enqueueSave = () => {
-            if (isSavingRef.current) return;
-            isSavingRef.current = true;
-            saveQueueRef.current = saveQueueRef.current
-                .then(async () => {
-                    await sessionsApi.update(saveSessionId, { canvas_state: cleanWorkflow });
-                    lastSavedHashRef.current = currentHash;
-                    setServerWorkflowHash(cleanWorkflow);
-                })
-                .catch((error: any) => {
-                    console.error("[AutoSave] ❌ Failed to update session", error);
-                })
-                .finally(() => {
-                    isSavingRef.current = false;
-                });
-        };
-
-        enqueueSave();
-    }, [debouncedSaveState, effectiveSessionId]);
-
-    useEffect(() => {
-        const handleBeforeUnload = () => {
-            if (!storeWorkflow || !effectiveSessionId) return;
-
-            const cleanWorkflow = cleanWorkflowForSave(storeWorkflow);
-            const currentHash = stableStringify(cleanWorkflow);
-
-            // 🛡️ UNLOAD GUARD: Same logic as autosave — if the background is still running 
-            // nodes, we don't want a "shutdown save" to overwrite the server's progress.
-            const nodeStatuses = useAppStore.getState().nodeStatuses;
-            const workflowNodeIds = new Set(storeWorkflow.nodes?.map(n => n.id) || []);
-            const isExecuting = Object.entries(nodeStatuses).some(
-                ([id, status]) => workflowNodeIds.has(id) && (status === 'running' || status === 'pending')
-            );
-
-            if (isExecuting) return;
-
-            if (currentHash && currentHash !== serverWorkflowHash && currentHash !== lastSavedHashRef.current) {
-                setServerWorkflowHash(cleanWorkflow);
-                const payload = JSON.stringify({ canvas_state: cleanWorkflow });
-
-                if (navigator.sendBeacon) {
-                    navigator.sendBeacon(`/api/sessions/${effectiveSessionId}`, new Blob([payload], { type: 'application/json' }));
-                } else {
-                    fetch(`/api/sessions/${effectiveSessionId}`, { method: 'PATCH', body: payload, headers: { 'Content-Type': 'application/json' }, keepalive: true }).catch(() => { });
-                }
-            }
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [storeWorkflow, effectiveSessionId]);
 
     const isMobile = useIsMobile();
     const messages = useAppStore((state) => state.chatMessages);

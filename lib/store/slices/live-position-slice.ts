@@ -5,12 +5,19 @@ export const createLivePositionSlice: StateCreator<RootState, [], [], LivePositi
     liveNodePositions: {},
 
     setLiveNodePosition: (nodeId, position) => {
-        set((state) => ({
-            liveNodePositions: {
-                ...state.liveNodePositions,
-                [nodeId]: position,
-            },
-        }));
+        set((state) => {
+            const previous = state.liveNodePositions[nodeId];
+            if (previous && previous.x === position.x && previous.y === position.y) {
+                return state;
+            }
+
+            return {
+                liveNodePositions: {
+                    ...state.liveNodePositions,
+                    [nodeId]: position,
+                },
+            };
+        });
     },
 
     clearLiveNodePositions: () => set({ liveNodePositions: {} }),

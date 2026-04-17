@@ -5,6 +5,7 @@ import ChatInterface from '@/components/chat/ChatInterface';
 import WorkspaceLayout from '@/components/layout/WorkspaceLayout';
 import { useAppStore } from '@/lib/store/app-store';
 import { useExecutionChannel } from '@/lib/hooks/use-execution-channel';
+import { Workflow } from '@/lib/nodes/types';
 
 interface ChatClientPageProps {
     initialUserName?: string;
@@ -32,12 +33,16 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
         }
     };
 
+    const handleWorkflowGenerated = (workflow: Workflow) => {
+        setCurrentWorkflow(workflow, false);
+    };
+
     return (
         <div className="w-full h-full">
             <WorkspaceLayout
                 chatPanel={
                     <ChatInterface
-                        onWorkflowGenerated={setCurrentWorkflow}
+                        onWorkflowGenerated={handleWorkflowGenerated}
                         currentWorkflow={currentWorkflow}
                         onReady={handleChatReady}
                         userName={initialUserName}
