@@ -302,6 +302,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 id: `layer_${i}`,
                 label: `L${i + 1}`,
                 color: LAYER_COLORS[i % LAYER_COLORS.length],
+                is_array: true,
             });
         }
         return handles;

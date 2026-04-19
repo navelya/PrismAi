@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, memo } from 'react';
-import { useReactFlow } from 'reactflow';
+import { useReactFlow, useUpdateNodeInternals } from 'reactflow';
 import { Zap, Check, Square, LayoutGrid, MoreHorizontal, Play } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
@@ -31,6 +31,7 @@ const WIRE_TYPE_COLORS: Record<string, string> = {
 
 function AIGeneratorNode({ id, data, selected }: any) {
     const { setNodes } = useReactFlow();
+    const updateNodeInternals = useUpdateNodeInternals();
     const liveOutput = useAppStore(state => state.nodeOutputs[id]);
     const status = useAppStore(state => state.nodeStatuses[id] || 'idle');
     const isDragging = useAppStore((state) => state.isDragging);
@@ -76,6 +77,13 @@ function AIGeneratorNode({ id, data, selected }: any) {
             setImageLoaded(false);
         }
     }, [status]);
+
+    // When the model changes, tell ReactFlow to re-scan this node's handles.
+    // Without this, ReactFlow's internal handle registry is stale after a model switch,
+    // which causes the #008 "Couldn't create edge" error when connecting to new handles.
+    useEffect(() => {
+        updateNodeInternals(id);
+    }, [id, data.config?.model_id, updateNodeInternals]);
 
     // Initial load for auto-selecting if empty
     useEffect(() => {
@@ -139,22 +147,26 @@ function AIGeneratorNode({ id, data, selected }: any) {
     const inputHandles = selectedModel?.inputs_schema?.handles || [];
     const outputHandles = selectedModel?.outputs_schema?.handles || [];
 
-    const customInputs = inputHandles.map(h => ({
-        id: h.api_mapping_key || h.name,
-        label: h.name,
-        color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
-        type: h.type,
-        isArray: h.is_array,
-        isMandatory: h.is_mandatory
-    }));
+    const customInputs = inputHandles
+        .filter(h => h.is_visible !== false)
+        .map(h => ({
+            id: h.api_mapping_key || h.name,
+            label: h.name,
+            color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
+            type: h.type,
+            is_array: h.is_array,
+            isMandatory: h.is_mandatory
+        }));
 
-    const customOutputs = outputHandles.map(h => ({
-        id: h.api_mapping_key || h.name || 'output',
-        label: h.name,
-        color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
-        type: h.type,
-        isArray: h.is_array
-    }));
+    const customOutputs = outputHandles
+        .filter(h => h.is_visible !== false)
+        .map(h => ({
+            id: h.api_mapping_key || h.name || 'output',
+            label: h.name,
+            color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
+            type: h.type,
+            is_array: h.is_array
+        }));
 
     // Find the first valid output to preview (if multiple)
     let previewOutput = output;

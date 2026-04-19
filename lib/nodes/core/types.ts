@@ -19,8 +19,8 @@ export interface NodeSharedDef<TConfig = any> {
         ephemeral?: boolean;     // If true, engine skips saving outputs to DB (live preview only)
     };
     handles: {
-        inputs: Array<{ id: string; label: string; expectedType: NodeDataType | NodeDataType[]; isMandatory?: boolean; color?: string; }>;
-        outputs: Array<{ id: string; label: string; dataType: NodeDataType }>;
+        inputs: Array<{ id: string; label: string; expectedType: NodeDataType | NodeDataType[]; isMandatory?: boolean; color?: string; is_array?: boolean; }>;
+        outputs: Array<{ id: string; label: string; dataType: NodeDataType; is_array?: boolean; }>;
     };
     defaultConfig: TConfig;
     aiSchema: any;       // JSON Schema (Typebox/Zod compatible) for AI structured outputs

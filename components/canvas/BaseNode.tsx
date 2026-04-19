@@ -1,13 +1,14 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, useReactFlow, useEdges, Connection } from 'reactflow';
+import { Handle, Position, useReactFlow, useEdges } from 'reactflow';
 import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
 import { motion } from 'framer-motion';
+
 
 export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     id: string;
@@ -19,8 +20,8 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // Handle controls
     renderInputs?: boolean;
     renderOutput?: boolean;
-    customInputs?: Array<{ id: string; label: string; color: string; type?: string; isArray?: boolean; isMandatory?: boolean }>;
-    customOutputs?: Array<{ id: string; label: string; color: string; type?: string; isArray?: boolean; isMandatory?: boolean }>;
+    customInputs?: Array<{ id: string; label: string; color: string; type?: string; is_array?: boolean; isMandatory?: boolean }>;
+    customOutputs?: Array<{ id: string; label: string; color: string; type?: string; is_array?: boolean; isMandatory?: boolean }>;
     // Additional styling
     contentClassName?: string;
     badgeCount?: number;
@@ -107,73 +108,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         }
     };
 
-    // --- DRY Connection Validation ---
-    const models = useAppStore(state => state.models);
 
-    const validateConnection = React.useCallback((connection: Connection) => {
-        if (connection.source === connection.target) return false;
-
-        const sourceNode = getNode(connection.source!);
-        const targetNode = getNode(connection.target!);
-        if (!sourceNode || !targetNode) return false;
-
-        // 1. Resolve Source Handle Metadata
-        let sourceHandleData: any = null;
-        const sourceHandleId = connection.sourceHandle || 'output';
-
-        if (sourceNode.type === 'ai_generator') {
-            const modelId = sourceNode.data?.config?.model_id;
-            const model = models.find(m => m.id === modelId);
-            sourceHandleData = model?.outputs_schema?.handles?.find(h => (h.api_mapping_key || h.name || 'output') === sourceHandleId);
-        } else {
-            const sourceDef = sharedRegistry[sourceNode.type as keyof typeof sharedRegistry];
-            sourceHandleData = sourceDef?.handles?.outputs?.find(h => (h.id || 'output') === sourceHandleId);
-            // Fallback to dynamic schema if any (not used much now but for future-proofing)
-            if (!sourceHandleData) {
-                sourceHandleData = (sourceNode.data as any)?.outputs_schema?.handles?.find((h: any) => (h.api_mapping_key || 'output') === sourceHandleId);
-            }
-        }
-
-        // 2. Resolve Target Handle Metadata
-        let targetHandleData: any = null;
-        const targetHandleId = connection.targetHandle;
-
-        if (targetNode.type === 'ai_generator') {
-            const modelId = targetNode.data?.config?.model_id;
-            const model = models.find(m => m.id === modelId);
-            targetHandleData = model?.inputs_schema?.handles?.find(h => (h.api_mapping_key || h.name) === targetHandleId);
-        } else {
-            const targetDef = sharedRegistry[targetNode.type as keyof typeof sharedRegistry];
-            // Match by ID or treat first handle as default if ID is null/empty
-            targetHandleData = targetDef?.handles?.inputs?.find(h => h.id === targetHandleId) || targetDef?.handles?.inputs?.[0];
-            
-            // Fallback to custom props or dynamic schema
-            if (!targetHandleData && targetNode.id === id && customInputs) {
-                targetHandleData = customInputs.find(h => h.id === targetHandleId);
-            }
-        }
-
-        // 3. Type Validation
-        const sourceType = String(sourceHandleData?.type || sourceHandleData?.dataType || 'any').toLowerCase();
-        const targetType = String(targetHandleData?.type || targetHandleData?.expectedType || 'any').toLowerCase();
-
-        if (sourceType !== 'any' && targetType !== 'any') {
-            const normSource = sourceType.replace('_array', '');
-            const normTarget = targetType.replace('_array', '');
-            if (normSource !== normTarget) return false;
-        }
-
-        // 4. Connection Limit
-        const isTargetArray = targetHandleData?.isArray || targetHandleData?.is_array;
-        if (!isTargetArray) {
-            const existingEdges = edges.filter(e => e.target === connection.target && e.targetHandle === targetHandleId);
-            if (existingEdges.length >= 1) return false;
-        }
-
-        return true;
-    }, [getNode, models, edges, id, customInputs]);
-
-    // Determine inputs to render
     const inputsToRender = customInputs || sharedDef?.handles?.inputs;
 
     return (
@@ -254,7 +189,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
-                                    isValidConnection={validateConnection}
                                     className={cn(
                                         "w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200",
                                         "before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full",
@@ -290,7 +224,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
-                        isValidConnection={validateConnection}
                         className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                   before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{
@@ -344,7 +277,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     type="source"
                                     position={Position.Right}
                                     id={output.id}
-                                    isValidConnection={validateConnection}
                                 className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                           before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                                 style={{
@@ -365,7 +297,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="source"
                         position={Position.Right}
                         id={defaultOutputId}
-                        isValidConnection={validateConnection}
                         className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
                                   before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{

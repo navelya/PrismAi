@@ -33,9 +33,11 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             let newConfig = node.data?.config || {};
             
             if (def && def.defaultConfig) {
-                const mergedConfig = { ...def.defaultConfig, ...newConfig };
-                if (JSON.stringify(mergedConfig) !== JSON.stringify(newConfig)) {
-                    newConfig = mergedConfig;
+                const hasMissingDefaults = Object.keys(def.defaultConfig).some(
+                    (key) => !(key in newConfig)
+                );
+                if (hasMissingDefaults) {
+                    newConfig = { ...def.defaultConfig, ...newConfig };
                     nodeChanged = true;
                 }
             }
@@ -58,11 +60,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         });
 
         const finalWorkflow = hasChanges ? { ...workflow, nodes: transformedNodes } : workflow;
-        
-        // Deep compare with current to avoid redundant sets
-        const currentWf = get().currentWorkflow;
-        if (currentWf && JSON.stringify(finalWorkflow) === JSON.stringify(currentWf)) {
-            // Even if identical, we might want to update the dirty flag
+
+        if (get().currentWorkflow === finalWorkflow) {
             if (get().isWorkflowDirty !== isDirty) {
                 set({ isWorkflowDirty: isDirty });
             }

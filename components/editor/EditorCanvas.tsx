@@ -12,6 +12,7 @@ import ReactFlow, {
     getConnectedEdges,
     Connection,
     Panel,
+    useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
@@ -23,6 +24,7 @@ import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 
 interface EditorCanvasProps {
     nodes: any[];
@@ -77,11 +79,51 @@ function EditorCanvasInner({
     const { resolvedTheme } = useTheme();
 
     const setIsDragging = useAppStore((state) => state.setIsDragging);
-    const setLiveNodePosition = useAppStore((state) => state.setLiveNodePosition);
-    const liveNodePositions = useAppStore((state) => state.liveNodePositions);
+    const models = useAppStore((state) => state.models);
+    const [liveNodePositions, setLiveNodePositions] = useState<Record<string, { x: number; y: number }>>({});
+    const liveNodePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+    const pendingLivePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+    const liveDragRafIdRef = useRef<number | null>(null);
+
+    // Stable primitive key — only changes when the actual set of DB node type IDs changes.
+    // Using a string avoids the reference-equality trap that causes the #002 warning.
+    const nodeTypeIds = useAppStore((state: any) =>
+        (state.nodeTypes as any[]).map((nt) => nt.id).sort().join(',')
+    );
+    // Pre-build a Set for O(1) lookup inside isValidConnection
+    const aiNodeTypeIds = useMemo(() => new Set(nodeTypeIds.split(',').filter(Boolean)), [nodeTypeIds]);
+
+    // useReactFlow gives us always-fresh node/edge data from ReactFlow's own store.
+    // This is critical: it bypasses the staleness of the `nodes` prop after model switches.
+    const { getNode: getRFNode, getNodes: getRFNodes, getEdges: getRFEdges } = useReactFlow();
 
     const copyNode = useAppStore((state) => state.copyNode);
     const pasteNode = useAppStore((state) => state.pasteNode);
+
+    const flushLivePositions = useCallback(() => {
+        liveDragRafIdRef.current = null;
+        const pendingUpdates = pendingLivePositionsRef.current;
+        pendingLivePositionsRef.current = {};
+
+        const pendingEntries = Object.entries(pendingUpdates);
+        if (pendingEntries.length === 0) return;
+
+        const nextLivePositions = { ...liveNodePositionsRef.current };
+        let changed = false;
+
+        pendingEntries.forEach(([id, position]) => {
+            const previous = nextLivePositions[id];
+            if (!previous || previous.x !== position.x || previous.y !== position.y) {
+                nextLivePositions[id] = position;
+                changed = true;
+            }
+        });
+
+        if (changed) {
+            liveNodePositionsRef.current = nextLivePositions;
+            setLiveNodePositions(nextLivePositions);
+        }
+    }, []);
 
     // Overlay live positions for buttery smooth dragging
     const displayNodes = useMemo(() => {
@@ -113,28 +155,17 @@ function EditorCanvasInner({
     })), [edges, edgeStyle]);
 
     const touchInteraction = useAppStore((state) => state.touchInteraction);
-    const nodeTypesFromStore = useAppStore((state) => state.nodeTypes);
 
-    // 🛡️ STABILITY FIX: Memoize nodeTypes and edgeTypes at top level to maintain ref identity
-    // ✅ DYNAMIC NODE TYPES: Include all database node types (image_generation, text_generation, etc.)
-    // Each dynamic type uses the AIGeneratorNode component
+
+    // nodeTypes object for <ReactFlow nodeTypes={...}>.
+    // Keyed off a stable string so useMemo only recreates when DB node types actually change.
     const nodeTypes = useMemo(() => {
         const dynamicTypes: Record<string, React.ComponentType<any>> = {};
-        
-        // Register all node types from database with AIGeneratorNode
-        nodeTypesFromStore.forEach((nt: any) => {
-            dynamicTypes[nt.id] = stableNodeTypes.ai_generator;
+        nodeTypeIds.split(',').filter(Boolean).forEach(ntId => {
+            dynamicTypes[ntId] = stableNodeTypes.ai_generator;
         });
-        
-        const allTypes = {
-            ...stableNodeTypes,
-            ...dynamicTypes
-        };
-        
-        console.log('🎨 [Canvas] Registered node types:', Object.keys(allTypes));
-        
-        return allTypes;
-    }, [nodeTypesFromStore]);
+        return { ...stableNodeTypes, ...dynamicTypes };
+    }, [nodeTypeIds]);
     
     const edgeTypes = useMemo(() => stableEdgeTypes, []);
 
@@ -170,8 +201,7 @@ function EditorCanvasInner({
 
             // Copy: Ctrl+C - copy selected node
             if (ctrlKey && event.key.toLowerCase() === 'c') {
-                // Get selected nodes from React Flow
-                const selectedNodes = nodes.filter((n: any) => n.selected);
+                const selectedNodes = getRFNodes().filter((n: any) => n.selected);
                 if (selectedNodes.length === 1) {
                     event.preventDefault();
                     copyNode(selectedNodes[0].id);
@@ -191,12 +221,15 @@ function EditorCanvasInner({
         return () => {
             document.removeEventListener('keydown', handleKeyDown, true);
         };
-    }, [undo, redo, canUndo, canRedo, nodes, copyNode, pasteNode]);
+    }, [undo, redo, canUndo, canRedo, copyNode, pasteNode, getRFNodes]);
 
     // Handle node drag
-    const handleNodeDrag: NodeDragHandler = useCallback((event, node) => {
-        setLiveNodePosition(node.id, node.position);
-    }, [setLiveNodePosition]);
+    const handleNodeDrag: NodeDragHandler = useCallback((_event, node) => {
+        pendingLivePositionsRef.current[node.id] = node.position;
+        if (liveDragRafIdRef.current === null) {
+            liveDragRafIdRef.current = requestAnimationFrame(flushLivePositions);
+        }
+    }, [flushLivePositions]);
 
     // Handle node drag start
     const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
@@ -207,55 +240,72 @@ function EditorCanvasInner({
 
     // Handle node drag stop
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
-        // Collect final positions from liveNodePositions slice
-        const state = useAppStore.getState();
+        if (liveDragRafIdRef.current !== null) {
+            cancelAnimationFrame(liveDragRafIdRef.current);
+            liveDragRafIdRef.current = null;
+        }
+        flushLivePositions();
+
         const positionsMap = new Map<string, { x: number; y: number }>();
-        Object.entries(state.liveNodePositions).forEach(([id, pos]) => {
+        Object.entries(liveNodePositionsRef.current).forEach(([id, pos]) => {
             positionsMap.set(id, pos);
         });
+        if (positionsMap.size === 0) {
+            positionsMap.set(node.id, node.position);
+        }
 
         // 🛡️ SYNC FIX: Update the hook first (the owner of state)
         if (updatePositions && positionsMap.size > 0) {
             updatePositions(positionsMap);
         }
 
-        // Now clear and stop
-        state.clearLiveNodePositions();
+        liveNodePositionsRef.current = {};
+        pendingLivePositionsRef.current = {};
+        setLiveNodePositions({});
         setIsDragging(false);
         touchInteraction();
 
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
-    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions]);
+    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, flushLivePositions]);
 
     // Throttle high-frequency node change events (drag) to the next animation frame
-    const pendingNodeChanges = useRef<NodeChange[] | null>(null);
-    const rafId = useRef<number | null>(null);
+    const pendingNodeChanges = useRef<Map<string, NodeChange>>(new Map());
+    const nodeChangeRafId = useRef<number | null>(null);
 
     const flushNodeChanges = useCallback(() => {
-        if (pendingNodeChanges.current && pendingNodeChanges.current.length > 0) {
+        if (pendingNodeChanges.current.size > 0) {
+            const changes = Array.from(pendingNodeChanges.current.values());
+            pendingNodeChanges.current.clear();
+
             // Filter out position changes during drag - they are handled by liveNodePositions
             // BUT if we are NOT dragging (e.g. final drop), we must include them to sync React Flow's state
             const isDragging = useAppStore.getState().isDragging;
             const importantChanges = isDragging
-                ? pendingNodeChanges.current.filter(c => c.type !== 'position')
-                : pendingNodeChanges.current;
+                ? changes.filter(c => c.type !== 'position')
+                : changes;
 
             if (importantChanges.length > 0) {
                 onNodesChange(importantChanges);
             }
         }
-        pendingNodeChanges.current = null;
-        rafId.current = null;
+        nodeChangeRafId.current = null;
     }, [onNodesChange]);
 
     const handleNodesChangeThrottled = useCallback((changes: NodeChange[]) => {
-        if (pendingNodeChanges.current) {
-            pendingNodeChanges.current = pendingNodeChanges.current.concat(changes);
-        } else {
-            pendingNodeChanges.current = changes;
-        }
-        if (rafId.current === null) {
-            rafId.current = requestAnimationFrame(flushNodeChanges);
+        changes.forEach((change, index) => {
+            let key = `${change.type}:${index}`;
+            if ('id' in change && change.id) {
+                key = `${change.type}:${change.id}`;
+            } else if (change.type === 'add' && 'item' in change && change.item?.id) {
+                key = `add:${change.item.id}`;
+            } else if (change.type === 'reset') {
+                key = 'reset';
+            }
+            pendingNodeChanges.current.set(key, change);
+        });
+
+        if (nodeChangeRafId.current === null) {
+            nodeChangeRafId.current = requestAnimationFrame(flushNodeChanges);
         }
     }, [flushNodeChanges]);
 
@@ -275,8 +325,11 @@ function EditorCanvasInner({
 
     useEffect(() => {
         return () => {
-            if (rafId.current) {
-                cancelAnimationFrame(rafId.current);
+            if (nodeChangeRafId.current) {
+                cancelAnimationFrame(nodeChangeRafId.current);
+            }
+            if (liveDragRafIdRef.current) {
+                cancelAnimationFrame(liveDragRafIdRef.current);
             }
             if (mouseTimeoutRef.current) {
                 clearTimeout(mouseTimeoutRef.current);
@@ -400,30 +453,96 @@ function EditorCanvasInner({
         [nodes, edges, onEdgesChange, onConnect]
     );
 
-    // Prevent cycles and invalid handle connections
+    // Global connection validator — single source of truth for ALL connection rules.
+    // IMPORTANT: uses getRFNode/getRFNodes/getRFEdges (React Flow's internal store) NOT
+    // the `nodes`/`edges` props, because those props can lag behind after a model switch.
     const isValidConnection = useCallback(
         (connection: Connection) => {
-            // Don't allow self-connections
             if (connection.source === connection.target) return false;
 
-            const targetNode = nodes.find((node: any) => node.id === connection.target);
-            if (!targetNode) return false;
+            // Always-fresh node data from ReactFlow's internal store
+            const sourceNode = getRFNode(connection.source!);
+            const targetNode = getRFNode(connection.target!);
+            if (!sourceNode || !targetNode) return false;
 
-            // DFS to check for cycle
+            // Cycle check (DFS) using fresh ReactFlow data
+            const rfNodes = getRFNodes();
+            const rfEdges = getRFEdges();
             const hasCycle = (node: any, visited = new Set<string>()): boolean => {
                 if (visited.has(node.id)) return false;
                 visited.add(node.id);
-
-                for (const outgoer of getOutgoers(node, nodes, edges)) {
+                for (const outgoer of getOutgoers(node, rfNodes, rfEdges)) {
                     if (outgoer.id === connection.source) return true;
                     if (hasCycle(outgoer, visited)) return true;
                 }
                 return false;
             };
+            if (hasCycle(targetNode)) return false;
 
-            return !hasCycle(targetNode);
+            // Helper: is this node type an AI generator?
+            const isAiNode = (nodeType: string | undefined) =>
+                !!nodeType && (nodeType === 'ai_generator' || aiNodeTypeIds.has(nodeType));
+
+            // Helper: resolve a handle definition's wire type
+            const resolveType = (def: any): string =>
+                String(def?.type || def?.dataType || 'any').toLowerCase();
+
+            // 1. Resolve source handle type
+            const sourceHandleId = connection.sourceHandle;
+            let sourceHandleDef: any = null;
+            const sourceNodeType = sourceNode.type ?? '';
+
+            if (isAiNode(sourceNodeType)) {
+                const model = models.find((m: any) => Number(m.id) === Number(sourceNode.data?.config?.model_id));
+                sourceHandleDef = model?.outputs_schema?.handles?.find(
+                    (h: any) => (h.api_mapping_key || h.name) === sourceHandleId
+                ) ?? model?.outputs_schema?.handles?.[0];
+            } else {
+                const def = sharedRegistry[sourceNodeType as keyof typeof sharedRegistry];
+                const outputs = def?.handles?.outputs ?? [];
+                sourceHandleDef = outputs.find((h: any) => h.id === sourceHandleId)
+                    ?? (outputs.length === 1 ? outputs[0] : null);
+            }
+
+            // 2. Resolve target handle type and is_array
+            const targetHandleId = connection.targetHandle;
+            let targetHandleDef: any = null;
+            const targetNodeType = targetNode.type ?? '';
+
+            if (isAiNode(targetNodeType)) {
+                const model = models.find((m: any) => Number(m.id) === Number(targetNode.data?.config?.model_id));
+                targetHandleDef = model?.inputs_schema?.handles?.find(
+                    (h: any) => (h.api_mapping_key || h.name) === targetHandleId
+                ) ?? null;
+            } else {
+                const def = sharedRegistry[targetNodeType as keyof typeof sharedRegistry];
+                const inputs = def?.handles?.inputs ?? [];
+                targetHandleDef = inputs.find((h: any) => h.id === targetHandleId)
+                    ?? inputs[0] ?? null;
+            }
+
+            // 3. Type compatibility
+            const sourceType = resolveType(sourceHandleDef);
+            const targetType = resolveType(targetHandleDef);
+
+            if (sourceType !== 'any' && targetType !== 'any') {
+                const normSource = sourceType.replace('_array', '');
+                const normTarget = targetType.replace('_array', '');
+                if (normSource !== normTarget) return false;
+            }
+
+            // 4. Connection limit (skip for array-type handles)
+            const isArray = !!(targetHandleDef?.is_array) || targetType.endsWith('_array');
+            if (!isArray) {
+                const existing = rfEdges.filter(
+                    (e: any) => e.target === connection.target && e.targetHandle === targetHandleId
+                );
+                if (existing.length >= 1) return false;
+            }
+
+            return true;
         },
-        [nodes, edges]
+        [getRFNode, getRFNodes, getRFEdges, models, aiNodeTypeIds]
     );
 
     // Context menu right-click handler
