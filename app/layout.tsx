@@ -13,14 +13,14 @@ import { CrashRecoveryProvider } from '@/components/providers/CrashRecoveryProvi
 // const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space' });
 
 export const metadata: Metadata = {
-  title: 'Prism AI - Chat-First Automation Platform',
+  title: 'Prisfol - Chat-First Automation Platform',
   description: 'Transform natural language commands into powerful automation workflows for graphic design',
   keywords: ['automation', 'AI', 'workflow', 'graphic design', 'no-code'],
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Prism AI',
+    title: 'Prisfol',
   },
   other: {
     'mobile-web-app-capable': 'yes',
@@ -78,7 +78,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body className="font-sans" style={{ 
+      <body className="font-sans" style={{
         fontFamily: "'Inter', sans-serif",
         // @ts-ignore
         '--font-inter': "'Inter', sans-serif",

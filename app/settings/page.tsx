@@ -603,7 +603,7 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
 
                     <SettingCard
                         title="Usage Analytics"
-                        description="Help improve PrismAI by sharing anonymous usage data."
+                        description="Help improve Prisfol by sharing anonymous usage data."
                         layout="inline"
                         disabled
                     >
@@ -644,7 +644,7 @@ const comingSoonDescriptions: Record<string, { title: string; description: strin
     notifications: { title: 'Notifications', description: 'Control how and when you receive workflow completion alerts and system updates.' },
     'plan-billing': { title: 'Plan & Billing', description: 'View your current plan, manage subscriptions, and update payment methods.' },
     usage: { title: 'Token / Credit Usage', description: 'Monitor your API token consumption, credit balance, and usage history.' },
-    'api-keys': { title: 'API Keys', description: 'Generate and manage API keys for programmatic access to PrismAI.' },
+    'api-keys': { title: 'API Keys', description: 'Generate and manage API keys for programmatic access to Prisfol.' },
     integrations: { title: 'Integrations', description: 'Connect third-party services like Slack, GitHub, and cloud storage providers.' },
 };
 

@@ -26,14 +26,14 @@ import { cn } from '@/lib/utils';
 // REUSABLE SUB-COMPONENTS
 // =============================================================================
 
-const PrismLogo = ({ className }: { className?: string }) => (
+const PrisfolLogo = ({ className }: { className?: string }) => (
     <div className={cn("flex items-center gap-2", className)}>
         <div className="relative w-8 h-8">
             <div className="absolute inset-0 bg-accent-primary transform rotate-45 rounded-sm opacity-20 animate-pulse" />
             <div className="absolute inset-1 border-2 border-accent-primary transform rotate-45 rounded-sm shadow-[0_0_15px_rgba(6,182,212,0.5)]" />
             <div className="absolute inset-[10px] bg-accent-secondary rounded-full" />
         </div>
-        <span className="text-xl font-black tracking-tighter text-content-primary font-display">PRISMAI</span>
+        <span className="text-xl font-black tracking-tighter text-content-primary font-display">Prisfol</span>
     </div>
 );
 
@@ -72,7 +72,7 @@ export default function Home() {
             <div className="relative z-10 w-full flex flex-col items-center">
                 {/* ─── Navigation (Minimal) ─────────────────────────────────── */}
                 <nav className="w-full max-w-7xl px-8 py-10 flex justify-between items-center">
-                    <PrismLogo />
+                    <PrisfolLogo />
                     <div className="hidden md:flex items-center gap-12">
                         <Link href="#architecture" className="text-xs font-black uppercase tracking-[0.2em] text-content-secondary hover:text-accent-primary transition-colors">Architecture</Link>
                         <Link href="#vision" className="text-xs font-black uppercase tracking-[0.2em] text-content-secondary hover:text-accent-primary transition-colors">Vision</Link>
@@ -102,7 +102,7 @@ export default function Home() {
                         </h1>
 
                         <p className="text-xl sm:text-2xl text-content-secondary/70 max-w-3xl mx-auto font-medium leading-relaxed px-4 capitalize">
-                            PrismAI is the structural bridge between natural intent and
+                            Prisfol is the structural bridge between natural intent and
                             <span className="text-accent-secondary"> mission-critical</span> execution. High-performance glass pipelines for the automated age.
                         </p>
 
@@ -228,7 +228,7 @@ export default function Home() {
                 <footer className="w-full max-w-7xl px-12 py-32 border-t border-accent-primary/10">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-32 mb-32">
                         <div className="col-span-1 border-r border-accent-primary/10 pr-12">
-                            <PrismLogo className="mb-10" />
+                            <PrisfolLogo className="mb-10" />
                             <p className="text-[10px] text-content-tertiary font-black leading-relaxed uppercase tracking-[0.3em]">
                                 Redefining visual engineering through structural AI orchestration.
                             </p>
@@ -266,7 +266,7 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-col md:flex-row justify-between items-center pt-16 border-t border-accent-primary/5 text-[10px] font-black tracking-[0.5em] text-accent-primary/20 uppercase">
-                        <div>© 2026 PRISMAI LABS</div>
+                        <div>© 2026 Prisfol LABS</div>
                         <div>Built for the high-precision age</div>
                         <div className="flex gap-8">
                             <span>Status: Nominal</span>

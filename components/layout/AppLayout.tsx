@@ -37,7 +37,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
     // Get workflow name from store
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
-    const workflowName = currentWorkflow?.name || 'PrismAI';
+    const workflowName = currentWorkflow?.name || 'Prisfol';
 
     // Hide sidebar on home page, login page, and demo page
     const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo';

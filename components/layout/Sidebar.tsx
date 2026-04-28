@@ -188,7 +188,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                 <Sparkles className="w-5 h-5 text-accent-primary" />
                             </div>
                             <div>
-                                <h1 className="font-bold text-content-primary">Prism AI</h1>
+                                <h1 className="font-bold text-content-primary">Prisfol</h1>
                                 <p className="text-xs text-content-secondary">Automation Platform</p>
                             </div>
                         </div>

@@ -744,7 +744,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 <Sparkles className="w-5 h-5 text-content-inverted" />
                             </div>
                             <h1 className="text-2xl font-bold text-content-primary">
-                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prism AI'}
+                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prisfol'}
                             </h1>
                         </div>
                         <p className="text-content-secondary mb-8">
@@ -818,7 +818,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                                 <Sparkles className="w-4 h-4 text-white" />
                             </div>
                             <h1 className="text-xl font-bold text-content-primary">
-                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prism AI'}
+                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prisfol'}
                             </h1>
                         </div>
                         <p className="text-content-secondary text-sm">

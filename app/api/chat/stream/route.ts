@@ -112,7 +112,7 @@ ${modelsList || '      (No models available)'}`;
             idMap: new Map<string, string>()
         };
 
-        const prismTools = {
+        const prisfolTools = {
             add_node: tool({
                 description: `Create exactly one node. This tool also creates that node's inbound connections using 'inputs'. 
 STRICT ORDER: You must only reference IDs of nodes that already exist (existing canvas IDs or IDs from earlier add_node calls).
@@ -254,7 +254,7 @@ ${imagesContext}`;
                             model: google('gemini-2.5-flash'),
                             system: systemPrompt,
                             messages: mappedHistory,
-                            tools: prismTools,
+                            tools: prisfolTools,
                         });
 
                         for await (const part of result.fullStream as any) {

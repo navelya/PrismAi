@@ -98,7 +98,7 @@ export default function LoginPage() {
                     </p>
                     <div className="bg-surface-secondary/50 backdrop-blur-xl border border-stroke-subtle rounded-2xl p-6 shadow-xl">
                         <p className="text-sm text-content-tertiary mb-4">
-                            Click the link in the email to activate your account and access Prism AI.
+                            Click the link in the email to activate your account and access Prisfol.
                         </p>
                         <button
                             onClick={() => setCheckEmail(false)}
@@ -128,7 +128,7 @@ export default function LoginPage() {
                             <Sparkles className="w-6 h-6 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold text-content-primary">Prism AI</h1>
+                            <h1 className="text-2xl font-bold text-content-primary">Prisfol</h1>
                             <p className="text-sm text-content-secondary">Automation Platform</p>
                         </div>
                     </Link>
