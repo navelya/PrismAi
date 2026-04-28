@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
+import { calculateNodePosition } from '@/lib/workflow/layout-utils';
 
 
 export interface UseChatMessagesProps {
@@ -294,6 +295,37 @@ export function useChatMessages({
 
                     const appStore = useAppStore.getState();
                     if (parsed.patch) {
+                        // ── Auto-layout: replace AI-supplied positions with calculated ones ──
+                        // We do this BEFORE applying the patch so each node's position is
+                        // computed against the canvas as it exists at this exact moment
+                        // (including any nodes already placed earlier in this same stream).
+                        if (parsed.name === 'add_node' && parsed.patch.addedNodes?.length) {
+                            const currentNodes = streamingWorkflowCursor?.nodes || [];
+                            const patchEdges = parsed.patch.addedEdges || [];
+
+                            // Process nodes one by one so later nodes in the same patch
+                            // can avoid collisions with earlier ones in the same batch.
+                            const resolvedNodes: typeof currentNodes = [];
+                            for (const node of parsed.patch.addedNodes) {
+                                const sourceNodeIds = patchEdges
+                                    .filter((e: any) => e.target === node.id)
+                                    .map((e: any) => e.source);
+
+                                const position = calculateNodePosition(
+                                    node.type,
+                                    sourceNodeIds,
+                                    [...currentNodes, ...resolvedNodes]
+                                );
+
+                                resolvedNodes.push({ ...node, position });
+                            }
+
+                            parsed = {
+                                ...parsed,
+                                patch: { ...parsed.patch, addedNodes: resolvedNodes }
+                            };
+                        }
+
                         const patched = applyWorkflowPatch(streamingWorkflowCursor, parsed.patch);
                         const styledEdges = (patched.edges || []).map((edge: any) => ({
                             ...edge,

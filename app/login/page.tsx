@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Sparkles, Loader2, ArrowRight, Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
+import { Loader2, ArrowRight, Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 
 export default function LoginPage() {
@@ -124,13 +124,7 @@ export default function LoginPage() {
                 {/* Logo */}
                 <div className="flex justify-center mb-8">
                     <Link href="/" className="flex items-center gap-3 group">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-premium flex items-center justify-center shadow-lg shadow-accent-primary/20 group-hover:scale-105 transition-transform duration-300">
-                            <Sparkles className="w-6 h-6 text-white" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-bold text-content-primary">Prisfol</h1>
-                            <p className="text-sm text-content-secondary">Automation Platform</p>
-                        </div>
+                        <h1 className="text-2xl font-bold text-content-primary">Prisfol</h1>
                     </Link>
                 </div>
 

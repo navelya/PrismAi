@@ -194,7 +194,25 @@ export default function SharedWorkflowEditor({
 
     const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => {
         if (readOnly) return;
-        addNode(type, position, nodeTypeId, modelId);
+
+        // For AI generator nodes without a pre-selected model, resolve the default
+        // model NOW from the already-loaded store — before the node is added.
+        // This prevents AIGeneratorNode from having to call setNodes() on mount
+        // to set the model_id, which was bypassing editorState and wiping the workflow.
+        let resolvedModelId = modelId;
+        if (!resolvedModelId && (type === 'ai_generator' || !Object.prototype.hasOwnProperty.call(
+            // Check if this is a dynamic AI node type (not a static node from sharedRegistry)
+            { media_input: 1, compositor: 1, prompt: 1, blur: 1 }, type
+        ))) {
+            const storeModels = useAppStore.getState().models;
+            const candidateModels = nodeTypeId
+                ? storeModels.filter((m: any) => m.node_type_id === nodeTypeId)
+                : storeModels;
+            const firstActive = candidateModels.find((m: any) => m.is_active) || candidateModels[0];
+            if (firstActive) resolvedModelId = firstActive.id;
+        }
+
+        addNode(type, position, nodeTypeId, resolvedModelId);
     };
 
     const handleSave = async () => {

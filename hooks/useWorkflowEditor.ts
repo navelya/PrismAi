@@ -120,6 +120,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
             position: n.position || { x: 0, y: 0 },
             data: n.data,
             zIndex: n.zIndex || 0,
+            width: n.width,
+            height: n.height,
+            measured: n.measured,
             // selected: false, // Ensure selected state is not initially set from legacy data if possible? ReactFlow handles selection internally on nodes.
         }));
     };
@@ -234,6 +237,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
                 position: n.position,
                 data: stripVolatileNodeData(n.data),
                 zIndex: n.zIndex || 0,
+                width: n.width,
+                height: n.height,
+                measured: n.measured,
             })),
             edges: incomingEdges.map((e) => ({
                 id: e.id,
@@ -256,6 +262,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
                     position: n.position,
                     data: stripVolatileNodeData(n.data),
                     zIndex: n.zIndex || 0,
+                    width: n.width,
+                    height: n.height,
+                    measured: n.measured,
                 })),
                 edges: prev.edges.map((e) => ({
                     id: e.id,
@@ -489,6 +498,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
                 position: n.position,
                 data: n.data,
                 zIndex: n.zIndex,
+                width: n.width,
+                height: n.height,
+                measured: n.measured,
             })),
             edges: editorState.edges.map(e => ({
                 id: e.id,

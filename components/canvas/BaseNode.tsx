@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, useReactFlow, useEdges } from 'reactflow';
+import { Handle, Position, useReactFlow, useEdges, useStore, ReactFlowState } from 'reactflow';
 import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -67,6 +67,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const edges = useEdges();
 
+    // Get the current zoom level to compensate border-widths
+    const zoom = useStore((s: ReactFlowState) => s.transform[2]);
+    const b1 = 1 / zoom;
+    const b2 = 2 / zoom;
+
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
     const displayLabel = label || metadata?.label || 'Node';
@@ -120,13 +125,19 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             className={cn(
                 "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40",
                 !isDragging && "transition-[border-color,box-shadow,background-color] duration-500 ease-out",
-                selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] ring-1 ring-accent-primary/20" : "border-stroke-subtle shadow-xl",
+                selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] outline-none" : "border-stroke-subtle shadow-xl",
                 "hover:border-stroke-strong hover:bg-surface-elevated/50 hover:shadow-2xl",
                 typeof width === 'string' ? width : '',
                 className
             )}
             style={{
                 width: typeof width === 'number' ? width : undefined,
+                borderWidth: `${b1}px`,
+                // Constant-width selection ring using outline (which follows border-radius in modern browsers)
+                ...(selected && {
+                    outline: `${b1}px solid rgb(var(--accent-primary) / 0.2)`,
+                    outlineOffset: '0'
+                }),
                 willChange: 'transform',
                 transition: isDragging ? 'none' : undefined,
                 ...props.style
@@ -139,16 +150,18 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 {customActions}
                 <button
                     onClick={handleDuplicate}
-                    className="w-6 h-6 rounded-lg bg-white/5 border border-white/10 backdrop-blur-md
+                    className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
                                 flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white/10 transition-all duration-200"
+                    style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
                     title="Duplicate node"
                 >
                     <Copy className="w-3 h-3 text-content-primary" />
                 </button>
                 <button
                     onClick={handleDelete}
-                    className="w-6 h-6 rounded-lg bg-accent-error/10 border border-accent-error/20 backdrop-blur-md
+                    className="w-6 h-6 rounded-lg bg-accent-error/10 border backdrop-blur-md
                                 flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
+                    style={{ borderWidth: `${b1}px`, borderColor: 'rgba(var(--accent-error-rgb), 0.2)' }}
                     title="Delete node"
                 >
                     <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-content-inverted" />
@@ -160,12 +173,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 <div
                     className={cn(
                         "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
-                        "shadow-lg border-2 border-surface-primary transition-all duration-300",
+                        "shadow-lg border-surface-primary transition-all duration-300",
                         status === 'pending' && "bg-slate-500",
                         status === 'running' && "bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]",
                         status === 'success' && "bg-accent-secondary shadow-[0_0_10px_rgba(20,184,166,0.5)]",
                         status === 'error' && "bg-accent-error"
                     )}
+                    style={{ borderWidth: `${b2}px` }}
                 >
                     {status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
                     {status === 'success' && <Check className="w-4 h-4 text-content-inverted" />}
@@ -190,11 +204,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     position={Position.Left}
                                     id={input.id}
                                     className={cn(
-                                        "w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200",
+                                        "w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200",
                                         "before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full",
                                         (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id) && "animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.4)]"
                                     )}
                                     style={{
+                                        borderWidth: `${b2}px`,
+                                        borderStyle: 'solid',
                                         background: input.color || nodeColor,
                                         boxShadow: (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id)
                                             ? `0 0 12px ${input.color || nodeColor}80`
@@ -224,9 +240,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
-                        className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
+                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200
                                   before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{
+                            borderWidth: `${b2}px`,
+                            borderStyle: 'solid',
                             background: nodeColor,
                             boxShadow: `0 0 10px ${nodeColor}40`,
                             left: -5,
@@ -277,9 +295,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     type="source"
                                     position={Position.Right}
                                     id={output.id}
-                                className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
+                                className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200
                                           before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                                 style={{
+                                    borderWidth: `${b2}px`,
+                                    borderStyle: 'solid',
                                     background: output.color || nodeColor,
                                     boxShadow: `0 0 10px ${output.color || nodeColor}40`,
                                     right: -5,
@@ -297,9 +317,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="source"
                         position={Position.Right}
                         id={defaultOutputId}
-                        className="w-2.5 h-2.5 !border-2 !border-surface-primary hover:!scale-125 transition-all duration-200
+                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200
                                   before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                         style={{
+                            borderWidth: `${b2}px`,
+                            borderStyle: 'solid',
                             background: nodeColor,
                             boxShadow: `0 0 10px ${nodeColor}40`,
                             right: -5,

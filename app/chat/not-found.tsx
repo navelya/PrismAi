@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Play, Sparkles, AlertCircle, RotateCcw, ArrowLeft } from 'lucide-react';
+import { Play, Sparkles, AlertCircle, RotateCcw, ArrowLeft, Workflow } from 'lucide-react';
 
 export default function WorkflowNotFound() {
     return (
@@ -105,7 +105,7 @@ export default function WorkflowNotFound() {
                         href="/chat"
                         className="group relative px-6 py-3 bg-gradient-premium text-white rounded-lg font-medium shadow-lg shadow-accent-primary/25 hover:shadow-accent-primary/40 transition-all flex items-center gap-2"
                     >
-                        <Sparkles className="w-4 h-4" />
+                        <Workflow className="w-4 h-4" />
                         Start New Workflow
                     </Link>
 

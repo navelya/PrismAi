@@ -112,7 +112,7 @@ export default function Home() {
                                 className="w-full sm:w-auto group flex items-center justify-center gap-4 px-12 py-7 rounded-2xl bg-accent-primary text-white font-black text-xl hover:scale-105 active:scale-95 transition-all shadow-[0_20px_50px_-10px_rgba(6,182,212,0.4)]"
                             >
                                 <Command className="w-6 h-6 text-white" />
-                                START ENGINE
+                                START BUILDING
                                 <ArrowRight className="w-6 h-6 group-hover:translate-x-2 transition-transform text-white" />
                             </Link>
 

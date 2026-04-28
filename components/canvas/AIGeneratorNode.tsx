@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, memo } from 'react';
-import { useReactFlow, useUpdateNodeInternals } from 'reactflow';
+import { useUpdateNodeInternals } from 'reactflow';
 import { Zap, Check, Square, LayoutGrid, MoreHorizontal, Play } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
@@ -30,7 +30,6 @@ const WIRE_TYPE_COLORS: Record<string, string> = {
 // =============================================================================
 
 function AIGeneratorNode({ id, data, selected }: any) {
-    const { setNodes } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
     const liveOutput = useAppStore(state => state.nodeOutputs[id]);
     const status = useAppStore(state => state.nodeStatuses[id] || 'idle');
@@ -85,22 +84,6 @@ function AIGeneratorNode({ id, data, selected }: any) {
         updateNodeInternals(id);
     }, [id, data.config?.model_id, updateNodeInternals]);
 
-    // Initial load for auto-selecting if empty
-    useEffect(() => {
-        // If we have a model_id in data.config (from drag), use it
-        if (data.config?.model_id && !selectedModel) {
-            // Wait for models to load or resolve from state
-            return;
-        }
-
-        if (!data.config?.model_id && filteredModels.length > 0) {
-            const firstActive = filteredModels.find(mod => mod.is_active) || filteredModels[0];
-            setNodes(prev => prev.map(n => n.id === id
-                ? { ...n, data: { ...n.data, config: { ...n.data.config, model_id: firstActive.id, control_values: {} } } }
-                : n
-            ));
-        }
-    }, [id, filteredModels, data.config?.model_id, setNodes, selectedModel]);
 
     // ✅ PHASE 1 FIX: Edge cleanup logic removed
     // ISSUE: Direct setEdges() manipulation bypassed editor state, causing sync mismatches

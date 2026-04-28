@@ -125,7 +125,7 @@ Use simple temporary IDs for new nodes (e.g. "n1", "prompt_1").`,
                     position: z.object({
                         x: z.number(),
                         y: z.number()
-                    }).describe('Node position. Standard size: 210x200; "prompt" nodes: 185x86. Space them to avoid overlap.'),
+                    }).describe('Node position (will be auto-calculated — you may pass any value).'),
                     data: z.object({
                         config: z.any()
                     }).describe(`Node configuration. Must match schema:\n\n${cleanNodesDocs}`),
@@ -156,7 +156,7 @@ Use simple temporary IDs for new nodes (e.g. "n1", "prompt_1").`,
                     position: z.object({
                         x: z.number(),
                         y: z.number()
-                    }).describe('Node position. Standard size: 210x200; "prompt" nodes: 185x90. Space them to avoid overlap.').optional(),
+                    }).describe('Node position (will be auto-calculated — you may pass any value).').optional(),
                     replace_inputs: z.array(z.object({
                         source: z.string(),
                         sourceHandle: z.string().optional(),
@@ -218,9 +218,8 @@ ID RULES:
 - System maps simple IDs to runtime UUIDs automatically.
 
 CANVAS LAYOUT:
-- Standard node size: 210 x 200.
-- "prompt" node size: 185 x 90.
-- Organize nodes logically (usually left-to-right) and avoid overlaps.
+- Positions are managed automatically — you do not need to calculate coordinates.
+- Focus on correct node types, connections, and configuration only.
 
 DESIGN STRATEGY:
 - Default behavior: execute immediately.
