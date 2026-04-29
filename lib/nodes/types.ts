@@ -230,6 +230,12 @@ export interface WorkflowNode {
         __originalType?: string; // Track original type for legacy/deprecated nodes
     };
     zIndex?: number;
+    width?: number;
+    height?: number;
+    measured?: {
+        width?: number;
+        height?: number;
+    };
 }
 
 /**
