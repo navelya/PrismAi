@@ -99,72 +99,112 @@ export async function POST(request: NextRequest) {
       // Normalize output to standard format
       const normalizedOutput = normalizeReplicateOutput(output);
       let finalResultUrl = normalizedOutput?.url || (Array.isArray(normalizedOutput) ? normalizedOutput[0]?.url : null);
-      
+
+      // Helper: fetch with retry to handle Replicate CDN propagation lag
+      const fetchWithRetry = async (url: string, maxAttempts = 3, delayMs = 1500): Promise<Response> => {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const res = await fetch(url);
+          if (res.ok) return res;
+          console.warn(`[Webhook/Replicate-v2] Fetch attempt ${attempt}/${maxAttempts} failed (${res.status}). ${attempt < maxAttempts ? `Retrying in ${delayMs}ms...` : 'No more retries.'}`);
+          if (attempt < maxAttempts) await new Promise(r => setTimeout(r, delayMs));
+        }
+        throw new Error(`Failed to fetch image after ${maxAttempts} attempts`);
+      };
+
       // Feature: Download Replicate image to permanent Supabase Storage
+      // NOTE: Saving a raw Replicate URL is NEVER acceptable — if upload fails after retries, mark node as failed.
       if (finalResultUrl && finalResultUrl.startsWith('http')) {
+        // 1. Fetch execution context to build storage path
+        const { data: executionCtx, error: ctxError } = await supabase
+          .from('executions')
+          .select('session_id, sessions(user_id)')
+          .eq('id', executionId)
+          .single();
+
+        if (ctxError || !executionCtx) {
+          console.error('[Webhook/Replicate-v2] Warning: Could not fetch execution context for path. Using fallback path.', ctxError);
+        }
+
+        const storageSessionId = executionCtx?.session_id || 'unknown_session';
+        const sessionsJoin = executionCtx?.sessions as any;
+        const userId = sessionsJoin?.user_id || 'unknown_user';
+
         try {
-          console.log(`[Webhook/Replicate-v2] Downloading image from Replicate: ${finalResultUrl}`);
-          
-          // 1. Fetch execution context to build storage path
-          const { data: executionCtx, error: ctxError } = await supabase
-            .from('executions')
-            .select('session_id, sessions(user_id)')
-            .eq('id', executionId)
-            .single();
-            
-          if (ctxError || !executionCtx) {
-             console.error('[Webhook/Replicate-v2] Warning: Could not fetch execution context for path. Falling back to simple path.', ctxError);
-          }
-          
-          const sessionId = executionCtx?.session_id || 'unknown_session';
-          // Handle nested sessions(user_id) join
-          const sessionsJoin = executionCtx?.sessions as any;
-          const userId = sessionsJoin?.user_id || 'unknown_user';
-          
-          // 2. Download the image
-          const response = await fetch(finalResultUrl);
-          if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-          
+          console.log(`[Webhook/Replicate-v2] Downloading image from Replicate (with retry): ${finalResultUrl}`);
+
+          // 2. Download the image (retries handle CDN propagation lag)
+          const response = await fetchWithRetry(finalResultUrl);
           const arrayBuffer = await response.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          
+
           // 3. Upload to Supabase 'chat-assets'
           const timestamp = Date.now();
-          // Extract extension from original URL or default to png
           const extUrlMatch = finalResultUrl.match(/\.(png|jpe?g|webp)(\?|$)/i);
           const ext = extUrlMatch ? extUrlMatch[1] : 'png';
-          
-          const storagePath = `${userId}/${sessionId}/thumbnails/${nodeId}/result_${timestamp}.${ext}`;
-          
+          const storagePath = `${userId}/${storageSessionId}/thumbnails/${nodeId}/result_${timestamp}.${ext}`;
+
           console.log(`[Webhook/Replicate-v2] Uploading to Supabase Storage: chat-assets/${storagePath}`);
-          
-          const { data: uploadData, error: uploadError } = await supabase.storage
+
+          const { error: uploadError } = await supabase.storage
             .from('chat-assets')
             .upload(storagePath, buffer, {
               contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
               cacheControl: '3600',
-              upsert: true
+              upsert: true,
             });
-            
-          if (uploadError) {
-             throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
-          }
-          
+
+          if (uploadError) throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
+
           // 4. Get the permanent public URL
-          const { data: urlData } = supabase.storage
-            .from('chat-assets')
-            .getPublicUrl(storagePath);
-            
+          const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
           console.log(`[Webhook/Replicate-v2] ✅ Successfully mirrored to Supabase: ${urlData.publicUrl}`);
           finalResultUrl = urlData.publicUrl;
-          
+
         } catch (uploadJobError) {
-          console.error('[Webhook/Replicate-v2] ❌ Failed to mirror image to S3. Falling back to temporary Replicate URL.', uploadJobError);
-          // If the S3 upload fails, we intelligently fallback to the original Replicate URL
-          // so the UI still works, even if the URL is temporary.
+          // Upload failed after retries — NEVER save a Replicate URL. Mark node as failed instead.
+          console.error('[Webhook/Replicate-v2] ❌ S3 upload failed after retries. Marking node as failed.', uploadJobError);
+          await supabase
+            .from('node_results')
+            .upsert({
+              execution_id: executionId,
+              node_id: nodeId,
+              session_id: sessionId,
+              status: 'failed',
+              error: `Image upload to storage failed: ${uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'}`,
+              replicate_id: predictionId,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'execution_id,node_id' });
+
+          const { origin } = new URL(request.url);
+          await checkAndDispatchChildren(executionId, nodeId, origin);
+          return NextResponse.json({ success: true });
         }
       }
-      
+
+      // Safety guard: ensure no Replicate URL ever reaches the database
+      const isReplicateUrl = finalResultUrl && (
+        finalResultUrl.includes('replicate.delivery') ||
+        finalResultUrl.includes('replicate.com')
+      );
+      if (isReplicateUrl) {
+        console.error('[Webhook/Replicate-v2] ❌ Safety guard triggered: finalResultUrl is still a Replicate URL after upload attempt. Marking node as failed.');
+        await supabase
+          .from('node_results')
+          .upsert({
+            execution_id: executionId,
+            node_id: nodeId,
+            session_id: sessionId,
+            status: 'failed',
+            error: 'Image could not be permanently stored. Please re-run the node.',
+            replicate_id: predictionId,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'execution_id,node_id' });
+
+        const { origin } = new URL(request.url);
+        await checkAndDispatchChildren(executionId, nodeId, origin);
+        return NextResponse.json({ success: true });
+      }
+
       // V3: Update node_results table — include session_id so realtime fires
       const { error: updateError } = await supabase
         .from('node_results')
