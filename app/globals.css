@@ -132,19 +132,6 @@
   transition: opacity 0.3s ease;
 }
 
-/* Custom scrollbar - theme aware */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-accent-primary/10 rounded-full hover:bg-accent-primary/30 transition-colors border border-accent-primary/5;
-}
 
 /* React Flow custom styles */
 .react-flow__node {

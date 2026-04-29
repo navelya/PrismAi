@@ -45,7 +45,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // Public pages get full width, no sidebar, and allow scrolling
     if (isPublicPage) {
         return (
-            <div className="w-full min-h-screen overflow-y-auto">
+            <div className="w-full">
                 {children}
             </div>
         );
