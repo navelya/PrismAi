@@ -520,8 +520,12 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setInput(e.target.value);
-        adjustTextareaHeight();
     };
+
+    // 👑 Sync height whenever input changes (including when cleared)
+    useEffect(() => {
+        adjustTextareaHeight();
+    }, [input, adjustTextareaHeight]);
 
     const showExpandButton = isMobile && !isExpanded && textareaRef.current && textareaRef.current.scrollHeight > 72;
 

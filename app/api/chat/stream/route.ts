@@ -114,36 +114,34 @@ ${modelsList || '      (No models available)'}`;
 
         const prisfolTools = {
             add_node: tool({
-                description: `Create exactly one node. This tool also creates that node's inbound connections using 'inputs'. 
-STRICT ORDER: You must only reference IDs of nodes that already exist (existing canvas IDs or IDs from earlier add_node calls).
-Use simple temporary IDs for new nodes (e.g. "n1", "prompt_1").`,
+                description: `Add one OR MORE nodes to the canvas in a single call. Always batch all nodes for a workflow/request into ONE call.
+Each node in 'nodes' may reference IDs of earlier nodes in the SAME array (in order) or existing canvas IDs.
+IMPORTANT: Build nodes in topological order — a node's 'inputs' may only reference nodes that appear before it in the array OR existing canvas IDs.`,
                 inputSchema: z.object({
-                    id: z.string().describe('Simple temporary node ID for this new node.'),
-                    type: z.enum(nodeTypes).describe('Base node type.'),
-                    node_type_id: z.string().optional().describe('Required when type is ai_generator.'),
-                    model_id: z.number().optional().describe('Optional model ID when relevant.'),
-                    position: z.object({
-                        x: z.number(),
-                        y: z.number()
-                    }).describe('Node position (will be auto-calculated — you may pass any value).'),
-                    data: z.object({
-                        config: z.any()
-                    }).describe(`Node configuration. Must match schema:\n\n${cleanNodesDocs}`),
-                    inputs: z.array(z.object({
-                        source: z.string().describe('ID of an already existing source node.'),
-                        sourceHandle: z.string().optional(),
-                        targetHandle: z.string().optional()
-                    })).optional().default([])
+                    nodes: z.array(z.object({
+                        id: z.string().describe('Simple temporary node ID (e.g. "n1", "prompt_1").'),
+                        type: z.enum(nodeTypes).describe('Base node type.'),
+                        node_type_id: z.string().optional().describe('Required when type is ai_generator.'),
+                        model_id: z.number().optional().describe('Optional model ID when relevant.'),
+                        position: z.object({ x: z.number(), y: z.number() }).describe('Position hint — auto-calculated, any value is fine.'),
+                        data: z.object({ config: z.any() }).describe(`Node config matching schema:\n\n${cleanNodesDocs}`),
+                        inputs: z.array(z.object({
+                            source: z.string().describe('Source node ID (existing canvas ID or ID from earlier in this array).'),
+                            sourceHandle: z.string().optional(),
+                            targetHandle: z.string().optional()
+                        })).optional().default([])
+                    })).min(1).describe('All nodes to add — include every node for this workflow/request here.')
                 }),
                 execute: async (args) => {
-                    const result = applyAddNodeOp(workingWorkflowState.workflow, args, workingWorkflowState.idMap);
-                    if (!result.success) return result;
-
-                    workingWorkflowState.workflow = result.workflow;
-                    return {
-                        success: true,
-                        patch: result.patch
-                    };
+                    const patches: any[] = [];
+                    for (const nodeArgs of args.nodes) {
+                        const result = applyAddNodeOp(workingWorkflowState.workflow, nodeArgs, workingWorkflowState.idMap);
+                        if (!result.success) return result;
+                        workingWorkflowState.workflow = result.workflow;
+                        if (result.patch) patches.push(result.patch);
+                    }
+                    const merged = patches.reduce((acc, p) => mergeWorkflowPatches(acc, p), null as WorkflowPatch | null);
+                    return { success: true, patch: merged };
                 }
             }),
             update_node: tool({
@@ -200,12 +198,12 @@ VOICE & TONE:
 - Never sound robotic.
 
 EXECUTION PROTOCOL (CRITICAL):
-- When the user asks to create/modify workflow, call tools in the same response.
+- When the user asks to create/modify a workflow, call tools IMMEDIATELY in the same response.
 - Use ONLY these tools: add_node, update_node, remove_node.
-- Keep chat updates concise (max 1 short sentence), then act immediately.
-- TOOL-FIRST RULE: Start calling tools as early as possible in the response. Do not output long plans or numbered lists before tool calls.
-- For multi-node creation, call add_node repeatedly in sequence without waiting to finish a long textual explanation.
-- Text and tool calls can interleave, but tool calls must begin quickly so canvas updates appear during response streaming.
+- Keep text extremely concise (1 sentence max), then act immediately with tool calls.
+- BATCHING RULE: For any workflow creation, include ALL new nodes in a SINGLE add_node call. Never call add_node more than once per response unless a later node depends on a runtime UUID only known after the first call.
+- add_node accepts an array — always use it to batch every node for the task.
+- Do NOT output numbered lists, plans, or explanations before calling tools.
 
 TOPOLOGICAL ORDER (MANDATORY):
 - Build in strict topological order.
@@ -259,10 +257,13 @@ ${imagesContext}`;
                         for await (const part of result.fullStream as any) {
                             if (!isClientConnected) break;
 
+                            // Mark hasContent on ANY part — prevents false "couldn't generate" errors
+                            // that fire when the model thinks silently before its first text/tool output.
+                            hasContent = true;
+
                             if (part.type === 'text-delta') {
                                 const textChunk = part.textDelta || part.text || '';
                                 if (textChunk) {
-                                    hasContent = true;
                                     finalContent += textChunk;
                                     try {
                                         controller.enqueue(encoder.encode(JSON.stringify({ type: 'text', content: textChunk }) + '\n'));
@@ -281,7 +282,6 @@ ${imagesContext}`;
                                         isClientConnected = false;
                                     }
                                 }
-                                hasContent = true;
                             }
                             else if (part.type === 'tool-result') {
                                 hasContent = true;

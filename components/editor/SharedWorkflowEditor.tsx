@@ -113,39 +113,52 @@ export default function SharedWorkflowEditor({
 
     // Sync state for auto-save
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+    const isLoading = useAppStore((state) => state.isLoading);
     const lastSyncedStateRef = useRef<string>('');
+    const syncBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
-        // 🛑 GUARD: Do not sync back to the global store if the session is still
-        // loading or if we are bootstrapping. This prevents the local editor
-        // state (which might be empty on mount/clear) from overwriting the 
-        // canonical version just loaded from the DB.
-        if (isDragging || isLoadingSession || isBooting) return;
-        
-        const workflow = getCurrentWorkflow();
-        
-        // Sanitize only volatile flags for store sync.
-        // Keep output/outputMetadata so local editor/store snapshots stay structurally aligned.
-        const cleanWorkflow = {
-            ...workflow,
-            nodes: workflow.nodes.map(n => ({
-                ...n,
-                data: {
-                    ...n.data,
-                    status: undefined,
-                    output: undefined,
-                    isNew: undefined,
-                }
-            }))
-        };
-        
-        const currentHash = stableStringify(cleanWorkflow);
-        
-        if (currentHash !== lastSyncedStateRef.current) {
-            lastSyncedStateRef.current = currentHash;
-            setCurrentWorkflow(cleanWorkflow);
+        // 🛑 GUARD: Do not sync back to the global store if:
+        // - Session is still loading (would overwrite canonical DB state)
+        // - App is booting (editorState may be empty)
+        // - User is dragging (too many rapid updates)
+        // - AI is actively streaming (use-chat-messages owns currentWorkflow during streaming;
+        //   syncing back here would overwrite incoming stream patches with stale editorState)
+        if (isDragging || isLoadingSession || isBooting || isLoading) return;
+
+        // Debounce: wait for React to fully flush editorState before reading it.
+        // Without this, getCurrentWorkflow() can return a stale snapshot mid-render
+        // and overwrite the store with old data (the "nodes disappear" / "deleted
+        // nodes come back" race condition).
+        if (syncBackTimerRef.current) {
+            clearTimeout(syncBackTimerRef.current);
         }
-    }, [nodes, edges, isDragging, isLoadingSession, isBooting, getCurrentWorkflow, setCurrentWorkflow]);
+        syncBackTimerRef.current = setTimeout(() => {
+            if (!isMountedRef.current) return;
+
+            const workflow = getCurrentWorkflow();
+
+            const cleanWorkflow = {
+                ...workflow,
+                nodes: workflow.nodes.map(n => ({
+                    ...n,
+                    data: {
+                        ...n.data,
+                        status: undefined,
+                        output: undefined,
+                        isNew: undefined,
+                    }
+                }))
+            };
+
+            const currentHash = stableStringify(cleanWorkflow);
+
+            if (currentHash !== lastSyncedStateRef.current) {
+                lastSyncedStateRef.current = currentHash;
+                setCurrentWorkflow(cleanWorkflow);
+            }
+        }, 50);
+    }, [nodes, edges, isDragging, isLoadingSession, isBooting, isLoading, getCurrentWorkflow, setCurrentWorkflow]);
 
     useEffect(() => {
         if (nodes.length > 0 || edges.length > 0) {

@@ -482,25 +482,25 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             {/* Logo at Bottom (Replaced by Profile for Authenticated Users) */}
             <div className="border-t border-stroke-subtle bg-surface-secondary relative">
                 {user ? (
-                    <div className="p-3">
+                    <div className="p-2">
                         <div className="relative">
                             <button
                                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                                className={`flex items-center gap-3 w-full hover:bg-interactive-hover p-1.5 rounded-lg transition-colors ${!isExpanded ? 'justify-center' : ''}`}
+                                className="flex items-center w-full hover:bg-interactive-hover p-1.5 rounded-lg transition-colors overflow-hidden"
                             >
-                                {/* Avatar */}
-                                <div className="relative group">
+                                {/* Avatar Container - Fixed width when collapsed to prevent jumps */}
+                                <div className={`flex-shrink-0 flex items-center justify-center transition-all duration-300 ${!isExpanded ? 'w-9' : 'w-10'}`}>
                                     <UserAvatar
                                         user={user}
-                                        className={isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'}
+                                        className={`${isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'} flex-shrink-0 transition-all duration-300`}
                                         showStatus={Object.keys(user).length > 0}
                                     />
                                 </div>
 
                                 <div
                                     className={`
-                                            flex-1 min-w-0 flex items-center justify-between overflow-hidden transition-all duration-300 ease-in-out
-                                            ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
+                                            flex-1 min-w-0 flex items-center justify-between overflow-hidden transition-all duration-300 ease-in-out whitespace-nowrap
+                                            ${isExpanded ? 'max-w-[200px] opacity-100 ml-3' : 'max-w-0 opacity-0 ml-0 pointer-events-none'}
                                         `}
                                 >
                                     <div className="min-w-0">
@@ -560,17 +560,17 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     </div>
                 ) : (
                     <div className="p-3">
-                        <div className={`flex items-center gap-3 ${!isExpanded && 'justify-center'} animate-pulse`}>
+                        <div className={`flex items-center ${!isExpanded ? 'justify-center' : 'gap-3'} animate-pulse`}>
                             {/* Avatar Skeleton */}
                             <div className={`
-                                rounded-full bg-surface-tertiary
+                                rounded-full bg-surface-tertiary flex-shrink-0 transition-all duration-300
                                 ${isExpanded ? 'w-10 h-10' : 'w-9 h-9'}
                             `} />
 
                             {/* Text Skeleton */}
                             <div className={`
                                 flex-1 min-w-0 flex flex-col gap-1.5 overflow-hidden transition-all duration-300
-                                ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
+                                ${isExpanded ? 'max-w-[200px] ml-3 opacity-100' : 'max-w-0 opacity-0 ml-0'}
                             `}>
                                 <div className="h-4 w-24 bg-surface-tertiary rounded" />
                                 <div className="h-3 w-32 bg-surface-tertiary rounded" />
