@@ -376,9 +376,9 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     }, [setEditorState]);
 
     // Add a new node
-    const addNode = useCallback((type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => {
+    const addNode = useCallback((type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {
         touchInteraction();
-        const newNode = createNodeFromType(type, position, nodeTypeId, modelId);
+        const newNode = createNodeFromType(type, position, nodeTypeId, modelId, initialConfig);
         setEditorState((prev) => {
             // 🛡️ ROOT FIX: Prevent duplicate IDs
             if (prev.nodes.some(n => n.id === newNode.id)) return prev;

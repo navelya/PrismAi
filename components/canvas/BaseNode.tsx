@@ -159,9 +159,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 </button>
                 <button
                     onClick={handleDelete}
-                    className="w-6 h-6 rounded-lg bg-accent-error/10 border backdrop-blur-md
+                    className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
                                 flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
-                    style={{ borderWidth: `${b1}px`, borderColor: 'rgba(var(--accent-error-rgb), 0.2)' }}
+                    style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
                     title="Delete node"
                 >
                     <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-content-inverted" />
@@ -290,11 +290,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         const offset = (index * spacing) - (totalHeight / 2);
 
                         return (
-                                <Handle
-                                    key={output.id}
-                                    type="source"
-                                    position={Position.Right}
-                                    id={output.id}
+                            <Handle
+                                key={output.id}
+                                type="source"
+                                position={Position.Right}
+                                id={output.id}
                                 className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200
                                           before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
                                 style={{

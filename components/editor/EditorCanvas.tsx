@@ -33,7 +33,7 @@ interface EditorCanvasProps {
     onEdgesChange: any;
     onConnect: any;
     onNodeClick?: NodeMouseHandler;
-    onDrop: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => void;
+    onDrop: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => void;
     updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
     selectionMode?: boolean;
     onSelectionToggle?: () => void;
@@ -369,7 +369,9 @@ function EditorCanvasInner({
 
     const onDragOver = useCallback((event: React.DragEvent) => {
         event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
+        // Use 'copy' to match effectAllowed set by asset cards; 'move' for node-library drags
+        const allowed = event.dataTransfer.effectAllowed;
+        event.dataTransfer.dropEffect = (allowed === 'copy' || allowed === 'copyMove') ? 'copy' : 'move';
     }, []);
 
     const onDropHandler = useCallback(
@@ -381,12 +383,15 @@ function EditorCanvasInner({
 
             let type: NodeType;
             let nodeTypeId: string | undefined;
+            let initialConfig: Record<string, any> | undefined;
 
             try {
                 // Attempt to parse as JSON (structured drop)
                 const payload = JSON.parse(rawData);
                 type = payload.type;
                 nodeTypeId = payload.node_type_id;
+                // Assets drag: pre-populate the node config (e.g. images array)
+                if (payload.initialConfig) initialConfig = payload.initialConfig;
             } catch (e) {
                 // Fallback for simple string drop (legacy/utility)
                 type = rawData as NodeType;
@@ -397,7 +402,7 @@ function EditorCanvasInner({
                 y: event.clientY,
             });
 
-            onDrop(type, position, nodeTypeId);
+            onDrop(type, position, nodeTypeId, undefined, initialConfig);
         },
         [reactFlowInstance, onDrop]
     );

@@ -205,7 +205,7 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => {
+    const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {
         if (readOnly) return;
 
         // For AI generator nodes without a pre-selected model, resolve the default
@@ -225,8 +225,9 @@ export default function SharedWorkflowEditor({
             if (firstActive) resolvedModelId = firstActive.id;
         }
 
-        addNode(type, position, nodeTypeId, resolvedModelId);
+        addNode(type, position, nodeTypeId, resolvedModelId, initialConfig);
     };
+
 
     const handleSave = async () => {
         const workflow = getCurrentWorkflow();

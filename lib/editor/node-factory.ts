@@ -1,14 +1,16 @@
 import { WorkflowNode, NodeType, NodeConfig } from '../nodes/types';
-import { generateNodeId, generateEdgeId } from '../utils';
+import { generateNodeId } from '../utils';
 
 /**
- * Create a new node instance from a node type
+ * Create a new node instance from a node type.
+ * Pass `initialConfig` to pre-populate fields (e.g. images array for asset drag-to-canvas).
  */
 export function createNodeFromType(
     type: NodeType,
     position: { x: number; y: number },
     nodeTypeId?: string,
-    modelId?: number
+    modelId?: number,
+    initialConfig?: Partial<Record<string, any>>
 ): WorkflowNode {
     const id = generateNodeId();
 
@@ -77,7 +79,10 @@ export function createNodeFromType(
         },
     };
 
-    const config = defaultConfigs[type];
+    // Merge caller-supplied initialConfig over the defaults
+    const config = initialConfig
+        ? { ...defaultConfigs[type], ...initialConfig }
+        : defaultConfigs[type];
 
     return {
         id,
