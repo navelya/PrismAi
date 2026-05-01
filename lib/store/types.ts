@@ -33,6 +33,7 @@ export interface WorkflowSlice {
     pasteNode: (position?: { x: number; y: number }) => void;
     updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
     updateNodePositions: (positions: Map<string, { x: number; y: number }>) => void;
+    updateNodeConfig: (nodeId: string, config: any) => void;
     isWorkflowDirty: boolean;
     setWorkflowDirty: (isDirty: boolean) => void;
 }

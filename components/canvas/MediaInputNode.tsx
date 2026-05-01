@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
-import { NodeProps, useReactFlow } from 'reactflow';
+import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from './BaseNode';
@@ -24,31 +24,18 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
     const images = data.config?.images || [];
 
-    // Use React Flow hook for direct graph manipulation
-    const { setNodes } = useReactFlow();
+    // Use AppStore for safe config updates instead of ReactFlow's setNodes
+    const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
     const [isUploading, setIsUploading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
 
     // Update node config with new images
     const updateImages = useCallback((newImages: Array<{ url: string; path: string } | string>) => {
-        setNodes((nds) =>
-            nds.map((node) => {
-                if (node.id === id) {
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            config: {
-                                ...node.data.config,
-                                images: newImages,
-                            },
-                        },
-                    };
-                }
-                return node;
-            })
-        );
-    }, [id, setNodes]);
+        updateNodeConfig(id, {
+            ...data.config,
+            images: newImages,
+        });
+    }, [id, data.config, updateNodeConfig]);
 
     // Handle file upload
     const handleFiles = useCallback(async (files: FileList | null) => {
@@ -159,6 +146,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             >
                 {images.length === 0 ? (
                     <button
+                        type="button"
                         onClick={() => fileInputRef.current?.click()}
                         className={cn(
                             "absolute inset-0 flex flex-col items-center justify-center gap-2 transition-all p-4 text-center",
@@ -181,7 +169,9 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                     className="w-full h-full object-contain"
                                 />
                                 <button
+                                    type="button"
                                     onClick={(e) => removeImage(e, activeImageIndex)}
+                                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                                     className="absolute top-2 left-2 p-1 rounded bg-black/50 text-white opacity-0 group-hover/preview:opacity-100 transition-opacity"
                                 >
                                     <X className="w-3 h-3" />
@@ -193,6 +183,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                     {images.map((img, index) => (
                                         <button
                                             key={index}
+                                            type="button"
                                             onClick={() => setActiveImageIndex(index)}
                                             className={cn(
                                                 "relative aspect-square rounded overflow-hidden border transition-all",
@@ -210,7 +201,9 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                                 </div>
                                             )}
                                             <button
+                                                type="button"
                                                 onClick={(e) => removeImage(e, index)}
+                                                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                                                 className="absolute top-1 right-1 p-0.5 rounded bg-black/50 text-white opacity-0 hover:bg-red-500 group-hover:opacity-100 transition-opacity"
                                                 style={{ zIndex: 10 }}
                                             >
@@ -219,6 +212,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                         </button>
                                     ))}
                                     <button
+                                        type="button"
                                         onClick={() => fileInputRef.current?.click()}
                                         className="aspect-square rounded border border-dashed border-white/10 flex items-center justify-center text-white/20 hover:border-white/20 hover:text-white/40"
                                     >
@@ -231,12 +225,14 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                         {/* Controls */}
                         <div className="absolute bottom-2 right-2 flex bg-black/60 backdrop-blur-md rounded-lg p-0.5 border border-white/10 z-20 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
+                                type="button"
                                 onClick={() => setPreviewMode('single')}
                                 className={cn("p-1.5 rounded-md", previewMode === 'single' ? "bg-accent-primary text-white" : "text-white/40")}
                             >
                                 <Square className="w-3.5 h-3.5" />
                             </button>
                             <button
+                                type="button"
                                 onClick={() => setPreviewMode('grid')}
                                 className={cn("p-1.5 rounded-md", previewMode === 'grid' ? "bg-accent-primary text-white" : "text-white/40")}
                             >

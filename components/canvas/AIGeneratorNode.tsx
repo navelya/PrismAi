@@ -56,7 +56,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     };
 
     const nodeTypeId = data.config?.node_type_id;
-    const filteredModels = nodeTypeId 
+    const filteredModels = nodeTypeId
         ? models.filter(m => m.node_type_id === nodeTypeId)
         : models;
 
@@ -90,7 +90,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     // SOLUTION: Let ReactFlow handle invalid connections naturally through its validation
     // Edge validation should happen at the connection level, not post-hoc cleanup
     // If invalid edges become a problem, implement validation in onConnect handler instead
-    
+
     // Original edge cleanup logic commented out to prevent wire disappearance issues:
     /*
     const { getEdges, setEdges } = useReactFlow();
@@ -154,7 +154,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
     // Find the first valid output to preview (if multiple)
     let previewOutput = output;
     let previewType = outputHandles[0]?.type || 'any';
-    
+
     if (output && typeof output === 'object' && !Array.isArray(output) && !output.url && !output.text) {
         // It's a multi-handle output object. Pick the first one that has an image or text
         const firstKey = Object.keys(output)[0];
@@ -183,10 +183,11 @@ function AIGeneratorNode({ id, data, selected }: any) {
                     "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
                     !isDragging && "transition-all duration-500",
                     // Heights:
+                    //  - Text/Prompt: min-h-[60px]
                     //  - No output (empty placeholder): 200px — generous presence on canvas
                     //  - Running/loading: 200px — space for the glassy loader overlay
                     //  - Image loaded: shrink to fit naturally (min-h-0)
-                    (!output || status === 'running' || !imageLoaded) ? "min-h-[200px]" : "min-h-0"
+                    (previewType === 'text' || previewType === 'prompt') ? "min-h-[60px]" : (!output || status === 'running' || !imageLoaded) ? "min-h-[200px]" : "min-h-0"
                 )}
             >
                 {/* Frosty Placeholder background */}
@@ -194,16 +195,27 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
                 {/* Empty State / Connection Placeholder */}
                 {!output && (
-                    <div 
+                    <div
                         className="w-full h-full flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500 cursor-pointer"
                         onMouseDown={(e) => e.stopPropagation()}
                         onPointerDown={(e) => e.stopPropagation()}
-                    />
+                    >
+                        {(previewType === 'text' || previewType === 'prompt') && (
+                            <div className="w-full p-2.5">
+                                <textarea
+                                    className="nodrag block w-full min-h-[120px] text-[11px] bg-transparent border-none focus:outline-none focus:ring-0 text-white/50 resize-none p-0 font-mono"
+                                    placeholder="Text output will appear here..."
+                                    readOnly
+                                />
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {/* Content Preview */}
                 {previewOutput && (
                     <OutputPreview
+                        nodeId={id}
                         output={previewOutput}
                         type={previewType}
                         previewMode={previewMode}
@@ -252,7 +264,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
             {/* Model Info Footer (Refined) */}
             {selectedModel && (
                 <div className="mt-1 px-2.5 py-2 flex items-center justify-between opacity-90 group-hover:opacity-100 transition-opacity">
-                    <div 
+                    <div
                         className="flex items-center gap-2 min-w-0 cursor-pointer"
                         onClick={(e) => {
                             // Let it bubble to open properties
@@ -266,7 +278,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                         <span className="text-xs font-bold text-white/80 truncate">{selectedModel.display_name}</span>
                         <MoreHorizontal className="w-4 h-4 text-white/20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     </div>
-                    
+
                     <button
                         onMouseDown={(e) => e.stopPropagation()}
                         onPointerDown={(e) => e.stopPropagation()}
@@ -303,23 +315,41 @@ function AIGeneratorNode({ id, data, selected }: any) {
 // OUTPUT PREVIEW (Parity with CustomNode)
 // =============================================================================
 
-function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
+function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
     const items = Array.isArray(output) ? output : [output];
     const urls = items.map((o: any) => (typeof o === 'string' ? o : o?.url)).filter(Boolean);
     const textContent = typeof output === 'string' ? output : (output?.text || items[0]?.text || null);
     const videoRef = React.useRef<HTMLVideoElement>(null);
     const MAX_HEIGHT = 800;
+    const setNodeOutput = useAppStore((state) => state.setNodeOutput);
 
-    if (type === 'text' && textContent) {
+    if (type === 'text' || type === 'prompt') {
         return (
-            <div 
-                className="w-full min-h-[150px] max-h-[300px] p-4 bg-black/20 overflow-y-auto custom-scrollbar"
+            <div
+                className="w-full p-2.5 bg-white/5 shadow-inner backdrop-blur-md"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
             >
-                <p className="text-[11px] leading-relaxed text-white/90 whitespace-pre-wrap font-mono">
-                    {textContent}
-                </p>
+                <textarea
+                    className="nodrag custom-scrollbar block w-full min-h-[60px] max-h-[160px] text-[11px] bg-transparent border-none focus:outline-none focus:ring-0 text-white/90 resize-none p-0 font-mono"
+                    value={textContent || ''}
+                    placeholder="Empty output"
+                    onChange={(e) => {
+                        if (typeof output === 'string') {
+                            setNodeOutput(nodeId, e.target.value);
+                        } else {
+                            setNodeOutput(nodeId, { ...output, text: e.target.value });
+                        }
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Backspace' || e.key === 'Delete') {
+                            e.stopPropagation();
+                        }
+                    }}
+                    onWheel={(e) => {
+                        if (!e.ctrlKey && !e.metaKey) e.stopPropagation();
+                    }}
+                />
             </div>
         );
     }
@@ -327,7 +357,7 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
     if (type === 'audio' && (urls[0] || output?.url)) {
         const audioUrl = urls[0] || output?.url;
         return (
-            <div 
+            <div
                 className="w-full p-6 bg-accent-primary/5 flex flex-col items-center justify-center gap-4"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
@@ -335,10 +365,10 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
                 <div className="w-16 h-16 rounded-full bg-accent-primary/20 flex items-center justify-center border border-accent-primary/30">
                     <Zap className="w-8 h-8 text-accent-primary animate-pulse" />
                 </div>
-                <audio 
-                    src={audioUrl} 
-                    controls 
-                    className="w-full h-8 accent-accent-primary" 
+                <audio
+                    src={audioUrl}
+                    controls
+                    className="w-full h-8 accent-accent-primary"
                     onMouseDown={(e) => e.stopPropagation()}
                 />
                 <span className="text-[9px] font-black uppercase tracking-widest text-accent-primary opacity-60">Audio Output</span>
@@ -348,7 +378,7 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
 
     if (urls.length === 0) {
         return (
-            <div 
+            <div
                 className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4 flex items-center justify-center text-center"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
@@ -363,8 +393,8 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
 
         if (type === 'video') {
             return (
-                <div 
-                    className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden" 
+                <div
+                    className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
                     onMouseEnter={() => videoRef.current?.play()}
                     onMouseLeave={() => {
                         if (videoRef.current) {
@@ -376,11 +406,11 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
                     onPointerDown={onInteraction}
                     onClick={onPreviewClick}
                 >
-                    <video 
+                    <video
                         ref={videoRef}
-                        src={url} 
-                        muted 
-                        loop 
+                        src={url}
+                        muted
+                        loop
                         playsInline
                         className={cn(
                             "w-full h-auto block object-contain",
@@ -396,8 +426,8 @@ function OutputPreview({ output, type, previewMode, activeImageIndex, onImageLoa
         }
 
         return (
-            <div 
-                className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden" 
+            <div
+                className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
                 onClick={onPreviewClick}

@@ -1,8 +1,9 @@
 'use client';
 
 import React, { memo, useRef, useEffect } from 'react';
-import { NodeProps, useReactFlow } from 'reactflow';
+import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
+import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from '@/components/canvas/BaseNode';
 
 interface PromptNodeData {
@@ -13,8 +14,8 @@ interface PromptNodeData {
 }
 
 function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
-    // Use React Flow hook for direct graph manipulation
-    const { setNodes } = useReactFlow();
+    // Use AppStore for direct graph manipulation instead of setNodes
+    const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Auto-resize algorithm and wheel event capture
@@ -44,23 +45,10 @@ function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
 
     const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newValue = e.target.value;
-        setNodes((nds) =>
-            nds.map((node) => {
-                if (node.id === id) {
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            config: {
-                                ...node.data.config,
-                                text: newValue,
-                            },
-                        },
-                    };
-                }
-                return node;
-            })
-        );
+        updateNodeConfig(id, {
+            ...data.config,
+            text: newValue,
+        });
     };
 
     return (

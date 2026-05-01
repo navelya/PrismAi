@@ -41,7 +41,15 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         const inputHandles = model.inputs_schema?.handles || [];
         if (input && typeof input === 'object') {
             inputHandles.forEach((h: any) => {
-                const incomingVal = input[h.api_mapping_key];
+                let incomingVal = input[h.api_mapping_key];
+
+                // If input is required but NOT visible in UI, and no value was provided, 
+                // send it as empty data to satisfy mandatory checks without failing execution.
+                if (incomingVal === undefined && h.is_mandatory && h.is_visible === false) {
+                    replicateInputs[h.api_mapping_key] = h.is_array ? [] : "";
+                    return;
+                }
+
                 if (incomingVal === undefined || incomingVal === null) return;
 
                 const isArrayTarget = h.is_array === true;

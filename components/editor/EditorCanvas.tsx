@@ -655,6 +655,8 @@ function EditorCanvasInner({
                 onPaneClick={() => setContextMenu(null)}
                 onMoveStart={() => setContextMenu(null)}
                 proOptions={{ hideAttribution: true }}
+                elevateEdgesOnSelect={false}
+                connectionLineStyle={{ zIndex: -1 }}
             >
                 {/* 1. Base Grid (Isolated for zero-lag zooming) */}
                 <BaseGridLayers />
