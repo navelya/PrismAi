@@ -50,16 +50,5 @@ export default function ActiveSessionPage({ params }: { params: { id: string } }
         });
     }, [sessionId, loadSession]); // Removed isSessionReady from deps
 
-    const shouldShowLoader = isLoading || !isSessionReady || !!error;
-
-    if (!shouldShowLoader) return null;
-
-    return (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/80 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-4">
-                <Loader2 className="w-8 h-8 animate-spin text-accent-primary" />
-                <p className="text-content-secondary font-medium">Loading conversation...</p>
-            </div>
-        </div>
-    );
+    return null;
 }

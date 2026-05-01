@@ -12,6 +12,7 @@ import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { generateNodeId, generateEdgeId, formatRelativeTime } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
@@ -168,6 +169,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const setStatusMessage = useAppStore((state) => state.setStatusMessage);
     const chatScrollTop = useAppStore((state) => state.chatScrollTop);
     const setChatScrollTop = useAppStore((state) => state.setChatScrollTop);
+    const isLoadingSession = useAppStore((state) => state.isLoadingSession);
 
     const [isListening, setIsListening] = useState(false);
     const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
@@ -744,9 +746,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 <div className="flex-1 flex items-center justify-center p-6">
                     <div className="w-full max-w-2xl text-center">
                         <div className="flex items-center justify-center gap-3 mb-2">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-premium flex items-center justify-center shadow-md shadow-accent-primary/20">
+                            {/* <div className="w-10 h-10 rounded-xl bg-gradient-premium flex items-center justify-center shadow-md shadow-accent-primary/20">
                                 <Sparkles className="w-5 h-5 text-content-inverted" />
-                            </div>
+                            </div> */}
                             <h1 className="text-2xl font-bold text-content-primary">
                                 {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prisfol'}
                             </h1>
@@ -887,44 +889,48 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 style={{ overflowAnchor: 'auto' }}
             >
                 <div ref={contentRef} className="max-w-3xl mx-auto space-y-6 pb-2">
-                    {messages.map((message, index) => {
-                        let undoSnapshotId: string | undefined;
-                        if (message.type === 'user') {
-                            let found = false;
-                            for (let i = index - 1; i >= 0; i--) {
-                                const m = messages[i];
-                                if (m.type === 'assistant' && m.workflow) {
-                                    undoSnapshotId = m.id;
-                                    found = true;
-                                    break;
+                    {isLoadingSession ? (
+                        <ChatSkeletons isCanvasMode={isCanvasMode} />
+                    ) : (
+                        messages.map((message, index) => {
+                            let undoSnapshotId: string | undefined;
+                            if (message.type === 'user') {
+                                let found = false;
+                                for (let i = index - 1; i >= 0; i--) {
+                                    const m = messages[i];
+                                    if (m.type === 'assistant' && m.workflow) {
+                                        undoSnapshotId = m.id;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) {
+                                    undoSnapshotId = 'initial';
                                 }
                             }
-                            if (!found) {
-                                undoSnapshotId = 'initial';
-                            }
-                        }
 
-                        const editingIndex = editingMessageId ? messages.findIndex(m => m.id === editingMessageId) : -1;
-                        const isDisabled = editingIndex !== -1 && index > editingIndex;
-                        const isEditing = message.id === editingMessageId;
-                        const isGenerating = isLoading && index === messages.length - 1 && message.type === 'assistant';
+                            const editingIndex = editingMessageId ? messages.findIndex(m => m.id === editingMessageId) : -1;
+                            const isDisabled = editingIndex !== -1 && index > editingIndex;
+                            const isEditing = message.id === editingMessageId;
+                            const isGenerating = isLoading && index === messages.length - 1 && message.type === 'assistant';
 
-                        return (
-                            <MemoizedMessage
-                                key={`${message.type}-${index}`}
-                                message={message}
-                                onRevert={handleRevert}
-                                onEdit={handleEdit}
-                                onRetry={retryLast}
-                                undoSnapshotId={undoSnapshotId}
-                                isDisabled={isDisabled}
-                                isEditing={isEditing}
-                                serverStatus={statusMessage}
-                                isCanvasMode={isCanvasMode}
-                                isGenerating={isGenerating}
-                            />
-                        );
-                    })}
+                            return (
+                                <MemoizedMessage
+                                    key={`${message.type}-${index}`}
+                                    message={message}
+                                    onRevert={handleRevert}
+                                    onEdit={handleEdit}
+                                    onRetry={retryLast}
+                                    undoSnapshotId={undoSnapshotId}
+                                    isDisabled={isDisabled}
+                                    isEditing={isEditing}
+                                    serverStatus={statusMessage}
+                                    isCanvasMode={isCanvasMode}
+                                    isGenerating={isGenerating}
+                                />
+                            );
+                        })
+                    )}
 
                     {isLoading && !(messages.length > 0 && messages[messages.length - 1].type === 'assistant' && !messages[messages.length - 1].content) && (
                         <div className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} animate-in fade-in slide-in-from-left-2 duration-500`}>
@@ -984,6 +990,22 @@ export function ExecutionUserFeedback({ serverStatus }: { serverStatus?: string 
         <span className="text-sm min-w-[120px]">
             {statusText}{dots}
         </span>
+    );
+}
+
+export function ChatSkeletons({ isCanvasMode }: { isCanvasMode: boolean }) {
+    return (
+        <div className="space-y-8 animate-in fade-in duration-700">
+            {[1, 2, 3].map((i) => (
+                <div key={i} className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} ${i === 2 ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <Skeleton className={`${isCanvasMode ? 'w-6 h-6' : 'w-9 h-9'} rounded-xl flex-shrink-0 mt-1`} />
+                    <div className={`space-y-3 flex-1 ${i === 2 ? 'max-w-[70%]' : 'max-w-[85%]'} flex flex-col ${i === 2 ? 'items-end' : 'items-start'}`}>
+                        <Skeleton className={`h-3 ${i === 2 ? 'w-20' : 'w-32'} rounded-full opacity-40`} />
+                        <Skeleton className={`h-24 w-full rounded-2xl border border-white/5`} />
+                    </div>
+                </div>
+            ))}
+        </div>
     );
 }
 

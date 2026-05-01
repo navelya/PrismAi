@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Workflow as WorkflowIcon,
@@ -25,26 +25,61 @@ interface WorkspaceLayoutProps {
 
 // ─── Animation configs ────────────────────────────────────────────────────────
 const RESIZE_TRANSITION = { type: 'tween' as const, ease: 'easeInOut' as const, duration: 0.25 };
-const MORPH_SPRING     = { type: 'spring' as const, stiffness: 380, damping: 28, mass: 0.6 };
+const MORPH_SPRING = { type: 'spring' as const, stiffness: 380, damping: 28, mass: 0.6 };
 const CANVAS_TRANSITION = { type: 'tween' as const, ease: 'easeOut' as const, duration: 0.4 };
-const RAIL_SPRING      = { type: 'spring' as const, stiffness: 340, damping: 30 };
+const RAIL_SPRING = { type: 'spring' as const, stiffness: 340, damping: 30 };
 
-const SIDEBAR_WIDTH  = 340;
+const SIDEBAR_WIDTH = 340;
 const SIDEBAR_HEIGHT = 600;
-const PANEL_W        = 320; // left-side panel width
+const PANEL_W = 320; // left-side panel width
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ActivePanel = 'node-library' | 'assets' | 'templates' | null;
 
 export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult, sessionId }: WorkspaceLayoutProps) {
-    const isMobile           = useIsMobile();
-    const isCanvasMode       = useAppStore(s => s.isCanvasMode);
-    const setIsCanvasMode    = useAppStore(s => s.setIsCanvasMode);
+    const isMobile = useIsMobile();
+    const isCanvasMode = useAppStore(s => s.isCanvasMode);
+    const setIsCanvasMode = useAppStore(s => s.setIsCanvasMode);
     const isCopilotMinimized = useAppStore(s => s.isCopilotMinimized);
     const setIsCopilotMinimized = useAppStore(s => s.setIsCopilotMinimized);
 
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+
+    // ── Auto-open canvas logic ──────────────────────────────────────────────
+    const hasHandledInitialMode = useRef(false);
+
+    // 1. OPTIMISTIC: On mount, if we have a sessionId, assume it's an existing workflow and start in Canvas Mode
+    // This prevents the "Full Screen -> jump to Canvas" flicker for non-empty workflows.
+    useLayoutEffect(() => {
+        if (sessionId && !hasHandledInitialMode.current) {
+            setIsCanvasMode(true);
+            setIsCopilotMinimized(false);
+        } else if (!sessionId) {
+            setIsCanvasMode(false);
+            setIsCopilotMinimized(false);
+        }
+    }, [sessionId, setIsCanvasMode, setIsCopilotMinimized]);
+
+    // 2. VERIFICATION: Once the workflow actually loads, if it's empty, we revert to Full Screen Chat.
+    useEffect(() => {
+        if (!sessionId) return;
+
+        if (workflow && workflow.id === sessionId && !hasHandledInitialMode.current) {
+            const hasNodes = (workflow.nodes?.length || 0) > 0;
+
+            if (!hasNodes) {
+                // It's empty -> Revert to Full Screen Chat
+                setIsCanvasMode(false);
+                setIsCopilotMinimized(false);
+            } else {
+                // It has content -> Keep Canvas Mode (already set optimistically)
+                setIsCanvasMode(true);
+                setIsCopilotMinimized(false);
+            }
+            hasHandledInitialMode.current = true;
+        }
+    }, [sessionId, workflow, setIsCanvasMode, setIsCopilotMinimized]);
 
     const togglePanel = useCallback((panel: ActivePanel) => {
         setActivePanel(prev => (prev === panel ? null : panel));
@@ -53,9 +88,9 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     }, [isCopilotMinimized, setIsCopilotMinimized]);
 
     const isNodeLibraryOpen = activePanel === 'node-library';
-    const isAssetsOpen      = activePanel === 'assets';
-    const isTemplatesOpen   = activePanel === 'templates';
-    const hasLeftPanel      = isNodeLibraryOpen || isAssetsOpen;
+    const isAssetsOpen = activePanel === 'assets';
+    const isTemplatesOpen = activePanel === 'templates';
+    const hasLeftPanel = isNodeLibraryOpen || isAssetsOpen;
 
     // Chat is open when copilot is not minimized (in canvas mode)
     const isChatOpen = isCanvasMode && !isCopilotMinimized;
@@ -72,17 +107,17 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
 
 
     // ── Node Library catalog ─────────────────────────────────────────────────
-    const categories     = useAppStore(s => s.categories);
-    const nodeTypes      = useAppStore(s => s.nodeTypes);
-    const providers      = useAppStore(s => s.providers);
-    const models         = useAppStore(s => s.models);
+    const categories = useAppStore(s => s.categories);
+    const nodeTypes = useAppStore(s => s.nodeTypes);
+    const providers = useAppStore(s => s.providers);
+    const models = useAppStore(s => s.models);
     const fetchCategories = useAppStore(s => s.fetchCategories);
-    const fetchNodeTypes  = useAppStore(s => s.fetchNodeTypes);
-    const fetchProviders  = useAppStore(s => s.fetchProviders);
-    const fetchModels     = useAppStore(s => s.fetchModels);
+    const fetchNodeTypes = useAppStore(s => s.fetchNodeTypes);
+    const fetchProviders = useAppStore(s => s.fetchProviders);
+    const fetchModels = useAppStore(s => s.fetchModels);
 
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-    const [selectedProviderId, setSelectedProviderId]  = useState<string | null>(null);
+    const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
 
     useEffect(() => {
         if (isNodeLibraryOpen) {
@@ -101,9 +136,9 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
         return () => ro.disconnect();
     }, []);
 
-    const PAD        = 20;
+    const PAD = 16;
     const canvasLeft = 16;  // matches left-4 = 16px (same as other panels)
-    const canvasTop  = Math.max(0, containerSize.h - SIDEBAR_HEIGHT - PAD);
+    const canvasTop = Math.max(0, containerSize.h - SIDEBAR_HEIGHT - PAD);
 
     // Rail left position:
     //   chat open  → right edge of chat panel (PAD + SIDEBAR_WIDTH + gap)
@@ -433,10 +468,10 @@ function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelTogg
     type Btn = { id: ActivePanel | 'chat'; label: string; icon: React.ComponentType<{ className?: string }>; onClick: () => void; isChat?: boolean };
 
     const buttons: Btn[] = [
-        { id: 'chat',         label: 'Chat',      icon: MessageSquare, onClick: onChatClick,                          isChat: true },
-        { id: 'node-library', label: 'Add Node',  icon: Plus,          onClick: () => onPanelToggle('node-library') },
-        { id: 'assets',       label: 'Assets',    icon: ImageIcon,     onClick: () => onPanelToggle('assets')       },
-        { id: 'templates',    label: 'Templates', icon: BookOpen,      onClick: () => onPanelToggle('templates')    },
+        { id: 'chat', label: 'Chat', icon: MessageSquare, onClick: onChatClick, isChat: true },
+        { id: 'node-library', label: 'Add Node', icon: Plus, onClick: () => onPanelToggle('node-library') },
+        { id: 'assets', label: 'Assets', icon: ImageIcon, onClick: () => onPanelToggle('assets') },
+        { id: 'templates', label: 'Templates', icon: BookOpen, onClick: () => onPanelToggle('templates') },
     ];
 
     return (

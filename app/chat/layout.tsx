@@ -11,7 +11,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
     return (
         <div className="relative w-full h-full flex flex-col">
             <div className="flex-1 w-full h-full relative">
-                <ChatClientPage key="shared-chat-client" sessionId={sessionId} />
+                <ChatClientPage key={sessionId || 'new-session'} sessionId={sessionId} />
                 {children}
             </div>
         </div>
