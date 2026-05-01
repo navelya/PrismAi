@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useRef, useEffect } from 'react';
+import React, { memo, useRef, useEffect, useState, useCallback } from 'react';
 import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -16,7 +16,48 @@ interface PromptNodeData {
 function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
     // Use AppStore for direct graph manipulation instead of setNodes
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
+    const touchInteraction = useAppStore((state) => state.touchInteraction);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isFocusedRef = useRef(false);
+    const [draftText, setDraftText] = useState(data.config?.text || '');
+
+    const commitText = useCallback((nextText: string) => {
+        const currentText = data.config?.text || '';
+        if (currentText === nextText) return;
+
+        updateNodeConfig(id, {
+            ...data.config,
+            text: nextText,
+        });
+    }, [id, data.config, updateNodeConfig]);
+
+    useEffect(() => {
+        if (isFocusedRef.current) return;
+        const incoming = data.config?.text || '';
+        if (incoming !== draftText) {
+            setDraftText(incoming);
+        }
+    }, [data.config?.text, draftText]);
+
+    useEffect(() => {
+        if (!isFocusedRef.current) return;
+
+        if (commitTimerRef.current) {
+            clearTimeout(commitTimerRef.current);
+        }
+
+        commitTimerRef.current = setTimeout(() => {
+            commitText(draftText);
+        }, 350);
+
+        return () => {
+            if (commitTimerRef.current) {
+                clearTimeout(commitTimerRef.current);
+                commitTimerRef.current = null;
+            }
+        };
+    }, [draftText, commitText]);
 
     // Auto-resize algorithm and wheel event capture
     useEffect(() => {
@@ -41,14 +82,19 @@ function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
         return () => {
             el.removeEventListener('wheel', handleWheelNative);
         };
-    }, [data.config?.text]);
+    }, [draftText]);
+
+    useEffect(() => {
+        return () => {
+            if (commitTimerRef.current) {
+                clearTimeout(commitTimerRef.current);
+            }
+        };
+    }, []);
 
     const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newValue = e.target.value;
-        updateNodeConfig(id, {
-            ...data.config,
-            text: newValue,
-        });
+        touchInteraction();
+        setDraftText(e.target.value);
     };
 
     return (
@@ -67,8 +113,15 @@ function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
                     ref={textareaRef}
                     className="nodrag custom-scrollbar block w-full min-h-[60px] max-h-[160px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
                     placeholder="Enter prompt or text here..."
-                    value={data.config?.text || ''}
+                    value={draftText}
                     onChange={handleTextChange}
+                    onFocus={() => {
+                        isFocusedRef.current = true;
+                    }}
+                    onBlur={() => {
+                        isFocusedRef.current = false;
+                        commitText(draftText);
+                    }}
                     onKeyDown={(e) => {
                         if (e.key === 'Backspace' || e.key === 'Delete') {
                             e.stopPropagation();

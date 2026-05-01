@@ -208,6 +208,12 @@ export function useChatRealtime({
                     return;
                 }
 
+                // Never let delayed server echoes overwrite active local editing.
+                const msSinceInteraction = Date.now() - (store.lastInteraction || 0);
+                if (store.isWorkflowDirty && msSinceInteraction < 2500) {
+                    return;
+                }
+
                 const existingWorkflow = store.currentWorkflow;
                 let newWorkflow = updated.canvas_state;
 

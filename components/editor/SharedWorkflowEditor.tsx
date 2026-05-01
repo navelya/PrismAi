@@ -186,7 +186,7 @@ export default function SharedWorkflowEditor({
             useAppStore.getState().setActiveExecutionId(null);
             useAppStore.getState().setExecutionStartTime(null);
             activeRunCountRef.current = 0;
-            
+
             // Clear the safety timeout
             if (executionTimeoutRef.current) {
                 clearTimeout(executionTimeoutRef.current);
@@ -263,12 +263,12 @@ export default function SharedWorkflowEditor({
         } else if (targetNodeId && mode === 'chain') {
             const { getDescendants } = require('@/lib/utils/graph-traversal');
             const descendants = getDescendants(targetNodeId, edges);
-            
+
             store.setNodeStatus(targetNodeId, 'running'); // The root explicitly clicked is always running
-            
+
             // Downstream nodes in the chain should be pending until their parents finish
             descendants.forEach((id: string) => store.setNodeStatus(id, 'pending'));
-            
+
         } else if (targetNodeId && mode === 'ab_test') {
             store.setNodeStatus(targetNodeId, 'running');
         } else {
@@ -313,7 +313,7 @@ export default function SharedWorkflowEditor({
 
             const data = await res.json();
             console.log('[SharedWorkflowEditor] V2 execution started:', data.execution_id);
-            
+
             // Update execution ID with V2 response
             if (data.execution_id) {
                 store.setActiveExecutionId(data.execution_id);
@@ -353,14 +353,14 @@ export default function SharedWorkflowEditor({
             activeRunCountRef.current -= 1;
             if (activeRunCountRef.current <= 0) {
                 activeRunCountRef.current = 0;
-                
+
                 // Use the store's helper to check if execution is truly complete
                 const isStillActive = store.isExecutionActive();
                 if (!isStillActive) {
                     setIsExecuting(false);
                     store.setActiveExecutionId(null);
                     store.setExecutionStartTime(null);
-                    
+
                     // Clear the safety timeout since execution completed normally
                     if (executionTimeoutRef.current) {
                         clearTimeout(executionTimeoutRef.current);
@@ -510,7 +510,7 @@ export default function SharedWorkflowEditor({
                             <div className="w-full h-full flex flex-col items-center justify-center bg-surface-primary gap-4">
                                 <div className="w-12 h-12 border-4 border-accent-primary/20 border-t-accent-primary rounded-full animate-spin" />
                                 <div className="text-xs font-bold tracking-[0.2em] uppercase text-white/30 animate-pulse">
-                                    Synchronizing Neural Catalog...
+                                    Loading...
                                 </div>
                             </div>
                         ) : (
@@ -541,7 +541,7 @@ export default function SharedWorkflowEditor({
                                     if (copiedNode) {
                                         const newNode = {
                                             ...JSON.parse(JSON.stringify(copiedNode)),
-                                            id: generateNodeId(), // 🛡️ ROOT FIX: Guaranteed unique UUID
+                                            id: generateNodeId(),
                                             position: {
                                                 x: copiedNode.position.x + 50,
                                                 y: copiedNode.position.y + 50

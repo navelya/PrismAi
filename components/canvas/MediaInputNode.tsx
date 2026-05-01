@@ -33,6 +33,11 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const [isUploading, setIsUploading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
 
+    const getMediaUrl = (img: any) => {
+        if (typeof img === 'string') return img;
+        return img?.url;
+    };
+
     // Update node config with new images
     const updateImages = useCallback((newImages: Array<{ url: string; path: string } | string>) => {
         updateNodeConfig(id, {
@@ -40,6 +45,20 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             images: newImages,
         });
     }, [id, data.config, updateNodeConfig]);
+
+    const appendUniqueUrls = useCallback(
+        (incomingUrls: string[]) => {
+            if (incomingUrls.length === 0) return;
+
+            const existingUrlSet = new Set(images.map(getMediaUrl).filter(Boolean));
+            const dedupedIncoming = incomingUrls.filter((url) => !!url && !existingUrlSet.has(url));
+            if (dedupedIncoming.length === 0) return;
+
+            updateImages([...images, ...dedupedIncoming]);
+            setActiveImageIndex((prev) => (images.length > 0 ? prev : 0));
+        },
+        [images, updateImages]
+    );
 
     // Handle file upload
     const handleFiles = useCallback(async (files: FileList | null) => {
@@ -98,6 +117,29 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
+
+        // Support dragging from AssetsPanel directly onto an existing media_input node.
+        const rawData = e.dataTransfer.getData('application/reactflow');
+        if (rawData) {
+            try {
+                const payload = JSON.parse(rawData);
+                const dropped = Array.isArray(payload?.initialConfig?.images)
+                    ? payload.initialConfig.images
+                    : [];
+
+                const droppedUrls = dropped
+                    .map((item: any) => (typeof item === 'string' ? item : item?.url))
+                    .filter((url: any) => typeof url === 'string' && (url.startsWith('http') || url.startsWith('data:')));
+
+                if (droppedUrls.length > 0) {
+                    appendUniqueUrls(droppedUrls);
+                    return;
+                }
+            } catch {
+                // Not a structured canvas payload; fall through to file-drop handling.
+            }
+        }
+
         handleFiles(e.dataTransfer.files);
     };
 
@@ -119,11 +161,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
         const newImages = images.filter((_, i) => i !== index);
         updateImages(newImages);
-    };
-
-    const getMediaUrl = (img: any) => {
-        if (typeof img === 'string') return img;
-        return img?.url;
     };
 
     const isVideo = (url: string) => {

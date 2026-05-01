@@ -65,6 +65,10 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
     const selectedModel = filteredModels.find(m => m.id === data.config?.model_id) || null;
     const selectedNodeType = nodeTypes.find(nt => nt.id === nodeTypeId) || null;
+    const aiDefaultLabel = selectedNodeType ? selectedNodeType.display_name : (data.config?.model_id ? 'AI Model' : 'AI Generator');
+    const persistedLabel = typeof data?.label === 'string' ? data.label.trim() : '';
+    const isDefaultFactoryLabel = persistedLabel === '' || persistedLabel === 'Ai Generator' || persistedLabel === 'AI Generator' || persistedLabel === 'AI Model';
+    const nodeTitle = isDefaultFactoryLabel ? aiDefaultLabel : data.label;
 
     // Reset image loaded state when output changes to a new one
     useEffect(() => {
@@ -205,7 +209,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
         <BaseNode
             id={id}
             type="ai_generator"
-            label={selectedNodeType ? selectedNodeType.display_name : (data.config?.model_id ? 'AI Model' : 'AI Generator')}
+            label={nodeTitle}
             icon={selectedNodeType?.icon_reference}
             selected={selected}
             customInputs={customInputs}

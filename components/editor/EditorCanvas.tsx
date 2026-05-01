@@ -411,10 +411,11 @@ function EditorCanvasInner({
     const handleEdgeClick = useCallback(
         (event: React.MouseEvent, edge: Edge) => {
             event.stopPropagation();
+            touchInteraction();
             // Remove the clicked edge
             onEdgesChange([{ type: 'remove', id: edge.id }]);
         },
-        [onEdgesChange]
+        [onEdgesChange, touchInteraction]
     );
 
     // Handle node deletion - reconnect incomers to outgoers (delete middle node)
@@ -616,6 +617,7 @@ function EditorCanvasInner({
                 edges={memoizedEdges}
                 onNodesChange={handleNodesChangeThrottled}
                 onEdgesChange={(changes) => {
+                    touchInteraction();
                     onEdgesChange(changes);
                 }}
                 onConnect={(connection) => {

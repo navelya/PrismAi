@@ -64,6 +64,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
     // Status and Store Actions
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
+    const updateNodeLabel = useAppStore((state) => state.updateNodeLabel);
+    const touchInteraction = useAppStore((state) => state.touchInteraction);
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const edges = useEdges();
 
@@ -273,6 +275,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 label={displayLabel}
                 color={nodeColor}
                 badgeCount={badgeCount}
+                onLabelChange={(nextLabel) => {
+                    touchInteraction();
+                    updateNodeLabel(id, nextLabel);
+                }}
             />
 
             {/* Content Area */}

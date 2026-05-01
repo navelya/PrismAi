@@ -148,4 +148,20 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
         set({ currentWorkflow: updatedWorkflow, isWorkflowDirty: true });
     },
+
+    updateNodeLabel: (nodeId, label) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow) return;
+
+        const updatedWorkflow: Workflow = {
+            ...currentWorkflow,
+            nodes: currentWorkflow.nodes.map((node) =>
+                node.id === nodeId
+                    ? { ...node, data: { ...node.data, label } }
+                    : node
+            ),
+        };
+
+        set({ currentWorkflow: updatedWorkflow, isWorkflowDirty: true });
+    },
 });
