@@ -107,6 +107,7 @@ export function ModelForm({
     const [visualControls, setVisualControls] = useState<Array<Control & { id: string }>>([]);
     const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean }>>([]);
     const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_visible: boolean }>>([]);
+    const [jsonDefaultDrafts, setJsonDefaultDrafts] = useState<Record<string, string>>({});
 
     // -------------------------------------------------------------------------
     // INITIALIZATION (EFFECTS)
@@ -290,6 +291,67 @@ export function ModelForm({
                 w.api_mapping_key === key ? { ...w, is_visible: !w.is_visible } : w
             ));
         }
+    };
+
+    const setControlPatch = (controlId: string, patch: Partial<Control>) => {
+        setVisualControls(prev => prev.map(c => c.id === controlId ? { ...c, ...patch } : c));
+    };
+
+    const parseSelectDefault = (rawValue: string, controlType?: string) => {
+        const normalizedType = (controlType || '').toLowerCase();
+        if (normalizedType === 'number' || normalizedType === 'integer') {
+            const parsed = Number(rawValue);
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
+        if (normalizedType === 'boolean') {
+            return rawValue === 'true';
+        }
+        return rawValue;
+    };
+
+    const normalizeDefaultForComponent = (ctrl: Control, nextComponent: Control['component']) => {
+        const currentValue = ctrl.default_value;
+        const normalizedType = (ctrl.type || '').toLowerCase();
+        const isSelect = nextComponent === 'select' || nextComponent === 'aspect_ratio' || nextComponent === 'resolution' || nextComponent === 'format';
+        const isBoolean = nextComponent === 'checkbox' || nextComponent === 'reverse' || normalizedType === 'boolean';
+        const isNumber = nextComponent === 'slider' || nextComponent === 'number_input' || nextComponent === 'threshold' || normalizedType === 'number' || normalizedType === 'integer';
+
+        if (isSelect && Array.isArray(ctrl.options) && ctrl.options.length > 0) {
+            const asStrings = ctrl.options.map(opt => String(opt));
+            const currentAsString = currentValue === undefined || currentValue === null ? '' : String(currentValue);
+            const selected = asStrings.includes(currentAsString) ? currentAsString : asStrings[0];
+            return parseSelectDefault(selected, ctrl.type);
+        }
+
+        if (isBoolean) {
+            return typeof currentValue === 'boolean' ? currentValue : String(currentValue).toLowerCase() === 'true';
+        }
+
+        if (isNumber) {
+            const parsed = Number(currentValue);
+            return Number.isFinite(parsed) ? parsed : (ctrl.min ?? 0);
+        }
+
+        return currentValue ?? '';
+    };
+
+    const normalizedControlType = (ctrl: Control) => (ctrl.type || '').toLowerCase();
+    const isSelectControl = (ctrl: Control) =>
+        ctrl.component === 'select' || ctrl.component === 'aspect_ratio' || ctrl.component === 'resolution' || ctrl.component === 'format';
+    const isBooleanControl = (ctrl: Control) =>
+        ctrl.component === 'checkbox' || ctrl.component === 'reverse' || (!isSelectControl(ctrl) && normalizedControlType(ctrl) === 'boolean');
+    const isNumericControl = (ctrl: Control) =>
+        ctrl.component === 'slider' || ctrl.component === 'number_input' || ctrl.component === 'threshold' || (!isSelectControl(ctrl) && (normalizedControlType(ctrl) === 'number' || normalizedControlType(ctrl) === 'integer'));
+    const isJsonControl = (ctrl: Control) => normalizedControlType(ctrl) === 'array' || normalizedControlType(ctrl) === 'object';
+
+    const getJsonDraftValue = (ctrl: Control & { id: string }) => {
+        if (jsonDefaultDrafts[ctrl.id] !== undefined) {
+            return jsonDefaultDrafts[ctrl.id];
+        }
+        if (typeof ctrl.default_value === 'string') {
+            return ctrl.default_value;
+        }
+        return JSON.stringify(ctrl.default_value ?? (normalizedControlType(ctrl) === 'array' ? [] : {}), null, 2);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -505,9 +567,101 @@ export function ModelForm({
                                     ]}
                                     onChange={e => {
                                         const component = e.target.value as any;
-                                        setVisualControls(prev => prev.map(c => c.id === ctrl.id ? { ...c, component } : c));
+                                        setControlPatch(ctrl.id, {
+                                            component,
+                                            default_value: normalizeDefaultForComponent(ctrl, component)
+                                        });
                                     }}
                                 />
+                            </div>
+
+                            <div className="pt-1">
+                                {isBooleanControl(ctrl) && (
+                                    <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-content-tertiary">Default Value</p>
+                                        <Switch
+                                            checked={Boolean(ctrl.default_value)}
+                                            onCheckedChange={(checked) => setControlPatch(ctrl.id, { default_value: checked })}
+                                            label={Boolean(ctrl.default_value) ? 'Enabled' : 'Disabled'}
+                                        />
+                                    </div>
+                                )}
+
+                                {isNumericControl(ctrl) && !isBooleanControl(ctrl) && (
+                                    <NumberInput
+                                        label="Default Value"
+                                        min={ctrl.min}
+                                        max={ctrl.max}
+                                        step={ctrl.step ?? (normalizedControlType(ctrl) === 'integer' ? 1 : 0.01)}
+                                        value={Number.isFinite(Number(ctrl.default_value)) ? Number(ctrl.default_value) : (ctrl.min ?? 0)}
+                                        onChange={e => {
+                                            const val = Number(e.target.value);
+                                            setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? val : (ctrl.min ?? 0) });
+                                        }}
+                                    />
+                                )}
+
+                                {isSelectControl(ctrl) && !isBooleanControl(ctrl) && !isNumericControl(ctrl) && (
+                                    Array.isArray(ctrl.options) && ctrl.options.length > 0 ? (
+                                        <Select
+                                            label="Default Value"
+                                            value={String(ctrl.default_value ?? '')}
+                                            options={ctrl.options.map(opt => ({
+                                                id: String(opt),
+                                                display_name: formatDisplayName(String(opt))
+                                            }))}
+                                            onChange={e => setControlPatch(ctrl.id, {
+                                                default_value: parseSelectDefault(e.target.value, ctrl.type)
+                                            })}
+                                        />
+                                    ) : (
+                                        <Input
+                                            label="Default Value"
+                                            value={String(ctrl.default_value ?? '')}
+                                            onChange={e => setControlPatch(ctrl.id, { default_value: e.target.value })}
+                                            placeholder="No schema enum options available"
+                                        />
+                                    )
+                                )}
+
+                                {!isBooleanControl(ctrl) && !isNumericControl(ctrl) && !isSelectControl(ctrl) && !isJsonControl(ctrl) && (
+                                    (ctrl.component === 'textarea' || ctrl.component === 'prompt_textarea' || ctrl.component === 'negative_prompt') ? (
+                                        <Textarea
+                                            label="Default Value"
+                                            value={String(ctrl.default_value ?? '')}
+                                            onChange={e => setControlPatch(ctrl.id, { default_value: e.target.value })}
+                                            rows={3}
+                                        />
+                                    ) : (
+                                        <Input
+                                            label="Default Value"
+                                            value={String(ctrl.default_value ?? '')}
+                                            onChange={e => setControlPatch(ctrl.id, { default_value: e.target.value })}
+                                        />
+                                    )
+                                )}
+
+                                {isJsonControl(ctrl) && (
+                                    <Textarea
+                                        label="Default Value (JSON)"
+                                        value={getJsonDraftValue(ctrl)}
+                                        onChange={e => {
+                                            const raw = e.target.value;
+                                            setJsonDefaultDrafts(prev => ({ ...prev, [ctrl.id]: raw }));
+                                            try {
+                                                const parsed = JSON.parse(raw);
+                                                const isValidArray = normalizedControlType(ctrl) === 'array' && Array.isArray(parsed);
+                                                const isValidObject = normalizedControlType(ctrl) === 'object' && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+                                                if (isValidArray || isValidObject) {
+                                                    setControlPatch(ctrl.id, { default_value: parsed });
+                                                }
+                                            } catch {
+                                                // Keep draft text while JSON is being edited.
+                                            }
+                                        }}
+                                        rows={4}
+                                    />
+                                )}
                             </div>
 
                             {/* Dynamic Pricing Section */}

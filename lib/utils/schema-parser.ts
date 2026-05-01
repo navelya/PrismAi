@@ -56,6 +56,74 @@ function resolveProperty(prop: any, components: any): any {
     return resolved;
 }
 
+function getResolvedVariants(prop: any, components: any): any[] {
+    const resolved = resolveProperty(prop, components);
+
+    if (Array.isArray(resolved.oneOf)) {
+        return resolved.oneOf.map((item: any) => resolveProperty(item, components));
+    }
+    if (Array.isArray(resolved.anyOf)) {
+        return resolved.anyOf.map((item: any) => resolveProperty(item, components));
+    }
+
+    return [resolved];
+}
+
+function inferWireType(key: string, prop: any): 'image' | 'video' | 'audio' | 'text' | 'any' {
+    const search = [
+        key,
+        prop?.title,
+        prop?.description,
+        prop?.format,
+        prop?.contentMediaType,
+        prop?.['x-cog-array-type'],
+        prop?.['x-cog-output-type'],
+    ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+    const hasImageHint =
+        search.includes('image') ||
+        search.includes('photo') ||
+        search.includes('picture') ||
+        search.includes('png') ||
+        search.includes('jpg') ||
+        search.includes('jpeg') ||
+        search.includes('webp');
+    const hasVideoHint =
+        search.includes('video') ||
+        search.includes('mp4') ||
+        search.includes('mov') ||
+        search.includes('webm') ||
+        search.includes('gif');
+    const hasAudioHint =
+        search.includes('audio') ||
+        search.includes('sound') ||
+        search.includes('music') ||
+        search.includes('mp3') ||
+        search.includes('wav') ||
+        search.includes('ogg');
+    const hasTextHint =
+        search.includes('text') ||
+        search.includes('prompt') ||
+        search.includes('caption') ||
+        search.includes('transcript');
+
+    if (hasVideoHint) return 'video';
+    if (hasAudioHint) return 'audio';
+    if (hasImageHint) return 'image';
+
+    // Replicate files are commonly represented as string + uri. If we don't
+    // have a concrete media hint, keep it generic.
+    if (prop?.type === 'string' && prop?.format === 'uri') {
+        return 'any';
+    }
+
+    if (prop?.type === 'string' || hasTextHint) return 'text';
+    return 'any';
+}
+
 export function parseReplicateSchema(schema: any) {
     const components = schema?.components || {};
     const inputSchemaObj = components.schemas?.Input || {};
@@ -85,16 +153,7 @@ export function parseReplicateSchema(schema: any) {
         // Rule A3: Prompt keyword
 
         if (isUri || isArrayUri || isPrompt) {
-            let handleType = 'image'; // Default fallback
-
-            if (isPrompt) {
-                handleType = 'text';
-            } else {
-                const searchString = (key + ' ' + (prop.description || '')).toLowerCase();
-                if (searchString.includes('video')) handleType = 'video';
-                else if (searchString.includes('audio')) handleType = 'audio';
-                else if (searchString.includes('image')) handleType = 'image';
-            }
+            const handleType = isPrompt ? 'text' : inferWireType(key, prop);
 
             handles.push({
                 name: prop.title || formatDisplayName(key),
@@ -166,18 +225,72 @@ export function parseReplicateSchema(schema: any) {
     // 2. PROCESS OUTPUTS
     // =========================================================================
     const outputHandles: any[] = [];
-    const resolvedOutput = resolveProperty(outputSchemaObj, components);
+    const addOrMergeOutputHandle = (next: any) => {
+        const existing = outputHandles.find(h => h.api_mapping_key === next.api_mapping_key);
+        if (!existing) {
+            outputHandles.push(next);
+            return;
+        }
 
-    // Strict Output Rule: Check for URI format
-    const outputIsUri = resolvedOutput.format === 'uri';
-    const outputIsArrayUri = resolvedOutput.type === 'array' && resolvedOutput.items?.format === 'uri';
+        existing.is_array = existing.is_array || next.is_array;
+        if (existing.type !== next.type) existing.type = 'any';
+        if (!existing.name && next.name) existing.name = next.name;
+    };
 
-    if (outputIsUri || outputIsArrayUri) {
+    const outputVariants = getResolvedVariants(outputSchemaObj, components);
+
+    outputVariants.forEach((variant) => {
+        const resolvedVariant = resolveProperty(variant, components);
+        const topLevelIsArray = resolvedVariant.type === 'array';
+        const topLevelSchema = topLevelIsArray
+            ? resolveProperty(resolvedVariant.items, components)
+            : resolvedVariant;
+
+        const leafVariants = getResolvedVariants(topLevelSchema, components);
+
+        leafVariants.forEach((leafVariant) => {
+            // Object outputs can expose named properties (e.g. text + file)
+            if (leafVariant.type === 'object' && leafVariant.properties) {
+                Object.entries(leafVariant.properties).forEach(([key, rawProp]: [string, any]) => {
+                    const resolvedLeafProp = resolveProperty(rawProp, components);
+                    const propIsArray = resolvedLeafProp.type === 'array';
+                    const propValueSchema = propIsArray
+                        ? resolveProperty(resolvedLeafProp.items, components)
+                        : resolvedLeafProp;
+
+                    addOrMergeOutputHandle({
+                        name: resolvedLeafProp.title || formatDisplayName(key),
+                        api_mapping_key: key,
+                        type: inferWireType(key, propValueSchema),
+                        is_array: topLevelIsArray || propIsArray,
+                        is_visible: true
+                    });
+                });
+                return;
+            }
+
+            addOrMergeOutputHandle({
+                name: 'output',
+                api_mapping_key: 'output',
+                type: inferWireType('output', leafVariant),
+                is_array: topLevelIsArray,
+                is_visible: true
+            });
+        });
+    });
+
+    // Fallback: if schema exists but we couldn't infer details, still expose a generic output.
+    if (
+        outputHandles.length === 0 &&
+        outputSchemaObj &&
+        typeof outputSchemaObj === 'object' &&
+        Object.keys(outputSchemaObj).length > 0
+    ) {
         outputHandles.push({
             name: 'output',
             api_mapping_key: 'output',
-            type: 'image', // Default for Replicate visuals
-            is_array: outputIsArrayUri || resolvedOutput.type === 'array',
+            type: 'any',
+            is_array: false,
             is_visible: true
         });
     }
