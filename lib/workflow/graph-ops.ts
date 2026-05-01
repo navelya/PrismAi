@@ -78,10 +78,9 @@ export function applyAddNodeOp(workflow: Workflow, op: AddNodeOp, idMap: Map<str
     const resolvedNodeId = crypto.randomUUID();
     idMap.set(op.id, resolvedNodeId);
 
-    const actualType = op.type === 'ai_generator' && op.node_type_id ? op.node_type_id : op.type;
     const node: WorkflowNode = {
         id: resolvedNodeId,
-        type: actualType as any,
+        type: op.type as any,
         position: op.position,
         data: {
             label: defaultLabel(op.type),

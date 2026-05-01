@@ -34,10 +34,19 @@ function sanitizeWorkflow(wf: Workflow | null | undefined): Workflow | null {
         // 1. General Legacy Node Handling: Check if type exists in shared registry
         // If not in sharedRegistry, also allow types that are registered directly
         // in stableNodeTypes (e.g. 'ai_generator' which is dynamic and not in sharedRegistry)
+        // OR if the node has a node_type_id in its config (AI-generated nodes)
         const DYNAMIC_NODE_TYPES = new Set(['ai_generator']);
-        if (!(nodeType in sharedRegistry) && !DYNAMIC_NODE_TYPES.has(nodeType)) {
+        const isAiNode = DYNAMIC_NODE_TYPES.has(nodeType) || (nodeData.config && nodeData.config.node_type_id);
+        
+        if (!(nodeType in sharedRegistry) && !isAiNode) {
             nodeData.__originalType = nodeType;
             nodeType = 'legacy' as NodeType;
+        }
+
+        // If it is an AI node but has a dynamic type, normalize it to 'ai_generator' 
+        // to ensure it matches the registry and component mapping.
+        if (isAiNode && nodeType !== 'ai_generator') {
+            nodeType = 'ai_generator';
         }
 
         return {

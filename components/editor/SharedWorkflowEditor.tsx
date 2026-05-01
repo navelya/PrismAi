@@ -199,7 +199,10 @@ export default function SharedWorkflowEditor({
         if (readOnly) return;
         setSelectedNode(node.id);
         bringNodeToFront(node.id);
-        if (clientRegistry[node.type]?.propertyPanel) {
+        
+        const isAiNode = node.type === 'ai_generator' || !!node.data?.config?.node_type_id;
+        
+        if (clientRegistry[node.type]?.propertyPanel || isAiNode) {
             setShowPropertyPanel(true);
         } else {
             setShowPropertyPanel(false);

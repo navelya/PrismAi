@@ -15,8 +15,10 @@ interface PropertyPanelProps {
 }
 
 export default function PropertyPanel({ nodeId, nodeType, config, onUpdate, onClose }: PropertyPanelProps) {
-    const PropertyComponent = clientRegistry[nodeType]?.propertyPanel;
-    const isAiNode = nodeType === 'ai_generator' || nodeType === 'ai_generate_image';
+    const PropertyComponent = clientRegistry[nodeType]?.propertyPanel || (
+        (nodeType === 'ai_generator' || config?.node_type_id) ? clientRegistry.ai_generator.propertyPanel : null
+    );
+    const isAiNode = nodeType === 'ai_generator' || !!config?.node_type_id;
 
     return (
         <div className="w-80 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-full h-fit select-none">
