@@ -21,7 +21,31 @@ import { GraphJson, NodeConfig } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { dispatchNode } from '@/lib/workflow/dispatch-v2';
 import { isEphemeralNode } from '@/lib/workflow/handlers';
-import { getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
+import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
+
+async function getAiArrayInputKeys(
+  supabase: ReturnType<typeof createServiceClient>,
+  node: NodeConfig
+): Promise<Set<string>> {
+  if (node.type !== 'ai_generator') return new Set<string>();
+
+  const modelId = node.data?.config?.model_id ?? node.data?.model_id;
+  if (!modelId) return new Set<string>();
+
+  const { data: model } = await supabase
+    .from('ai_models')
+    .select('inputs_schema')
+    .eq('id', modelId)
+    .single();
+
+  const handles = model?.inputs_schema?.handles || [];
+  return new Set(
+    handles
+      .filter((h: any) => h?.is_array)
+      .map((h: any) => h?.api_mapping_key)
+      .filter(Boolean)
+  );
+}
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
@@ -174,14 +198,19 @@ export async function POST(request: NextRequest) {
           .order('updated_at', { ascending: false });
 
         // Build one "latest result" per generative ancestor node.
-        const latestByNode = new Map<string, any>();
+        const latestByNode = new Map<
+          string,
+          { resultType: ReturnType<typeof normalizeNodeResultType>; resultData: any[]; primary: any }
+        >();
         (ancestorResults || []).forEach(r => {
-          const typedValue = r.result_type
-            ? getPrimaryInputValue(normalizeNodeResultType(r.result_type), r.result_data)
-            : getPrimaryInputValue('json', r.result_data || []);
+          const resultType = normalizeNodeResultType(r.result_type);
+          const resultData = coerceResultDataArray(r.result_data || []);
+          const primary = getPrimaryInputValue(resultType, resultData);
 
-          if (typedValue !== undefined && typedValue !== null && !latestByNode.has(r.node_id)) {
-            latestByNode.set(r.node_id, typedValue);
+          if ((primary !== undefined && primary !== null) || resultData.length > 0) {
+            if (!latestByNode.has(r.node_id)) {
+              latestByNode.set(r.node_id, { resultType, resultData, primary });
+            }
           }
         });
 
@@ -192,12 +221,14 @@ export async function POST(request: NextRequest) {
             e => e.target === node.id && generativeAncestorIds.has(e.source)
           );
           if (incomingFromGenerative.length === 0) continue;
+          const arrayInputKeys = await getAiArrayInputKeys(supabase, node);
 
           const nodeInputs = preseedInputs.get(node.id) || {};
           for (const edge of incomingFromGenerative) {
-            const result = latestByNode.get(edge.source);
-            if (result !== undefined && result !== null) {
+            const parentResult = latestByNode.get(edge.source);
+            if (parentResult) {
               const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
+              const result = arrayInputKeys.has(inputKey) ? parentResult.resultData : parentResult.primary;
               nodeInputs[inputKey] = result;
               const preview = typeof result === 'string' ? result.substring(0, 60) : JSON.stringify(result).substring(0, 60);
               console.log(`[Execution/Start] Pre-seeding input for node ${node.id}: ${inputKey} = ${preview}...`);

@@ -9,7 +9,7 @@ import { coerceResultDataArray, inferResultTypeFromValue, normalizeNodeResultTyp
  * Apply a node_results record directly to the Zustand store.
  * Used both by the realtime handler and the hydration catch-up query.
  */
-function applyNodeResult(record: any, sessionId: string) {
+function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'hydrate' = 'realtime') {
     const store = useAppStore.getState();
     const {
         node_id: nodeId,
@@ -48,7 +48,9 @@ function applyNodeResult(record: any, sessionId: string) {
     } else if (status === 'failed') {
         store.setNodeStatus(nodeId, 'error');
         store.setNodeOutput(nodeId, null);
-        console.error(`[ExecutionChannel] Node ${nodeId} failed:`, error);
+        if (source === 'realtime') {
+            console.error(`[ExecutionChannel] Node ${nodeId} failed:`, error);
+        }
     } else {
         // 'pending' and 'running' pass through directly
         store.setNodeStatus(nodeId, status);
@@ -85,7 +87,7 @@ async function hydrateFromDb(supabase: ReturnType<typeof createClient>, sessionI
     for (const row of rows) {
         if (seenNodes.has(row.node_id)) continue;
         seenNodes.add(row.node_id);
-        applyNodeResult(row, sessionId);
+        applyNodeResult(row, sessionId, 'hydrate');
     }
 
     console.log(`[ExecutionChannel] Hydrated ${seenNodes.size} node(s) from DB`);
@@ -157,7 +159,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
             const record = payload.new;
             if (!record) return;
             console.log(`[ExecutionChannel] ${payload.eventType} → node ${record.node_id}: ${record.status}`);
-            applyNodeResult(record, sessionId);
+            applyNodeResult(record, sessionId, 'realtime');
         };
 
         const buildChannel = () =>

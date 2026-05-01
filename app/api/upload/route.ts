@@ -32,15 +32,15 @@ export async function POST(request: NextRequest) {
         let ext = 'jpg';
 
         if (file) {
-            if (!file.type.startsWith('image/')) {
-                return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 });
+            if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+                return NextResponse.json({ error: 'Only image and video files are allowed' }, { status: 400 });
             }
-            const MAX_SIZE = 10 * 1024 * 1024;
+            const MAX_SIZE = 50 * 1024 * 1024; // Increased to 50MB for video support
             if (file.size > MAX_SIZE) {
-                return NextResponse.json({ error: 'File too large (max 10MB)' }, { status: 400 });
+                return NextResponse.json({ error: 'File too large (max 50MB)' }, { status: 400 });
             }
             mimeType = file.type;
-            ext = mimeType.split('/')[1] || 'webp';
+            ext = mimeType.split('/')[1]?.split('+')[0] || 'webp';
             const arrayBuffer = await file.arrayBuffer();
             buffer = Buffer.from(arrayBuffer);
         } else if (urlToFetch) {

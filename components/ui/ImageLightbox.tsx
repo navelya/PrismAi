@@ -3,6 +3,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 
 
 interface ImageLightboxProps {
@@ -32,7 +33,12 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
 
     const currentItem = normalizedMedia[currentIndex];
     const mediaSrc = currentItem?.url || currentItem?.base64 || '';
-    const isVideo = type === 'video';
+    
+    const isVideo = React.useMemo(() => {
+        if (type === 'video') return true;
+        if (type === 'image') return false;
+        return detectMediaTypeFromUrl(mediaSrc) === 'video';
+    }, [type, mediaSrc]);
 
     const goToPrevious = useCallback(() => {
         setCurrentIndex((prev) => (prev > 0 ? prev - 1 : normalizedMedia.length - 1));
@@ -177,7 +183,7 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
                                     : 'border-transparent opacity-60 hover:opacity-100'
                                     }`}
                             >
-                                {isThumbVideo ? (
+                                {((type === 'any' && detectMediaTypeFromUrl(thumbSrc) === 'video') || type === 'video') ? (
                                     <video src={thumbSrc} className="w-full h-full object-cover" />
                                 ) : (
                                     <img

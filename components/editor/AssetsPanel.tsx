@@ -28,6 +28,8 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
 
     const unpackAssets = useCallback((rows: any[]): AssetItem[] => {
         const unpacked: AssetItem[] = [];
+        const seenUrls = new Set<string>();
+
         rows.forEach((row) => {
             const type = row?.result_type as AssetItem['result_type'];
             if (!['image', 'video', 'audio', '3d'].includes(type)) return;
@@ -36,15 +38,20 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
             values.forEach((item: any, index: number) => {
                 if (typeof item !== 'string') return;
                 if (!(item.startsWith('http') || item.startsWith('data:'))) return;
-                unpacked.push({
-                    id: `${row.id}:${index}`,
-                    source_result_id: row.id,
-                    node_id: row.node_id,
-                    result_type: type,
-                    result_url: item,
-                    created_at: row.created_at,
-                    execution_id: row.execution_id,
-                });
+
+                // Only add if we haven't seen this URL in this batch
+                if (!seenUrls.has(item)) {
+                    seenUrls.add(item);
+                    unpacked.push({
+                        id: `${row.id}:${index}`,
+                        source_result_id: row.id,
+                        node_id: row.node_id,
+                        result_type: type,
+                        result_url: item,
+                        created_at: row.created_at,
+                        execution_id: row.execution_id,
+                    });
+                }
             });
         });
         return unpacked;
@@ -96,8 +103,8 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
                         if (nextItems.length === 0) return;
 
                         setAssets((prev) => {
-                            const existingIds = new Set(prev.map((a) => a.id));
-                            const incoming = nextItems.filter((item) => !existingIds.has(item.id));
+                            const existingUrls = new Set(prev.map((a) => a.result_url));
+                            const incoming = nextItems.filter((item) => !existingUrls.has(item.result_url));
                             if (incoming.length === 0) return prev;
                             return [...incoming, ...prev];
                         });
