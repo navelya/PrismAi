@@ -11,6 +11,7 @@ import BaseNode from '@/components/canvas/BaseNode';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
+import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
 
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
@@ -177,6 +178,29 @@ function AIGeneratorNode({ id, data, selected }: any) {
         }
     }
 
+    const dataTypes = useAppStore((state) => state.dataTypes);
+    const inferredType = output !== undefined && output !== null ? inferResultTypeFromValue(output) : null;
+    
+    let activeType = previewType;
+    if (inferredType === 'text' || previewType === 'prompt' || dataTypes.some(dt => dt.id === 'text' && dt.id === previewType)) {
+        activeType = 'text';
+    } else if (inferredType && isMediaResultType(inferredType as any)) {
+        activeType = inferredType;
+    }
+
+    // Determine dimensions based entirely on activeType
+    let nodeWidth = 320;
+    let textMinHeightClass = "min-h-[140px]";
+    
+    if (activeType === 'text') {
+        nodeWidth = 320; // Slightly wider for text readability
+        textMinHeightClass = "min-h-[140px]";
+    } else if (activeType === 'video') {
+        nodeWidth = 360;
+    } else if (activeType === 'audio') {
+        nodeWidth = 280;
+    }
+
     return (
         <BaseNode
             id={id}
@@ -186,20 +210,21 @@ function AIGeneratorNode({ id, data, selected }: any) {
             selected={selected}
             customInputs={customInputs}
             customOutputs={customOutputs}
-            width={320}
+            width={nodeWidth}
             isNew={(data as any).isNew}
         >
             <motion.div
                 layout={!isDragging && ((status === 'running' || status === 'success') && !!output) ? "position" : false}
                 className={cn(
-                    "relative w-full rounded-xl overflow-hidden border border-white/10 bg-white/5 shadow-inner group/node",
+                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node",
+                    activeType === 'text' ? "bg-transparent border-none" : "border border-white/10 bg-white/5",
                     !isDragging && "transition-all duration-500",
                     // Heights:
-                    //  - Text/Prompt: min-h-[60px]
+                    //  - Text/Prompt: dynamic via textMinHeightClass
                     //  - No output (empty placeholder): 200px — generous presence on canvas
                     //  - Running/loading: 200px — space for the glassy loader overlay
                     //  - Image loaded: shrink to fit naturally (min-h-0)
-                    (previewType === 'text' || previewType === 'prompt') ? "min-h-[60px]" : (!output || status === 'running' || !imageLoaded) ? "min-h-[200px]" : "min-h-0"
+                    activeType === 'text' ? textMinHeightClass : (!output || status === 'running' || !imageLoaded) ? "min-h-[200px]" : "min-h-0"
                 )}
             >
                 {/* Frosty Placeholder background */}
@@ -251,8 +276,8 @@ function AIGeneratorNode({ id, data, selected }: any) {
                 {/* Loading State Overlay (Always renders on top of Output if running) */}
                 {status === 'running' && <GlassyLoader containerClassName="z-50 bg-black/40 backdrop-blur-md" />}
 
-                {/* View Toggles (Matching CustomNode) */}
-                {Array.isArray(previewOutput) && previewOutput.length > 1 && (
+                {/* View Toggles - Only show for media grids with multiple items */}
+                {isMediaResultType(previewType as any) && Array.isArray(previewOutput) && previewOutput.length > 1 && (
                     <div className="absolute bottom-3 right-3 flex bg-black/60 backdrop-blur-xl rounded-xl p-1 border border-white/10 z-20 shadow-2xl opacity-0 group-hover/node:opacity-100 transition-opacity">
                         <button
                             onClick={(e) => { e.stopPropagation(); setPreviewMode('single'); }}
@@ -326,31 +351,67 @@ function AIGeneratorNode({ id, data, selected }: any) {
 // OUTPUT PREVIEW (Parity with CustomNode)
 // =============================================================================
 
+// =============================================================================
+// OUTPUT PREVIEW
+// =============================================================================
+
 function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
     const items = Array.isArray(output) ? output : [output];
     const urls = items
         .map((o: any) => (typeof o === 'string' ? o : o?.url))
         .filter((value: any) => typeof value === 'string' && (value.startsWith('http') || value.startsWith('data:')));
-    const textContent = typeof output === 'string'
-        ? output
-        : (output?.text || (typeof items[0] === 'string' ? items[0] : items[0]?.text) || null);
+    
+    const extractedText = extractTextValues(output);
+    const textContent = extractedText.length > 0 ? extractedText.join('') : null;
+
     const videoRef = React.useRef<HTMLVideoElement>(null);
+    const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const MAX_HEIGHT = 800;
     const setNodeOutput = useAppStore((state) => state.setNodeOutput);
+    const dataTypes = useAppStore((state) => state.dataTypes);
+    const inferredType = output !== undefined && output !== null ? inferResultTypeFromValue(output) : null;
+    const isTextType = 
+        type === 'text' || 
+        type === 'prompt' || 
+        dataTypes.some(dt => dt.id === 'text' && dt.id === type) || 
+        inferredType === 'text' ||
+        (urls.length === 0 && textContent !== null);
 
-    if (type === 'text' || type === 'prompt') {
+    // Auto-resize for text area and wheel event capture
+    useEffect(() => {
+        if (isTextType && textareaRef.current) {
+            const el = textareaRef.current;
+            el.style.height = 'auto';
+            el.style.height = `${el.scrollHeight}px`;
+
+            // Wheel event capture to override React Flow's native behavior selectively
+            const handleWheelNative = (e: WheelEvent) => {
+                if (!e.ctrlKey && !e.metaKey) {
+                    e.stopPropagation();
+                }
+            };
+
+            el.addEventListener('wheel', handleWheelNative, { passive: false });
+            return () => el.removeEventListener('wheel', handleWheelNative);
+        }
+    }, [textContent, isTextType]);
+
+    if (isTextType) {
         return (
             <div
-                className="w-full p-2.5 bg-white/5 shadow-inner backdrop-blur-md"
+                className="w-full p-2.5 transition-all duration-300 bg-transparent"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
+                onClick={onInteraction}
             >
                 <textarea
-                    className="nodrag custom-scrollbar block w-full min-h-[60px] max-h-[160px] text-[11px] bg-transparent border-none focus:outline-none focus:ring-0 text-white/90 resize-none p-0 font-mono"
+                    ref={textareaRef}
+                    className="nodrag custom-scrollbar block w-full min-h-[140px] max-h-[300px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
                     value={textContent || ''}
                     placeholder="Empty output"
                     onChange={(e) => {
-                        setNodeOutput(nodeId, { type: 'text', data: [e.target.value] });
+                        const val = e.target.value;
+                        setNodeOutput(nodeId, { type: 'text', data: [val] });
                     }}
                     onKeyDown={(e) => {
                         if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -410,11 +471,15 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
     if (urls.length === 0) {
         return (
             <div
-                className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/40 italic break-all line-clamp-4 flex items-center justify-center text-center"
+                className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl shadow-inner backdrop-blur-md transition-all duration-300"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
             >
-                {textContent || (output ? JSON.stringify(output) : 'No output data')}
+                <textarea
+                    className="nodrag custom-scrollbar block w-full min-h-[60px] max-h-[160px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
+                    value={textContent || (output ? JSON.stringify(output) : 'No output data')}
+                    readOnly
+                />
             </div>
         );
     }

@@ -18,12 +18,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     // ✅ GLOBAL CATALOG FETCH: Ensure models and node types are loaded for labels
-    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders } = useAppStore(
+    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes } = useAppStore(
         useShallow((state) => ({
             fetchModels: state.fetchModels,
             fetchCategories: state.fetchCategories,
             fetchNodeTypes: state.fetchNodeTypes,
             fetchProviders: state.fetchProviders,
+            fetchDataTypes: state.fetchDataTypes,
         }))
     );
 
@@ -33,7 +34,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
         fetchCategories();
         fetchNodeTypes();
         fetchProviders();
-    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders]);
+        fetchDataTypes();
+    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes]);
 
     // Get workflow name from store
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);

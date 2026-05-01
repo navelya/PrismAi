@@ -17,6 +17,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     categories: [],
     nodeTypes: [],
     providers: [],
+    dataTypes: [],
     isModelsLoading: false,
     runFromNodeId: null,
     runMode: null,
@@ -90,6 +91,16 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
             set({ providers: data || [] });
         } catch (error) {
             console.error('Failed to fetch providers:', error);
+        }
+    },
+    fetchDataTypes: async () => {
+        if (get().dataTypes.length > 0) return;
+        try {
+            const { modelsAdminApi } = await import('@/lib/api/admin');
+            const data = await modelsAdminApi.listDataTypes();
+            set({ dataTypes: data || [] });
+        } catch (error) {
+            console.error('Failed to fetch data types:', error);
         }
     },
 

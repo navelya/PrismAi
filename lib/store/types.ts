@@ -85,11 +85,13 @@ export interface UISlice {
     categories: any[];
     nodeTypes: any[];
     providers: any[];
+    dataTypes: any[];
     isModelsLoading: boolean;
     fetchModelCatalog: () => Promise<void>;
     fetchCategories: () => Promise<void>;
     fetchNodeTypes: () => Promise<void>;
     fetchProviders: () => Promise<void>;
+    fetchDataTypes: () => Promise<void>;
     fetchModels: () => Promise<void>;
     runFromNodeId: string | null;
     runMode: 'solo' | 'chain' | 'ab_test' | null;

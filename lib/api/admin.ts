@@ -44,6 +44,18 @@ export const modelsAdminApi = {
         return res.json();
     },
 
+    /** Fetch all data types (images, video, text, etc) */
+    listDataTypes: async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase
+            .from('data_types')
+            .select('*')
+            .order('id');
+
+        if (error) throw error;
+        return data;
+    },
+
     /** Fetch all node archetypes */
     listArchetypes: async () => {
         const supabase = createClient();

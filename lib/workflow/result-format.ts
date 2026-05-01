@@ -82,13 +82,20 @@ export function extractTextValues(value: any): string[] {
         values.push(node.text);
         return;
       }
-      values.push(JSON.stringify(node));
+      // Avoid stringifying objects that might be complex, just skip or use placeholder
       return;
     }
     values.push(String(node));
   };
 
   visit(value);
+  
+  // If we have multiple strings, they are likely chunks of a single output (e.g. from an LLM)
+  // We join them into a single entry to keep the data "clean" and ready for editing
+  if (values.length > 1) {
+    return [values.join('')];
+  }
+  
   return values;
 }
 
@@ -158,7 +165,7 @@ export function toLegacyRenderableOutput(value: any): any {
   }
 
   if (type === 'text') {
-    return typeof data[0] === 'string' ? data[0] : '';
+    return Array.isArray(data) ? data.join('') : (typeof data === 'string' ? data : '');
   }
 
   return data.length === 1 ? data[0] : data;
