@@ -8,7 +8,9 @@ import ImageLightbox from '@/components/ui/ImageLightbox';
 
 interface AssetItem {
     id: string;
+    source_result_id: string;
     node_id: string;
+    result_type: 'image' | 'video' | 'audio' | '3d';
     result_url: string;
     created_at: string;
     execution_id: string;
@@ -24,6 +26,30 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
     const [isLoading, setIsLoading] = useState(true);
     const supabase = React.useMemo(() => createClient(), []);
 
+    const unpackAssets = useCallback((rows: any[]): AssetItem[] => {
+        const unpacked: AssetItem[] = [];
+        rows.forEach((row) => {
+            const type = row?.result_type as AssetItem['result_type'];
+            if (!['image', 'video', 'audio', '3d'].includes(type)) return;
+
+            const values = Array.isArray(row?.result_data) ? row.result_data : [];
+            values.forEach((item: any, index: number) => {
+                if (typeof item !== 'string') return;
+                if (!(item.startsWith('http') || item.startsWith('data:'))) return;
+                unpacked.push({
+                    id: `${row.id}:${index}`,
+                    source_result_id: row.id,
+                    node_id: row.node_id,
+                    result_type: type,
+                    result_url: item,
+                    created_at: row.created_at,
+                    execution_id: row.execution_id,
+                });
+            });
+        });
+        return unpacked;
+    }, []);
+
     const fetchAssets = useCallback(async () => {
         if (!sessionId) {
             setIsLoading(false);
@@ -32,17 +58,18 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
 
         const { data, error } = await supabase
             .from('node_results')
-            .select('id, node_id, result_url, created_at, execution_id')
+            .select('id, node_id, result_type, result_data, created_at, execution_id')
             .eq('session_id', sessionId)
             .eq('status', 'completed')
-            .not('result_url', 'is', null)
+            .in('result_type', ['image', 'video', 'audio', '3d'])
             .order('created_at', { ascending: false });
 
         if (!error && data) {
-            setAssets(data as AssetItem[]);
+            const validAssets = unpackAssets(data);
+            setAssets(validAssets);
         }
         setIsLoading(false);
-    }, [sessionId, supabase]);
+    }, [sessionId, supabase, unpackAssets]);
 
     useEffect(() => {
         fetchAssets();
@@ -64,11 +91,15 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
                 },
                 (payload: any) => {
                     const row = payload.new;
-                    if (row?.status === 'completed' && row?.result_url) {
+                    if (row?.status === 'completed' && ['image', 'video', 'audio', '3d'].includes(row?.result_type)) {
+                        const nextItems = unpackAssets([row]);
+                        if (nextItems.length === 0) return;
+
                         setAssets((prev) => {
-                            const exists = prev.some((a) => a.id === row.id);
-                            if (exists) return prev;
-                            return [row as AssetItem, ...prev];
+                            const existingIds = new Set(prev.map((a) => a.id));
+                            const incoming = nextItems.filter((item) => !existingIds.has(item.id));
+                            if (incoming.length === 0) return prev;
+                            return [...incoming, ...prev];
                         });
                     }
                 }
@@ -78,7 +109,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [sessionId, supabase]);
+    }, [sessionId, supabase, unpackAssets]);
 
     const handleDragStart = (e: React.DragEvent, asset: AssetItem) => {
         const payload = JSON.stringify({
@@ -167,9 +198,8 @@ function AssetCard({
     const [loaded, setLoaded] = useState(false);
     const [lightboxOpen, setLightboxOpen] = useState(false);
 
-    // Guess type from URL extension
-    const isVideo = /\.(mp4|webm|mov|avi)$/i.test(asset.result_url);
-    const mediaType: 'image' | 'video' | 'any' = isVideo ? 'video' : 'image';
+    const mediaType = asset.result_type === 'audio' ? 'any' : (asset.result_type === '3d' ? 'any' : asset.result_type);
+    const showSkeleton = !loaded && (asset.result_type === 'image' || asset.result_type === 'video');
 
     return (
         <>
@@ -183,11 +213,11 @@ function AssetCard({
                 className="relative aspect-square rounded-xl overflow-hidden border border-stroke-subtle bg-surface-primary cursor-pointer group hover:border-accent-primary/50 transition-all duration-200 shadow-sm hover:shadow-lg"
                 title="Click to preview · Drag to canvas"
             >
-                {!loaded && (
+                {showSkeleton && (
                     <div className="absolute inset-0 bg-surface-secondary animate-pulse" />
                 )}
 
-                {isVideo ? (
+                {asset.result_type === 'video' ? (
                     <video
                         src={asset.result_url}
                         className={`w-full h-full object-cover transition-all duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
@@ -195,6 +225,15 @@ function AssetCard({
                         muted
                         playsInline
                     />
+                ) : asset.result_type === 'audio' ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black/40 text-white/80 p-2">
+                        <span className="text-[9px] font-semibold uppercase tracking-wider mb-2">Audio</span>
+                        <audio src={asset.result_url} controls className="w-full" onLoadedData={() => setLoaded(true)} />
+                    </div>
+                ) : asset.result_type === '3d' ? (
+                    <div className="w-full h-full flex items-center justify-center bg-black/40 text-white/80 p-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider">3D Model</span>
+                    </div>
                 ) : (
                     <img
                         src={asset.result_url}
@@ -214,7 +253,7 @@ function AssetCard({
             {lightboxOpen && (
                 <ImageLightbox
                     media={asset.result_url}
-                    type={mediaType}
+                    type={mediaType as any}
                     initialIndex={0}
                     onClose={() => setLightboxOpen(false)}
                 />

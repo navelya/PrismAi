@@ -69,15 +69,19 @@ function getResolvedVariants(prop: any, components: any): any[] {
     return [resolved];
 }
 
-function inferWireType(key: string, prop: any): 'image' | 'video' | 'audio' | 'text' | 'any' {
+function inferWireType(key: string, prop: any): 'image' | 'video' | 'audio' | '3d' | 'text' | 'json' {
     const search = [
         key,
         prop?.title,
         prop?.description,
         prop?.format,
+        prop?.items?.format,
         prop?.contentMediaType,
+        prop?.items?.contentMediaType,
         prop?.['x-cog-array-type'],
         prop?.['x-cog-output-type'],
+        prop?.items?.['x-cog-array-type'],
+        prop?.items?.['x-cog-output-type'],
     ]
         .filter(Boolean)
         .join(' ')
@@ -109,19 +113,39 @@ function inferWireType(key: string, prop: any): 'image' | 'video' | 'audio' | 't
         search.includes('prompt') ||
         search.includes('caption') ||
         search.includes('transcript');
+    const has3dHint =
+        search.includes('3d') ||
+        search.includes('model') ||
+        search.includes('mesh') ||
+        search.includes('glb') ||
+        search.includes('gltf') ||
+        search.includes('obj') ||
+        search.includes('fbx') ||
+        search.includes('stl');
+    const hasJsonHint =
+        search.includes('json') ||
+        search.includes('object') ||
+        search.includes('schema') ||
+        prop?.type === 'object' ||
+        prop?.type === 'array';
+    const isUri =
+        (prop?.type === 'string' && prop?.format === 'uri') ||
+        (prop?.type === 'array' && prop?.items?.format === 'uri');
 
     if (hasVideoHint) return 'video';
     if (hasAudioHint) return 'audio';
+    if (has3dHint) return '3d';
     if (hasImageHint) return 'image';
 
-    // Replicate files are commonly represented as string + uri. If we don't
-    // have a concrete media hint, keep it generic.
-    if (prop?.type === 'string' && prop?.format === 'uri') {
-        return 'any';
+    // Replicate files are commonly represented as string + uri.
+    // Default to image when no concrete media hint exists.
+    if (isUri) {
+        return 'image';
     }
 
     if (prop?.type === 'string' || hasTextHint) return 'text';
-    return 'any';
+    if (hasJsonHint) return 'json';
+    return 'json';
 }
 
 export function parseReplicateSchema(schema: any) {
@@ -233,7 +257,7 @@ export function parseReplicateSchema(schema: any) {
         }
 
         existing.is_array = existing.is_array || next.is_array;
-        if (existing.type !== next.type) existing.type = 'any';
+        if (existing.type !== next.type) existing.type = 'json';
         if (!existing.name && next.name) existing.name = next.name;
     };
 
@@ -289,7 +313,7 @@ export function parseReplicateSchema(schema: any) {
         outputHandles.push({
             name: 'output',
             api_mapping_key: 'output',
-            type: 'any',
+            type: 'json',
             is_array: false,
             is_visible: true
         });

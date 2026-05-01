@@ -21,6 +21,7 @@ import { GraphJson, NodeConfig } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { dispatchNode } from '@/lib/workflow/dispatch-v2';
 import { isEphemeralNode } from '@/lib/workflow/handlers';
+import { getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
@@ -166,17 +167,21 @@ export async function POST(request: NextRequest) {
       if (generativeAncestorIds.size > 0) {
         const { data: ancestorResults } = await supabase
           .from('node_results')
-          .select('node_id, result_url')
+          .select('node_id, result_type, result_data')
           .eq('session_id', session_id)
           .in('node_id', Array.from(generativeAncestorIds))
           .eq('status', 'completed')
           .order('updated_at', { ascending: false });
 
         // Build one "latest result" per generative ancestor node.
-        const latestByNode = new Map<string, string>();
+        const latestByNode = new Map<string, any>();
         (ancestorResults || []).forEach(r => {
-          if (r.result_url && !latestByNode.has(r.node_id)) {
-            latestByNode.set(r.node_id, r.result_url);
+          const typedValue = r.result_type
+            ? getPrimaryInputValue(normalizeNodeResultType(r.result_type), r.result_data)
+            : getPrimaryInputValue('json', r.result_data || []);
+
+          if (typedValue !== undefined && typedValue !== null && !latestByNode.has(r.node_id)) {
+            latestByNode.set(r.node_id, typedValue);
           }
         });
 
@@ -191,10 +196,11 @@ export async function POST(request: NextRequest) {
           const nodeInputs = preseedInputs.get(node.id) || {};
           for (const edge of incomingFromGenerative) {
             const result = latestByNode.get(edge.source);
-            if (result) {
+            if (result !== undefined && result !== null) {
               const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
               nodeInputs[inputKey] = result;
-              console.log(`[Execution/Start] Pre-seeding input for node ${node.id}: ${inputKey} = ${result.substring(0, 60)}...`);
+              const preview = typeof result === 'string' ? result.substring(0, 60) : JSON.stringify(result).substring(0, 60);
+              console.log(`[Execution/Start] Pre-seeding input for node ${node.id}: ${inputKey} = ${preview}...`);
             } else {
               console.warn(`[Execution/Start] Generative ancestor ${edge.source} has no completed result in DB. Node ${node.id} may fail.`);
             }

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, Loader2, GripHorizontal } from 'lucide-react';
 import MessageRenderer from '../chat/MessageRenderer';
 import ImageLightbox from '../ui/ImageLightbox';
 import { useAppStore } from '@/lib/store/app-store';
+import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 interface ResultsPanelProps {
     result: any;
@@ -141,7 +142,7 @@ export default function ResultsPanel({ result, isExecuting, error }: ResultsPane
                             <div className="space-y-3">
                                 {nodes.map((node) => {
                                     const status = nodeStatuses[node.id];
-                                    const output = nodeOutputs[node.id];
+                                    const output = toLegacyRenderableOutput(nodeOutputs[node.id]);
                                     const isRunning = status === 'running';
                                     const isSuccess = status === 'success';
                                     const isFailed = status === 'error';

@@ -44,7 +44,9 @@ export interface Database {
         execution_id: string;
         node_id: string;
         status: string;
-        result_url?: string;
+        result_type?: 'image' | 'video' | 'audio' | '3d' | 'text' | 'json';
+        result_data?: any[];
+        result_url?: string; // legacy
         error?: string;
         replicate_id?: string;
         created_at: string;

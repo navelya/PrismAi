@@ -7,12 +7,116 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { REPLICATE_WEBHOOK_SIGNING_SECRET, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
 import { Webhook } from 'standardwebhooks';
-
 import { checkAndDispatchChildren } from '@/lib/workflow/orchestrator';
+import {
+  NodeResultType,
+  isMediaResultType,
+  normalizeNodeResultType,
+  toResultDataForType,
+} from '@/lib/workflow/result-format';
+
+const WEBHOOK_MEDIA_EXTENSIONS: Record<NodeResultType, string> = {
+  image: 'png',
+  video: 'mp4',
+  audio: 'mp3',
+  '3d': 'glb',
+  text: 'txt',
+  json: 'json',
+};
+
+const WEBHOOK_MEDIA_CONTENT_TYPES: Record<NodeResultType, string> = {
+  image: 'image/png',
+  video: 'video/mp4',
+  audio: 'audio/mpeg',
+  '3d': 'model/gltf-binary',
+  text: 'text/plain',
+  json: 'application/json',
+};
+
+async function fetchWithRetry(url: string, maxAttempts = 3, delayMs = 1500): Promise<Response> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url);
+    if (res.ok) return res;
+    console.warn(
+      `[Webhook/Replicate-v2] Fetch attempt ${attempt}/${maxAttempts} failed (${res.status}). ${
+        attempt < maxAttempts ? `Retrying in ${delayMs}ms...` : 'No more retries.'
+      }`
+    );
+    if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error(`Failed to fetch media after ${maxAttempts} attempts`);
+}
+
+async function resolveNodeOutputWireType(
+  supabase: ReturnType<typeof createServiceClient>,
+  executionGraph: any,
+  nodeId: string
+): Promise<NodeResultType> {
+  const graphNodes = executionGraph?.nodes;
+  const node = Array.isArray(graphNodes) ? graphNodes.find((n: any) => n?.id === nodeId) : null;
+  const modelId = node?.data?.config?.model_id ?? node?.data?.model_id;
+
+  if (!modelId) return 'json';
+
+  const { data: model } = await supabase
+    .from('ai_models')
+    .select('outputs_schema')
+    .eq('id', modelId)
+    .single();
+
+  const handleType = model?.outputs_schema?.handles?.[0]?.type;
+  return normalizeNodeResultType(handleType);
+}
+
+function isReplicateHostedUrl(value: string): boolean {
+  return value.includes('replicate.delivery') || value.includes('replicate.com');
+}
+
+async function mirrorMediaToStorage(
+  supabase: ReturnType<typeof createServiceClient>,
+  urls: string[],
+  resultType: NodeResultType,
+  userId: string,
+  sessionId: string,
+  nodeId: string
+): Promise<string[]> {
+  const mirroredUrls: string[] = [];
+  const now = Date.now();
+
+  for (let i = 0; i < urls.length; i++) {
+    const sourceUrl = urls[i];
+
+    if (!sourceUrl.startsWith('http')) {
+      mirroredUrls.push(sourceUrl);
+      continue;
+    }
+
+    const response = await fetchWithRetry(sourceUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const extMatch = sourceUrl.match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|avi|mkv|mp3|wav|ogg|m4a|aac|flac|glb|gltf|obj|fbx|stl|usd|usdz)(\?|$)/i);
+    const ext = extMatch?.[1]?.toLowerCase() || WEBHOOK_MEDIA_EXTENSIONS[resultType];
+    const storagePath = `${userId}/${sessionId}/thumbnails/${nodeId}/result_${now}_${i}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage.from('chat-assets').upload(storagePath, buffer, {
+      contentType: WEBHOOK_MEDIA_CONTENT_TYPES[resultType],
+      cacheControl: '3600',
+      upsert: true,
+    });
+
+    if (uploadError) {
+      throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
+    }
+
+    const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
+    mirroredUrls.push(urlData.publicUrl);
+  }
+
+  return mirroredUrls;
+}
 
 export async function POST(request: NextRequest) {
-  // ... (existing logging and parameter extraction)
-  // TIER 2 FIX: Detailed webhook logging
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('[Webhook/Replicate-v2] 📨 RECEIVED WEBHOOK FROM REPLICATE:');
   console.log('  Request URL:', request.url);
@@ -23,30 +127,18 @@ export async function POST(request: NextRequest) {
     'content-type': request.headers.get('content-type'),
   });
   console.log('═══════════════════════════════════════════════════════════════');
-  
+
   try {
     const { searchParams } = new URL(request.url);
     const executionId = searchParams.get('executionId');
     const nodeId = searchParams.get('nodeId');
-    
-    // Validate context parameters
+
     if (!executionId || !nodeId) {
-      console.error('[Webhook/Replicate-v2] ❌ Missing context:', {
-        executionId,
-        nodeId,
-        url: request.url,
-      });
-      return NextResponse.json(
-        { error: 'Missing executionId or nodeId' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing executionId or nodeId' }, { status: 400 });
     }
-    
-    console.log(`[Webhook/Replicate-v2] ✅ Received callback for node ${nodeId} in execution ${executionId}`);
-    
-    // Verify webhook signature if secret is configured
+
     const bodyText = await request.text();
-    
+
     if (REPLICATE_WEBHOOK_SIGNING_SECRET) {
       const wh = new Webhook(REPLICATE_WEBHOOK_SIGNING_SECRET);
       const headers = {
@@ -54,193 +146,112 @@ export async function POST(request: NextRequest) {
         'webhook-timestamp': request.headers.get('webhook-timestamp') || '',
         'webhook-signature': request.headers.get('webhook-signature') || '',
       };
-      
+
       try {
         wh.verify(bodyText, headers);
         console.log(`[Webhook/Replicate-v2] Signature verified for node ${nodeId}`);
       } catch (err) {
         console.error('[Webhook/Replicate-v2] ❌ Signature verification failed:', err);
-        console.error('[Webhook/Replicate-v2] Provided Headers:', headers);
-        // DO NOT block execution in development/testing if signature fails, just log it.
-        // In a strict production environment, you would return 401 here.
-        // But for testing the new V3 engine, we will bypass the block to ensure the DB updates.
         console.warn('[Webhook/Replicate-v2] ⚠️ Bypassing signature block for debugging purposes.');
       }
     } else {
       console.warn('[Webhook/Replicate-v2] WARNING: No signing secret configured');
     }
-    
+
     const body = JSON.parse(bodyText);
     const { status, output, error: predictionError, id: predictionId } = body;
-    
-    console.log(`[Webhook/Replicate-v2] Prediction ${predictionId} status: ${status}`);
-    
+
     const supabase = createServiceClient();
-    
-    // Fetch session_id from the execution record.
-    // WHY: useExecutionChannel filters node_results by session_id.
-    // If we upsert without it, the Supabase realtime event filter won't match
-    // and the UI will never receive the update — it stays stuck on 'running'.
-    const { data: executionCtxForSession } = await supabase
+
+    const { data: executionCtx } = await supabase
       .from('executions')
-      .select('session_id')
+      .select('session_id, graph_json, sessions(user_id)')
       .eq('id', executionId)
       .single();
-    const sessionId = executionCtxForSession?.session_id || null;
-    
-    if (!sessionId) {
-      console.warn(`[Webhook/Replicate-v2] Could not resolve session_id for execution ${executionId}. Realtime updates may be delayed.`);
-    }
-    
-    // Handle different prediction statuses
+
+    const sessionId = executionCtx?.session_id || null;
+    const userId = (executionCtx?.sessions as any)?.user_id || 'unknown_user';
+    const storageSessionId = sessionId || 'unknown_session';
+
     if (status === 'succeeded') {
-      console.log(`[Webhook/Replicate-v2] Node ${nodeId} completed successfully`);
-      
-      // Normalize output to standard format
       const normalizedOutput = normalizeReplicateOutput(output);
-      let finalResultUrl = normalizedOutput?.url || (Array.isArray(normalizedOutput) ? normalizedOutput[0]?.url : null);
+      const outputType = await resolveNodeOutputWireType(supabase, executionCtx?.graph_json, nodeId);
+      let resultData = toResultDataForType(outputType, normalizedOutput);
 
-      // Helper: fetch with retry to handle Replicate CDN propagation lag
-      const fetchWithRetry = async (url: string, maxAttempts = 3, delayMs = 1500): Promise<Response> => {
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          const res = await fetch(url);
-          if (res.ok) return res;
-          console.warn(`[Webhook/Replicate-v2] Fetch attempt ${attempt}/${maxAttempts} failed (${res.status}). ${attempt < maxAttempts ? `Retrying in ${delayMs}ms...` : 'No more retries.'}`);
-          if (attempt < maxAttempts) await new Promise(r => setTimeout(r, delayMs));
+      try {
+        if (isMediaResultType(outputType)) {
+          resultData = await mirrorMediaToStorage(
+            supabase,
+            resultData.filter((item): item is string => typeof item === 'string'),
+            outputType,
+            userId,
+            storageSessionId,
+            nodeId
+          );
         }
-        throw new Error(`Failed to fetch image after ${maxAttempts} attempts`);
-      };
-
-      // Feature: Download Replicate image to permanent Supabase Storage
-      // NOTE: Saving a raw Replicate URL is NEVER acceptable — if upload fails after retries, mark node as failed.
-      if (finalResultUrl && finalResultUrl.startsWith('http')) {
-        // 1. Fetch execution context to build storage path
-        const { data: executionCtx, error: ctxError } = await supabase
-          .from('executions')
-          .select('session_id, sessions(user_id)')
-          .eq('id', executionId)
-          .single();
-
-        if (ctxError || !executionCtx) {
-          console.error('[Webhook/Replicate-v2] Warning: Could not fetch execution context for path. Using fallback path.', ctxError);
-        }
-
-        const storageSessionId = executionCtx?.session_id || 'unknown_session';
-        const sessionsJoin = executionCtx?.sessions as any;
-        const userId = sessionsJoin?.user_id || 'unknown_user';
-
-        try {
-          console.log(`[Webhook/Replicate-v2] Downloading image from Replicate (with retry): ${finalResultUrl}`);
-
-          // 2. Download the image (retries handle CDN propagation lag)
-          const response = await fetchWithRetry(finalResultUrl);
-          const arrayBuffer = await response.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
-
-          // 3. Upload to Supabase 'chat-assets'
-          const timestamp = Date.now();
-          const extUrlMatch = finalResultUrl.match(/\.(png|jpe?g|webp)(\?|$)/i);
-          const ext = extUrlMatch ? extUrlMatch[1] : 'png';
-          const storagePath = `${userId}/${storageSessionId}/thumbnails/${nodeId}/result_${timestamp}.${ext}`;
-
-          console.log(`[Webhook/Replicate-v2] Uploading to Supabase Storage: chat-assets/${storagePath}`);
-
-          const { error: uploadError } = await supabase.storage
-            .from('chat-assets')
-            .upload(storagePath, buffer, {
-              contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
-              cacheControl: '3600',
-              upsert: true,
-            });
-
-          if (uploadError) throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
-
-          // 4. Get the permanent public URL
-          const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
-          console.log(`[Webhook/Replicate-v2] ✅ Successfully mirrored to Supabase: ${urlData.publicUrl}`);
-          finalResultUrl = urlData.publicUrl;
-
-        } catch (uploadJobError) {
-          // Upload failed after retries — NEVER save a Replicate URL. Mark node as failed instead.
-          console.error('[Webhook/Replicate-v2] ❌ S3 upload failed after retries. Marking node as failed.', uploadJobError);
-          await supabase
-            .from('node_results')
-            .upsert({
-              execution_id: executionId,
-              node_id: nodeId,
-              session_id: sessionId,
-              status: 'failed',
-              error: `Image upload to storage failed: ${uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'}`,
-              replicate_id: predictionId,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'execution_id,node_id' });
-
-          const { origin } = new URL(request.url);
-          await checkAndDispatchChildren(executionId, nodeId, origin);
-          return NextResponse.json({ success: true });
-        }
-      }
-
-      // Safety guard: ensure no Replicate URL ever reaches the database
-      const isReplicateUrl = finalResultUrl && (
-        finalResultUrl.includes('replicate.delivery') ||
-        finalResultUrl.includes('replicate.com')
-      );
-      if (isReplicateUrl) {
-        console.error('[Webhook/Replicate-v2] ❌ Safety guard triggered: finalResultUrl is still a Replicate URL after upload attempt. Marking node as failed.');
-        await supabase
-          .from('node_results')
-          .upsert({
+      } catch (uploadJobError) {
+        await supabase.from('node_results').upsert(
+          {
             execution_id: executionId,
             node_id: nodeId,
             session_id: sessionId,
             status: 'failed',
-            error: 'Image could not be permanently stored. Please re-run the node.',
+            error: `Media upload to storage failed: ${
+              uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'
+            }`,
             replicate_id: predictionId,
             updated_at: new Date().toISOString(),
-          }, { onConflict: 'execution_id,node_id' });
+          },
+          { onConflict: 'execution_id,node_id' }
+        );
 
         const { origin } = new URL(request.url);
         await checkAndDispatchChildren(executionId, nodeId, origin);
         return NextResponse.json({ success: true });
       }
 
-      // V3: Update node_results table — include session_id so realtime fires
-      const { error: updateError } = await supabase
-        .from('node_results')
-        .upsert({
+      if (resultData.some((item) => typeof item === 'string' && isReplicateHostedUrl(item))) {
+        await supabase.from('node_results').upsert(
+          {
+            execution_id: executionId,
+            node_id: nodeId,
+            session_id: sessionId,
+            status: 'failed',
+            error: 'Media could not be permanently stored. Please re-run the node.',
+            replicate_id: predictionId,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'execution_id,node_id' }
+        );
+
+        const { origin } = new URL(request.url);
+        await checkAndDispatchChildren(executionId, nodeId, origin);
+        return NextResponse.json({ success: true });
+      }
+
+      const { error: updateError } = await supabase.from('node_results').upsert(
+        {
           execution_id: executionId,
           node_id: nodeId,
           session_id: sessionId,
           status: 'completed',
-          result_url: finalResultUrl,
+          result_type: outputType,
+          result_data: resultData,
           replicate_id: predictionId,
           updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'execution_id,node_id'
-        });
-      
+        },
+        { onConflict: 'execution_id,node_id' }
+      );
+
       if (updateError) {
-        console.error('[Webhook/Replicate-v2] Failed to update node_results:', updateError);
-        return NextResponse.json(
-          { error: 'Failed to update node_results' },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: 'Failed to update node_results' }, { status: 500 });
       }
-      
-      console.log(`[Webhook/Replicate-v2] Successfully processed completion for node ${nodeId}. Triggering orchestrator.`);
-      
-      // TRIGGER THE CHAIN REACTION: Check if children are ready to run
+
       const { origin } = new URL(request.url);
       await checkAndDispatchChildren(executionId, nodeId, origin);
-      
     } else if (status === 'failed' || status === 'canceled') {
-      console.error(`[Webhook/Replicate-v2] Node ${nodeId} failed:`, predictionError);
-      
-      // V3: Update node_results table to failed — include session_id so realtime fires
-      await supabase
-        .from('node_results')
-        .upsert({
+      await supabase.from('node_results').upsert(
+        {
           execution_id: executionId,
           node_id: nodeId,
           session_id: sessionId,
@@ -248,20 +259,17 @@ export async function POST(request: NextRequest) {
           error: predictionError || `Prediction ${status}`,
           replicate_id: predictionId,
           updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'execution_id,node_id'
-        });
-      
-      // Trigger orchestrator even on failure so it can mark the execution as failed
+        },
+        { onConflict: 'execution_id,node_id' }
+      );
+
       const { origin } = new URL(request.url);
       await checkAndDispatchChildren(executionId, nodeId, origin);
-      
     } else {
       console.log(`[Webhook/Replicate-v2] Ignoring intermediate status: ${status}`);
     }
-    
+
     return NextResponse.json({ success: true });
-    
   } catch (error) {
     console.error('[Webhook/Replicate-v2] Unexpected error:', error);
     return NextResponse.json(

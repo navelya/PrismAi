@@ -32,7 +32,9 @@ export interface GraphJson {
 
 export interface NodeState {
   status: 'pending' | 'running' | 'completed' | 'failed';
-  result_url?: string;
+  result_type?: 'image' | 'video' | 'audio' | '3d' | 'text' | 'json';
+  result_data?: any[];
+  result_url?: string; // legacy
   replicate_prediction_id?: string;
   dispatched_at?: string;
   completed_at?: string;

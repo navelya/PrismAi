@@ -12,6 +12,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { EPHEMERAL_HANDLERS } from '@/lib/workflow/handlers';
 import { GraphJson, NodeState } from '@/lib/workflow/types-v2';
+import {
+  NodeResultType,
+  getPrimaryInputValue,
+  inferResultTypeFromValue,
+  normalizeNodeResultType,
+  toResultDataForType,
+} from '@/lib/workflow/result-format';
 
 export async function POST(request: NextRequest) {
   console.log('[API/Dispatch-Ephemeral] Received request');
@@ -59,7 +66,8 @@ export async function POST(request: NextRequest) {
     (results || []).forEach(r => {
       nodeStates[r.node_id] = {
         status: r.status,
-        result_url: r.result_url,
+        result_type: r.result_type,
+        result_data: r.result_data,
         error: r.error
       };
     });
@@ -96,7 +104,8 @@ export async function POST(request: NextRequest) {
     const isBuffer = Buffer.isBuffer(output);
     const isString = typeof output === 'string';
     
-    let resultUrl: string | undefined;
+    let resultType: NodeResultType = 'json';
+    let resultData: any[] = [];
     
     if (isBuffer) {
       // Upload to ephemeral storage
@@ -120,13 +129,18 @@ export async function POST(request: NextRequest) {
         .from('workflow-ephemeral-tmp')
         .getPublicUrl(filename);
       
-      resultUrl = urlData.publicUrl;
-      console.log(`[API/Dispatch-Ephemeral] Uploaded to: ${resultUrl}`);
+      resultType = 'image';
+      resultData = [urlData.publicUrl];
+      console.log(`[API/Dispatch-Ephemeral] Uploaded to: ${resultData[0]}`);
       
     } else if (isString) {
       // For text outputs (like prompt node), store directly
-      resultUrl = output;
+      resultType = 'text';
+      resultData = [output];
       console.log(`[API/Dispatch-Ephemeral] Text output: "${output.substring(0, 50)}..."`);
+    } else if (output !== null && output !== undefined) {
+      resultType = inferResultTypeFromValue(output);
+      resultData = toResultDataForType(resultType, output);
     }
     
     // Update node state to completed
@@ -135,7 +149,8 @@ export async function POST(request: NextRequest) {
       [node_id]: {
         ...nodeStates[node_id],
         status: 'completed',
-        result_url: resultUrl,
+        result_type: resultType,
+        result_data: resultData,
         completed_at: new Date().toISOString(),
       },
     };
@@ -147,7 +162,8 @@ export async function POST(request: NextRequest) {
         node_id: node_id,
         session_id: execution.session_id,
         status: 'completed',
-        result_url: resultUrl,
+        result_type: resultType,
+        result_data: resultData,
         updated_at: new Date().toISOString(),
       }, {
         onConflict: 'execution_id,node_id'
@@ -159,7 +175,8 @@ export async function POST(request: NextRequest) {
       p_node_id: node_id,
       p_event_type: 'completed',
       p_payload: { 
-        result_url: resultUrl,
+        result_type: resultType,
+        result_data: resultData,
         handler: node.type,
         output_type: isBuffer ? 'buffer' : 'string',
       },
@@ -171,7 +188,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       node_id,
-      result_url: resultUrl,
+      result_type: resultType,
+      result_data: resultData,
     });
     
   } catch (error) {
@@ -238,7 +256,12 @@ async function buildNodeInputs(
       const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
       
       // Get the output from the source node
-      if (sourceNodeState.result_url) {
+      if (sourceNodeState.result_type && sourceNodeState.result_data) {
+        inputs[inputKey] = getPrimaryInputValue(
+          normalizeNodeResultType(sourceNodeState.result_type),
+          sourceNodeState.result_data
+        );
+      } else if (sourceNodeState.result_url) {
         inputs[inputKey] = sourceNodeState.result_url;
       } else if (sourceNodeState.output) {
         inputs[inputKey] = sourceNodeState.output;

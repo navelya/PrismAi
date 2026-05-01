@@ -6,6 +6,31 @@
 import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson, NodeConfig } from './types-v2';
 import { dispatchNode } from './dispatch-v2';
+import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from './result-format';
+
+async function getAiArrayInputKeys(
+  supabase: ReturnType<typeof createServiceClient>,
+  node: NodeConfig | undefined
+): Promise<Set<string>> {
+  if (!node || node.type !== 'ai_generator') return new Set<string>();
+
+  const modelId = node.data?.config?.model_id ?? node.data?.model_id;
+  if (!modelId) return new Set<string>();
+
+  const { data: model } = await supabase
+    .from('ai_models')
+    .select('inputs_schema')
+    .eq('id', modelId)
+    .single();
+
+  const handles = model?.inputs_schema?.handles || [];
+  return new Set(
+    handles
+      .filter((h: any) => h?.is_array)
+      .map((h: any) => h?.api_mapping_key)
+      .filter(Boolean)
+  );
+}
 
 /**
  * Triggered when a node completes. Checks if its children are ready and dispatches them.
@@ -98,7 +123,7 @@ export async function checkAndDispatchChildren(
 }
 
 /**
- * Builds an input object for a node by gathering result_urls from its parents (session-wide)
+ * Builds an input object for a node by gathering typed results from its parents.
  */
 async function buildInputsFromParents(
   executionId: string,
@@ -110,12 +135,14 @@ async function buildInputsFromParents(
 
   const incomingEdges = (graph.edges || []).filter(e => e.target === nodeId);
   const parentIds = incomingEdges.map(e => e.source);
+  const targetNode = graph.nodes.find((n) => n.id === nodeId);
+  const arrayInputKeys = await getAiArrayInputKeys(supabase, targetNode);
 
   // Fetch ONLY from the current execution to avoid using stale URLs from prior runs.
   // Solo/chain modes pre-seed historical inputs into the execution record at start time.
   const { data: results } = await supabase
     .from('node_results')
-    .select('node_id, result_url')
+    .select('node_id, result_type, result_data')
     .eq('execution_id', executionId)
     .in('node_id', parentIds)
     .eq('status', 'completed');
@@ -125,18 +152,24 @@ async function buildInputsFromParents(
   
   for (const edge of incomingEdges) {
     const parentResult = results.find(r => r.node_id === edge.source);
-    if (parentResult?.result_url) {
+    const resultType = normalizeNodeResultType(parentResult?.result_type);
+    const resultData = coerceResultDataArray(parentResult?.result_data || []);
+    const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
+    const typedValue = arrayInputKeys.has(inputKey)
+      ? resultData
+      : getPrimaryInputValue(resultType, resultData);
+
+    if (typedValue !== undefined && typedValue !== null) {
       const sourceNode = graph.nodes.find(n => n.id === edge.source);
-      const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
       
       // Special mapping for prompt nodes
       if (sourceNode?.type === 'prompt') {
-        inputs['prompt'] = parentResult.result_url;
+        inputs['prompt'] = typedValue;
       } else {
-        inputs[inputKey] = parentResult.result_url;
+        inputs[inputKey] = typedValue;
         // Fallback for nodes that expect 'prompt' but receive it via a generic 'output' handle
         if (inputKey.toLowerCase().includes('prompt')) {
-          inputs['prompt'] = parentResult.result_url;
+          inputs['prompt'] = typedValue;
         }
       }
     }
@@ -190,7 +223,7 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
     // Get the result of the most recently updated leaf node
     const { data: finalNodeResult } = await supabase
         .from('node_results')
-        .select('result_url')
+        .select('result_type, result_data')
         .eq('execution_id', executionId)
         .in('node_id', leafNodeIds)
         .eq('status', 'completed')
@@ -204,7 +237,12 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
       .from('executions')
       .update({
         status: finalStatus,
-        result_data: finalNodeResult?.result_url || null, // Save final image to execution record
+        result_data: finalNodeResult
+          ? {
+              type: finalNodeResult.result_type,
+              data: finalNodeResult.result_data || [],
+            }
+          : null,
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })

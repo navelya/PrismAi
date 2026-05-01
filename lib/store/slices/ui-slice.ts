@@ -1,5 +1,6 @@
 import { StateCreator } from 'zustand';
 import { RootState, UISlice } from '../types';
+import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get) => ({
     editorState: {
@@ -120,7 +121,8 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
 
         const targetNode = currentWorkflow?.nodes.find((n) => n.id === nodeId);
         const hasImagesInConfig = (targetNode?.data?.config as any)?.images?.length > 0;
-        const hasImagesInOutput = nodeOutputs?.[nodeId]?.some?.((item: any) => item.url);
+        const output = toLegacyRenderableOutput(nodeOutputs?.[nodeId]);
+        const hasImagesInOutput = Array.isArray(output) && output.some((item: any) => item?.url);
         const hasAssets = hasImagesInConfig || hasImagesInOutput;
 
         if (!hasAssets) return;

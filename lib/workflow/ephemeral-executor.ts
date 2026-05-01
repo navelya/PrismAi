@@ -6,6 +6,7 @@
 import { createServiceClient } from '@/lib/supabase/service';
 import { EPHEMERAL_HANDLERS } from './handlers';
 import { GraphJson, NodeState, NodeConfig } from './types-v2';
+import { NodeResultType, getPrimaryInputValue, inferResultTypeFromValue, normalizeNodeResultType, toResultDataForType } from './result-format';
 
 /**
  * Execute an ephemeral node directly on the server
@@ -15,7 +16,7 @@ export async function executeEphemeralNode(
   nodeId: string,
   sessionId?: string,
   providedInputs?: Record<string, any>
-): Promise<{ success: boolean; result_url?: string; error?: string }> {
+): Promise<{ success: boolean; result_type?: NodeResultType; result_data?: any[]; error?: string }> {
   
   console.log(`[EphemeralExecutor] Processing node ${nodeId} in execution ${executionId} (Session: ${sessionId})`);
   
@@ -66,7 +67,8 @@ export async function executeEphemeralNode(
       (results || []).forEach(r => {
         nodeStates[r.node_id] = {
           status: r.status,
-          result_url: r.result_url,
+          result_type: r.result_type,
+          result_data: r.result_data,
           error: r.error
         };
       });
@@ -96,7 +98,8 @@ export async function executeEphemeralNode(
     const isBuffer = Buffer.isBuffer(output);
     const isString = typeof output === 'string';
     
-    let resultUrl: string | undefined;
+    let resultType: NodeResultType = 'json';
+    let resultData: any[] = [];
     
     if (isBuffer) {
       console.log(`[EphemeralExecutor] Uploading buffer output (${output.length} bytes)`);
@@ -117,15 +120,17 @@ export async function executeEphemeralNode(
         .from('workflow-ephemeral-tmp')
         .getPublicUrl(filename);
       
-      resultUrl = urlData.publicUrl;
+      resultType = 'image';
+      resultData = [urlData.publicUrl];
       
     } else if (isString) {
-      resultUrl = output;
+      resultType = 'text';
+      resultData = [output];
       console.log(`[EphemeralExecutor] Text output stored`);
     } else if (output !== null && output !== undefined) {
-      // Serialize objects/arrays to preserve structure in result_url
-      resultUrl = JSON.stringify(output);
-      console.log(`[EphemeralExecutor] Serialized ${typeof output} output stored`);
+      resultType = inferResultTypeFromValue(output);
+      resultData = toResultDataForType(resultType, output);
+      console.log(`[EphemeralExecutor] Structured ${typeof output} output stored as ${resultType}`);
     }
     
     // 7. Update node state to completed in node_results
@@ -136,7 +141,8 @@ export async function executeEphemeralNode(
         node_id: nodeId,
         session_id: currentSessionId,
         status: 'completed',
-        result_url: resultUrl,
+        result_type: resultType,
+        result_data: resultData,
         updated_at: new Date().toISOString(),
       }, {
         onConflict: 'execution_id,node_id'
@@ -148,7 +154,7 @@ export async function executeEphemeralNode(
     
     console.log(`[EphemeralExecutor] Node ${nodeId} completed successfully`);
     
-    return { success: true, result_url: resultUrl };
+    return { success: true, result_type: resultType, result_data: resultData };
     
   } catch (error) {
     console.error(`[EphemeralExecutor] ❌ Error in node ${nodeId}:`, error);
@@ -193,7 +199,16 @@ function buildNodeInputs(
     const sourceNodeState = nodeStates[edge.source];
     if (sourceNodeState?.status === 'completed') {
       const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
-      inputs[inputKey] = sourceNodeState.result_url || sourceNodeState.output;
+      if (sourceNodeState.result_type && sourceNodeState.result_data) {
+        inputs[inputKey] = getPrimaryInputValue(
+          normalizeNodeResultType(sourceNodeState.result_type),
+          sourceNodeState.result_data
+        );
+      } else if (sourceNodeState.result_url) {
+        inputs[inputKey] = sourceNodeState.result_url;
+      } else {
+        inputs[inputKey] = sourceNodeState.output;
+      }
     }
   }
   return inputs;

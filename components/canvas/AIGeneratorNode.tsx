@@ -21,7 +21,9 @@ const WIRE_TYPE_COLORS: Record<string, string> = {
     image: 'rgb(59, 130, 246)',
     video: 'rgb(139, 92, 246)',
     audio: 'rgb(236, 72, 153)',
+    '3d': 'rgb(245, 158, 11)',
     text: 'rgb(34, 197, 94)',
+    json: 'rgb(148, 163, 184)',
     any: 'rgb(var(--accent-primary))',
 };
 
@@ -155,7 +157,17 @@ function AIGeneratorNode({ id, data, selected }: any) {
     let previewOutput = output;
     let previewType = outputHandles[0]?.type || 'any';
 
-    if (output && typeof output === 'object' && !Array.isArray(output) && !output.url && !output.text) {
+    const isTypedOutput =
+        output &&
+        typeof output === 'object' &&
+        !Array.isArray(output) &&
+        typeof output.type === 'string' &&
+        Array.isArray(output.data);
+
+    if (isTypedOutput) {
+        previewType = output.type;
+        previewOutput = output.data;
+    } else if (output && typeof output === 'object' && !Array.isArray(output) && !output.url && !output.text) {
         // It's a multi-handle output object. Pick the first one that has an image or text
         const firstKey = Object.keys(output)[0];
         if (firstKey) {
@@ -204,7 +216,6 @@ function AIGeneratorNode({ id, data, selected }: any) {
                             <div className="w-full p-2.5">
                                 <textarea
                                     className="nodrag block w-full min-h-[120px] text-[11px] bg-transparent border-none focus:outline-none focus:ring-0 text-white/50 resize-none p-0 font-mono"
-                                    placeholder="Text output will appear here..."
                                     readOnly
                                 />
                             </div>
@@ -228,7 +239,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
                         }}
                         onPreviewClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
-                            if (previewType === 'image' || previewType === 'video' || previewType === 'any') {
+                            if (previewType === 'image' || previewType === 'video') {
                                 openLightbox(activeImageIndex);
                             }
                         }}
@@ -317,8 +328,12 @@ function AIGeneratorNode({ id, data, selected }: any) {
 
 function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
     const items = Array.isArray(output) ? output : [output];
-    const urls = items.map((o: any) => (typeof o === 'string' ? o : o?.url)).filter(Boolean);
-    const textContent = typeof output === 'string' ? output : (output?.text || items[0]?.text || null);
+    const urls = items
+        .map((o: any) => (typeof o === 'string' ? o : o?.url))
+        .filter((value: any) => typeof value === 'string' && (value.startsWith('http') || value.startsWith('data:')));
+    const textContent = typeof output === 'string'
+        ? output
+        : (output?.text || (typeof items[0] === 'string' ? items[0] : items[0]?.text) || null);
     const videoRef = React.useRef<HTMLVideoElement>(null);
     const MAX_HEIGHT = 800;
     const setNodeOutput = useAppStore((state) => state.setNodeOutput);
@@ -335,11 +350,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                     value={textContent || ''}
                     placeholder="Empty output"
                     onChange={(e) => {
-                        if (typeof output === 'string') {
-                            setNodeOutput(nodeId, e.target.value);
-                        } else {
-                            setNodeOutput(nodeId, { ...output, text: e.target.value });
-                        }
+                        setNodeOutput(nodeId, { type: 'text', data: [e.target.value] });
                     }}
                     onKeyDown={(e) => {
                         if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -372,6 +383,26 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                     onMouseDown={(e) => e.stopPropagation()}
                 />
                 <span className="text-[9px] font-black uppercase tracking-widest text-accent-primary opacity-60">Audio Output</span>
+            </div>
+        );
+    }
+
+    if (type === '3d') {
+        const modelUrl = urls[0];
+        return (
+            <div
+                className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-[10px] text-white/80 break-all flex flex-col gap-2"
+                onMouseDown={onInteraction}
+                onPointerDown={onInteraction}
+            >
+                <span className="font-semibold text-white/70 uppercase tracking-widest text-[9px]">3D Output</span>
+                {modelUrl ? (
+                    <a className="text-accent-primary underline" href={modelUrl} target="_blank" rel="noreferrer">
+                        Open model
+                    </a>
+                ) : (
+                    <span className="text-white/40 italic">No model URL available</span>
+                )}
             </div>
         );
     }

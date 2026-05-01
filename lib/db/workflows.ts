@@ -1,5 +1,13 @@
 import { supabase } from './supabase';
 import { Workflow, ExecutionRecord } from '../nodes/types';
+import {
+    coerceResultDataArray,
+    inferResultTypeFromValue,
+    isMediaResultType,
+    normalizeNodeResultType,
+    toOutputEnvelope,
+    toResultDataForType
+} from '@/lib/workflow/result-format';
 
 /**
  * Save a workflow snapshot to the sessions table (Primary Source of Truth)
@@ -182,7 +190,12 @@ export async function upsertNodeExecution(
             throw new Error('No execution found for session');
         }
 
-        const resultUrl = typeof output === 'string' ? output : (output?.url || output?.[0]?.url);
+        const resultType = output?.type
+            ? normalizeNodeResultType(output.type)
+            : inferResultTypeFromValue(output);
+        const resultData = output?.type
+            ? coerceResultDataArray(output.data)
+            : toResultDataForType(resultType, output);
 
         const { error: upsertError } = await supabase
             .from('node_results')
@@ -190,7 +203,8 @@ export async function upsertNodeExecution(
                 execution_id: latestExec.id,
                 node_id: nodeId,
                 status: status,
-                result_url: resultUrl,
+                result_type: resultType,
+                result_data: resultData,
                 error: error,
                 updated_at: new Date().toISOString(),
             }, {
@@ -256,17 +270,27 @@ export async function getSessionExecutions(
         }
 
         return {
-            executions: Array.from(latestResults.values()).map((row: any) => ({
-                nodeId: row.node_id,
-                status: row.status,
-                output: row.result_url ? { url: row.result_url } : undefined,
-                outputMetadata: {
-                    preview_urls: row.result_url ? [row.result_url] : [],
-                    resultUrls: row.result_url ? [row.result_url] : []
-                },
-                error: row.error,
-                updatedAt: row.updated_at
-            })),
+            executions: Array.from(latestResults.values()).map((row: any) => {
+                const fallbackType = row.result_type
+                    ? normalizeNodeResultType(row.result_type)
+                    : inferResultTypeFromValue(row.result_url);
+                const fallbackData = row.result_data ?? (row.result_url ? [row.result_url] : []);
+                const previewUrls = isMediaResultType(fallbackType)
+                    ? coerceResultDataArray(fallbackData).filter((item) => typeof item === 'string')
+                    : [];
+
+                return {
+                    nodeId: row.node_id,
+                    status: row.status,
+                    output: toOutputEnvelope(fallbackType, fallbackData),
+                    outputMetadata: {
+                        preview_urls: previewUrls,
+                        resultUrls: previewUrls
+                    },
+                    error: row.error,
+                    updatedAt: row.updated_at
+                };
+            }),
             latestExecutionId: executions[0].id
         };
     } catch (err) {
@@ -327,7 +351,12 @@ export async function batchUpsertExecutions(
                     execution_id: latestExec.id,
                     node_id: exec.nodeId,
                     status: exec.status,
-                    result_url: typeof exec.output === 'string' ? exec.output : (exec.output?.url || exec.output?.[0]?.url),
+                    result_type: exec.output?.type
+                        ? normalizeNodeResultType(exec.output.type)
+                        : inferResultTypeFromValue(exec.output),
+                    result_data: exec.output?.type
+                        ? coerceResultDataArray(exec.output.data)
+                        : toResultDataForType(inferResultTypeFromValue(exec.output), exec.output),
                     error: exec.error,
                     updated_at: new Date().toISOString(),
                 })),

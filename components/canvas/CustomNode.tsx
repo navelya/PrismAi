@@ -10,6 +10,7 @@ import ImageLightbox from '@/components/ui/ImageLightbox';
 import { LayoutGrid, Square, Check, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import GlassyLoader from '@/components/ui/GlassyLoader';
+import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 interface CustomNodeData {
     label: string;
@@ -19,7 +20,7 @@ interface CustomNodeData {
 function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
     // Subscribe to specific output for this node, or fallback to saved metadata (for page refreshes)
     const liveOutput = useAppStore((state) => state.nodeOutputs[id]);
-    const output = liveOutput ||
+    const output = toLegacyRenderableOutput(liveOutput) ||
         (data as any).output ||
         ((data as any).outputMetadata?.thumbnailUrls?.length ? (data as any).outputMetadata.thumbnailUrls.map((url: string) => ({ url })) : null);
 

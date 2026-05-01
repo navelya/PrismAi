@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
+import { coerceResultDataArray, inferResultTypeFromValue, normalizeNodeResultType, toOutputEnvelope } from '@/lib/workflow/result-format';
 
 /**
  * Apply a node_results record directly to the Zustand store.
@@ -10,7 +11,14 @@ import { useAppStore } from '@/lib/store/app-store';
  */
 function applyNodeResult(record: any, sessionId: string) {
     const store = useAppStore.getState();
-    const { node_id: nodeId, status, result_url: resultUrl, error, session_id: recordSessionId } = record;
+    const {
+        node_id: nodeId,
+        status,
+        result_type: resultType,
+        result_data: resultData,
+        error,
+        session_id: recordSessionId
+    } = record;
 
     // Client-side session guard — only process rows belonging to this session.
     // We removed the server-side filter to avoid RLS blocking service-role UPDATE events.
@@ -29,12 +37,13 @@ function applyNodeResult(record: any, sessionId: string) {
     // Map DB statuses to UI statuses
     if (status === 'completed') {
         store.setNodeStatus(nodeId, 'success');
-        if (resultUrl) {
-            store.setNodeOutput(nodeId, [{
-                url: resultUrl,
-                resolution: { width: 1024, height: 1024 },
-                metadata: { title: 'Output', source: 'V3 Execution' },
-            }]);
+        const finalType = resultType
+            ? normalizeNodeResultType(resultType)
+            : inferResultTypeFromValue(resultData);
+        const finalData = coerceResultDataArray(resultData ?? []);
+
+        if (finalData.length > 0) {
+            store.setNodeOutput(nodeId, toOutputEnvelope(finalType, finalData));
         }
     } else if (status === 'failed') {
         store.setNodeStatus(nodeId, 'error');
@@ -60,7 +69,7 @@ async function hydrateFromDb(supabase: ReturnType<typeof createClient>, sessionI
     
     const { data: rows, error } = await supabase
         .from('node_results')
-        .select('node_id, status, result_url, error, session_id, updated_at')
+        .select('node_id, status, result_type, result_data, error, session_id, updated_at')
         .eq('session_id', sessionId)
         .order('updated_at', { ascending: false });
 

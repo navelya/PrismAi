@@ -102,6 +102,7 @@ export default function SharedWorkflowEditor({
     const [pendingCost, setPendingCost] = useState(0);
     const [pendingNodeCount, setPendingNodeCount] = useState(0);
     const executionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const hasHandledInitialRunSignalRef = useRef(false);
 
     const isMountedRef = useRef(true);
     useEffect(() => {
@@ -417,6 +418,13 @@ export default function SharedWorkflowEditor({
     const runMode = useAppStore((state) => state.runMode);
 
     useEffect(() => {
+        // Ignore stale persisted trigger state on first mount (legacy localStorage payloads).
+        if (!hasHandledInitialRunSignalRef.current) {
+            hasHandledInitialRunSignalRef.current = true;
+            useAppStore.getState().clearRunFromNode();
+            return;
+        }
+
         if (!runFromNodeId || !runMode) return;
 
         const clearRunFromNode = useAppStore.getState().clearRunFromNode;
@@ -424,6 +432,11 @@ export default function SharedWorkflowEditor({
         const mode = runMode;
 
         clearRunFromNode();
+
+        if (targetId && !nodes.some(n => n.id === targetId)) {
+            console.warn(`[SharedWorkflowEditor] Ignoring run trigger for missing node: ${targetId}`);
+            return;
+        }
 
         const { cost, count } = calculateExecutionCost(targetId, mode);
 

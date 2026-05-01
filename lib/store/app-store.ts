@@ -119,6 +119,8 @@ export const useAppStore = create<RootState>()(
                     state.executionStartTime = null;
                     state.isCopilotMinimized = false;
                     state.isLoadingSession = false;
+                    state.runFromNodeId = null;
+                    state.runMode = null;
                 }
             },
         }

@@ -12,6 +12,7 @@ import BaseNode from './BaseNode';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
 import CompositorEditorModal from '@/components/compositor/CompositorEditorModal';
 import ImageLightbox from '@/components/ui/ImageLightbox';
+import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 // Layer colors for visual distinction
 const LAYER_COLORS = [
@@ -221,7 +222,10 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             const handleId = (edge as any).targetHandle || 'default';
             const sourceOutput = nodeOutputs[edge.source];
             if (sourceOutput) {
-                inputs[handleId] = Array.isArray(sourceOutput) ? sourceOutput : [sourceOutput];
+                const normalized = toLegacyRenderableOutput(sourceOutput);
+                if (normalized !== undefined && normalized !== null) {
+                    inputs[handleId] = Array.isArray(normalized) ? normalized : [normalized];
+                }
             }
         });
 

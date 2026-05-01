@@ -8,6 +8,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { NodeConfig, NodeState } from './types-v2';
 import { isEphemeralNode } from './handlers';
 import { executeEphemeralNode } from './ephemeral-executor';
+import { inferResultTypeFromValue, toResultDataForType } from './result-format';
 
 const WEBHOOK_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
@@ -95,11 +96,12 @@ async function dispatchEphemeralNode(
     // MARK AS COMPLETED - this will trigger children via updateNodeState
     await updateNodeState(executionId, nodeId, {
         status: 'completed',
-        result_url: result.result_url,
+        result_type: result.result_type,
+        result_data: result.result_data,
         completed_at: new Date().toISOString()
     }, sessionId, baseUrl);
     
-    return { success: true, data: result.result_url };
+    return { success: true, data: result.result_data };
     
   } catch (error) {
     console.error(`[Dispatch/Ephemeral] ❌ Error:`, error);
@@ -138,28 +140,17 @@ async function dispatchReplicateNode(
       throw new Error(result.error || 'AI Generator Executor failed');
     }
     
-    if (result.status === 'success') {
-        // LOCAL DEVELOPMENT: Synchronous result returned directly by replicate.run()
-        // normalizeReplicateOutput returns { url: '...' } objects or arrays of them.
-        // We must extract the actual URL string before storing in node_results.
+      if (result.status === 'success') {
         const rawData = result.data;
-        let resultUrl: string | undefined;
+        const resultType = inferResultTypeFromValue(rawData);
+        const resultData = toResultDataForType(resultType, rawData);
         
-        if (Array.isArray(rawData)) {
-            // Multiple outputs (e.g. batch images) — pick the first URL
-            const first = rawData[0];
-            resultUrl = typeof first === 'string' ? first : first?.url;
-        } else if (typeof rawData === 'string') {
-            resultUrl = rawData;
-        } else if (rawData?.url) {
-            resultUrl = rawData.url;
-        }
-        
-        console.log(`[Dispatch/Replicate] ✅ Synchronous result for node ${nodeId}: ${resultUrl?.substring(0, 80) ?? 'NO URL EXTRACTED'}`);
+        console.log(`[Dispatch/Replicate] ✅ Synchronous typed result for node ${nodeId}: ${resultType} (${resultData.length} item(s))`);
         
         await updateNodeState(executionId, nodeId, {
             status: 'completed',
-            result_url: resultUrl,
+            result_type: resultType,
+            result_data: resultData,
             dispatched_at: new Date().toISOString(),
             completed_at: new Date().toISOString()
         }, sessionId, baseUrl);
@@ -195,6 +186,8 @@ async function updateNodeState(
 ): Promise<void> {
   
   const supabase = createServiceClient();
+  const resolvedResultType = state.result_type ?? (state.result_url ? inferResultTypeFromValue(state.result_url) : undefined);
+  const resolvedResultData = state.result_data ?? (state.result_url ? [state.result_url] : undefined);
   
   // 1. Update node_results table (Engine source of truth)
   const { error: upsertError } = await supabase
@@ -204,7 +197,8 @@ async function updateNodeState(
       node_id: nodeId,
       session_id: sessionId,
       status: state.status || 'running',
-      result_url: state.result_url,
+      result_type: resolvedResultType,
+      result_data: resolvedResultData,
       error: state.error,
       replicate_id: state.replicate_prediction_id,
       updated_at: new Date().toISOString(),

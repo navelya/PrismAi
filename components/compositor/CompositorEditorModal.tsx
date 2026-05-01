@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
+import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 const DEFAULT_TRANSFORM: LayerTransform = {
     x: 0,
@@ -201,8 +202,10 @@ export default function CompositorEditorModal({
             const sourceNode = currentWorkflow.nodes.find(n => n.id === edge.source);
             const sourceOutput = nodeOutputs[edge.source];
             if (sourceOutput) {
+                const normalized = toLegacyRenderableOutput(sourceOutput);
+                if (normalized === undefined || normalized === null) return;
                 inputs[handleId] = {
-                    images: Array.isArray(sourceOutput) ? sourceOutput : [sourceOutput],
+                    images: Array.isArray(normalized) ? normalized : [normalized],
                     type: sourceNode?.type || 'unknown'
                 };
             }

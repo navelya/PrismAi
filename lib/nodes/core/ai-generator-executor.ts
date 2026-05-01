@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NodeExecutor, NodeExecutionResult, ExecutionContext } from '../types';
 import { replicate, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
+import { isOutputEnvelope } from '@/lib/workflow/result-format';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -31,6 +32,64 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         // ... (existing input mapping remains same)
         const replicateInputs: Record<string, any> = {};
         const controls = model.inputs_schema?.controls || [];
+        const controlByKey = new Map<string, any>(controls.map((ctrl: any) => [ctrl.api_mapping_key, ctrl]));
+        const inputHandles = model.inputs_schema?.handles || [];
+        const handleByKey = new Map<string, any>(inputHandles.map((h: any) => [h.api_mapping_key, h]));
+
+        const maybeParseJson = (value: any) => {
+            if (typeof value !== 'string') return value;
+            const trimmed = value.trim();
+            if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return value;
+            try {
+                return JSON.parse(trimmed);
+            } catch {
+                return value;
+            }
+        };
+
+        const flattenInputValues = (value: any): any[] => {
+            const parsed = maybeParseJson(value);
+            if (parsed === null || parsed === undefined) return [];
+
+            if (isOutputEnvelope(parsed)) {
+                return flattenInputValues(parsed.data);
+            }
+
+            if (Array.isArray(parsed)) {
+                return parsed.flatMap((item) => flattenInputValues(item));
+            }
+
+            if (typeof parsed === 'object') {
+                if (typeof parsed.url === 'string') return [parsed.url];
+                if (typeof parsed.text === 'string') return [parsed.text];
+                if (Array.isArray((parsed as any).data)) return flattenInputValues((parsed as any).data);
+                return [parsed];
+            }
+
+            return [parsed];
+        };
+
+        const normalizeArrayInput = (value: any): any[] => {
+            return flattenInputValues(value)
+                .filter(val => val !== undefined && val !== null && val !== '');
+        };
+
+        const shouldBeArray = (key: string, value: any) => {
+            const control = controlByKey.get(key);
+            const handle = handleByKey.get(key);
+            if (handle?.is_array === true) return true;
+            if ((control?.type || '').toLowerCase() === 'array') return true;
+            if (Array.isArray(value)) return true;
+
+            const normalizedKey = key.toLowerCase();
+            return (
+                normalizedKey === 'images' ||
+                normalizedKey.endsWith('_images') ||
+                normalizedKey.endsWith('_files') ||
+                normalizedKey.endsWith('_urls')
+            );
+        };
+
         controls.forEach((ctrl: any) => {
             const val = control_values?.[ctrl.api_mapping_key] ?? ctrl.default_value;
             if (val !== undefined && val !== '') {
@@ -38,63 +97,59 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             }
         });
 
-        const inputHandles = model.inputs_schema?.handles || [];
-        if (input && typeof input === 'object') {
-            inputHandles.forEach((h: any) => {
+        inputHandles.forEach((h: any) => {
+            // Handle invisible mandatory inputs first - these are always sent as empty data
+            // if no value is provided, to satisfy API constraints.
+            if (h.is_mandatory && h.is_visible === false) {
+                replicateInputs[h.api_mapping_key] = h.is_array ? [] : "";
+            }
+
+            if (input && typeof input === 'object') {
                 let incomingVal = input[h.api_mapping_key];
+                if (incomingVal !== undefined && incomingVal !== null) {
+                    const isArrayTarget = h.is_array === true;
+                    const processed = flattenInputValues(incomingVal).filter(val => val !== undefined && val !== '');
 
-                // If input is required but NOT visible in UI, and no value was provided, 
-                // send it as empty data to satisfy mandatory checks without failing execution.
-                if (incomingVal === undefined && h.is_mandatory && h.is_visible === false) {
-                    replicateInputs[h.api_mapping_key] = h.is_array ? [] : "";
-                    return;
+                    if (isArrayTarget) {
+                        replicateInputs[h.api_mapping_key] = processed;
+                    } else {
+                        replicateInputs[h.api_mapping_key] = processed[0];
+                    }
                 }
+            }
+        });
 
-                if (incomingVal === undefined || incomingVal === null) return;
+        // Final normalization pass for array-like fields.
+        // This protects execution even when older stored schemas marked fields like
+        // "images" as scalar instead of array.
+        Object.entries(replicateInputs).forEach(([key, rawValue]) => {
+            if (shouldBeArray(key, rawValue)) {
+                replicateInputs[key] = normalizeArrayInput(rawValue);
+                return;
+            }
+            replicateInputs[key] = maybeParseJson(rawValue);
+        });
 
-                const isArrayTarget = h.is_array === true;
-                
-                // 1. Ensure we have an array of raw values to process
-                const rawItems = Array.isArray(incomingVal) ? incomingVal : [incomingVal];
-                
-                // 2. Extract values (strings/urls) from each item
-                const processed = rawItems.flatMap(item => {
-                    if (item === null || item === undefined) return [];
-                    
-                    // If it's an array (e.g. from an output that returns array), flatten it
-                    const subItems = Array.isArray(item) ? item : [item];
-                    return subItems.flatMap(sub => {
-                        let val = sub;
-                        
-                        // If it's a string, it might be a JSON-serialized object from node_results
-                        if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
-                            try {
-                                val = JSON.parse(val);
-                            } catch (e) {
-                                // Not valid JSON, treat as string
-                            }
-                        }
+        // Enforce array contracts from schema after normalization.
+        inputHandles.forEach((h: any) => {
+            if (!h?.api_mapping_key || h.is_array !== true) return;
+            const key = h.api_mapping_key;
+            replicateInputs[key] = normalizeArrayInput(replicateInputs[key]);
+        });
 
-                        // Handle leaf values (objects with url or plain strings)
-                        // If val is an array (after parsing), map it; otherwise wrap and map
-                        const leaves = Array.isArray(val) ? val : [val];
-                        return leaves.map(leaf => {
-                            if (typeof leaf === 'object' && leaf !== null) {
-                                // Recursively look for url or text if nested
-                                return leaf.url || leaf.text || (leaf.data && leaf.data.url) || leaf;
-                            }
-                            return leaf;
-                        });
-                    });
-                }).filter(val => val !== undefined && val !== '');
+        // Fail early with a clear validation error when required handles are missing.
+        const missingRequired = inputHandles
+            .filter((h: any) => h?.is_mandatory && h.is_visible !== false)
+            .filter((h: any) => {
+                const value = replicateInputs[h.api_mapping_key];
+                if (h.is_array) return !Array.isArray(value) || value.length === 0;
+                if (typeof value === 'string') return value.trim().length === 0;
+                return value === undefined || value === null;
+            })
+            .map((h: any) => h.api_mapping_key);
 
-                // 3. Map to final Replicate input format
-                if (isArrayTarget) {
-                    replicateInputs[h.api_mapping_key] = processed;
-                } else {
-                    replicateInputs[h.api_mapping_key] = processed[0];
-                }
-            });
+        if (missingRequired.length > 0) {
+            throw new Error(`Missing required input(s): ${missingRequired.join(', ')}`);
         }
 
         if (!process.env.REPLICATE_API_TOKEN) throw new Error('Replicate API token missing');
