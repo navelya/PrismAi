@@ -41,6 +41,7 @@ export default function SharedWorkflowEditor({
     const fetchModelCatalog = useAppStore(state => state.fetchModelCatalog);
     const fetchCategories = useAppStore(state => state.fetchCategories);
     const fetchNodeTypes = useAppStore(state => state.fetchNodeTypes);
+    const fetchDataTypes = useAppStore(state => state.fetchDataTypes);
 
     const [isBooting, setIsBooting] = useState(true);
 
@@ -50,12 +51,13 @@ export default function SharedWorkflowEditor({
                 fetchModelCatalog(),
                 fetchCategories(),
                 fetchNodeTypes(),
+                fetchDataTypes(),
                 useAppStore.getState().fetchMenuData(),
             ]);
             setIsBooting(false);
         };
         initializeCatalogs();
-    }, [fetchModelCatalog, fetchCategories, fetchNodeTypes]);
+    }, [fetchModelCatalog, fetchCategories, fetchNodeTypes, fetchDataTypes]);
 
     const {
         nodes,

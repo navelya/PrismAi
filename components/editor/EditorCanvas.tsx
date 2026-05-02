@@ -126,13 +126,14 @@ function EditorCanvasInner({
     }, []);
 
     // Overlay live positions for buttery smooth dragging
+    // Optimization: Skip mapping if no live positions exist
     const displayNodes = useMemo(() => {
+        const liveKeys = Object.keys(liveNodePositions);
+        if (liveKeys.length === 0) return nodes;
+        
         return nodes.map((node) => {
             const livePos = liveNodePositions[node.id];
-            if (livePos) {
-                return { ...node, position: livePos };
-            }
-            return node;
+            return livePos ? { ...node, position: livePos } : node;
         });
     }, [nodes, liveNodePositions]);
 
@@ -460,8 +461,6 @@ function EditorCanvasInner({
     );
 
     // Global connection validator — single source of truth for ALL connection rules.
-    // IMPORTANT: uses getRFNode/getRFNodes/getRFEdges (React Flow's internal store) NOT
-    // the `nodes`/`edges` props, because those props can lag behind after a model switch.
     const isValidConnection = useCallback(
         (connection: Connection) => {
             if (connection.source === connection.target) return false;
@@ -474,10 +473,13 @@ function EditorCanvasInner({
             // Cycle check (DFS) using fresh ReactFlow data
             const rfNodes = getRFNodes();
             const rfEdges = getRFEdges();
+            
+            // Optimization: Only run cycle check if absolutely necessary
             const hasCycle = (node: any, visited = new Set<string>()): boolean => {
                 if (visited.has(node.id)) return false;
                 visited.add(node.id);
-                for (const outgoer of getOutgoers(node, rfNodes, rfEdges)) {
+                const outgoers = getOutgoers(node, rfNodes, rfEdges);
+                for (const outgoer of outgoers) {
                     if (outgoer.id === connection.source) return true;
                     if (hasCycle(outgoer, visited)) return true;
                 }
@@ -485,21 +487,16 @@ function EditorCanvasInner({
             };
             if (hasCycle(targetNode)) return false;
 
-            // Helper: is this node type an AI generator?
-            const isAiNode = (nodeType: string | undefined) =>
-                !!nodeType && (nodeType === 'ai_generator' || aiNodeTypeIds.has(nodeType));
-
-            // Helper: resolve a handle definition's wire type
-            const resolveType = (def: any): string =>
-                String(def?.type || def?.dataType || 'any').toLowerCase();
+            const sourceNodeType = sourceNode.type ?? '';
+            const targetNodeType = targetNode.type ?? '';
 
             // 1. Resolve source handle type
             const sourceHandleId = connection.sourceHandle;
             let sourceHandleDef: any = null;
-            const sourceNodeType = sourceNode.type ?? '';
 
-            if (isAiNode(sourceNodeType)) {
-                const model = models.find((m: any) => Number(m.id) === Number(sourceNode.data?.config?.model_id));
+            if (aiNodeTypeIds.has(sourceNodeType) || sourceNodeType === 'ai_generator') {
+                const modelId = sourceNode.data?.config?.model_id;
+                const model = models.find((m: any) => m.id == modelId);
                 sourceHandleDef = model?.outputs_schema?.handles?.find(
                     (h: any) => (h.api_mapping_key || h.name) === sourceHandleId
                 ) ?? model?.outputs_schema?.handles?.[0];
@@ -513,10 +510,10 @@ function EditorCanvasInner({
             // 2. Resolve target handle type and is_array
             const targetHandleId = connection.targetHandle;
             let targetHandleDef: any = null;
-            const targetNodeType = targetNode.type ?? '';
 
-            if (isAiNode(targetNodeType)) {
-                const model = models.find((m: any) => Number(m.id) === Number(targetNode.data?.config?.model_id));
+            if (aiNodeTypeIds.has(targetNodeType) || targetNodeType === 'ai_generator') {
+                const modelId = targetNode.data?.config?.model_id;
+                const model = models.find((m: any) => m.id == modelId);
                 targetHandleDef = model?.inputs_schema?.handles?.find(
                     (h: any) => (h.api_mapping_key || h.name) === targetHandleId
                 ) ?? null;
@@ -528,22 +525,29 @@ function EditorCanvasInner({
             }
 
             // 3. Type compatibility
-            const sourceType = resolveType(sourceHandleDef);
-            const targetType = resolveType(targetHandleDef);
+            const resolveTypes = (def: any): string[] => {
+                const val = def?.expectedType || def?.dataType || def?.type || 'any';
+                return Array.isArray(val) ? val.map(t => String(t).toLowerCase()) : [String(val).toLowerCase()];
+            };
 
-            if (sourceType !== 'any' && targetType !== 'any') {
-                const normSource = sourceType.replace('_array', '');
-                const normTarget = targetType.replace('_array', '');
-                if (normSource !== normTarget) return false;
+            const sourceTypes = resolveTypes(sourceHandleDef);
+            const targetTypes = resolveTypes(targetHandleDef);
+
+            if (!sourceTypes.includes('any') && !targetTypes.includes('any')) {
+                const normSource = sourceTypes.map(t => t.replace('_array', ''));
+                const normTarget = targetTypes.map(t => t.replace('_array', ''));
+                
+                const isCompatible = normSource.some(s => normTarget.includes(s));
+                if (!isCompatible) return false;
             }
 
             // 4. Connection limit (skip for array-type handles)
-            const isArray = !!(targetHandleDef?.is_array) || targetType.endsWith('_array');
+            const isArray = !!(targetHandleDef?.is_array) || targetTypes.some(t => t.endsWith('_array'));
             if (!isArray) {
-                const existing = rfEdges.filter(
+                const existingCount = rfEdges.filter(
                     (e: any) => e.target === connection.target && e.targetHandle === targetHandleId
-                );
-                if (existing.length >= 1) return false;
+                ).length;
+                if (existingCount >= 1) return false;
             }
 
             return true;

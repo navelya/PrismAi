@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, Eye, EyeOff, Info, Play, Coins } from 'lucide-react';
+import { Eye, EyeOff, Info, Play, Coins } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { NumberInput } from '@/components/ui/NumberInput';
@@ -14,6 +14,57 @@ import { formatDisplayName } from '@/lib/utils/schema-parser';
 // =============================================================================
 import { AiModel, Control } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
+import { Skeleton } from '@/components/ui/Skeleton';
+
+// =============================================================================
+// SKELETON LOADER
+// =============================================================================
+
+function PropertiesSkeleton() {
+    return (
+        <div className="flex-1 flex flex-col min-h-0 animate-in fade-in duration-500 overflow-hidden">
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-5 pt-1 pb-8 space-y-8">
+                {/* Model Selector Skeleton */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 shadow-xl ring-1 ring-white/5 space-y-3">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-10 w-full rounded-xl" />
+                </div>
+
+                {/* Parameters Divider Skeleton */}
+                <div className="flex items-center gap-3 py-2">
+                    <div className="h-px flex-1 bg-white/10" />
+                    <Skeleton className="h-3 w-24" />
+                    <div className="h-px flex-1 bg-white/10" />
+                </div>
+
+                {/* Controls Skeletons */}
+                <div className="space-y-6">
+                    {[1, 2, 3].map((i) => (
+                        <div key={i} className="space-y-3">
+                            <div className="flex justify-between">
+                                <Skeleton className="h-3 w-20" />
+                                <Skeleton className="h-3 w-10 rounded-full" />
+                            </div>
+                            <Skeleton className={cn(
+                                "w-full rounded-2xl",
+                                i === 1 ? "h-32" : i === 2 ? "h-20" : "h-14"
+                            )} />
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Footer Skeleton */}
+            <div className="px-5 py-4 bg-surface-elevated/95 backdrop-blur-xl border-t border-white/10 flex items-center justify-between gap-3 z-30 shrink-0">
+                <div className="flex items-center gap-3">
+                    <Skeleton className="h-4 w-4 rounded-full" />
+                    <Skeleton className="h-6 w-32" />
+                </div>
+                <Skeleton className="h-9 w-28 rounded-xl" />
+            </div>
+        </div>
+    );
+}
 
 // =============================================================================
 // COMPONENT
@@ -74,12 +125,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     };
 
     if (isModelsLoading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-12 text-content-tertiary animate-in fade-in duration-500">
-                <Loader2 className="w-8 h-8 animate-spin mb-4 text-accent-primary opacity-50" />
-                <span className="text-[10px] font-black uppercase tracking-[0.3em]">Synching Neural Engine...</span>
-            </div>
-        );
+        return <PropertiesSkeleton />;
     }
 
     // --- LIVE COST CALCULATION ---

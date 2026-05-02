@@ -10,13 +10,12 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
         description: 'Layer-based image compositing',
         color: '#8b5cf6',
         icon: 'Layers2',
-        dynamicInputs: true,
         ephemeral: true,
     },
     handles: {
-        // Inputs are dynamic based on layers, but we define an empty list here
-        // as the actual Handles are rendered by CompositorNode dynamically.
-        inputs: [],
+        inputs: [
+            { id: 'layers', label: 'Layers', expectedType: ['image', 'text'], is_array: true, color: '#f8fafc' }
+        ],
         outputs: [{ id: 'image_out', label: '', dataType: 'image' }],
     },
     defaultConfig: {

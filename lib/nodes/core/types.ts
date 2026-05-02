@@ -2,7 +2,8 @@ import React from 'react';
 import { ExecutionContext, NodeExecutionResult } from '../types';
 
 // Define all possible data types that can flow through node edges
-export type NodeDataType = 'image' | 'image_array' | 'text' | 'any' | 'prompt' | 'json';
+// This should match the 'id' column in the public.data_types table
+export type NodeDataType = 'image' | 'video' | 'audio' | '3d' | 'text' | 'json' | 'image_array' | 'any' | 'prompt';
 
 // 1. Shared Definition (Isomorphic - Safe for DB, AI, and both bundles)
 export interface NodeSharedDef<TConfig = any> {

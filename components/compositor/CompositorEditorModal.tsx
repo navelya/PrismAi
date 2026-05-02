@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState, useMemo, useTransition } from 'react';
-import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Path, Line } from 'react-konva';
+import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Path, Line, Text as KonvaText } from 'react-konva';
 import useImage from 'use-image';
 import {
     X, Eye, EyeOff, Lock, Unlock, Trash2, Layers2, ChevronUp, ChevronDown,
@@ -11,23 +11,11 @@ import {
     Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { cn } from '@/lib/utils';
+import { cn, generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { NumberInput } from '@/components/ui/NumberInput';
-import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
+import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject, calculateInitialTransform } from '@/lib/nodes/types';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
-
-const DEFAULT_TRANSFORM: LayerTransform = {
-    x: 0,
-    y: 0,
-    width: 300,
-    height: 200,
-    rotation: 0,
-    opacity: 1,
-    flipX: false,
-    flipY: false,
-    crop: null,
-};
 
 const IMAGES_PER_PAGE = 6;
 const VIEWPORT_PADDING = 1000;
@@ -51,16 +39,24 @@ const URLImage = React.memo(({
     imageUrl,
     onSelect,
     onChange,
-    onDragMove
+    onDragMove,
+    onLoad
 }: {
     layer: CompositorLayer,
     imageUrl: string,
     onSelect: () => void,
     onChange: (updates: Partial<LayerTransform>) => void,
-    onDragMove: (e: any) => void
+    onDragMove: (e: any) => void,
+    onLoad?: (img: HTMLImageElement) => void
 }) => {
-    const [img] = useImage(imageUrl);
+    const [img] = useImage(imageUrl, 'anonymous');
     const shapeRef = useRef<any>(null);
+
+    useEffect(() => {
+        if (img && onLoad) {
+            onLoad(img);
+        }
+    }, [img, onLoad]);
 
     if (!img) return null;
 
@@ -111,7 +107,75 @@ const URLImage = React.memo(({
     );
 });
 
-// 2. MEMOIZED SIDEBAR ITEM
+// 2. MEMOIZED CANVAS TEXT
+const URLText = React.memo(({
+    layer,
+    text,
+    onSelect,
+    onChange,
+    onDragMove
+}: {
+    layer: CompositorLayer,
+    text: string,
+    onSelect: () => void,
+    onChange: (updates: Partial<LayerTransform>) => void,
+    onDragMove: (e: any) => void
+}) => {
+    const shapeRef = useRef<any>(null);
+
+    return (
+        <KonvaText
+            text={text}
+            ref={shapeRef}
+            name={`img-${layer.id}`}
+            x={layer.transform.x}
+            y={layer.transform.y}
+            width={layer.transform.width}
+            height={layer.transform.height}
+            rotation={layer.transform.rotation}
+            opacity={layer.transform.opacity}
+            scaleX={layer.transform.flipX ? -1 : 1}
+            scaleY={layer.transform.flipY ? -1 : 1}
+            offsetX={layer.transform.flipX ? layer.transform.width : 0}
+            offsetY={layer.transform.flipY ? layer.transform.height : 0}
+            draggable={!layer.locked}
+            fontSize={48}
+            fill="#ffffff"
+            fontStyle="bold"
+            align="center"
+            verticalAlign="middle"
+            onClick={onSelect}
+            onTap={onSelect}
+            onDragStart={onSelect}
+            onDragMove={onDragMove}
+            onDragEnd={(e) => onChange({ x: e.target.x(), y: e.target.y() })}
+            onTransformEnd={(e) => {
+                const node = shapeRef.current;
+                const scaleX = node.scaleX();
+                const scaleY = node.scaleY();
+
+                node.scaleX(layer.transform.flipX ? -1 : 1);
+                node.scaleY(layer.transform.flipY ? -1 : 1);
+
+                onChange({
+                    x: node.x(),
+                    y: node.y(),
+                    rotation: node.rotation(),
+                    width: Math.max(5, node.width() * Math.abs(scaleX)),
+                    height: Math.max(5, node.height() * Math.abs(scaleY)),
+                });
+            }}
+        />
+    );
+}, (prevProps, nextProps) => {
+    return (
+        prevProps.text === nextProps.text &&
+        prevProps.layer.locked === nextProps.layer.locked &&
+        prevProps.layer.transform === nextProps.layer.transform
+    );
+});
+
+// 3. MEMOIZED SIDEBAR ITEM
 const LayerListItem = React.memo(({
     layer,
     isSelected,
@@ -124,7 +188,7 @@ const LayerListItem = React.memo(({
     if (type === 'prompt') Icon = MessageSquare;
     if (type === 'ai_generate_image') Icon = ImageIcon;
     if (type === 'media_input') Icon = Smartphone;
-    if (type === 'remove_background') Icon = ImageIcon; // Fallback since it's being purged
+    if (type === 'remove_background') Icon = ImageIcon;
 
     return (
         <Reorder.Item
@@ -166,18 +230,77 @@ export default function CompositorEditorModal({
     onClose,
     onConfigChange,
 }: CompositorEditorModalProps) {
-    const [localLayers, setLocalLayers] = useState<CompositorLayer[]>(() =>
-        config.layers.map(layer => ({ ...layer, visible: true }))
-    );
+    const currentWorkflow = useAppStore((state) => state.currentWorkflow);
+    const nodeOutputs = useAppStore((state) => state.nodeOutputs);
+
+    const connectedInputs = useMemo(() => {
+        if (!currentWorkflow) return {};
+        const edges = currentWorkflow.edges.filter(e => e.target === nodeId);
+        const inputs: Record<string, { images: ImageObject[], type: string, sourceNodeLabel: string }> = {};
+
+        edges.forEach(edge => {
+            const handleId = (edge as any).targetHandle || 'layers';
+            const inputKey = handleId === 'layers' ? edge.id : handleId;
+            
+            const sourceNode = currentWorkflow.nodes.find(n => n.id === edge.source);
+            const sourceOutput = nodeOutputs[edge.source];
+            if (sourceOutput) {
+                const normalized = toLegacyRenderableOutput(sourceOutput);
+                if (normalized === undefined || normalized === null) return;
+                inputs[inputKey] = {
+                    images: Array.isArray(normalized) ? normalized : [normalized],
+                    type: sourceNode?.type || 'unknown',
+                    sourceNodeLabel: sourceNode?.data?.label || 'Source'
+                };
+            }
+        });
+        return inputs;
+    }, [currentWorkflow, nodeId, nodeOutputs]);
+
+    const localCanvasWidth = config.canvasWidth || 1920;
+    const localCanvasHeight = config.canvasHeight || 1080;
+
+    // Initialize localLayers by merging config.layers with connected edges
+    const [localLayers, setLocalLayers] = useState<CompositorLayer[]>(() => {
+        const savedLayers = config.layers || [];
+        const edges = currentWorkflow?.edges.filter(e => e.target === nodeId && (e.targetHandle === 'layers' || !e.targetHandle)) || [];
+        
+        return edges.map(edge => {
+            const savedLayer = savedLayers.find(l => l.sourceHandleId === edge.id);
+            if (savedLayer) return { ...savedLayer, visible: true };
+
+            const sourceNode = currentWorkflow?.nodes.find(n => n.id === edge.source);
+            
+            // Shared centering logic for new layers - start as NOT auto-centered to allow handleImageLoad to run once
+            return {
+                id: `layer_${edge.id}`,
+                name: sourceNode?.data?.label || `Layer`,
+                sourceHandleId: edge.id,
+                selectedIndex: 0,
+                transform: {
+                    x: (localCanvasWidth - 400) / 2,
+                    y: (localCanvasHeight - 300) / 2,
+                    width: 400,
+                    height: 300,
+                    rotation: 0,
+                    opacity: 1,
+                    flipX: false,
+                    flipY: false,
+                    isAutoCentered: false,
+                    crop: null,
+                },
+                visible: true,
+                locked: false,
+            };
+        });
+    });
 
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-    const [localCanvasWidth, setLocalCanvasWidth] = useState(config.canvasWidth || 1920);
-    const [localCanvasHeight, setLocalCanvasHeight] = useState(config.canvasHeight || 1080);
+    const [canvasWidth, setCanvasWidth] = useState(localCanvasWidth);
+    const [canvasHeight, setCanvasHeight] = useState(localCanvasHeight);
     const [imagePageIndex, setImagePageIndex] = useState(0);
 
-    // Snapping Guidelines State
     const [guidelines, setGuidelines] = useState<{ type: 'vertical' | 'horizontal', position: number }[]>([]);
-
     const [isPending, startTransition] = useTransition();
 
     const stageRef = useRef<any>(null);
@@ -188,30 +311,6 @@ export default function CompositorEditorModal({
     const [stagePan, setStagePan] = useState({ x: VIEWPORT_PADDING, y: VIEWPORT_PADDING });
     const [isPanning, setIsPanning] = useState(false);
     const [spaceHeld, setSpaceHeld] = useState(false);
-
-    const currentWorkflow = useAppStore((state) => state.currentWorkflow);
-    const nodeOutputs = useAppStore((state) => state.nodeOutputs);
-
-    const connectedInputs = useMemo(() => {
-        if (!currentWorkflow) return {};
-        const edges = currentWorkflow.edges.filter(e => e.target === nodeId);
-        const inputs: Record<string, { images: ImageObject[], type: string }> = {};
-
-        edges.forEach(edge => {
-            const handleId = (edge as any).targetHandle || 'default';
-            const sourceNode = currentWorkflow.nodes.find(n => n.id === edge.source);
-            const sourceOutput = nodeOutputs[edge.source];
-            if (sourceOutput) {
-                const normalized = toLegacyRenderableOutput(sourceOutput);
-                if (normalized === undefined || normalized === null) return;
-                inputs[handleId] = {
-                    images: Array.isArray(normalized) ? normalized : [normalized],
-                    type: sourceNode?.type || 'unknown'
-                };
-            }
-        });
-        return inputs;
-    }, [currentWorkflow, nodeId, nodeOutputs]);
 
     // Attach Transformer
     useEffect(() => {
@@ -228,17 +327,20 @@ export default function CompositorEditorModal({
     }, [selectedLayerId, localLayers]);
 
     const handleDone = useCallback(() => {
+        // Validation: ensure we have a valid state before saving
+        if (!localLayers) return;
+
         onConfigChange({
-            layers: localLayers,
-            canvasWidth: localCanvasWidth,
-            canvasHeight: localCanvasHeight,
+            layers: [...localLayers],
+            canvasWidth: canvasWidth,
+            canvasHeight: canvasHeight,
         });
         onClose();
-    }, [localLayers, localCanvasWidth, localCanvasHeight, onConfigChange, onClose]);
+    }, [localLayers, canvasWidth, canvasHeight, onConfigChange, onClose]);
 
     const changeCanvasSize = useCallback((width: number, height: number) => {
-        setLocalCanvasWidth(width);
-        setLocalCanvasHeight(height);
+        setCanvasWidth(width);
+        setCanvasHeight(height);
     }, []);
 
     const fitToView = useCallback(() => {
@@ -248,16 +350,16 @@ export default function CompositorEditorModal({
         const ch = container.clientHeight;
         const padding = 100;
 
-        const zoomX = (cw - padding * 2) / localCanvasWidth;
-        const zoomY = (ch - padding * 2) / localCanvasHeight;
+        const zoomX = (cw - padding * 2) / canvasWidth;
+        const zoomY = (ch - padding * 2) / canvasHeight;
         const zoom = Math.min(zoomX, zoomY, 2);
 
-        const panX = (cw - localCanvasWidth * zoom) / 2;
-        const panY = (ch - localCanvasHeight * zoom) / 2;
+        const panX = (cw - canvasWidth * zoom) / 2;
+        const panY = (ch - canvasHeight * zoom) / 2;
 
         setStageZoom(zoom);
         setStagePan({ x: panX, y: panY });
-    }, [localCanvasWidth, localCanvasHeight]);
+    }, [canvasWidth, canvasHeight]);
 
     useEffect(() => { fitToView(); }, [fitToView]);
 
@@ -338,8 +440,12 @@ export default function CompositorEditorModal({
     }, []);
 
     const resetTransform = useCallback((layerId: string) => {
-        updateTransform(layerId, DEFAULT_TRANSFORM);
-    }, [updateTransform]);
+        // Reset to centered transform
+        const sourceData = connectedInputs[localLayers.find(l => l.id === layerId)?.sourceHandleId || ''];
+        const res = sourceData?.images?.[0]?.resolution;
+        const newT = calculateInitialTransform(res?.width || 400, res?.height || 300, canvasWidth, canvasHeight);
+        updateTransform(layerId, newT);
+    }, [updateTransform, connectedInputs, localLayers, canvasWidth, canvasHeight]);
 
     const updateSelectedIndex = useCallback((layerId: string, newIdx: number) => {
         setLocalLayers(prev => prev.map(l => l.id === layerId ? { ...l, selectedIndex: newIdx } : l));
@@ -350,13 +456,26 @@ export default function CompositorEditorModal({
         setImagePageIndex(0);
     }, []);
 
+    // 🚀 Smart Auto-Centering using shared utility
+    const handleImageLoad = useCallback((layerId: string, img: HTMLImageElement) => {
+        setLocalLayers(prev => prev.map(l => {
+            // Only auto-center if the layer is using the absolute default size (haven't been adjusted)
+            // or if it was just initialized with 400x300
+            if (l.id === layerId && l.transform.width === 400 && l.transform.height === 300) {
+                const newT = calculateInitialTransform(img.width, img.height, canvasWidth, canvasHeight);
+                return { ...l, transform: newT };
+            }
+            return l;
+        }));
+    }, [canvasWidth, canvasHeight]);
+
     const handleDragMove = useCallback((e: any) => {
         const layer = e.target.getLayer();
         const node = e.target;
         const snapThreshold = 5 / stageZoom;
 
-        const verticalStops = [0, localCanvasWidth / 2, localCanvasWidth];
-        const horizontalStops = [0, localCanvasHeight / 2, localCanvasHeight];
+        const verticalStops = [0, canvasWidth / 2, canvasWidth];
+        const horizontalStops = [0, canvasHeight / 2, canvasHeight];
 
         layer.find('Image').forEach((item: any) => {
             if (item === node) return;
@@ -413,7 +532,7 @@ export default function CompositorEditorModal({
         if (closestH) newGuidelines.push({ type: 'horizontal', position: closestH.stop });
 
         setGuidelines(newGuidelines as any);
-    }, [localCanvasWidth, localCanvasHeight, stageZoom]);
+    }, [canvasWidth, canvasHeight, stageZoom]);
 
     const selectedLayer = useMemo(() => localLayers.find(l => l.id === selectedLayerId) || null, [localLayers, selectedLayerId]);
     const selectedSourceData = selectedLayer ? connectedInputs[selectedLayer.sourceHandleId] : null;
@@ -428,11 +547,11 @@ export default function CompositorEditorModal({
 
     const dimmerPathData = `
         M -99999 -99999 L 99999 -99999 L 99999 99999 L -99999 99999 Z 
-        M 0 0 L 0 ${localCanvasHeight} L ${localCanvasWidth} ${localCanvasHeight} L ${localCanvasWidth} 0 Z
+        M 0 0 L 0 ${canvasHeight} L ${canvasWidth} ${canvasHeight} L ${canvasWidth} 0 Z
     `;
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+        <div className="fixed inset-0 z-[100000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
             <div className="bg-surface-primary/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] w-[94vw] h-[90vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-white/5">
@@ -512,8 +631,8 @@ export default function CompositorEditorModal({
                                     name="background"
                                     x={0}
                                     y={0}
-                                    width={localCanvasWidth}
-                                    height={localCanvasHeight}
+                                    width={canvasWidth}
+                                    height={canvasHeight}
                                     fill="#111"
                                     stroke="rgba(255,255,255,0.2)"
                                     strokeWidth={1}
@@ -522,26 +641,45 @@ export default function CompositorEditorModal({
                                     shadowOpacity={0.8}
                                 />
 
-                                {/* 2. Render Images */}
+                                {/* 2. Render Images/Text */}
                                 {localLayers.map((layer) => {
                                     if (!layer.visible) return null;
 
                                     const sourceData = connectedInputs[layer.sourceHandleId];
-                                    const imageData = sourceData?.images?.[layer.selectedIndex] || sourceData?.images?.[0];
-                                    const imageSrc = imageData?.url;
+                                    const data = sourceData?.images?.[layer.selectedIndex] || sourceData?.images?.[0];
+                                    
+                                    if (!data) return null;
 
-                                    if (!imageSrc) return null;
+                                    // Handle Image (object with url)
+                                    if (data.url) {
+                                        return (
+                                            <URLImage
+                                                key={layer.id}
+                                                layer={layer}
+                                                imageUrl={data.url}
+                                                onSelect={() => selectOnCanvas(layer.id)}
+                                                onChange={(updates) => updateTransform(layer.id, updates)}
+                                                onDragMove={handleDragMove}
+                                                onLoad={(img) => handleImageLoad(layer.id, img)}
+                                            />
+                                        );
+                                    }
 
-                                    return (
-                                        <URLImage
-                                            key={layer.id}
-                                            layer={layer}
-                                            imageUrl={imageSrc}
-                                            onSelect={() => selectOnCanvas(layer.id)}
-                                            onChange={(updates) => updateTransform(layer.id, updates)}
-                                            onDragMove={handleDragMove}
-                                        />
-                                    );
+                                    // Handle Text (string)
+                                    if (typeof data === 'string') {
+                                        return (
+                                            <URLText
+                                                key={layer.id}
+                                                layer={layer}
+                                                text={data}
+                                                onSelect={() => selectOnCanvas(layer.id)}
+                                                onChange={(updates) => updateTransform(layer.id, updates)}
+                                                onDragMove={handleDragMove}
+                                            />
+                                        );
+                                    }
+
+                                    return null;
                                 })}
 
                                 {/* 3. The Dimmer Overlay (Fades out anything outside the artboard) */}
@@ -704,13 +842,13 @@ export default function CompositorEditorModal({
                                         <div className="grid grid-cols-2 gap-3">
                                             <NumberInput
                                                 label="Width"
-                                                value={localCanvasWidth}
-                                                onChange={(e) => setLocalCanvasWidth(Math.max(100, Number(e.target.value)))}
+                                                value={canvasWidth}
+                                                onChange={(e) => setCanvasWidth(Math.max(100, Number(e.target.value)))}
                                             />
                                             <NumberInput
                                                 label="Height"
-                                                value={localCanvasHeight}
-                                                onChange={(e) => setLocalCanvasHeight(Math.max(100, Number(e.target.value)))}
+                                                value={canvasHeight}
+                                                onChange={(e) => setCanvasHeight(Math.max(100, Number(e.target.value)))}
                                             />
                                         </div>
                                     </div>
@@ -720,7 +858,7 @@ export default function CompositorEditorModal({
                                         <div className="grid grid-cols-2 gap-2">
                                             {CANVAS_PRESETS.map((preset) => {
                                                 const Icon = preset.icon;
-                                                const isActive = localCanvasWidth === preset.width && localCanvasHeight === preset.height;
+                                                const isActive = canvasWidth === preset.width && canvasHeight === preset.height;
                                                 return (
                                                     <button
                                                         key={preset.label}

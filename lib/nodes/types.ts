@@ -124,6 +124,7 @@ export interface LayerTransform {
     opacity: number;        // 0.0 - 1.0
     flipX: boolean;         // Horizontal flip
     flipY: boolean;         // Vertical flip
+    isAutoCentered?: boolean; // Flag to prevent infinite re-centering loops
     crop: {                 // Source Crop Box
         x: number;
         y: number;
@@ -163,6 +164,43 @@ export interface CompositorConfig {
     /** Output quality */
     outputFormat: 'png' | 'webp' | 'jpeg';
     outputQuality: number;      // 0.0 - 1.0 (for jpeg/webp)
+}
+
+/**
+ * Calculate the initial centered transform for a new layer
+ */
+export function calculateInitialTransform(
+    itemWidth: number,
+    itemHeight: number,
+    canvasWidth: number,
+    canvasHeight: number
+): LayerTransform {
+    const imgAspect = itemWidth / itemHeight;
+    let newW = itemWidth;
+    let newH = itemHeight;
+
+    // Scale down if too large for canvas
+    if (newW > canvasWidth * 0.8) {
+        newW = canvasWidth * 0.8;
+        newH = newW / imgAspect;
+    }
+    if (newH > canvasHeight * 0.8) {
+        newH = canvasHeight * 0.8;
+        newW = newH * imgAspect;
+    }
+
+    return {
+        x: (canvasWidth - newW) / 2,
+        y: (canvasHeight - newH) / 2,
+        width: newW,
+        height: newH,
+        rotation: 0,
+        opacity: 1,
+        flipX: false,
+        flipY: false,
+        isAutoCentered: true,
+        crop: null,
+    };
 }
 
 /**

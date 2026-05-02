@@ -2,67 +2,24 @@
 
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { NodeProps, useReactFlow, useEdges } from 'reactflow';
+import { NodeProps, useReactFlow } from 'reactflow';
 import { Plus, Edit3 } from 'lucide-react';
-import { Stage, Layer, Image as KonvaImage, Group } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Group, Text as KonvaText } from 'react-konva';
 import useImage from 'use-image';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { useShallow } from 'zustand/react/shallow';
 import BaseNode from './BaseNode';
-import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject } from '@/lib/nodes/types';
+import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject, calculateInitialTransform } from '@/lib/nodes/types';
 import CompositorEditorModal from '@/components/compositor/CompositorEditorModal';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
-
-// Layer colors for visual distinction
-const LAYER_COLORS = [
-    '#06b6d4', // Cyan
-    '#14b8a6', // Teal
-    '#10b981', // Emerald
-    '#0ea5e9', // Sky
-    '#34d399', // Light Emerald
-    '#22d3ee', // Light Cyan
-    '#2dd4bf', // Light Teal
-    '#67e8f9', // Very Light Cyan
-];
-
-const defaultTransform: LayerTransform = {
-    x: 0,
-    y: 0,
-    width: 400,
-    height: 300,
-    rotation: 0,
-    opacity: 1,
-    flipX: false,
-    flipY: false,
-    crop: null,
-};
 
 const defaultConfig: CompositorConfig = {
     canvasWidth: 1920,
     canvasHeight: 1080,
     backgroundColor: '#00000000',
-    layers: [
-        {
-            id: 'layer_0',
-            name: 'Layer 1',
-            sourceHandleId: 'layer_0',
-            selectedIndex: 0,
-            transform: {
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1080,
-                rotation: 0,
-                opacity: 1,
-                flipX: false,
-                flipY: false,
-                crop: null,
-            },
-            visible: true,
-            locked: false,
-        }
-    ],
+    layers: [],
     outputFormat: 'png',
     outputQuality: 1.0,
 };
@@ -73,7 +30,7 @@ interface CompositorNodeData {
 }
 
 // 1. Memoized Preview Image WITH CACHE-BUSTING CORS FIX
-const PreviewImage = memo(({ layer, imageUrl }: { layer: CompositorLayer, imageUrl: string }) => {
+const PreviewImage = memo(({ transform, imageUrl }: { transform: LayerTransform, imageUrl: string }) => {
     const safeUrl = useMemo(() => {
         if (!imageUrl) return '';
         if (imageUrl.startsWith('data:')) return imageUrl;
@@ -87,16 +44,41 @@ const PreviewImage = memo(({ layer, imageUrl }: { layer: CompositorLayer, imageU
     return (
         <KonvaImage
             image={img}
-            x={layer.transform.x}
-            y={layer.transform.y}
-            width={layer.transform.width}
-            height={layer.transform.height}
-            rotation={layer.transform.rotation}
-            opacity={layer.transform.opacity}
-            scaleX={layer.transform.flipX ? -1 : 1}
-            scaleY={layer.transform.flipY ? -1 : 1}
-            offsetX={layer.transform.flipX ? layer.transform.width : 0}
-            offsetY={layer.transform.flipY ? layer.transform.height : 0}
+            x={transform.x}
+            y={transform.y}
+            width={transform.width}
+            height={transform.height}
+            rotation={transform.rotation}
+            opacity={transform.opacity}
+            scaleX={transform.flipX ? -1 : 1}
+            scaleY={transform.flipY ? -1 : 1}
+            offsetX={transform.flipX ? transform.width : 0}
+            offsetY={transform.flipY ? transform.height : 0}
+            listening={false}
+        />
+    );
+});
+
+// 2. Memoized Preview Text
+const PreviewText = memo(({ transform, text }: { transform: LayerTransform, text: string }) => {
+    return (
+        <KonvaText
+            text={text}
+            x={transform.x}
+            y={transform.y}
+            width={transform.width}
+            height={transform.height}
+            rotation={transform.rotation}
+            opacity={transform.opacity}
+            scaleX={transform.flipX ? -1 : 1}
+            scaleY={transform.flipY ? -1 : 1}
+            offsetX={transform.flipX ? transform.width : 0}
+            offsetY={transform.flipY ? transform.height : 0}
+            fontSize={48}
+            fill="#ffffff"
+            fontStyle="bold"
+            align="center"
+            verticalAlign="middle"
             listening={false}
         />
     );
@@ -110,15 +92,17 @@ const checkerboardStyle = {
     backgroundColor: 'rgb(var(--checker-2))'
 };
 
-// 2. Dynamic Auto-Scaling Live Preview WITH TRANSPARENCY FIX
+// 3. Dynamic Auto-Scaling Live Preview
 function LivePreview({
     config,
-    connectedInputs,
-    stageRef
+    activeLayers,
+    stageRef,
+    isDraggingGlobal
 }: {
     config: CompositorConfig;
-    connectedInputs: Record<string, ImageObject[]>;
+    activeLayers: Array<{ transform: LayerTransform, data: any, id: string, visible: boolean }>;
     stageRef: React.RefObject<any>;
+    isDraggingGlobal: boolean;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState({ width: 0, height: 0 });
@@ -150,7 +134,8 @@ function LivePreview({
                 aspectRatio: `${canvasWidth} / ${canvasHeight}`
             }}
         >
-            {scale > 0 && (
+            {/* Optimization: Hide Konva stage during global drags to improve performance */}
+            {!isDraggingGlobal && scale > 0 && (
                 <Stage
                     ref={stageRef}
                     width={size.width}
@@ -158,25 +143,42 @@ function LivePreview({
                 >
                     <Layer>
                         <Group scaleX={scale} scaleY={scale}>
-                            {/* THE FIX: The background <Rect> was completely removed to guarantee strict transparency */}
-                            {config.layers.map((layer) => {
-                                if (!layer.visible) return null;
+                            {activeLayers.map((layer) => {
+                                if (!layer.visible || !layer.data) return null;
+                                const data = layer.data;
 
-                                const sourceImages = connectedInputs[layer.sourceHandleId];
-                                const imageData = sourceImages?.[layer.selectedIndex] || sourceImages?.[0];
-                                if (!imageData?.url) return null;
+                                if (data.url) {
+                                    return (
+                                        <PreviewImage
+                                            key={layer.id}
+                                            transform={layer.transform}
+                                            imageUrl={data.url}
+                                        />
+                                    );
+                                }
 
-                                return (
-                                    <PreviewImage
-                                        key={layer.id}
-                                        layer={layer}
-                                        imageUrl={imageData.url}
-                                    />
-                                );
+                                if (typeof data === 'string') {
+                                    return (
+                                        <PreviewText
+                                            key={layer.id}
+                                            transform={layer.transform}
+                                            text={data}
+                                        />
+                                    );
+                                }
+
+                                return null;
                             })}
                         </Group>
                     </Layer>
                 </Stage>
+            )}
+            
+            {/* Low-Fi Placeholder during dragging */}
+            {isDraggingGlobal && (
+                <div className="flex flex-col items-center justify-center gap-2 opacity-20 scale-75">
+                   <Plus className="w-12 h-12" />
+                </div>
             )}
         </div>
     );
@@ -187,8 +189,23 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const stageRef = useRef<any>(null);
 
-    const currentWorkflow = useAppStore((state) => state.currentWorkflow);
-    const nodeOutputs = useAppStore((state) => state.nodeOutputs);
+    const isDraggingGlobal = useAppStore((state) => state.isDragging);
+    const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
+    
+    // Performance: Ultra-selective subscriptions
+    const layerEdges = useAppStore(useShallow((state) => 
+        state.currentWorkflow?.edges?.filter(e => e.target === id && (e.targetHandle === 'layers' || !e.targetHandle)) || []
+    ));
+
+    const nodeOutputs = useAppStore(useShallow((state) => {
+        const outputs: Record<string, any> = {};
+        layerEdges.forEach(e => {
+            if (state.nodeOutputs[e.source]) {
+                outputs[e.source] = state.nodeOutputs[e.source];
+            }
+        });
+        return outputs;
+    }));
 
     const config: CompositorConfig = useMemo(() => ({
         ...defaultConfig,
@@ -196,121 +213,68 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         layers: data.config?.layers || defaultConfig.layers,
     }), [data.config]);
 
-    const edges = useEdges();
-    const connectedEdges = useMemo(() => edges.filter(e => e.target === id), [edges, id]);
-
-    const maxConnectedIndex = useMemo(() => {
-        let max = -1;
-        connectedEdges.forEach(edge => {
-            const handleId = edge.targetHandle;
-            if (handleId && handleId.startsWith('layer_')) {
-                const index = parseInt(handleId.split('_')[1], 10);
-                if (!isNaN(index) && index > max) max = index;
-            }
-        });
-        return max;
-    }, [connectedEdges]);
-
-    const handleCount = Math.max(1, maxConnectedIndex + 2);
-
-    const connectedInputs = useMemo(() => {
-        if (!currentWorkflow) return {};
-        const edges = currentWorkflow.edges?.filter(e => e.target === id) || [];
-        const inputs: Record<string, ImageObject[]> = {};
-
-        edges.forEach(edge => {
-            const handleId = (edge as any).targetHandle || 'default';
+    // Derived layers: merge saved layers with current edges
+    const activeLayers = useMemo(() => {
+        const savedLayers = config.layers || [];
+        const canvasW = config.canvasWidth || 1920;
+        const canvasH = config.canvasHeight || 1080;
+        
+        return layerEdges.map((edge) => {
             const sourceOutput = nodeOutputs[edge.source];
+            let displayData = null;
             if (sourceOutput) {
                 const normalized = toLegacyRenderableOutput(sourceOutput);
-                if (normalized !== undefined && normalized !== null) {
-                    inputs[handleId] = Array.isArray(normalized) ? normalized : [normalized];
-                }
-            }
-        });
-
-        return inputs;
-    }, [currentWorkflow, id, nodeOutputs]);
-
-    const hasConnectedInputs = useMemo(() => {
-        return Object.keys(connectedInputs).length > 0 &&
-            Object.values(connectedInputs).some(arr => arr && arr.length > 0);
-    }, [connectedInputs]);
-
-    const { setNodes } = useReactFlow();
-
-    useEffect(() => {
-        const currentLayers = data.config?.layers || defaultConfig.layers;
-        if (currentLayers.length !== handleCount) {
-            let newLayers = [...currentLayers];
-
-            if (newLayers.length < handleCount) {
-                for (let i = newLayers.length; i < handleCount; i++) {
-                    newLayers.push({
-                        id: `layer_${i}`,
-                        name: `Layer ${i + 1}`,
-                        sourceHandleId: `layer_${i}`,
-                        selectedIndex: 0,
-                        transform: { ...defaultTransform },
-                        visible: true,
-                        locked: false,
-                    });
-                }
-            } else {
-                newLayers = newLayers.slice(0, handleCount);
+                displayData = Array.isArray(normalized) ? normalized[0] : normalized;
             }
 
-            setNodes((nds) =>
-                nds.map((node) => {
-                    if (node.id === id) {
-                        return {
-                            ...node,
-                            data: {
-                                ...node.data,
-                                config: { ...node.data.config, layers: newLayers },
-                            },
-                        };
-                    }
-                    return node;
-                })
-            );
-        }
-    }, [handleCount, id, setNodes, data.config]);
-
-    const updateConfig = useCallback((newConfig: Partial<CompositorConfig>) => {
-        setNodes((nds) =>
-            nds.map((node) => {
-                if (node.id === id) {
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            config: { ...config, ...newConfig },
-                        },
+            const savedLayer = savedLayers.find(l => l.sourceHandleId === edge.id);
+            
+            // Default transform logic: center if new, otherwise use saved
+            let transform = savedLayer?.transform;
+            if (!transform) {
+                // If it's an image and we have resolution, use it to center
+                if (displayData?.resolution) {
+                    transform = calculateInitialTransform(
+                        displayData.resolution.width,
+                        displayData.resolution.height,
+                        canvasW,
+                        canvasH
+                    );
+                } else {
+                    // Fallback to simple center - NOT marked as auto-centered to allow editor to re-center
+                    transform = {
+                        x: (canvasW - 400) / 2,
+                        y: (canvasH - 300) / 2,
+                        width: 400,
+                        height: 300,
+                        rotation: 0,
+                        opacity: 1,
+                        flipX: false,
+                        flipY: false,
+                        isAutoCentered: false,
+                        crop: null,
                     };
                 }
-                return node;
-            })
-        );
-    }, [id, config, setNodes]);
+            }
+            
+            return {
+                id: edge.id,
+                visible: savedLayer ? savedLayer.visible : true,
+                transform,
+                data: displayData,
+            };
+        });
+    }, [layerEdges, nodeOutputs, config.layers, config.canvasWidth, config.canvasHeight]);
+
+    // DIRECT STORE UPDATE (Much more stable than React Flow update)
+    const updateConfig = useCallback((newConfig: Partial<CompositorConfig>) => {
+        updateNodeConfig(id, newConfig);
+    }, [id, updateNodeConfig]);
 
     const openEditor = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsEditorOpen(true);
     };
-
-    const inputHandles = useMemo(() => {
-        const handles = [];
-        for (let i = 0; i < handleCount; i++) {
-            handles.push({
-                id: `layer_${i}`,
-                label: `L${i + 1}`,
-                color: LAYER_COLORS[i % LAYER_COLORS.length],
-                is_array: true,
-            });
-        }
-        return handles;
-    }, [handleCount]);
 
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
@@ -328,9 +292,8 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 label={data.label}
                 selected={selected}
                 isNew={(data as any).isNew}
-                badgeCount={config.layers.length}
+                badgeCount={activeLayers.length}
                 width={320}
-                customInputs={inputHandles}
                 hideStatus={true}
                 customActions={
                     <button
@@ -349,12 +312,13 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                     className="relative w-full group/compositor transition-all duration-500 cursor-zoom-in flex flex-col"
                     style={{ minHeight: '160px' }}
                 >
-                    {hasConnectedInputs ? (
+                    {activeLayers.length > 0 ? (
                         <div className="w-full p-1">
                             <LivePreview
                                 config={config}
-                                connectedInputs={connectedInputs}
+                                activeLayers={activeLayers}
                                 stageRef={stageRef}
+                                isDraggingGlobal={isDraggingGlobal}
                             />
                         </div>
                     ) : (
