@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, useReactFlow, useEdges, useStore, ReactFlowState } from 'reactflow';
+import { Handle, Position, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
 import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -67,6 +67,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const updateNodeLabel = useAppStore((state) => state.updateNodeLabel);
     const touchInteraction = useAppStore((state) => state.touchInteraction);
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
+    const updateNodeInternals = useUpdateNodeInternals();
     const edges = useEdges();
 
     // Get the current zoom level to compensate border-widths
@@ -123,6 +124,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             ref={ref as any}
             initial={isNew ? { scale: 0.8, opacity: 0 } : false}
             animate={{ scale: 1, opacity: 1 }}
+            onAnimationComplete={() => {
+                if (isNew) updateNodeInternals(id);
+            }}
             transition={isDragging ? { duration: 0 } : { type: "spring", bounce: 0.5, duration: 0.6 }}
             className={cn(
                 "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40",
@@ -206,8 +210,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     position={Position.Left}
                                     id={input.id}
                                     className={cn(
-                                        "w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200",
-                                        "before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full",
+                                        "w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center",
+                                        "before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]",
                                         (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id) && "animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.4)]"
                                     )}
                                     style={{
@@ -227,7 +231,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
                                         return (
                                             <div className={cn(
-                                                "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md",
+                                                "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
                                                 isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
                                             )} style={!isErrorState ? { color: input.color || nodeColor } : undefined}>
                                                 {input.label}{(input as any).isMandatory ? ' *' : ''}
@@ -242,8 +246,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
-                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                  before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
+                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center
+                                  before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
                         style={{
                             borderWidth: `${b2}px`,
                             borderStyle: 'solid',
@@ -259,7 +263,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
                             return (
                                 <div className={cn(
-                                    "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md",
+                                    "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
                                     isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
                                 )} style={!isErrorState ? { color: nodeColor } : undefined}>
                                     {defaultInputLabel}{defaultInput?.isMandatory ? ' *' : ''}
@@ -301,8 +305,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 type="source"
                                 position={Position.Right}
                                 id={output.id}
-                                className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                          before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
+                                className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center
+                                          before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
                                 style={{
                                     borderWidth: `${b2}px`,
                                     borderStyle: 'solid',
@@ -312,7 +316,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     top: `calc(50% + ${offset}px)`
                                 }}
                             >
-                                <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: output.color || nodeColor }}>
+                                <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]" style={{ color: output.color || nodeColor }}>
                                     {output.label}
                                 </div>
                             </Handle>
@@ -323,8 +327,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="source"
                         position={Position.Right}
                         id={defaultOutputId}
-                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200
-                                  before:content-[''] before:absolute before:w-12 before:h-12 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full"
+                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center
+                                  before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
                         style={{
                             borderWidth: `${b2}px`,
                             borderStyle: 'solid',
@@ -334,7 +338,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         }}
                     >
                         {defaultOutputLabel && (
-                            <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md" style={{ color: nodeColor }}>
+                            <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]" style={{ color: nodeColor }}>
                                 {defaultOutputLabel}
                             </div>
                         )}

@@ -26,6 +26,25 @@ export interface WorkflowSlice {
     setActiveSessionId: (sessionId: string | null) => void;
     currentWorkflow: Workflow | null;
     setCurrentWorkflow: (workflow: Workflow | null, isDirty?: boolean) => void;
+    
+    // Selection
+    selectedNodeId: string | null;
+    setSelectedNodeId: (nodeId: string | null) => void;
+
+    // History (Undo/Redo)
+    past: Workflow[];
+    future: Workflow[];
+    undo: () => void;
+    redo: () => void;
+    canUndo: () => boolean;
+    canRedo: () => boolean;
+    takeSnapshot: () => void;
+
+    // Direct React Flow Actions
+    onNodesChange: (changes: any[]) => void;
+    onEdgesChange: (changes: any[]) => void;
+    onConnect: (connection: any) => void;
+
     isDragging: boolean;
     setIsDragging: (isDragging: boolean) => void;
     copiedNode: WorkflowNode | null;
@@ -35,6 +54,7 @@ export interface WorkflowSlice {
     updateNodePositions: (positions: Map<string, { x: number; y: number }>) => void;
     updateNodeConfig: (nodeId: string, config: any) => void;
     updateNodeLabel: (nodeId: string, label: string) => void;
+    bringNodeToFront: (nodeId: string) => void;
     isWorkflowDirty: boolean;
     setWorkflowDirty: (isDirty: boolean) => void;
 }

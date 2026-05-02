@@ -166,7 +166,7 @@ function EditorCanvasInner({
         });
         return { ...stableNodeTypes, ...dynamicTypes };
     }, [nodeTypeIds]);
-    
+
     const edgeTypes = useMemo(() => stableEdgeTypes, []);
 
     // Keyboard shortcuts for undo/redo
@@ -555,7 +555,7 @@ function EditorCanvasInner({
     const handleContextMenu = useCallback((event: React.MouseEvent) => {
         // Ignore our own synthetic events to prevent infinite loops
         if ((event.nativeEvent as any)._isSynthetic) return;
-        
+
         event.preventDefault();
         // Only open if we're clicking on the canvas, not on nodes
         const target = event.target as HTMLElement;
