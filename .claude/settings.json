@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(uipro init --ai claude --global)",
+      "PowerShell(uipro --help)",
+      "PowerShell(uipro init --help)",
+      "PowerShell($tmp = Join-Path $env:TEMP \"ui-ux-pro-max-skill-$\\(Get-Random\\)\"; git clone --depth 1 https://github.com/nextlevelbuilder/ui-ux-pro-max-skill $tmp; Write-Output \"CLONE_PATH=$tmp\")",
+      "Read(//c/Users/user/AppData/Local/Temp/ui-ux-pro-max-skill-1900468038/.claude/skills/**)",
+      "Read(//c/Users/user/AppData/Local/Temp/ui-ux-pro-max-skill-1900468038/**)",
+      "Bash(mkdir -p \"/c/Users/user/.claude/skills\")",
+      "Bash(cp -r \"/c/Users/user/AppData/Local/Temp/ui-ux-pro-max-skill-1900468038/.claude/skills/\"* \"/c/Users/user/.claude/skills/\")",
+      "Read(//c/Users/user/.claude/**)",
+      "PowerShell(claude mcp add magic --scope user --env API_KEY=\"f1ad4a337b96645d88fa412b1621a42d9c312cc385ab2a2333558fc757505238\" -- npx -y `@21st-dev/magic@latest)",
+      "Read(//c/Users/user/**)",
+      "PowerShell(Get-Command claude -ErrorAction SilentlyContinue)",
+      "Bash(node -e \"const f=require\\('fs'\\);const d=JSON.parse\\(f.readFileSync\\('/c/Users/user/.claude.json','utf8'\\)\\);console.log\\('Top-level keys:',Object.keys\\(d\\).join\\(', '\\)\\);console.log\\('Has mcpServers:',!!d.mcpServers\\);if\\(d.mcpServers\\)console.log\\('Existing servers:',Object.keys\\(d.mcpServers\\).join\\(', '\\)\\);\")",
+      "Bash(node -e \"const f=require\\('fs'\\);const p='C:/Users/user/.claude.json';const d=JSON.parse\\(f.readFileSync\\(p,'utf8'\\)\\);console.log\\('Top-level keys:',Object.keys\\(d\\).join\\(', '\\)\\);console.log\\('Has mcpServers:',!!d.mcpServers\\);if\\(d.mcpServers\\)console.log\\('Existing servers:',Object.keys\\(d.mcpServers\\).join\\(', '\\)\\);\")",
+      "Bash(node -e ' *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\user\\AppData\\Local\\Temp\\ui-ux-pro-max-skill-1900468038",
+      "C:\\Users\\user"
+    ]
+  }
+}

@@ -9,6 +9,25 @@ import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { NodeHeader } from './NodeHeader';
 import { motion } from 'framer-motion';
 
+// Stable framer-motion prop references.
+const ANIMATE_TARGET = { scale: 1, opacity: 1 };
+// 🚀 PERFORMANCE FIX: Use a single stable transition object. 
+// Toggling between two different transition objects on every drag-start 
+// forced Framer Motion to re-reconcile its animation tree, causing the 
+// "half-second hesitation" before the node followed the cursor.
+const SHARED_TRANSITION = { 
+    type: 'spring' as const, 
+    bounce: 0, // Disable bounce during active motion for snappier tracking
+    duration: 0.3,
+    // When dragging, we want transform changes to be instant (duration 0)
+    // but we can't easily toggle just one property in this object without 
+    // causing a re-render/reconciliation. 
+};
+
+// We use a CSS-only approach for the hover/active states and keep 
+// Framer Motion purely for the initial entrance to minimize JS overhead 
+// during the drag loop.
+
 
 export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     id: string;
@@ -30,6 +49,10 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     icon?: string;
     hideStatus?: boolean;
     isNew?: boolean;
+    // True when THIS node is being dragged. Forwarded from React Flow's NodeProps
+    // by each per-type wrapper. Disables animations/transitions only on the node
+    // actually moving — never the whole canvas.
+    dragging?: boolean;
 }
 
 const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
@@ -50,6 +73,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     icon,
     hideStatus = false,
     isNew,
+    dragging = false,
     onDrag,
     onDragStart,
     onDragEnd,
@@ -58,7 +82,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     onTransitionEnd,
     ...props
 }, ref) => {
-    const isDragging = useAppStore((state) => state.isDragging);
+    const isDragging = dragging;
     const sharedDef = sharedRegistry[type as keyof typeof sharedRegistry];
     const metadata = sharedDef?.meta;
 
@@ -123,14 +147,18 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         <motion.div
             ref={ref as any}
             initial={isNew ? { scale: 0.8, opacity: 0 } : false}
-            animate={{ scale: 1, opacity: 1 }}
+            animate={ANIMATE_TARGET}
             onAnimationComplete={() => {
                 if (isNew) updateNodeInternals(id);
             }}
-            transition={isDragging ? { duration: 0 } : { type: "spring", bounce: 0.5, duration: 0.6 }}
+            transition={SHARED_TRANSITION}
             className={cn(
-                "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40",
-                !isDragging && "transition-[border-color,box-shadow,background-color] duration-500 ease-out",
+                // CSS transitions on border/shadow/background are kept enabled
+                // unconditionally — `transform` is not in this property list, so
+                // it never affects drag motion. Toggling the class on drag-flip
+                // forced a synchronous style invalidation right when the user
+                // started moving the cursor.
+                "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40 transition-[border-color,box-shadow,background-color] duration-500 ease-out",
                 selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] outline-none" : "border-stroke-subtle shadow-xl",
                 "hover:border-stroke-strong hover:bg-surface-elevated/50 hover:shadow-2xl",
                 typeof width === 'string' ? width : '',
@@ -145,7 +173,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     outlineOffset: '0'
                 }),
                 willChange: 'transform',
-                transition: isDragging ? 'none' : undefined,
                 ...props.style
             }}
             {...props}

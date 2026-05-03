@@ -32,11 +32,11 @@ const WIRE_TYPE_COLORS: Record<string, string> = {
 // MAIN COMPONENT
 // =============================================================================
 
-function AIGeneratorNode({ id, data, selected }: any) {
+function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const updateNodeInternals = useUpdateNodeInternals();
     const liveOutput = useAppStore(state => state.nodeOutputs[id]);
     const status = useAppStore(state => state.nodeStatuses[id] || 'idle');
-    const isDragging = useAppStore((state) => state.isDragging);
+    const isDragging = dragging;
 
     // Fallback to saved output for hydration/reloads
     const output = liveOutput || data.output || data.config?.last_output;
@@ -212,6 +212,7 @@ function AIGeneratorNode({ id, data, selected }: any) {
             label={nodeTitle}
             icon={selectedNodeType?.icon_reference}
             selected={selected}
+            dragging={dragging}
             customInputs={customInputs}
             customOutputs={customOutputs}
             width={nodeWidth}

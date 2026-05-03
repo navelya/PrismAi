@@ -63,11 +63,15 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     takeSnapshot: () => {
         const { currentWorkflow, past } = get();
         if (!currentWorkflow) return;
-        
-        // Push deep copy of current state to past
-        const snapshot = JSON.parse(JSON.stringify(currentWorkflow));
-        const newPast = [...past, snapshot].slice(-HISTORY_LIMIT);
-        
+
+        // Reference-snapshot, not deep-clone. Every mutation in this slice
+        // (onNodesChange, updateNodePositions, updateNodeConfig, ...) builds a
+        // fresh workflow object via spread/map, so the existing reference is
+        // already a frozen snapshot of pre-mutation state. Deep-cloning here
+        // ran a 100ms–1s JSON.parse(JSON.stringify(...)) on the main thread
+        // every drag start, which was the visible "first second" stall.
+        const newPast = [...past, currentWorkflow].slice(-HISTORY_LIMIT);
+
         set({ past: newPast, future: [] });
     },
 
@@ -77,7 +81,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
         const previous = past[past.length - 1];
         const newPast = past.slice(0, past.length - 1);
-        const newFuture = [JSON.parse(JSON.stringify(currentWorkflow)), ...future].slice(0, HISTORY_LIMIT);
+        // Reference-snapshot — see takeSnapshot above.
+        const newFuture = [currentWorkflow, ...future].slice(0, HISTORY_LIMIT);
 
         set({
             currentWorkflow: previous,
@@ -93,7 +98,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
         const next = future[0];
         const newFuture = future.slice(1);
-        const newPast = [...past, JSON.parse(JSON.stringify(currentWorkflow))].slice(-HISTORY_LIMIT);
+        // Reference-snapshot — see takeSnapshot above.
+        const newPast = [...past, currentWorkflow].slice(-HISTORY_LIMIT);
 
         set({
             currentWorkflow: next,
@@ -114,7 +120,21 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const isStructural = changes.some(c => c.type === 'remove' || c.type === 'add' || c.type === 'reset');
         if (isStructural) get().takeSnapshot();
 
-        const updatedNodes = applyNodeChanges(changes, currentWorkflow.nodes) as WorkflowNode[];
+        let updatedNodes = applyNodeChanges(changes, currentWorkflow.nodes) as WorkflowNode[];
+
+        // 🚀 Z-INDEX FIX: Ensure newly added nodes are on top
+        const hasAddedNodes = changes.some(c => c.type === 'add');
+        if (hasAddedNodes) {
+            const maxZ = Math.max(0, ...currentWorkflow.nodes.map(n => n.zIndex || 0));
+            updatedNodes = updatedNodes.map(node => {
+                // If the node was just added and doesn't have a high zIndex yet
+                const isNew = changes.some(c => c.type === 'add' && (c as any).item?.id === node.id);
+                if (isNew && (node.zIndex || 0) <= maxZ) {
+                    return { ...node, zIndex: maxZ + 1 };
+                }
+                return node;
+            });
+        }
 
         // Seed source-node values for newly added nodes in the same set() call.
         const addedIds = changes

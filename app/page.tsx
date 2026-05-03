@@ -26,6 +26,7 @@ import {
     Sparkles
 } from 'lucide-react';
 import { BrandCarousel } from '@/components/ui/BrandCarousel';
+import { Logo } from '@/components/ui/Logo';
 import { useSession } from '@/lib/hooks/use-session';
 import { cn } from '@/lib/utils';
 
@@ -77,14 +78,10 @@ const BrandIcon = ({ type, className }: { type: string, className?: string }) =>
 };
 
 const PrisfolLogo = ({ className, dark = false }: { className?: string, dark?: boolean }) => (
-    <div className={cn("flex items-center gap-2", className)}>
-        <div className="relative w-6 h-6">
-            <div className={cn("absolute inset-0 transform rotate-45 rounded-sm opacity-20", dark ? "bg-white" : "bg-accent-primary")} />
-            <div className={cn("absolute inset-1 border-2 transform rotate-45 rounded-sm", dark ? "border-white" : "border-accent-primary")} />
-            <div className={cn("absolute inset-[8px] rounded-full", dark ? "bg-white/40" : "bg-accent-secondary")} />
-        </div>
-        <span className={cn("text-base font-black tracking-tighter font-display uppercase", dark ? "text-white" : "text-slate-900")}>Prisfol</span>
-    </div>
+    <Logo
+        variant="wordmark"
+        className={cn("h-7 w-auto", dark ? "text-white" : "text-slate-900", className)}
+    />
 );
 
 const SectionHeader = ({ tag, title, description, dark = false, center = false }: { tag: string, title: string, description?: string, dark?: boolean, center?: boolean }) => (

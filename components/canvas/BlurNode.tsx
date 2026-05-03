@@ -1,8 +1,9 @@
 'use client';
 
 import React, { memo, useState, useMemo, useCallback, useEffect } from 'react';
-import { NodeProps, useEdges, useNodes } from 'reactflow';
+import { NodeProps } from 'reactflow';
 import { motion } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/components/canvas/BaseNode';
 import { BlurConfig } from '@/lib/nodes/plugins/blur/types';
@@ -29,13 +30,38 @@ const blurTypeOptions = [
     { id: 'stack', display_name: 'Stack' },
 ];
 
-function BlurNode({ data, id, selected }: NodeProps<BlurNodeData>) {
-    const edges = useEdges();
-    const nodes = useNodes();
-    const nodeOutputs = useAppStore(state => state.nodeOutputs);
+function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeData>) {
     const updateNodeConfig = useAppStore(state => state.updateNodeConfig);
-    const isDragging = useAppStore((state) => state.isDragging);
+    const isDragging = dragging;
     const [lightboxOpen, setLightboxOpen] = useState(false);
+
+    // One narrow Zustand selector replaces the previous useNodes() + useEdges()
+    // pair. RF's useNodes() fires on every drag tick because RF updates its
+    // internal store with the dragged node's position; that made every BlurNode
+    // re-render at 60fps during any drag. currentWorkflow, by contrast, stays
+    // stable during drag (position changes are filtered at handleNodesChangeThrottled
+    // and flow through liveNodePositions instead), so this selector bails out
+    // via useShallow on every drag tick — no re-render at all.
+    const { connectedInputId, sourceFallbackOutput } = useAppStore(useShallow((state) => {
+        const wf = state.currentWorkflow;
+        if (!wf) return { connectedInputId: null as string | null, sourceFallbackOutput: null as any };
+        const inputEdge = wf.edges.find((e) => e.target === id && e.targetHandle === 'image');
+        if (!inputEdge) return { connectedInputId: null, sourceFallbackOutput: null };
+        const sourceId = inputEdge.source;
+        const node = wf.nodes.find((n) => n.id === sourceId);
+        const fallback = node?.data
+            ? (node.data.output ?? (node.data.config as any)?.images ?? (node.data.config as any)?.last_output ?? null)
+            : null;
+        return { connectedInputId: sourceId, sourceFallbackOutput: fallback };
+    }));
+
+    // Subscribe narrowly to ONLY the upstream node's live output, not the whole
+    // nodeOutputs object. That object's reference changes whenever any node
+    // produces output, but this selector returns a primitive/value that React
+    // can compare directly — no re-render unless this specific upstream changes.
+    const liveSourceOutput = useAppStore((state) =>
+        connectedInputId ? state.nodeOutputs[connectedInputId] : undefined
+    );
 
     // Drive client-side blur compute. The hook watches this node's config
     // and its upstream value; when either changes it runs blurClientExecutor
@@ -57,29 +83,12 @@ function BlurNode({ data, id, selected }: NodeProps<BlurNodeData>) {
         setLocalRadius(config.radius);
     }, [config.radius]);
 
-    // Find connected input
-    const connectedInputId = useMemo(() => {
-        const inputEdge = edges.find(e => e.target === id && e.targetHandle === 'image');
-        return inputEdge?.source || null;
-    }, [edges, id]);
-
-    // Get the actual source node from the nodes list
-    const sourceNode = useMemo(() => {
-        if (!connectedInputId) return null;
-        return nodes.find(n => n.id === connectedInputId);
-    }, [connectedInputId, nodes]);
-
-    // Extract output data
+    // Extract output data: prefer live nodeOutputs entry, fall back to the
+    // source node's saved data fields.
     const sourceOutput = useMemo(() => {
         if (!connectedInputId) return null;
-        if (nodeOutputs[connectedInputId]) return nodeOutputs[connectedInputId];
-        if (sourceNode?.data) {
-            if (sourceNode.data.output) return sourceNode.data.output;
-            if (sourceNode.data.config?.images) return sourceNode.data.config.images;
-            if (sourceNode.data.config?.last_output) return sourceNode.data.config.last_output;
-        }
-        return null;
-    }, [connectedInputId, nodeOutputs, sourceNode]);
+        return liveSourceOutput ?? sourceFallbackOutput ?? null;
+    }, [connectedInputId, liveSourceOutput, sourceFallbackOutput]);
 
     // Extract image URL
     const imageUrl = useMemo(() => {
@@ -124,6 +133,7 @@ function BlurNode({ data, id, selected }: NodeProps<BlurNodeData>) {
             type="blur"
             label={data.label}
             selected={selected}
+            dragging={dragging}
             isNew={(data as any).isNew}
             hideStatus={true}
             width={nodeWidth}

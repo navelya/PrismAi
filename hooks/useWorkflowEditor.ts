@@ -33,10 +33,23 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     const edges = useMemo(() => currentWorkflow?.edges || [], [currentWorkflow]);
     const workflowName = currentWorkflow?.name || 'Untitled Workflow';
 
-    // Handle Drag Start (Snapshot for Undo)
-    const onNodeDragStart = useCallback(() => {
+    // -- Helper Actions --
+    const bringNodeToFront = useCallback((nodeId: string) => {
+        useAppStore.getState().bringNodeToFront(nodeId);
+    }, []);
+
+    const setWorkflowName = useCallback((name: string) => {
+        const store = useAppStore.getState();
+        if (store.currentWorkflow) {
+            store.setCurrentWorkflow({ ...store.currentWorkflow, name });
+        }
+    }, []);
+
+    // Handle Drag Start (Snapshot for Undo + Bring to Front)
+    const onNodeDragStart = useCallback((_event: any, node: any) => {
         takeSnapshot();
-    }, [takeSnapshot]);
+        bringNodeToFront(node.id);
+    }, [takeSnapshot, bringNodeToFront]);
 
     // Add a new node
     const addNode = useCallback((type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {
@@ -92,17 +105,6 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
         setSelectedNodeId(null);
     }, [takeSnapshot, setSelectedNodeId]);
 
-    const bringNodeToFront = useCallback((nodeId: string) => {
-        useAppStore.getState().bringNodeToFront(nodeId);
-    }, []);
-
-    const setWorkflowName = useCallback((name: string) => {
-        const store = useAppStore.getState();
-        if (store.currentWorkflow) {
-            store.setCurrentWorkflow({ ...store.currentWorkflow, name });
-        }
-    }, []);
-
     return {
         nodes,
         edges,
@@ -126,6 +128,6 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
         redo,
         canUndo,
         canRedo,
-        bringNodeToFront
+        bringNodeToFront,
     };
 }

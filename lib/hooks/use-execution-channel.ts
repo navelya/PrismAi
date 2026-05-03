@@ -69,11 +69,17 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
 async function hydrateFromDb(supabase: ReturnType<typeof createClient>, sessionId: string) {
     console.log(`[ExecutionChannel] Hydrating current state from DB for session ${sessionId}`);
     
+    // Bounded fetch: a long-lived session accumulates hundreds of rows across
+    // many executions. We only need the latest row per node, and the
+    // de-duplication below already keeps just that, so a generous cap is fine.
+    // 200 rows handles ~50 nodes × 4 recent runs without truncating live data,
+    // while preventing a multi-hundred-millisecond hydration on busy sessions.
     const { data: rows, error } = await supabase
         .from('node_results')
         .select('node_id, status, result_type, result_data, error, session_id, updated_at')
         .eq('session_id', sessionId)
-        .order('updated_at', { ascending: false });
+        .order('updated_at', { ascending: false })
+        .limit(200);
 
     if (error) {
         console.warn('[ExecutionChannel] Hydration query failed:', error.message);

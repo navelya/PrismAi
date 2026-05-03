@@ -17,7 +17,7 @@ interface CustomNodeData {
     config: any;
 }
 
-function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
+function CustomNode({ data, type, id, selected, dragging = false }: NodeProps<CustomNodeData>) {
     // Subscribe to specific output for this node, or fallback to saved metadata (for page refreshes)
     const liveOutput = useAppStore((state) => state.nodeOutputs[id]);
     const output = toLegacyRenderableOutput(liveOutput) ||
@@ -30,7 +30,7 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
 
     const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
-    const isDragging = useAppStore((state) => state.isDragging);
+    const isDragging = dragging;
 
     // Lightbox state
     const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -67,6 +67,7 @@ function CustomNode({ data, type, id, selected }: NodeProps<CustomNodeData>) {
             type={type}
             label={data.label}
             selected={selected}
+            dragging={dragging}
             isNew={(data as any).isNew}
             badgeCount={Array.isArray(output) ? output.length : undefined}
             className="transition-[border-color,box-shadow,background-color] duration-300 ease-out"

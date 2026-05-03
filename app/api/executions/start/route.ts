@@ -22,30 +22,7 @@ import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { dispatchNode } from '@/lib/workflow/dispatch-v2';
 import { isEphemeralNode } from '@/lib/workflow/handlers';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
-
-async function getAiArrayInputKeys(
-  supabase: ReturnType<typeof createServiceClient>,
-  node: NodeConfig
-): Promise<Set<string>> {
-  if (node.type !== 'ai_generator') return new Set<string>();
-
-  const modelId = node.data?.config?.model_id ?? node.data?.model_id;
-  if (!modelId) return new Set<string>();
-
-  const { data: model } = await supabase
-    .from('ai_models')
-    .select('inputs_schema')
-    .eq('id', modelId)
-    .single();
-
-  const handles = model?.inputs_schema?.handles || [];
-  return new Set(
-    handles
-      .filter((h: any) => h?.is_array)
-      .map((h: any) => h?.api_mapping_key)
-      .filter(Boolean)
-  );
-}
+import { getAiArrayInputKeys } from '@/lib/workflow/orchestrator';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');

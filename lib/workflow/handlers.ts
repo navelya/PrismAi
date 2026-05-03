@@ -334,56 +334,57 @@ async function handleCompositor(
     }
   });
 
-  const overlays = [];
+  // Process layers in parallel. Each layer's fetch + Sharp transform is
+  // independent (they all composite onto the same base canvas at the end), so
+  // running them sequentially was leaving an entire wait-chain of network +
+  // CPU latency on the table. Promise.all preserves array order, so the final
+  // overlay list is still bottom-to-top in source-layer order.
+  const layerResults = await Promise.all(
+    layers.map(async (layer: any) => {
+      if (!layer.visible) return null;
 
-  for (const layer of layers) {
-    if (!layer.visible) continue;
-
-    // Use the sourceHandleId (e.g. 'layer_0') to fetch from inputs
-    const imageUrl = inputs[layer.sourceHandleId];
-    if (!imageUrl) {
-      console.log(`[Handler/Compositor] Skipping layer ${layer.name} - No input mapped to ${layer.sourceHandleId}`);
-      continue;
-    }
-
-    try {
-      console.log(`[Handler/Compositor] Processing layer ${layer.name} from ${imageUrl}`);
-      
-      const response = await fetch(imageUrl);
-      if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-      const arrayBuffer = await response.arrayBuffer();
-      const inputBuffer = Buffer.from(arrayBuffer);
-
-      // Parse transform
-      const tf = layer.transform || {};
-      const targetW = Math.max(1, Math.round(tf.width || width));
-      const targetH = Math.max(1, Math.round(tf.height || height));
-      const rotation = tf.rotation || 0;
-      
-      let imgSharp = sharp(inputBuffer)
-        .resize(targetW, targetH, { fit: 'fill' });
-
-      if (tf.flipX) imgSharp = imgSharp.flop();
-      if (tf.flipY) imgSharp = imgSharp.flip();
-      
-      if (rotation !== 0) {
-        imgSharp = imgSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+      const imageUrl = inputs[layer.sourceHandleId];
+      if (!imageUrl) {
+        console.log(`[Handler/Compositor] Skipping layer ${layer.name} - No input mapped to ${layer.sourceHandleId}`);
+        return null;
       }
 
-      // Convert the layer to a fresh buffer
-      const processedBuffer = await imgSharp.toBuffer();
+      try {
+        console.log(`[Handler/Compositor] Processing layer ${layer.name} from ${imageUrl}`);
 
-      overlays.push({
-        input: processedBuffer,
-        left: Math.round(tf.x || 0),
-        top: Math.round(tf.y || 0)
-      });
-      
-    } catch (err) {
-      console.error(`[Handler/Compositor] Failed to process layer ${layer.name}:`, err);
-      // Skip failed layers but attempt to complete the rest
-    }
-  }
+        const response = await fetch(imageUrl);
+        if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const inputBuffer = Buffer.from(arrayBuffer);
+
+        const tf = layer.transform || {};
+        const targetW = Math.max(1, Math.round(tf.width || width));
+        const targetH = Math.max(1, Math.round(tf.height || height));
+        const rotation = tf.rotation || 0;
+
+        let imgSharp = sharp(inputBuffer).resize(targetW, targetH, { fit: 'fill' });
+        if (tf.flipX) imgSharp = imgSharp.flop();
+        if (tf.flipY) imgSharp = imgSharp.flip();
+        if (rotation !== 0) {
+          imgSharp = imgSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+        }
+
+        const processedBuffer = await imgSharp.toBuffer();
+
+        return {
+          input: processedBuffer,
+          left: Math.round(tf.x || 0),
+          top: Math.round(tf.y || 0),
+        };
+      } catch (err) {
+        console.error(`[Handler/Compositor] Failed to process layer ${layer.name}:`, err);
+        // Per-layer failure: drop this overlay, continue with the rest.
+        return null;
+      }
+    })
+  );
+
+  const overlays = layerResults.filter((o): o is { input: Buffer; left: number; top: number } => o !== null);
 
   // Composite all overlays onto the base canvas
   if (overlays.length > 0) {

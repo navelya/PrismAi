@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, ArrowRight, Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
+import { Logo } from '@/components/ui/Logo';
 
 export default function LoginPage() {
     const [isLogin, setIsLogin] = useState(true);
@@ -124,7 +125,7 @@ export default function LoginPage() {
                 {/* Logo */}
                 <div className="flex justify-center mb-8">
                     <Link href="/" className="flex items-center gap-3 group">
-                        <h1 className="text-2xl font-bold text-content-primary">Prisfol</h1>
+                        <Logo variant="wordmark" className="h-9 w-auto text-content-primary" />
                     </Link>
                 </div>
 

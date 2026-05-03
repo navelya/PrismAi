@@ -33,7 +33,6 @@ export default function SharedWorkflowEditor({
     showResultsPanel = true,
     readOnly = false,
 }: SharedWorkflowEditorProps) {
-    const isDragging = useAppStore((state) => state.isDragging);
     const activeExecutionId = useAppStore((state) => state.activeExecutionId);
     
     // Global Catalog State
@@ -93,6 +92,8 @@ export default function SharedWorkflowEditor({
     const [selectionMode, setSelectionMode] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
 
+    const isDragging = useAppStore((state) => state.isDragging);
+
     const [showCreditModal, setShowCreditModal] = useState(false);
     const [pendingExecutionTarget, setPendingExecutionTarget] = useState<{ id: string | null, mode: 'all' | 'solo' | 'chain' | 'ab_test' } | null>(null);
     const [pendingCost, setPendingCost] = useState(0);
@@ -108,15 +109,19 @@ export default function SharedWorkflowEditor({
         };
     }, []);
 
-    // Sync state for auto-save
+    // Sync state for auto-save. Fires only on real workflow changes.
+    // 🚀 PERFORMANCE FIX: Skip this entirely while dragging.
+    // This prevents the parent client (and its auto-save/serialization logic) 
+    // from blocking the UI thread during the critical start of a drag.
     useEffect(() => {
+        if (isDragging) return;
         if (nodes.length > 0 || edges.length > 0) {
             const workflow = getCurrentWorkflow();
             if (onWorkflowChange) {
                 onWorkflowChange(workflow);
             }
         }
-    }, [nodes, edges, workflowName, isDragging, onWorkflowChange, getCurrentWorkflow]);
+    }, [nodes, edges, workflowName, onWorkflowChange, getCurrentWorkflow, isDragging]);
 
     // 🔄 Watch for execution completion via websocket updates
     const nodeStatuses = useAppStore((state) => state.nodeStatuses);
@@ -160,7 +165,11 @@ export default function SharedWorkflowEditor({
     // Derive visibility from selected node type
     const isAiNode = selectedNodeData?.type === 'ai_generator' || !!selectedNodeData?.data?.config?.node_type_id;
     const hasPropertyPanel = !!(selectedNodeData && (clientRegistry[selectedNodeData.type]?.propertyPanel || isAiNode));
-    const isPropertyPanelVisible = hasPropertyPanel && !readOnly;
+
+    // 🚀 PERFORMANCE FIX: Defer/Hide the property panel while dragging.
+    // This prevents the complex parameter UI from mounting/re-rendering during
+    // the critical first frame of a drag, which was the primary source of lag.
+    const isPropertyPanelVisible = hasPropertyPanel && !readOnly && !isDragging;
 
     const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {
         if (readOnly) return;
@@ -456,9 +465,11 @@ export default function SharedWorkflowEditor({
                                 redo={redo}
                                 canUndo={canUndo}
                                 canRedo={canRedo}
-                                onNodeDragStart={(e, node, nodes) => {
-                                    bringNodeToFront(node.id);
-                                    if (onNodeDragStart) onNodeDragStart(e, node, nodes);
+                                onNodeDragStart={onNodeDragStart}
+                                onNodeDragStop={(e, node, nodes) => {
+                                    // Local state in EditorCanvas handles the live motion.
+                                    // Nothing else needed here on stop besides what's 
+                                    // already handled by EditorCanvas calling updatePositions.
                                 }}
                                 onDuplicate={duplicateNodes}
                                 onDelete={deleteNodes}
@@ -491,14 +502,23 @@ export default function SharedWorkflowEditor({
                 </div>
 
                 <AnimatePresence mode="wait">
-                    {isPropertyPanelVisible && selectedNodeData && (
+                    {selectedNodeData && hasPropertyPanel && (
                         <motion.div
                             key={selectedNodeData.id}
                             initial={{ opacity: 0, x: 20, scale: 0.95 }}
-                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            animate={{ 
+                                opacity: isDragging ? 0 : 1, 
+                                x: 0, 
+                                scale: 1,
+                                transition: { duration: 0.15 } 
+                            }}
                             exit={{ opacity: 0, x: 20, scale: 0.95 }}
                             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                             className="absolute top-[72px] right-3 bottom-3 z-40 pointer-events-none flex flex-col items-end"
+                            style={{ 
+                                visibility: (isPropertyPanelVisible || isDragging) ? 'visible' : 'hidden',
+                                pointerEvents: isDragging ? 'none' : 'auto'
+                            }}
                         >
                             <div className="pointer-events-auto max-h-full flex flex-col">
                                 <PropertyPanel

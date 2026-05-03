@@ -3,7 +3,7 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, Sparkles, X, Trash2, Loader2, LogOut, User as UserIcon, Plus } from 'lucide-react';
+import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
@@ -14,6 +14,7 @@ import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { useLongPress } from '@/lib/hooks/use-long-press';
 import { MobileActionSheet, ActionItem } from '@/components/ui/MobileActionSheet';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import { Logo } from '@/components/ui/Logo';
 
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
@@ -184,8 +185,8 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     {/* Drawer Header */}
                     <div className="flex items-center justify-between p-4 border-b border-stroke-subtle">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center shadow-lg">
-                                <Sparkles className="w-5 h-5 text-accent-primary" />
+                            <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center shadow-lg p-1.5">
+                                <Logo variant="mark" className="h-full w-auto" />
                             </div>
                             <div>
                                 <h1 className="font-bold text-content-primary">Prisfol</h1>
@@ -332,7 +333,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                 onClick={onClose}
                                 className="flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-tertiary hover:bg-interactive-hover transition-colors"
                             >
-                                <Sparkles className="w-5 h-5 text-accent-primary" />
+                                <Logo variant="mark" className="w-5 h-5" />
                                 <span className="font-medium text-content-primary">Back to Home</span>
                             </Link>
                         )}

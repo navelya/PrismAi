@@ -8,7 +8,11 @@ import { GraphJson, NodeConfig } from './types-v2';
 import { dispatchNode } from './dispatch-v2';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from './result-format';
 
-async function getAiArrayInputKeys(
+// Module-scoped cache for ai_models.inputs_schema array-input keys.
+// Cleared on process cold start; model schemas don't mutate at runtime.
+const aiArrayInputKeysCache = new Map<string, Set<string>>();
+
+export async function getAiArrayInputKeys(
   supabase: ReturnType<typeof createServiceClient>,
   node: NodeConfig | undefined
 ): Promise<Set<string>> {
@@ -17,6 +21,9 @@ async function getAiArrayInputKeys(
   const modelId = node.data?.config?.model_id ?? node.data?.model_id;
   if (!modelId) return new Set<string>();
 
+  const cached = aiArrayInputKeysCache.get(modelId);
+  if (cached) return cached;
+
   const { data: model } = await supabase
     .from('ai_models')
     .select('inputs_schema')
@@ -24,12 +31,14 @@ async function getAiArrayInputKeys(
     .single();
 
   const handles = model?.inputs_schema?.handles || [];
-  return new Set(
+  const result = new Set<string>(
     handles
       .filter((h: any) => h?.is_array)
       .map((h: any) => h?.api_mapping_key)
       .filter(Boolean)
   );
+  aiArrayInputKeysCache.set(modelId, result);
+  return result;
 }
 
 /**
@@ -72,47 +81,56 @@ export async function checkAndDispatchChildren(
     
     // 3. For each successor, check if all ITS parents are completed
     const successorIds = Array.from(new Set(outgoingEdges.map(edge => edge.target)));
-    
+
     console.log(`[Orchestrator] Found ${successorIds.length} potential successors: ${successorIds.join(', ')}`);
-    
+
+    // Collect every parent id required across all successors so we can fetch
+    // their results in ONE query (status + result_data) instead of N+1 round-trips.
+    const allParentIds = new Set<string>();
+    const parentIdsByChild = new Map<string, string[]>();
+    for (const childId of successorIds) {
+      const parentIds = (graph.edges || [])
+        .filter(edge => edge.target === childId)
+        .map(edge => edge.source);
+      parentIdsByChild.set(childId, parentIds);
+      parentIds.forEach(pid => allParentIds.add(pid));
+    }
+
+    // Single batched query — readiness check AND input building share this result map.
+    // Scoped by execution_id (NOT session_id) so prior-run results never leak in.
+    const { data: parentResultsRaw, error: resultsError } = await supabase
+      .from('node_results')
+      .select('node_id, status, result_type, result_data')
+      .eq('execution_id', executionId)
+      .in('node_id', Array.from(allParentIds));
+
+    if (resultsError) {
+      console.error(`[Orchestrator] Failed to batch-fetch parent results:`, resultsError);
+      return;
+    }
+
+    const parentResultsByNode = new Map<string, { status: string; result_type: any; result_data: any }>();
+    (parentResultsRaw || []).forEach(r => {
+      parentResultsByNode.set(r.node_id, r);
+    });
+
     for (const childId of successorIds) {
       const childNode = graph.nodes.find(n => n.id === childId);
       if (!childNode) continue;
-      
-      // Readiness Check: Are all parents of this child completed?
-      const parentEdges = (graph.edges || []).filter(edge => edge.target === childId);
-      const parentIds = parentEdges.map(edge => edge.source);
-      
-      // Check for completion within THIS execution only.
-      // Using session_id would pick up results from prior runs, causing nodes
-      // to be dispatched before their current parents actually finish.
-      const { data: parentResults, error: resultsError } = await supabase
-        .from('node_results')
-        .select('node_id, status')
-        .eq('execution_id', executionId)
-        .in('node_id', parentIds)
-        .eq('status', 'completed');
-        
-      if (resultsError) {
-        console.error(`[Orchestrator] Failed to check parent results for child ${childId}:`, resultsError);
-        continue;
-      }
-      
-      const allParentsCompleted = parentIds.every(pid => 
-        parentResults?.some(r => r.node_id === pid)
+
+      const parentIds = parentIdsByChild.get(childId) || [];
+      const allParentsCompleted = parentIds.every(pid =>
+        parentResultsByNode.get(pid)?.status === 'completed'
       );
-      
+
       if (allParentsCompleted) {
         console.log(`[Orchestrator] ✅ All parents completed for child ${childId}. DISPATCHING.`);
-        
-        // Build inputs for the child from its completed parents in this execution
-        const inputs = await buildInputsFromParents(executionId, childId, graph);
-        
-        // Dispatch child node
+        const inputs = await buildInputsFromParents(childId, graph, parentResultsByNode);
         await dispatchNode(executionId, childId, childNode, inputs, baseUrl, sessionId);
       } else {
-        const completedIds = parentResults?.map(r => r.node_id) || [];
-        const incomplete = parentIds.filter(pid => !completedIds.includes(pid));
+        const incomplete = parentIds.filter(pid =>
+          parentResultsByNode.get(pid)?.status !== 'completed'
+        );
         console.log(`[Orchestrator] ⏳ Child ${childId} is still waiting for parents: ${incomplete.join(', ')}`);
       }
     }
@@ -124,36 +142,28 @@ export async function checkAndDispatchChildren(
 
 /**
  * Builds an input object for a node by gathering typed results from its parents.
+ * Parent results are passed in (already fetched once for the whole successor batch),
+ * so this function does NOT touch the DB for results — only for the cached
+ * ai_models lookup via getAiArrayInputKeys.
  */
 async function buildInputsFromParents(
-  executionId: string,
   nodeId: string,
-  graph: GraphJson
+  graph: GraphJson,
+  parentResultsByNode: Map<string, { status: string; result_type: any; result_data: any }>
 ): Promise<Record<string, any>> {
   const supabase = createServiceClient();
   const inputs: Record<string, any> = {};
 
   const incomingEdges = (graph.edges || []).filter(e => e.target === nodeId);
-  const parentIds = incomingEdges.map(e => e.source);
   const targetNode = graph.nodes.find((n) => n.id === nodeId);
   const arrayInputKeys = await getAiArrayInputKeys(supabase, targetNode);
 
-  // Fetch ONLY from the current execution to avoid using stale URLs from prior runs.
-  // Solo/chain modes pre-seed historical inputs into the execution record at start time.
-  const { data: results } = await supabase
-    .from('node_results')
-    .select('node_id, result_type, result_data')
-    .eq('execution_id', executionId)
-    .in('node_id', parentIds)
-    .eq('status', 'completed');
-
-  if (!results) return inputs;
-
-  
   for (const edge of incomingEdges) {
-    const parentResult = results.find(r => r.node_id === edge.source);
-    const resultType = normalizeNodeResultType(parentResult?.result_type);
-    const resultData = coerceResultDataArray(parentResult?.result_data || []);
+    const parentResult = parentResultsByNode.get(edge.source);
+    if (!parentResult || parentResult.status !== 'completed') continue;
+
+    const resultType = normalizeNodeResultType(parentResult.result_type);
+    const resultData = coerceResultDataArray(parentResult.result_data || []);
     const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
     const typedValue = arrayInputKeys.has(inputKey)
       ? resultData
@@ -161,7 +171,7 @@ async function buildInputsFromParents(
 
     if (typedValue !== undefined && typedValue !== null) {
       const sourceNode = graph.nodes.find(n => n.id === edge.source);
-      
+
       // Special mapping for prompt nodes
       if (sourceNode?.type === 'prompt') {
         inputs['prompt'] = typedValue;
@@ -174,7 +184,7 @@ async function buildInputsFromParents(
       }
     }
   }
-  
+
   return inputs;
 }
 
