@@ -11,6 +11,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { ImageObject } from '@/lib/nodes/types';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
+import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 
 interface BlurNodeData {
     label: string;
@@ -35,6 +36,12 @@ function BlurNode({ data, id, selected }: NodeProps<BlurNodeData>) {
     const updateNodeConfig = useAppStore(state => state.updateNodeConfig);
     const isDragging = useAppStore((state) => state.isDragging);
     const [lightboxOpen, setLightboxOpen] = useState(false);
+
+    // Drive client-side blur compute. The hook watches this node's config
+    // and its upstream value; when either changes it runs blurClientExecutor
+    // (debounced) and writes the result into nodeOutputs[id]. The Compositor
+    // and any other downstream consumer then re-render automatically.
+    useNodeAutoCompute(id);
 
     // Get current config with defaults
     const config = useMemo(() => ({

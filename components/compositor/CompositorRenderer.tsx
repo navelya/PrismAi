@@ -208,11 +208,21 @@ const LayerText = memo(function LayerText({
             }}
             onTransformStart={() => onInteractStart?.()}
             onTransform={(e) => {
-                // Reset scale during transform; bake into width to prevent text stretching.
+                // Bake scale into width/height each frame and reset scale to 1.
+                // Konva applies scaleX/scaleY visually, which would stretch the
+                // text glyphs. Translating into width/height instead re-flows
+                // the text inside a resized box without distortion.
                 const node = e.target;
                 const scaleX = node.scaleX();
+                const scaleY = node.scaleY();
                 const newWidth = Math.max(20, node.width() * Math.abs(scaleX));
-                node.setAttrs({ width: newWidth, scaleX: t.flipX ? -1 : 1 });
+                const newHeight = Math.max(20, node.height() * Math.abs(scaleY));
+                node.setAttrs({
+                    width: newWidth,
+                    height: newHeight,
+                    scaleX: t.flipX ? -1 : 1,
+                    scaleY: t.flipY ? -1 : 1,
+                });
             }}
             onTransformEnd={() => {
                 const node = shapeRef.current;

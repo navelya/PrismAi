@@ -220,6 +220,9 @@ export default function SharedWorkflowEditor({
             store.setNodeStatus(targetNodeId, 'running');
         } else {
             store.clearNodeOutputs();
+            // Re-seed source-node outputs (Prompt text, MediaInput URLs) so
+            // the compositor preview keeps working while the run is queued.
+            store.reseedSourceNodeOutputs();
             nodes.forEach(n => {
                 const hasIncomingEdges = edges.some(e => e.target === n.id);
                 store.setNodeStatus(n.id, hasIncomingEdges ? 'pending' : 'running');

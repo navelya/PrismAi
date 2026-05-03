@@ -1,4 +1,6 @@
 import { ImageObject } from '../../types';
+import { ClientExecutor } from '../../core/types';
+import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { BlurConfig } from './types';
 
 /**
@@ -55,4 +57,31 @@ export const clientBlurExecutor = async (
         
         img.src = safeUrl;
     });
+};
+
+/**
+ * Generic-shape adapter for the auto-compute pipeline.
+ *
+ * Pulls the first image URL from whatever the upstream produced (envelope,
+ * legacy ImageObject, raw string), runs the blur, and wraps the result back
+ * into an envelope so downstream consumers can read it via the same
+ * `nodeOutputs[id]` interface they use for source/server-executed nodes.
+ */
+export const blurClientExecutor: ClientExecutor<BlurConfig> = async (config, inputs) => {
+    const upstream = inputs.image;
+    if (upstream === undefined || upstream === null) return null;
+
+    const normalized = toLegacyRenderableOutput(upstream);
+    const first = Array.isArray(normalized) ? normalized[0] : normalized;
+    let imageUrl: string | null = null;
+    if (typeof first === 'string') imageUrl = first;
+    else if (first && typeof first === 'object' && typeof (first as any).url === 'string') {
+        imageUrl = (first as any).url;
+    }
+    if (!imageUrl) return null;
+
+    const dataUrl = await clientBlurExecutor(config, imageUrl);
+    if (!dataUrl) return null;
+
+    return { type: 'image', data: [{ url: dataUrl }] as ImageObject[] };
 };

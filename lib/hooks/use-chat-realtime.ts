@@ -193,6 +193,10 @@ export function useChatRealtime({
                     store.resetNodeStatuses();
                     store.clearExecutionResults();
                     store.clearNodeOutputs();
+                    // Re-seed source-node outputs so any compositor in the new
+                    // workflow can immediately preview its inputs without
+                    // waiting on a server execution.
+                    store.reseedSourceNodeOutputs();
 
                     if (executionError && !processedResult) {
                         workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'error'));

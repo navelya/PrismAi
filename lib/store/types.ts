@@ -55,6 +55,13 @@ export interface WorkflowSlice {
     updateNodeConfig: (nodeId: string, config: any) => void;
     updateNodeLabel: (nodeId: string, label: string) => void;
     bringNodeToFront: (nodeId: string) => void;
+    /**
+     * Re-derive and write source-node values (Prompt text, MediaInput URLs)
+     * into nodeOutputs from the current workflow. Call after any operation
+     * that wipes nodeOutputs (clearNodeOutputs, execution-start reset) so the
+     * compositor preview / other consumers don't lose their upstream data.
+     */
+    reseedSourceNodeOutputs: () => void;
     isWorkflowDirty: boolean;
     setWorkflowDirty: (isDirty: boolean) => void;
 }

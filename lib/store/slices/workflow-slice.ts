@@ -498,6 +498,23 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         set({ currentWorkflow: updatedWorkflow, isWorkflowDirty: true });
     },
 
+    reseedSourceNodeOutputs: () => {
+        const { currentWorkflow, nodeOutputs } = get();
+        if (!currentWorkflow) return;
+        const merged: Record<string, any> = { ...nodeOutputs };
+        let dirty = false;
+        currentWorkflow.nodes.forEach((node) => {
+            const env = deriveEnvelopeFromConfig(node.type, node.data?.config);
+            if (env) {
+                merged[node.id] = env;
+                dirty = true;
+            }
+        });
+        if (dirty) {
+            set({ nodeOutputs: merged });
+        }
+    },
+
     bringNodeToFront: (nodeId) => {
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;

@@ -66,11 +66,20 @@ export function useSession() {
         setIsLoading(true);
 
         // ⚠️ CRITICAL: Immediately clear current workflow state BEFORE async operations
-        // This prevents stale data from leaking between session switches
+        // This prevents stale data from leaking between session switches.
+        //
+        // We also clear nodeOutputs and nodeStatuses HERE rather than later in
+        // this function: the upcoming setCurrentWorkflow(workflow, false) call
+        // seeds source-node outputs (Prompt text, MediaInput URLs) into
+        // nodeOutputs as part of hydration. Clearing AFTER that seed would
+        // wipe it — which is what was causing freshly-reloaded compositors to
+        // show no preview until the user nudged something.
         const store = useAppStore.getState();
         store.setIsLoadingSession(true); // Guard auto-save
         store.setActiveSessionId(sessionId);
         store.setCurrentWorkflow(null, false);  // Clear workflow first without triggering dirty!
+        store.resetNodeStatuses();
+        store.clearNodeOutputs();
 
 
         try {
@@ -175,11 +184,9 @@ export function useSession() {
             formattedMessages.forEach((msg: any) => store.addMessage(msg));
 
             // ✅ PHASE 3 FIX: Hydrate Node Statuses and Outputs from node_executions table
+            // (clears for these maps already happened at the top of loadSession,
+            //  before setCurrentWorkflow seeded source-node outputs.)
             if (session.canvas_state?.nodes?.length > 0) {
-                // IMPORTANT: Clear existing state first to avoid mixing with previous session
-                store.resetNodeStatuses();
-                store.clearNodeOutputs();
-
                 // Fetch execution state from node_executions table
                 const { executions, latestExecutionId } = await getSessionExecutions(sessionId);
                 
