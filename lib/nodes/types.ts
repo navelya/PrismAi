@@ -125,6 +125,18 @@ export interface LayerTransform {
     flipX: boolean;         // Horizontal flip
     flipY: boolean;         // Vertical flip
     isAutoCentered?: boolean; // Flag to prevent infinite re-centering loops
+    blendMode?: string;     // Konva GlobalCompositeOperation (e.g. 'multiply', 'screen')
+    
+    // Typography (Optional - for text layers)
+    fontFamily?: string;
+    fontWeight?: string;
+    fontStyle?: string;
+    fontSize?: number;
+    lineHeight?: number;
+    letterSpacing?: number;
+    textAlign?: 'left' | 'center' | 'right' | 'justify';
+    fillColor?: string;
+
     crop: {                 // Source Crop Box
         x: number;
         y: number;

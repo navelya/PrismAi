@@ -155,7 +155,14 @@ export function isOutputEnvelope(value: any): value is { type: NodeResultType; d
 }
 
 export function toLegacyRenderableOutput(value: any): any {
-  if (!isOutputEnvelope(value)) return value;
+  if (!isOutputEnvelope(value)) {
+    // 🛡️ Handle raw objects from nodes like Prompt (which return { text: '...' })
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (typeof (value as any).text === 'string') return (value as any).text;
+      if (typeof (value as any).url === 'string') return value; // Keep as image object
+    }
+    return value;
+  }
 
   const type = normalizeNodeResultType(value.type);
   const data = coerceResultDataArray(value.data);

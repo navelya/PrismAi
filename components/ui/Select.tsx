@@ -21,6 +21,7 @@ interface SelectProps {
     disabled?: boolean;
     placeholder?: string;
     required?: boolean;
+    variant?: 'default' | 'minimal';
 }
 
 export function Select({
@@ -34,11 +35,17 @@ export function Select({
     disabled,
     placeholder = 'Select option...',
     required = false,
+    variant = 'default',
 }: SelectProps) {
+    const isMinimal = variant === 'minimal';
+
     return (
-        <div className="space-y-2 flex-1">
+        <div className={cn("space-y-2 flex-1", isMinimal && "space-y-1")}>
             {label && (
-                <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 flex items-center gap-1.5 opacity-80 h-5 leading-none">
+                <label className={cn(
+                    "font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 flex items-center gap-1.5 opacity-80 h-5 leading-none",
+                    isMinimal ? "text-[8px]" : "text-[10px]"
+                )}>
                     {label}
                     {required && <span className="text-accent-primary leading-none">*</span>}
                 </label>
@@ -52,24 +59,25 @@ export function Select({
                 <RadixSelect.Trigger
                     aria-label={label}
                     className={cn(
-                        'w-full h-11 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm flex items-center justify-between',
-                        'transition-all hover:bg-white/10 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10',
-                        'data-[state=open]:border-accent-primary/50 data-[state=open]:ring-4 data-[state=open]:ring-accent-primary/10',
-                        'disabled:opacity-40 disabled:cursor-not-allowed',
+                        'w-full bg-white/5 border border-white/10 rounded-xl text-content-primary flex items-center justify-between transition-all hover:bg-white/10 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 data-[state=open]:border-accent-primary/50 data-[state=open]:ring-4 data-[state=open]:ring-accent-primary/10 disabled:opacity-40 disabled:cursor-not-allowed',
+                        isMinimal ? 'h-8 px-2 text-xs rounded-lg' : 'h-11 px-4 py-2 text-sm',
                         error && 'border-red-500/50 focus:border-red-500/50 focus:ring-red-500/10',
                         className
                     )}
                 >
                     <RadixSelect.Value placeholder={placeholder} />
                     <RadixSelect.Icon asChild>
-                        <ChevronDown className="w-4 h-4 text-content-tertiary transition-transform duration-300 data-[state=open]:rotate-180 data-[state=open]:text-accent-primary shrink-0" />
+                        <ChevronDown className={cn(
+                            "text-content-tertiary transition-transform duration-300 data-[state=open]:rotate-180 data-[state=open]:text-accent-primary shrink-0",
+                            isMinimal ? "w-3 h-3" : "w-4 h-4"
+                        )} />
                     </RadixSelect.Icon>
                 </RadixSelect.Trigger>
 
                 <RadixSelect.Portal>
                     <RadixSelect.Content
                         className={cn(
-                            'z-[9999] w-[var(--radix-select-trigger-width)] min-w-[8rem] overflow-hidden',
+                            'z-[100001] w-[var(--radix-select-trigger-width)] min-w-[8rem] overflow-hidden',
                             'bg-surface-primary/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl ring-1 ring-white/5',
                             'data-[state=open]:animate-in data-[state=closed]:animate-out',
                             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',

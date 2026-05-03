@@ -85,7 +85,7 @@ export function CanvasToolbar({
 }
 
 // Internal components
-function ToolbarButton({ 
+export function ToolbarButton({ 
     icon: Icon, 
     onClick, 
     disabled, 
@@ -127,7 +127,7 @@ function ToolbarButton({
     return button;
 }
 
-function ToolbarDivider() {
+export function ToolbarDivider() {
     return <div className="w-px h-5 bg-stroke-subtle mx-1" />;
 }
 

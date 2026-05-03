@@ -6,50 +6,35 @@ import { saveWorkflow } from '@/lib/db/workflows';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { saveLocalBackup, removeLocalBackup } from '@/lib/db/local-backup';
 import { throttle } from '@/lib/utils/performance';
-import { setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
+import { setServerWorkflowHash, markLocalSave } from '@/lib/hooks/use-chat-realtime';
 
 /**
  * useAutoSave Hook
- * 
- * Centralizes the persistence logic for the workflow editor.
- * 
- * Dual-Storage Strategy:
- * - **Local (IndexedDB via localforage):** High-frequency snapshots (1s throttle) for crash recovery
- *   - Non-blocking, async writes to browser's IndexedDB
- *   - Survives page refreshes and browser crashes
- *   - Automatically cleaned up after successful remote sync
- * 
- * - **Remote (Supabase PostgreSQL):** Durable storage with debounce (2s) + maxWait (30s throttle)
- *   - Canonical source of truth for all workflows
- *   - Debounced to reduce unnecessary network calls
- *   - Force-saved every 30 seconds during continuous editing
- * 
- * - **localStorage (Zustand persist):** UI preferences ONLY (zoom, viewport, theme, etc.)
- *   - NOT used for workflow data - see app-store.ts partialize config
- *   - Persists across sessions for user convenience
- * 
- * Features:
- * 1. Local backup to IndexedDB every 1 second (throttled).
- * 2. Debounced saving to Supabase (2 second delay after last change).
- * 3. Max-wait throttle ensuring Supabase save every 30 seconds during continuous editing.
- * 4. Emergency save on exit using navigator.sendBeacon() with keepalive fallback.
- * 5. Prevents redundant saves using content-hash comparison.
- * 6. Cleanup of local backups after successful remote sync.
+ *
+ * Centralizes persistence for the workflow editor.
+ *
+ * Strategy (pure debounce, no special-casing):
+ * - **Local (IndexedDB via localforage):** throttled to 1s while dirty for
+ *   crash recovery. Cheap, async, non-blocking.
+ * - **Remote (Supabase):** fires only after the workflow has been stable for
+ *   2 seconds. No force-save, no isDragging gate — continuous edits naturally
+ *   keep resetting the debounce timer until the user pauses.
+ * - **localStorage (Zustand persist):** UI prefs only (see app-store.ts).
+ *
+ * Emergency save on `beforeunload` uses `navigator.sendBeacon` so any pending
+ * dirty state lands even if the user closes the tab during a debounce window.
  */
 export function useAutoSave() {
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
     const isWorkflowDirty = useAppStore((state) => state.isWorkflowDirty);
     const setWorkflowDirty = useAppStore((state) => state.setWorkflowDirty);
-    const isDragging = useAppStore((state) => state.isDragging);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
 
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const throttleTimerRef = useRef<NodeJS.Timeout | null>(null);
     const lastRemoteSavedHashRef = useRef<string>('');
     const lastLocalSavedHashRef = useRef<string>('');
     const isSavingRemoteRef = useRef(false);
-    const lastRemoteSaveTimeRef = useRef<number>(0);
 
     // Store refs for current values to avoid stale closures
     const currentWorkflowRef = useRef(currentWorkflow);
@@ -133,9 +118,34 @@ export function useAutoSave() {
 
             if (result.success) {
                 lastRemoteSavedHashRef.current = currentHash;
-                lastRemoteSaveTimeRef.current = Date.now();
-                setWorkflowDirty(false);
                 setServerWorkflowHash(sanitizedWorkflow);
+                // Stamp the save time so the realtime handler can ignore the
+                // self-echo (and any stale echoes from prior saves) for a
+                // short grace window — the hash check alone misses the case
+                // where dirty has just been cleared but the user has already
+                // started a new edit.
+                markLocalSave();
+
+                // Only clear the dirty flag if the workflow hasn't changed
+                // during the in-flight save. If the user made an edit between
+                // persistRemote starting and the response landing, leave dirty
+                // true so the debounce re-fires and saves the latest state.
+                const latestWorkflow = currentWorkflowRef.current;
+                if (latestWorkflow) {
+                    const latestSanitized = {
+                        ...latestWorkflow,
+                        nodes: latestWorkflow.nodes.map((n: any) => ({
+                            ...n,
+                            data: { ...n.data, status: undefined, output: undefined },
+                        })),
+                    };
+                    const latestHash = stableStringify(latestSanitized);
+                    if (latestHash === currentHash) {
+                        setWorkflowDirty(false);
+                    }
+                } else {
+                    setWorkflowDirty(false);
+                }
 
                 // Cleanup local backup after successful remote sync
                 try {
@@ -175,9 +185,11 @@ export function useAutoSave() {
         saveLocalThrottledRef.current?.();
     }, [isWorkflowDirty, activeSessionId, currentWorkflow, isLoadingSession]);
 
-    // 2. Debounced Remote Save Effect (2s after last change)
+    // 2. Debounced Remote Save Effect — fires 2s after the LAST change to
+    //    currentWorkflow. Continuous editing keeps resetting the timer; the
+    //    user pausing for 2s triggers the save. No isDragging gate, no force.
     useEffect(() => {
-        if (!isWorkflowDirty || isDragging || !activeSessionId || isLoadingSession) return;
+        if (!isWorkflowDirty || !activeSessionId || isLoadingSession) return;
 
         if (debounceTimerRef.current) {
             clearTimeout(debounceTimerRef.current);
@@ -192,38 +204,11 @@ export function useAutoSave() {
                 clearTimeout(debounceTimerRef.current);
             }
         };
-    }, [isWorkflowDirty, isDragging, activeSessionId, persistRemote, isLoadingSession]);
+    }, [isWorkflowDirty, currentWorkflow, activeSessionId, persistRemote, isLoadingSession]);
 
-    // 3. Max-Wait Throttle Effect (force save every 30s during continuous editing)
-    useEffect(() => {
-        if (!isWorkflowDirty || !activeSessionId || isLoadingSession) return;
+    // (force-save throttle removed — pure debounce only)
 
-        if (throttleTimerRef.current) {
-            clearTimeout(throttleTimerRef.current);
-        }
-
-        const timeSinceLastSave = Date.now() - lastRemoteSaveTimeRef.current;
-        const maxWaitMs = 30000; // 30 seconds
-
-        if (timeSinceLastSave >= maxWaitMs) {
-            persistRemote();
-        } else {
-            const remainingTime = maxWaitMs - timeSinceLastSave;
-            throttleTimerRef.current = setTimeout(() => {
-                if (isWorkflowDirty) {
-                    persistRemote();
-                }
-            }, remainingTime);
-        }
-
-        return () => {
-            if (throttleTimerRef.current) {
-                clearTimeout(throttleTimerRef.current);
-            }
-        };
-    }, [isWorkflowDirty, activeSessionId, persistRemote, isLoadingSession]);
-
-    // 4. Emergency Save on Exit (beforeunload with sendBeacon)
+    // 3. Emergency Save on Exit (beforeunload with sendBeacon)
     useEffect(() => {
         const handleBeforeUnload = () => {
             if (isWorkflowDirty && currentWorkflow && activeSessionId) {

@@ -35,6 +35,26 @@ export function setServerWorkflowHash(workflow: any) {
     serverWorkflowHash = workflow ? stableStringify(cleanWorkflowForSave(workflow)) : null;
 }
 
+/**
+ * Wall-clock time of the most recent successful remote save.
+ *
+ * Realtime fires on ANY UPDATE to the sessions row, and the payload always
+ * contains the row's full `canvas_state` — even when the triggering UPDATE
+ * touched a different field. Combined with normal network latency, that means
+ * a realtime callback can arrive 100–2000ms after our own save, *carrying our
+ * own (or a slightly older) workflow*. The hash guard catches the exact-echo
+ * case, but a stale-echo with a hash that doesn't match the current
+ * serverWorkflowHash will slip through and overwrite the user's just-made
+ * local edit (the "I connected a wire and it disappeared" race).
+ *
+ * After a save succeeds we set this timestamp; the realtime handler ignores
+ * canvas_state-bearing payloads inside a short grace window after that.
+ */
+export let lastLocalSaveAt = 0;
+export function markLocalSave() {
+    lastLocalSaveAt = Date.now();
+}
+
 export function useChatRealtime({
     sessionId,
     onWorkflowGenerated,
@@ -208,9 +228,26 @@ export function useChatRealtime({
                     return;
                 }
 
-                // Never let delayed server echoes overwrite active local editing.
-                const msSinceInteraction = Date.now() - (store.lastInteraction || 0);
-                if (store.isWorkflowDirty && msSinceInteraction < 2500) {
+                // Guard 1: if the local workflow has unsaved edits, NEVER let
+                // a server echo overwrite. The previous heuristic
+                // (msSinceInteraction < 2500) only fired when
+                // touchInteraction() was called recently — but most editor
+                // actions (edge add/remove, node move/drop, paste) don't touch
+                // that timestamp, so a delayed realtime payload could clobber
+                // a fresh local edit.
+                if (store.isWorkflowDirty) {
+                    return;
+                }
+
+                // Guard 2: post-save grace window. After a successful local
+                // save we get a self-echo within ~1–2s. The hash check
+                // below catches the exact-content echo, but if the user makes
+                // a new edit *during* that echo's flight, dirty is briefly
+                // false, hashes don't match, and the stale echo can win the
+                // race. Skip canvas_state echoes for 3s after every local
+                // save — fresh real changes from another tab will still
+                // arrive on the next save.
+                if (Date.now() - lastLocalSaveAt < 3000) {
                     return;
                 }
 
@@ -229,7 +266,7 @@ export function useChatRealtime({
                 }
 
                 // ─── HASH GUARD ────────────────────────────────────────────────────
-                // Break the echo loop: if the incoming workflow hash structurally matches 
+                // Break the echo loop: if the incoming workflow hash structurally matches
                 // what the server/we already know, ignore it to preserve volatile local state (like .output).
                 const incomingHash = stableStringify(cleanWorkflowForSave(newWorkflow));
                 if (incomingHash === serverWorkflowHash) {
@@ -337,7 +374,16 @@ export function useChatRealtime({
                         if (sessionData.status_message !== undefined) {
                             store.setStatusMessage(sessionData.status_message || null);
                         }
-                        if (sessionData.canvas_state && !store.isLoading) {
+                        if (
+                            sessionData.canvas_state &&
+                            !store.isLoading &&
+                            !store.isWorkflowDirty &&
+                            Date.now() - lastLocalSaveAt >= 3000
+                        ) {
+                            // Same guards as handleSessionUpdate: don't
+                            // clobber unsaved local edits when the user
+                            // re-focuses the tab, and don't apply data we may
+                            // have just written ourselves.
                             setServerWorkflowHash(sessionData.canvas_state);
                             store.setCurrentWorkflow(sessionData.canvas_state, false);
                         }

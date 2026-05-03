@@ -1,23 +1,26 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState, useMemo, useTransition } from 'react';
-import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Path, Line, Text as KonvaText } from 'react-konva';
-import useImage from 'use-image';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Stage, Layer, Rect, Path, Transformer } from 'react-konva';
 import {
-    X, Eye, EyeOff, Lock, Unlock, Trash2, Layers2, ChevronUp, ChevronDown,
-    RotateCcw, FlipHorizontal, FlipVertical, ChevronLeft, ChevronRight, Plus, Crop,
-    Monitor, Smartphone, Square, ZoomIn, ZoomOut, Maximize2,
-    Instagram, Youtube, Facebook, Linkedin, Video, Play, MessageSquare, Twitter,
-    Image as ImageIcon
+    Eye, EyeOff, Lock, Unlock, Layers2,
+    RotateCcw, FlipHorizontal, FlipVertical, Plus,
+    Monitor, Smartphone, Maximize2,
+    Instagram, Youtube, Facebook, Linkedin, Video, Play, Twitter,
+    Image as ImageIcon, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify,
+    ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Undo2, Redo2, MousePointer2, Hand, Minus
 } from 'lucide-react';
-import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { cn, generateNodeId } from '@/lib/utils';
+import { Reorder } from 'framer-motion';
+import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
+import { useShallow } from 'zustand/react/shallow';
 import { NumberInput } from '@/components/ui/NumberInput';
-import { CompositorConfig, CompositorLayer, LayerTransform, ImageObject, calculateInitialTransform } from '@/lib/nodes/types';
+import { Select } from '@/components/ui/Select';
+import { ToolbarButton } from '@/components/editor/canvas/CanvasToolbar';
+import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform } from '@/lib/nodes/types';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
+import { CompositorLayerNodes, RenderableLayer } from './CompositorRenderer';
 
-const IMAGES_PER_PAGE = 6;
 const VIEWPORT_PADDING = 1000;
 
 const CANVAS_PRESETS = [
@@ -33,149 +36,31 @@ const CANVAS_PRESETS = [
     { label: 'Full HD', width: 1920, height: 1080, icon: Monitor, color: '#6366f1', category: 'General' },
 ];
 
-// 1. MEMOIZED CANVAS IMAGE
-const URLImage = React.memo(({
-    layer,
-    imageUrl,
-    onSelect,
-    onChange,
-    onDragMove,
-    onLoad
-}: {
-    layer: CompositorLayer,
-    imageUrl: string,
-    onSelect: () => void,
-    onChange: (updates: Partial<LayerTransform>) => void,
-    onDragMove: (e: any) => void,
-    onLoad?: (img: HTMLImageElement) => void
-}) => {
-    const [img] = useImage(imageUrl, 'anonymous');
-    const shapeRef = useRef<any>(null);
+const FONTS = [
+    { id: 'Arial', display_name: 'Arial' },
+    { id: 'Inter', display_name: 'Inter' },
+    { id: 'Roboto', display_name: 'Roboto' },
+    { id: 'Open Sans', display_name: 'Open Sans' },
+    { id: 'Georgia', display_name: 'Georgia' },
+    { id: 'Courier New', display_name: 'Courier New' },
+    { id: 'Times New Roman', display_name: 'Times New Roman' },
+];
 
-    useEffect(() => {
-        if (img && onLoad) {
-            onLoad(img);
-        }
-    }, [img, onLoad]);
+const BLEND_MODES = [
+    { id: 'source-over', display_name: 'Normal' },
+    { id: 'multiply', display_name: 'Multiply' },
+    { id: 'screen', display_name: 'Screen' },
+    { id: 'overlay', display_name: 'Overlay' },
+    { id: 'darken', display_name: 'Darken' },
+    { id: 'lighten', display_name: 'Lighten' },
+    { id: 'color-dodge', display_name: 'Color Dodge' },
+    { id: 'color-burn', display_name: 'Color Burn' },
+    { id: 'hard-light', display_name: 'Hard Light' },
+    { id: 'soft-light', display_name: 'Soft Light' },
+    { id: 'difference', display_name: 'Difference' },
+    { id: 'exclusion', display_name: 'Exclusion' },
+];
 
-    if (!img) return null;
-
-    return (
-        <KonvaImage
-            image={img}
-            ref={shapeRef}
-            name={`img-${layer.id}`}
-            x={layer.transform.x}
-            y={layer.transform.y}
-            width={layer.transform.width}
-            height={layer.transform.height}
-            rotation={layer.transform.rotation}
-            opacity={layer.transform.opacity}
-            scaleX={layer.transform.flipX ? -1 : 1}
-            scaleY={layer.transform.flipY ? -1 : 1}
-            offsetX={layer.transform.flipX ? layer.transform.width : 0}
-            offsetY={layer.transform.flipY ? layer.transform.height : 0}
-            draggable={!layer.locked}
-            onClick={onSelect}
-            onTap={onSelect}
-            onDragStart={onSelect}
-            onDragMove={onDragMove}
-            onDragEnd={(e) => onChange({ x: e.target.x(), y: e.target.y() })}
-            onTransformEnd={(e) => {
-                const node = shapeRef.current;
-                const scaleX = node.scaleX();
-                const scaleY = node.scaleY();
-
-                node.scaleX(layer.transform.flipX ? -1 : 1);
-                node.scaleY(layer.transform.flipY ? -1 : 1);
-
-                onChange({
-                    x: node.x(),
-                    y: node.y(),
-                    rotation: node.rotation(),
-                    width: Math.max(5, node.width() * Math.abs(scaleX)),
-                    height: Math.max(5, node.height() * Math.abs(scaleY)),
-                });
-            }}
-        />
-    );
-}, (prevProps, nextProps) => {
-    return (
-        prevProps.imageUrl === nextProps.imageUrl &&
-        prevProps.layer.locked === nextProps.layer.locked &&
-        prevProps.layer.transform === nextProps.layer.transform
-    );
-});
-
-// 2. MEMOIZED CANVAS TEXT
-const URLText = React.memo(({
-    layer,
-    text,
-    onSelect,
-    onChange,
-    onDragMove
-}: {
-    layer: CompositorLayer,
-    text: string,
-    onSelect: () => void,
-    onChange: (updates: Partial<LayerTransform>) => void,
-    onDragMove: (e: any) => void
-}) => {
-    const shapeRef = useRef<any>(null);
-
-    return (
-        <KonvaText
-            text={text}
-            ref={shapeRef}
-            name={`img-${layer.id}`}
-            x={layer.transform.x}
-            y={layer.transform.y}
-            width={layer.transform.width}
-            height={layer.transform.height}
-            rotation={layer.transform.rotation}
-            opacity={layer.transform.opacity}
-            scaleX={layer.transform.flipX ? -1 : 1}
-            scaleY={layer.transform.flipY ? -1 : 1}
-            offsetX={layer.transform.flipX ? layer.transform.width : 0}
-            offsetY={layer.transform.flipY ? layer.transform.height : 0}
-            draggable={!layer.locked}
-            fontSize={48}
-            fill="#ffffff"
-            fontStyle="bold"
-            align="center"
-            verticalAlign="middle"
-            onClick={onSelect}
-            onTap={onSelect}
-            onDragStart={onSelect}
-            onDragMove={onDragMove}
-            onDragEnd={(e) => onChange({ x: e.target.x(), y: e.target.y() })}
-            onTransformEnd={(e) => {
-                const node = shapeRef.current;
-                const scaleX = node.scaleX();
-                const scaleY = node.scaleY();
-
-                node.scaleX(layer.transform.flipX ? -1 : 1);
-                node.scaleY(layer.transform.flipY ? -1 : 1);
-
-                onChange({
-                    x: node.x(),
-                    y: node.y(),
-                    rotation: node.rotation(),
-                    width: Math.max(5, node.width() * Math.abs(scaleX)),
-                    height: Math.max(5, node.height() * Math.abs(scaleY)),
-                });
-            }}
-        />
-    );
-}, (prevProps, nextProps) => {
-    return (
-        prevProps.text === nextProps.text &&
-        prevProps.layer.locked === nextProps.layer.locked &&
-        prevProps.layer.transform === nextProps.layer.transform
-    );
-});
-
-// 3. MEMOIZED SIDEBAR ITEM
 const LayerListItem = React.memo(({
     layer,
     isSelected,
@@ -185,10 +70,8 @@ const LayerListItem = React.memo(({
     onToggleLock
 }: any) => {
     let Icon = ImageIcon;
-    if (type === 'prompt') Icon = MessageSquare;
-    if (type === 'ai_generate_image') Icon = ImageIcon;
+    if (type === 'prompt') Icon = Type;
     if (type === 'media_input') Icon = Smartphone;
-    if (type === 'remove_background') Icon = ImageIcon;
 
     return (
         <Reorder.Item
@@ -219,90 +102,229 @@ const LayerListItem = React.memo(({
 
 interface CompositorEditorModalProps {
     nodeId: string;
+    /** Initial config snapshot. Live edits flow through the store, not this prop. */
     config: CompositorConfig;
     onClose: () => void;
-    onConfigChange: (config: Partial<CompositorConfig>) => void;
+    /** Forwarded so callers can intercept; the modal also writes via updateNodeConfig directly. */
+    onConfigChange?: (config: Partial<CompositorConfig>) => void;
 }
 
 export default function CompositorEditorModal({
     nodeId,
-    config,
+    config: initialConfig,
     onClose,
-    onConfigChange,
 }: CompositorEditorModalProps) {
-    const currentWorkflow = useAppStore((state) => state.currentWorkflow);
-    const nodeOutputs = useAppStore((state) => state.nodeOutputs);
+    const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
+    const setIsDragging = useAppStore((state) => state.setIsDragging);
 
-    const connectedInputs = useMemo(() => {
-        if (!currentWorkflow) return {};
-        const edges = currentWorkflow.edges.filter(e => e.target === nodeId);
-        const inputs: Record<string, { images: ImageObject[], type: string, sourceNodeLabel: string }> = {};
+    /**
+     * Local undo/redo for this editor session only.
+     *
+     * Decoupled from the global workflow undo intentionally: the editor is a
+     * separate "studio" surface, so its history shouldn't pollute outside-the-
+     * modal Ctrl+Z. Closing the modal discards local history. Edits still
+     * flow live to the workflow store via updateNodeConfig — they just don't
+     * push entries onto the global past/future stack.
+     */
+    const [past, setPast] = useState<CompositorConfig[]>([]);
+    const [future, setFuture] = useState<CompositorConfig[]>([]);
 
-        edges.forEach(edge => {
-            const handleId = (edge as any).targetHandle || 'layers';
-            const inputKey = handleId === 'layers' ? edge.id : handleId;
-            
-            const sourceNode = currentWorkflow.nodes.find(n => n.id === edge.source);
-            const sourceOutput = nodeOutputs[edge.source];
-            if (sourceOutput) {
-                const normalized = toLegacyRenderableOutput(sourceOutput);
-                if (normalized === undefined || normalized === null) return;
-                inputs[inputKey] = {
-                    images: Array.isArray(normalized) ? normalized : [normalized],
-                    type: sourceNode?.type || 'unknown',
-                    sourceNodeLabel: sourceNode?.data?.label || 'Source'
-                };
-            }
-        });
-        return inputs;
-    }, [currentWorkflow, nodeId, nodeOutputs]);
+    const pushSnapshot = useCallback(() => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = node?.data?.config as CompositorConfig | undefined;
+        if (!cfg) return;
+        setPast((p) => [...p, JSON.parse(JSON.stringify(cfg))].slice(-50));
+        setFuture([]);
+    }, [nodeId]);
 
-    const localCanvasWidth = config.canvasWidth || 1920;
-    const localCanvasHeight = config.canvasHeight || 1080;
+    const localUndo = useCallback(() => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = node?.data?.config as CompositorConfig | undefined;
+        if (!cfg || past.length === 0) return;
+        const prev = past[past.length - 1];
+        // Compute new state outside the setState updater. Calling
+        // updateNodeConfig (which triggers a Zustand set()) inside a setPast()
+        // callback violates React's "no setState during render of another
+        // component" rule and surfaces as a console warning.
+        setPast((p) => p.slice(0, -1));
+        setFuture((f) => [JSON.parse(JSON.stringify(cfg)), ...f].slice(0, 50));
+        updateNodeConfig(nodeId, prev);
+    }, [past, nodeId, updateNodeConfig]);
 
-    // Initialize localLayers by merging config.layers with connected edges
-    const [localLayers, setLocalLayers] = useState<CompositorLayer[]>(() => {
-        const savedLayers = config.layers || [];
-        const edges = currentWorkflow?.edges.filter(e => e.target === nodeId && (e.targetHandle === 'layers' || !e.targetHandle)) || [];
-        
-        return edges.map(edge => {
-            const savedLayer = savedLayers.find(l => l.sourceHandleId === edge.id);
-            if (savedLayer) return { ...savedLayer, visible: true };
+    const localRedo = useCallback(() => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = node?.data?.config as CompositorConfig | undefined;
+        if (!cfg || future.length === 0) return;
+        const next = future[0];
+        setFuture((f) => f.slice(1));
+        setPast((p) => [...p, JSON.parse(JSON.stringify(cfg))].slice(-50));
+        updateNodeConfig(nodeId, next);
+    }, [future, nodeId, updateNodeConfig]);
 
-            const sourceNode = currentWorkflow?.nodes.find(n => n.id === edge.source);
-            
-            // Shared centering logic for new layers - start as NOT auto-centered to allow handleImageLoad to run once
-            return {
-                id: `layer_${edge.id}`,
-                name: sourceNode?.data?.label || `Layer`,
-                sourceHandleId: edge.id,
-                selectedIndex: 0,
-                transform: {
-                    x: (localCanvasWidth - 400) / 2,
-                    y: (localCanvasHeight - 300) / 2,
-                    width: 400,
-                    height: 300,
-                    rotation: 0,
-                    opacity: 1,
-                    flipX: false,
-                    flipY: false,
-                    isAutoCentered: false,
-                    crop: null,
-                },
-                visible: true,
-                locked: false,
-            };
-        });
+    const canLocalUndo = past.length > 0;
+    const canLocalRedo = future.length > 0;
+
+    // Subscribe to the LIVE config for this compositor. Edits in either the
+    // editor modal or the small canvas preview flow through updateNodeConfig
+    // and re-render this component immediately. This is what makes the editor
+    // and preview always show the same thing.
+    const liveConfig = useAppStore((state) => {
+        const node = state.currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        return (node?.data?.config as CompositorConfig | undefined) ?? initialConfig;
     });
 
+    const config: CompositorConfig = useMemo(() => {
+        const defaults: CompositorConfig = {
+            canvasWidth: 1920,
+            canvasHeight: 1080,
+            backgroundColor: '#00000000',
+            outputFormat: 'png',
+            outputQuality: 1.0,
+            layers: [],
+        };
+        return { ...defaults, ...liveConfig };
+    }, [liveConfig]);
+
+    const layers = config.layers || [];
+    const canvasWidth = config.canvasWidth;
+    const canvasHeight = config.canvasHeight;
+
+    // Edges that currently target this compositor (for the layer panel and resolved-value lookup).
+    const layerEdges = useAppStore(useShallow((state) =>
+        state.currentWorkflow?.edges?.filter(
+            (e) => e.target === nodeId && (e.targetHandle === 'layers' || !e.targetHandle)
+        ) || []
+    ));
+
+    // Per-edge upstream output. We read from nodeOutputs only (not from node
+    // configs directly) because Phase 1 seeds source nodes (Prompt, MediaInput)
+    // into nodeOutputs whenever their config changes — so this single map is
+    // the live source of truth.
+    const upstreamBySource = useAppStore(useShallow((state) => {
+        const out: Record<string, any> = {};
+        layerEdges.forEach((e) => {
+            if (state.nodeOutputs[e.source] !== undefined) {
+                out[e.source] = state.nodeOutputs[e.source];
+            }
+        });
+        return out;
+    }));
+
+    // Per-edge node type, for the layer panel icon.
+    const nodeTypesBySource = useAppStore(useShallow((state) => {
+        const out: Record<string, string> = {};
+        layerEdges.forEach((e) => {
+            const node = state.currentWorkflow?.nodes.find((n) => n.id === e.source);
+            if (node) out[e.source] = node.type;
+        });
+        return out;
+    }));
+
+    // Build the renderable layers (one entry per saved layer with its currently
+    // resolved upstream value). Layers whose edge no longer exists are filtered
+    // out — onEdgesChange already drops layers when their edge is removed, so
+    // this is just defensive.
+    const renderable: RenderableLayer[] = useMemo(() => {
+        return layers
+            .map((layer) => {
+                const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
+                if (!edge) return null;
+                const upstream = upstreamBySource[edge.source];
+                const normalized = upstream !== undefined ? toLegacyRenderableOutput(upstream) : null;
+                const selected = Array.isArray(normalized)
+                    ? (normalized[layer.selectedIndex] ?? normalized[0] ?? null)
+                    : normalized;
+                return { layer, resolved: selected ?? null };
+            })
+            .filter((r): r is RenderableLayer => r !== null);
+    }, [layers, layerEdges, upstreamBySource]);
+
+    // ---------- Live-write helpers ----------
+
+    /**
+     * Updater pattern: read fresh config from the store, compute new layers,
+     * write the merged config back. Reading from the store (not closure) avoids
+     * stale-state bugs when several edits land in the same render cycle.
+     */
+    const updateLayers = useCallback((updater: (prev: CompositorLayer[]) => CompositorLayer[]) => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        if (!node) return;
+        const cfg = (node.data?.config as CompositorConfig) || initialConfig;
+        const next = updater(cfg.layers || []);
+        updateNodeConfig(nodeId, { ...cfg, layers: next });
+    }, [nodeId, updateNodeConfig, initialConfig]);
+
+    const updatePartialConfig = useCallback((partial: Partial<CompositorConfig>) => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        if (!node) return;
+        const cfg = (node.data?.config as CompositorConfig) || initialConfig;
+        updateNodeConfig(nodeId, { ...cfg, ...partial });
+    }, [nodeId, updateNodeConfig, initialConfig]);
+
+    const updateTransform = useCallback((layerId: string, updates: Partial<LayerTransform>) => {
+        updateLayers((prev) => prev.map((l) =>
+            l.id === layerId ? { ...l, transform: { ...l.transform, ...updates } } : l
+        ));
+    }, [updateLayers]);
+
+    const toggleVisibility = useCallback((layerId: string) => {
+        pushSnapshot();
+        updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, visible: !l.visible } : l));
+    }, [updateLayers, pushSnapshot]);
+
+    const toggleLock = useCallback((layerId: string) => {
+        pushSnapshot();
+        updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, locked: !l.locked } : l));
+    }, [updateLayers, pushSnapshot]);
+
+    const reorderLayers = useCallback((newOrder: CompositorLayer[]) => {
+        pushSnapshot();
+        updateLayers(() => newOrder);
+    }, [updateLayers, pushSnapshot]);
+
+    const alignLayer = useCallback((layerId: string, type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+        pushSnapshot();
+        updateLayers((prev) => prev.map((l) => {
+            if (l.id !== layerId) return l;
+            const { width, height } = l.transform;
+            let x = l.transform.x;
+            let y = l.transform.y;
+            if (type === 'left') x = 0;
+            if (type === 'center') x = (canvasWidth - width) / 2;
+            if (type === 'right') x = canvasWidth - width;
+            if (type === 'top') y = 0;
+            if (type === 'middle') y = (canvasHeight - height) / 2;
+            if (type === 'bottom') y = canvasHeight - height;
+            return { ...l, transform: { ...l.transform, x, y } };
+        }));
+    }, [updateLayers, canvasWidth, canvasHeight, pushSnapshot]);
+
+    const resetTransform = useCallback((layerId: string) => {
+        pushSnapshot();
+        updateTransform(layerId, { rotation: 0, flipX: false, flipY: false, opacity: 1 });
+    }, [updateTransform, pushSnapshot]);
+
+    const handleImageLoad = useCallback((layerId: string, img: HTMLImageElement) => {
+        // Auto-center an image layer the first time we see its true dimensions
+        // (only if it still has placeholder dimensions).
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = node?.data?.config as CompositorConfig | undefined;
+        const layer = cfg?.layers?.find((l) => l.id === layerId);
+        if (!layer) return;
+        if (layer.transform.isAutoCentered) return;
+        const t = layer.transform;
+        const isPlaceholder = (t.width === 400 && t.height === 300) || (t.width === 600 && t.height === 200);
+        if (!isPlaceholder) return;
+        const newT = calculateInitialTransform(img.width, img.height, canvasWidth, canvasHeight);
+        updateLayers((prev) => prev.map((l) =>
+            l.id === layerId ? { ...l, transform: { ...newT, isAutoCentered: true } } : l
+        ));
+    }, [nodeId, canvasWidth, canvasHeight, updateLayers]);
+
+    // ---------- Selection / viewport (purely local UI state) ----------
+
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-    const [canvasWidth, setCanvasWidth] = useState(localCanvasWidth);
-    const [canvasHeight, setCanvasHeight] = useState(localCanvasHeight);
-    const [imagePageIndex, setImagePageIndex] = useState(0);
-
-    const [guidelines, setGuidelines] = useState<{ type: 'vertical' | 'horizontal', position: number }[]>([]);
-    const [isPending, startTransition] = useTransition();
-
+    const [tool, setTool] = useState<'move' | 'pan'>('move');
     const stageRef = useRef<any>(null);
     const transformerRef = useRef<any>(null);
     const stageContainerRef = useRef<HTMLDivElement>(null);
@@ -312,36 +334,22 @@ export default function CompositorEditorModal({
     const [isPanning, setIsPanning] = useState(false);
     const [spaceHeld, setSpaceHeld] = useState(false);
 
-    // Attach Transformer
+    // Wire the Konva Transformer to the currently-selected Konva node by name.
     useEffect(() => {
         if (selectedLayerId && transformerRef.current && stageRef.current) {
             const selectedNode = stageRef.current.findOne(`.img-${selectedLayerId}`);
             if (selectedNode) {
                 transformerRef.current.nodes([selectedNode]);
                 transformerRef.current.getLayer().batchDraw();
+            } else {
+                transformerRef.current.nodes([]);
+                transformerRef.current.getLayer().batchDraw();
             }
         } else if (transformerRef.current) {
             transformerRef.current.nodes([]);
             transformerRef.current.getLayer().batchDraw();
         }
-    }, [selectedLayerId, localLayers]);
-
-    const handleDone = useCallback(() => {
-        // Validation: ensure we have a valid state before saving
-        if (!localLayers) return;
-
-        onConfigChange({
-            layers: [...localLayers],
-            canvasWidth: canvasWidth,
-            canvasHeight: canvasHeight,
-        });
-        onClose();
-    }, [localLayers, canvasWidth, canvasHeight, onConfigChange, onClose]);
-
-    const changeCanvasSize = useCallback((width: number, height: number) => {
-        setCanvasWidth(width);
-        setCanvasHeight(height);
-    }, []);
+    }, [selectedLayerId, renderable]);
 
     const fitToView = useCallback(() => {
         const container = stageContainerRef.current;
@@ -349,210 +357,68 @@ export default function CompositorEditorModal({
         const cw = container.clientWidth;
         const ch = container.clientHeight;
         const padding = 100;
-
         const zoomX = (cw - padding * 2) / canvasWidth;
         const zoomY = (ch - padding * 2) / canvasHeight;
         const zoom = Math.min(zoomX, zoomY, 2);
-
         const panX = (cw - canvasWidth * zoom) / 2;
         const panY = (ch - canvasHeight * zoom) / 2;
-
         setStageZoom(zoom);
         setStagePan({ x: panX, y: panY });
     }, [canvasWidth, canvasHeight]);
 
     useEffect(() => { fitToView(); }, [fitToView]);
 
-    const handleStageWheel = useCallback((e: any) => {
-        e.evt.preventDefault();
-        const stage = e.target.getStage();
-        const oldScale = stage.scaleX();
-        const pointer = stage.getPointerPosition();
-
-        const mousePointTo = {
-            x: (pointer.x - stage.x()) / oldScale,
-            y: (pointer.y - stage.y()) / oldScale,
-        };
-
-        const zoomFactor = e.evt.deltaY < 0 ? 1.1 : 0.9;
-        const newScale = Math.min(Math.max(oldScale * zoomFactor, 0.1), 5);
-
-        setStageZoom(newScale);
-        setStagePan({
-            x: pointer.x - mousePointTo.x * newScale,
-            y: pointer.y - mousePointTo.y * newScale,
-        });
-    }, []);
-
+    // Keyboard: pan toggle + global undo/redo.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.code === 'Space' && !e.repeat && e.target === document.body) {
                 e.preventDefault();
                 setSpaceHeld(true);
             }
-        };
-        const onKeyUp = (e: KeyboardEvent) => {
-            if (e.code === 'Space') {
-                setSpaceHeld(false);
-                setIsPanning(false);
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                // Ctrl+Z while the modal is mounted goes to the local stack
+                // only — the global workflow undo is intentionally not invoked.
+                e.preventDefault();
+                if (e.shiftKey) localRedo(); else localUndo();
             }
         };
+        const onKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') { setSpaceHeld(false); setIsPanning(false); } };
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
-        return () => {
-            window.removeEventListener('keydown', onKeyDown);
-            window.removeEventListener('keyup', onKeyUp);
-        };
-    }, []);
+        return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
+    }, [localUndo, localRedo]);
 
     const checkDeselect = (e: any) => {
         const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'background';
-        if (clickedOnEmpty) {
-            setSelectedLayerId(null);
-        }
+        if (clickedOnEmpty) setSelectedLayerId(null);
     };
 
-    const toggleVisibility = useCallback((layerId: string) => {
-        setLocalLayers(prev => prev.map(l => l.id === layerId ? { ...l, visible: !l.visible } : l));
-    }, []);
+    // Snapshot once at the start of an interaction (drag/transform). The
+    // checkpoint goes to LOCAL history only — outside-the-modal Ctrl+Z is
+    // unaffected. setIsDragging keeps the small-canvas preview from doing
+    // expensive work mid-gesture.
+    const handleInteractStart = useCallback(() => {
+        pushSnapshot();
+        setIsDragging(true);
+    }, [pushSnapshot, setIsDragging]);
 
-    const toggleLock = useCallback((layerId: string) => {
-        setLocalLayers(prev => prev.map(l => l.id === layerId ? { ...l, locked: !l.locked } : l));
-        if (selectedLayerId === layerId) setSelectedLayerId(null);
-    }, [selectedLayerId]);
+    const handleInteractEnd = useCallback(() => {
+        setIsDragging(false);
+    }, [setIsDragging]);
 
-    const reorderLayers = useCallback((newOrder: CompositorLayer[]) => {
-        startTransition(() => {
-            setLocalLayers(newOrder);
-        });
-    }, []);
-
-    const updateTransform = useCallback((layerId: string, updates: Partial<LayerTransform>) => {
-        setLocalLayers(prev => prev.map(l =>
-            l.id === layerId ? { ...l, transform: { ...l.transform, ...updates } } : l
-        ));
-    }, []);
-
-    const toggleFlip = useCallback((layerId: string, axis: 'flipX' | 'flipY') => {
-        setLocalLayers(prev => prev.map(l =>
-            l.id === layerId ? { ...l, transform: { ...l.transform, [axis]: !l.transform[axis] } } : l
-        ));
-    }, []);
-
-    const resetTransform = useCallback((layerId: string) => {
-        // Reset to centered transform
-        const sourceData = connectedInputs[localLayers.find(l => l.id === layerId)?.sourceHandleId || ''];
-        const res = sourceData?.images?.[0]?.resolution;
-        const newT = calculateInitialTransform(res?.width || 400, res?.height || 300, canvasWidth, canvasHeight);
-        updateTransform(layerId, newT);
-    }, [updateTransform, connectedInputs, localLayers, canvasWidth, canvasHeight]);
-
-    const updateSelectedIndex = useCallback((layerId: string, newIdx: number) => {
-        setLocalLayers(prev => prev.map(l => l.id === layerId ? { ...l, selectedIndex: newIdx } : l));
-    }, []);
-
-    const selectOnCanvas = useCallback((layerId: string) => {
-        setSelectedLayerId(layerId);
-        setImagePageIndex(0);
-    }, []);
-
-    // 🚀 Smart Auto-Centering using shared utility
-    const handleImageLoad = useCallback((layerId: string, img: HTMLImageElement) => {
-        setLocalLayers(prev => prev.map(l => {
-            // Only auto-center if the layer is using the absolute default size (haven't been adjusted)
-            // or if it was just initialized with 400x300
-            if (l.id === layerId && l.transform.width === 400 && l.transform.height === 300) {
-                const newT = calculateInitialTransform(img.width, img.height, canvasWidth, canvasHeight);
-                return { ...l, transform: newT };
-            }
-            return l;
-        }));
-    }, [canvasWidth, canvasHeight]);
-
-    const handleDragMove = useCallback((e: any) => {
-        const layer = e.target.getLayer();
-        const node = e.target;
-        const snapThreshold = 5 / stageZoom;
-
-        const verticalStops = [0, canvasWidth / 2, canvasWidth];
-        const horizontalStops = [0, canvasHeight / 2, canvasHeight];
-
-        layer.find('Image').forEach((item: any) => {
-            if (item === node) return;
-            const box = item.getClientRect({ relativeTo: layer });
-            verticalStops.push(box.x, box.x + box.width / 2, box.x + box.width);
-            horizontalStops.push(box.y, box.y + box.height / 2, box.y + box.height);
-        });
-
-        const box = node.getClientRect({ relativeTo: layer });
-        const offsetX = node.x() - box.x;
-        const offsetY = node.y() - box.y;
-
-        const nodeV = [
-            { guide: box.x, offset: offsetX },
-            { guide: box.x + box.width / 2, offset: offsetX - box.width / 2 },
-            { guide: box.x + box.width, offset: offsetX - box.width },
-        ];
-
-        const nodeH = [
-            { guide: box.y, offset: offsetY },
-            { guide: box.y + box.height / 2, offset: offsetY - box.height / 2 },
-            { guide: box.y + box.height, offset: offsetY - box.height },
-        ];
-
-        let closestV: any = null;
-        let minDiffV = snapThreshold;
-        verticalStops.forEach(stop => {
-            nodeV.forEach(nv => {
-                const diff = Math.abs(stop - nv.guide);
-                if (diff < minDiffV) {
-                    minDiffV = diff;
-                    closestV = { stop, offset: nv.offset };
-                }
-            });
-        });
-
-        let closestH: any = null;
-        let minDiffH = snapThreshold;
-        horizontalStops.forEach(stop => {
-            nodeH.forEach(nh => {
-                const diff = Math.abs(stop - nh.guide);
-                if (diff < minDiffH) {
-                    minDiffH = diff;
-                    closestH = { stop, offset: nh.offset };
-                }
-            });
-        });
-
-        if (closestV) node.x(closestV.stop + closestV.offset);
-        if (closestH) node.y(closestH.stop + closestH.offset);
-
-        const newGuidelines = [];
-        if (closestV) newGuidelines.push({ type: 'vertical', position: closestV.stop });
-        if (closestH) newGuidelines.push({ type: 'horizontal', position: closestH.stop });
-
-        setGuidelines(newGuidelines as any);
-    }, [canvasWidth, canvasHeight, stageZoom]);
-
-    const selectedLayer = useMemo(() => localLayers.find(l => l.id === selectedLayerId) || null, [localLayers, selectedLayerId]);
-    const selectedSourceData = selectedLayer ? connectedInputs[selectedLayer.sourceHandleId] : null;
-    const selectedSourceImages = selectedSourceData?.images || [];
-
-    const totalPages = Math.ceil(selectedSourceImages.length / IMAGES_PER_PAGE);
-    const showPagination = selectedSourceImages.length > IMAGES_PER_PAGE;
-    const visibleImages = selectedSourceImages.slice(
-        imagePageIndex * IMAGES_PER_PAGE,
-        (imagePageIndex + 1) * IMAGES_PER_PAGE
+    const selectedLayer = useMemo(() => layers.find((l) => l.id === selectedLayerId) || null, [layers, selectedLayerId]);
+    const selectedEdge = useMemo(
+        () => selectedLayer ? layerEdges.find((e) => e.id === selectedLayer.sourceHandleId) : null,
+        [selectedLayer, layerEdges]
     );
+    const selectedSourceType = selectedEdge ? nodeTypesBySource[selectedEdge.source] : undefined;
+    const isTextLayer = selectedSourceType === 'prompt';
 
-    const dimmerPathData = `
-        M -99999 -99999 L 99999 -99999 L 99999 99999 L -99999 99999 Z 
-        M 0 0 L 0 ${canvasHeight} L ${canvasWidth} ${canvasHeight} L ${canvasWidth} 0 Z
-    `;
+    const dimmerPathData = `M -99999 -99999 L 99999 -99999 L 99999 99999 L -99999 99999 Z M 0 0 L 0 ${canvasHeight} L ${canvasWidth} ${canvasHeight} L ${canvasWidth} 0 Z`;
 
     return (
         <div className="fixed inset-0 z-[100000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
-            <div className="bg-surface-primary/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] w-[94vw] h-[90vh] flex flex-col overflow-hidden">
+            <div className="bg-surface-primary/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl w-[96vw] h-[92vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-white/5">
                     <div className="flex items-center gap-3">
@@ -560,322 +426,235 @@ export default function CompositorEditorModal({
                             <Layers2 className="w-6 h-6 text-accent-primary" />
                         </div>
                         <div>
-                            <h2 className="font-bold text-lg text-content-primary leading-tight">Compositor Editor</h2>
-                            <p className="text-[10px] text-content-tertiary uppercase tracking-widest font-bold">Studio Canvas</p>
+                            <h2 className="font-bold text-lg text-content-primary leading-tight tracking-tight">Compositor Studio</h2>
+                            <p className="text-[10px] text-content-tertiary uppercase tracking-widest font-black opacity-40">Live Editor</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-content-secondary hover:bg-white/5 transition-all">
-                            Cancel
-                        </button>
-                        <button onClick={handleDone} className="px-6 py-2 rounded-xl bg-accent-primary text-white font-bold text-sm shadow-lg shadow-accent-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
-                            Save Changes
-                        </button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={onClose} className="px-6 py-2 rounded-xl bg-accent-primary text-white font-black text-xs shadow-lg shadow-accent-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-widest">Done</button>
                     </div>
                 </div>
 
                 {/* Main Content */}
                 <div className="flex-1 flex overflow-hidden">
                     {/* Left Panel - Layers */}
-                    <div className="w-52 border-r border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl">
+                    <div className="w-56 border-r border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl">
                         <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
-                            <span className="text-xs font-bold text-content-primary uppercase tracking-wider">Layers</span>
-                            <div className="text-[10px] text-content-tertiary px-1 uppercase font-bold opacity-50">Auto</div>
+                            <span className="text-[10px] font-black text-content-tertiary uppercase tracking-widest">Layers</span>
+                            <div className="w-2 h-2 rounded-full bg-accent-primary animate-pulse" />
                         </div>
-
-                        <Reorder.Group axis="y" values={localLayers} onReorder={reorderLayers} className="flex-1 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
-                            {localLayers.map((layer) => {
-                                const sourceData = connectedInputs[layer.sourceHandleId];
+                        <Reorder.Group axis="y" values={layers} onReorder={reorderLayers} className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
+                            {layers.map((layer) => {
+                                const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
+                                const type = edge ? nodeTypesBySource[edge.source] : undefined;
                                 return (
                                     <LayerListItem
                                         key={layer.id}
                                         layer={layer}
                                         isSelected={selectedLayerId === layer.id}
-                                        type={sourceData?.type}
-                                        onSelect={selectOnCanvas}
+                                        type={type}
+                                        onSelect={setSelectedLayerId}
                                         onToggleVisibility={toggleVisibility}
                                         onToggleLock={toggleLock}
                                     />
                                 );
                             })}
+                            {layers.length === 0 && (
+                                <div className="text-center text-[10px] text-white/30 py-8 px-2">
+                                    Connect a node to the Compositor to add a layer.
+                                </div>
+                            )}
                         </Reorder.Group>
                     </div>
 
-                    {/* Center - Konva Stage */}
-                    <div ref={stageContainerRef} className="flex-1 relative bg-[#050505] overflow-hidden" style={{ cursor: spaceHeld ? (isPanning ? 'grabbing' : 'grab') : 'default' }}>
+                    {/* Center - Stage Container */}
+                    <div ref={stageContainerRef} className="flex-1 relative bg-[#080808] overflow-hidden" style={{ cursor: (spaceHeld || tool === 'pan') ? (isPanning ? 'grabbing' : 'grab') : 'default' }}>
                         <Stage
                             ref={stageRef}
                             width={stageContainerRef.current?.clientWidth || window.innerWidth}
                             height={stageContainerRef.current?.clientHeight || window.innerHeight}
-                            onWheel={handleStageWheel}
-                            scaleX={stageZoom}
-                            scaleY={stageZoom}
-                            x={stagePan.x}
-                            y={stagePan.y}
-                            draggable={spaceHeld}
-                            onDragStart={() => setIsPanning(true)}
-                            onDragEnd={(e) => {
-                                if (e.target === e.target.getStage()) {
-                                    setIsPanning(false);
-                                    setStagePan({ x: e.target.x(), y: e.target.y() });
-                                }
+                            onWheel={(e) => {
+                                e.evt.preventDefault();
+                                const stage = e.target.getStage();
+                                if (!stage) return;
+                                const oldScale = stage.scaleX();
+                                const pointer = stage.getPointerPosition();
+                                if (!pointer) return;
+                                const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
+                                const zoomFactor = e.evt.deltaY < 0 ? 1.1 : 0.9;
+                                const newScale = Math.min(Math.max(oldScale * zoomFactor, 0.05), 10);
+                                setStageZoom(newScale);
+                                setStagePan({ x: pointer.x - mousePointTo.x * newScale, y: pointer.y - mousePointTo.y * newScale });
                             }}
+                            scaleX={stageZoom} scaleY={stageZoom} x={stagePan.x} y={stagePan.y}
+                            draggable={spaceHeld || tool === 'pan'}
+                            onDragStart={() => setIsPanning(true)}
+                            onDragEnd={(e) => { if (e.target === e.target.getStage()) { setIsPanning(false); setStagePan({ x: e.target.x(), y: e.target.y() }); } }}
                             onMouseDown={checkDeselect}
-                            onTouchStart={checkDeselect}
-                            onMouseUp={() => setGuidelines([])}
-                            onTouchEnd={() => setGuidelines([])}
                         >
                             <Layer>
-                                {/* 1. Artboard Background */}
-                                <Rect
-                                    name="background"
-                                    x={0}
-                                    y={0}
-                                    width={canvasWidth}
-                                    height={canvasHeight}
-                                    fill="#111"
-                                    stroke="rgba(255,255,255,0.2)"
-                                    strokeWidth={1}
-                                    shadowColor="black"
-                                    shadowBlur={50}
-                                    shadowOpacity={0.8}
+                                <Rect name="background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill="#121212" stroke="rgba(255,255,255,0.05)" strokeWidth={1} shadowColor="black" shadowBlur={100} shadowOpacity={0.5} />
+                                <CompositorLayerNodes
+                                    layers={renderable}
+                                    interactive
+                                    selectedLayerId={selectedLayerId}
+                                    onSelectLayer={setSelectedLayerId}
+                                    onTransformLayer={updateTransform}
+                                    onLayerImageLoad={handleImageLoad}
+                                    onInteractStart={handleInteractStart}
+                                    onInteractEnd={handleInteractEnd}
                                 />
-
-                                {/* 2. Render Images/Text */}
-                                {localLayers.map((layer) => {
-                                    if (!layer.visible) return null;
-
-                                    const sourceData = connectedInputs[layer.sourceHandleId];
-                                    const data = sourceData?.images?.[layer.selectedIndex] || sourceData?.images?.[0];
-                                    
-                                    if (!data) return null;
-
-                                    // Handle Image (object with url)
-                                    if (data.url) {
-                                        return (
-                                            <URLImage
-                                                key={layer.id}
-                                                layer={layer}
-                                                imageUrl={data.url}
-                                                onSelect={() => selectOnCanvas(layer.id)}
-                                                onChange={(updates) => updateTransform(layer.id, updates)}
-                                                onDragMove={handleDragMove}
-                                                onLoad={(img) => handleImageLoad(layer.id, img)}
-                                            />
-                                        );
-                                    }
-
-                                    // Handle Text (string)
-                                    if (typeof data === 'string') {
-                                        return (
-                                            <URLText
-                                                key={layer.id}
-                                                layer={layer}
-                                                text={data}
-                                                onSelect={() => selectOnCanvas(layer.id)}
-                                                onChange={(updates) => updateTransform(layer.id, updates)}
-                                                onDragMove={handleDragMove}
-                                            />
-                                        );
-                                    }
-
-                                    return null;
-                                })}
-
-                                {/* 3. The Dimmer Overlay (Fades out anything outside the artboard) */}
-                                <Path
-                                    data={dimmerPathData}
-                                    fill="rgba(0,0,0,0.6)"
-                                    fillRule="evenodd"
-                                    listening={false}
-                                />
-
-                                {/* 4. Smart Guidelines */}
-                                {guidelines.map((line, i) => {
-                                    const points = line.type === 'vertical'
-                                        ? [line.position, -5000, line.position, 5000]
-                                        : [-5000, line.position, 5000, line.position];
-
-                                    return (
-                                        <Line
-                                            key={i}
-                                            points={points}
-                                            stroke="#00F2EA"
-                                            strokeWidth={1 / stageZoom}
-                                            dash={[4 / stageZoom, 4 / stageZoom]}
-                                            listening={false}
-                                        />
-                                    );
-                                })}
-
-                                {/* 5. Master Transformer */}
+                                <Path data={dimmerPathData} fill="rgba(0,0,0,0.7)" fillRule="evenodd" listening={false} />
                                 {selectedLayer && !selectedLayer.locked && (
-                                    <Transformer
-                                        ref={transformerRef}
-                                        flipEnabled={false}
-                                        boundBoxFunc={(oldBox, newBox) => {
-                                            if (newBox.width < 5 || newBox.height < 5) return oldBox;
-                                            return newBox;
-                                        }}
-                                    />
+                                    <Transformer ref={transformerRef} flipEnabled={false} borderStroke="#00F2EA" anchorStroke="#00F2EA" anchorFill="#00F2EA" anchorSize={8} borderDash={[3, 3]} />
                                 )}
                             </Layer>
                         </Stage>
 
-                        {/* Zoom Controls */}
-                        <div className="absolute top-3 right-3 flex items-center gap-1 bg-surface-primary/80 backdrop-blur-sm rounded-lg border border-white/5 px-1 py-0.5 z-10 shadow-xl">
-                            <button onClick={() => setStageZoom(Math.max(stageZoom * 0.8, 0.1))} className="p-1 rounded hover:bg-white/10 transition-colors">
-                                <ZoomOut className="w-3.5 h-3.5 text-content-secondary" />
-                            </button>
-                            <span className="text-[10px] font-bold text-content-secondary min-w-[36px] text-center">{Math.round(stageZoom * 100)}%</span>
-                            <button onClick={() => setStageZoom(Math.min(stageZoom * 1.25, 5))} className="p-1 rounded hover:bg-white/10 transition-colors">
-                                <ZoomIn className="w-3.5 h-3.5 text-content-secondary" />
-                            </button>
-                            <div className="w-px h-4 bg-white/10 mx-0.5" />
-                            <button onClick={fitToView} className="p-1 rounded hover:bg-white/10 transition-colors">
-                                <Maximize2 className="w-3.5 h-3.5 text-content-secondary" />
-                            </button>
+                        {/* TOOLBOX */}
+                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl z-50">
+                            <ToolbarButton icon={Undo2} onClick={localUndo} disabled={!canLocalUndo} title="Undo" />
+                            <ToolbarButton icon={Redo2} onClick={localRedo} disabled={!canLocalRedo} title="Redo" />
+
+                            <ToolbarButton icon={MousePointer2} onClick={() => setTool('move')} active={tool === 'move'} title="Select Tool" />
+                            <ToolbarButton icon={Hand} onClick={() => setTool('pan')} active={tool === 'pan'} title="Pan Tool" />
+                            <ToolbarButton icon={Maximize2} onClick={fitToView} title="Fit to View" />
+
+                            <ToolbarButton icon={Minus} onClick={() => setStageZoom(z => Math.max(z * 0.8, 0.05))} title="Zoom Out" />
+                            <span className="px-2 text-xs font-medium text-content-secondary min-w-[40px] text-center tabular-nums">{Math.round(stageZoom * 100)}%</span>
+                            <ToolbarButton icon={Plus} onClick={() => setStageZoom(z => Math.min(z * 1.25, 10))} title="Zoom In" />
                         </div>
                     </div>
 
                     {/* Right Panel - Properties */}
-                    <div className="w-72 border-l border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl overflow-hidden shadow-[-10px_0_30px_-15px_rgba(0,0,0,0.5)]">
-                        <div className="p-4 border-b border-white/5 bg-white/5 font-bold text-[10px] uppercase tracking-wider text-white/40">Properties</div>
+                    <div className="w-80 border-l border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl overflow-hidden shadow-2xl">
+                        <div className="p-4 border-b border-white/5 bg-white/5 font-black text-[10px] uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
+                            <Plus className="w-3 h-3" /> Properties
+                        </div>
 
                         {selectedLayer ? (
-                            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                                {/* Image Selector with Pagination */}
-                                {selectedSourceImages.length > 1 && (
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter">Source Selection</label>
-                                            <span className="text-[9px] text-accent-primary font-bold">{selectedLayer.selectedIndex + 1} / {selectedSourceImages.length}</span>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <div className="grid grid-cols-3 gap-2">
-                                                {visibleImages.map((img, idx) => {
-                                                    const actualIdx = imagePageIndex * IMAGES_PER_PAGE + idx;
-                                                    return (
-                                                        <button
-                                                            key={actualIdx}
-                                                            onClick={() => updateSelectedIndex(selectedLayerId!, actualIdx)}
-                                                            className={cn(
-                                                                "aspect-square rounded-xl border-2 overflow-hidden transition-all duration-300",
-                                                                selectedLayer.selectedIndex === actualIdx ? "border-accent-primary scale-[1.05] shadow-lg shadow-accent-primary/20" : "border-white/5 hover:border-white/20"
-                                                            )}
-                                                        >
-                                                            <img src={img.url} alt="" className="w-full h-full object-cover" />
-                                                        </button>
-                                                    );
-                                                })}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-20">
+                                {/* Section: Alignment */}
+                                <div className="space-y-3">
+                                    <label className="text-[9px] font-black text-white/20 uppercase tracking-widest">Alignment</label>
+                                    <div className="grid grid-cols-6 gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+                                        <button onClick={() => alignLayer(selectedLayerId!, 'left')} className="p-2 rounded-lg hover:bg-white/10 text-white/40 flex items-center justify-center transition-all" title="Align Left"><ArrowLeft className="w-3.5 h-3.5" /></button>
+                                        <button onClick={() => alignLayer(selectedLayerId!, 'center')} className="p-2 rounded-lg hover:bg-white/10 text-white/40 flex items-center justify-center transition-all" title="Horizontal Center"><AlignCenter className="w-3.5 h-3.5" /></button>
+                                        <button onClick={() => alignLayer(selectedLayerId!, 'right')} className="p-2 rounded-lg hover:bg-white/10 text-white/40 flex items-center justify-center transition-all" title="Align Right"><ArrowRight className="w-3.5 h-3.5" /></button>
+                                        <button onClick={() => alignLayer(selectedLayerId!, 'top')} className="p-2 rounded-lg hover:bg-white/10 text-white/40 flex items-center justify-center transition-all" title="Align Top"><ArrowUp className="w-3.5 h-3.5" /></button>
+                                        <button onClick={() => alignLayer(selectedLayerId!, 'middle')} className="p-2 rounded-lg hover:bg-white/10 text-white/40 flex items-center justify-center transition-all" title="Vertical Middle"><AlignJustify className="w-3.5 h-3.5 rotate-90" /></button>
+                                        <button onClick={() => alignLayer(selectedLayerId!, 'bottom')} className="p-2 rounded-lg hover:bg-white/10 text-white/40 flex items-center justify-center transition-all" title="Align Bottom"><ArrowDown className="w-3.5 h-3.5" /></button>
+                                    </div>
+                                </div>
+
+                                {/* Section: Transform */}
+                                <div className="space-y-4">
+                                    <label className="text-[9px] font-black text-white/20 uppercase tracking-widest">Geometry</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <NumberInput variant="minimal" label="X" value={Math.round(selectedLayer.transform.x)} onChange={(e) => updateTransform(selectedLayerId!, { x: Number(e.target.value) })} />
+                                        <NumberInput variant="minimal" label="Y" value={Math.round(selectedLayer.transform.y)} onChange={(e) => updateTransform(selectedLayerId!, { y: Number(e.target.value) })} />
+                                        <NumberInput variant="minimal" label="Width" value={Math.round(selectedLayer.transform.width)} onChange={(e) => updateTransform(selectedLayerId!, { width: Number(e.target.value) })} />
+                                        <NumberInput variant="minimal" label="Height" value={Math.round(selectedLayer.transform.height)} onChange={(e) => updateTransform(selectedLayerId!, { height: Number(e.target.value) })} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 items-end">
+                                        <div className="relative group">
+                                            <label className="text-[8px] font-bold text-white/20 uppercase tracking-widest pl-1 mb-1 block">Rotation</label>
+                                            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-2 h-8">
+                                                <RotateCcw className="w-3 h-3 text-white/20" />
+                                                <input type="number" value={Math.round(selectedLayer.transform.rotation)} onChange={(e) => updateTransform(selectedLayerId!, { rotation: Number(e.target.value) })} className="w-full bg-transparent border-none focus:outline-none text-xs text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                                <span className="text-[10px] font-bold text-white/20">°</span>
                                             </div>
-                                            {showPagination && (
-                                                <div className="flex items-center justify-between bg-white/5 rounded-lg p-1">
-                                                    <button onClick={() => setImagePageIndex(p => Math.max(0, p - 1))} disabled={imagePageIndex === 0} className="p-1.5 rounded-md hover:bg-white/10 disabled:opacity-20 transition-all font-bold">
-                                                        <ChevronLeft className="w-4 h-4" />
-                                                    </button>
-                                                    <span className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Page {imagePageIndex + 1}</span>
-                                                    <button onClick={() => setImagePageIndex(p => Math.min(totalPages - 1, p + 1))} disabled={imagePageIndex >= totalPages - 1} className="p-1.5 rounded-md hover:bg-white/10 disabled:opacity-20 transition-all font-bold">
-                                                        <ChevronRight className="w-4 h-4" />
-                                                    </button>
+                                        </div>
+                                        <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5 h-8">
+                                            <button onClick={() => updateTransform(selectedLayerId!, { flipX: !selectedLayer.transform.flipX })} className={cn("flex-1 rounded flex items-center justify-center transition-all", selectedLayer.transform.flipX ? "bg-accent-primary text-white" : "text-white/20 hover:text-white")}><FlipHorizontal className="w-3 h-3" /></button>
+                                            <button onClick={() => updateTransform(selectedLayerId!, { flipY: !selectedLayer.transform.flipY })} className={cn("flex-1 rounded flex items-center justify-center transition-all", selectedLayer.transform.flipY ? "bg-accent-primary text-white" : "text-white/20 hover:text-white")}><FlipVertical className="w-3 h-3" /></button>
+                                            <button onClick={() => resetTransform(selectedLayerId!)} className="flex-1 rounded flex items-center justify-center text-white/20 hover:text-white"><RotateCcw className="w-3 h-3" /></button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Section: Appearance */}
+                                <div className="space-y-4">
+                                    <label className="text-[9px] font-black text-white/20 uppercase tracking-widest">Effects</label>
+                                    <Select variant="minimal" label="Blend Mode" value={selectedLayer.transform.blendMode || 'source-over'} options={BLEND_MODES} onChange={(e) => updateTransform(selectedLayerId!, { blendMode: e.target.value })} />
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center px-1"><label className="text-[8px] font-bold text-white/30 uppercase tracking-widest">Opacity</label><span className="text-[10px] font-black text-accent-primary tabular-nums">{Math.round(selectedLayer.transform.opacity * 100)}%</span></div>
+                                        <input type="range" min="0" max="1" step="0.01" value={selectedLayer.transform.opacity} onChange={(e) => updateTransform(selectedLayerId!, { opacity: Number(e.target.value) })} className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary" />
+                                    </div>
+                                </div>
+
+                                {/* Section: Typography (Conditional) */}
+                                {isTextLayer && (
+                                    <div className="space-y-4 pt-4 border-t border-white/5">
+                                        <label className="text-[9px] font-black text-accent-primary uppercase tracking-[0.2em]">Typography</label>
+                                        <Select variant="minimal" label="Font Family" value={selectedLayer.transform.fontFamily || 'Inter'} options={FONTS} onChange={(e) => updateTransform(selectedLayerId!, { fontFamily: e.target.value })} />
+                                        <div className="grid grid-cols-2 gap-3 items-end">
+                                            <Select variant="minimal" label="Weight" value={selectedLayer.transform.fontWeight || 'bold'} options={[
+                                                { id: 'normal', display_name: 'Normal' },
+                                                { id: 'medium', display_name: 'Medium' },
+                                                { id: 'semibold', display_name: 'Semibold' },
+                                                { id: 'bold', display_name: 'Bold' },
+                                                { id: '900', display_name: 'Black' },
+                                            ]} onChange={(e) => updateTransform(selectedLayerId!, { fontWeight: e.target.value })} />
+                                            <div className="space-y-1">
+                                                <label className="text-[8px] font-bold text-white/20 uppercase tracking-widest pl-1">Style</label>
+                                                <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5 h-8">
+                                                    <button onClick={() => updateTransform(selectedLayerId!, { fontStyle: 'normal' })} className={cn("flex-1 py-1 rounded text-[10px] font-bold transition-all", (selectedLayer.transform.fontStyle !== 'italic') ? "bg-accent-primary text-white" : "text-white/20 hover:text-white")}>Abc</button>
+                                                    <button onClick={() => updateTransform(selectedLayerId!, { fontStyle: 'italic' })} className={cn("flex-1 py-1 rounded text-[10px] font-bold italic transition-all", (selectedLayer.transform.fontStyle === 'italic') ? "bg-accent-primary text-white" : "text-white/20 hover:text-white")}>Abc</button>
                                                 </div>
-                                            )}
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3 items-end">
+                                            <NumberInput variant="minimal" label="Size" value={selectedLayer.transform.fontSize || 100} onChange={(e) => updateTransform(selectedLayerId!, { fontSize: Number(e.target.value) })} />
+                                            <div className="space-y-1">
+                                                <label className="text-[8px] font-bold text-white/20 uppercase tracking-widest pl-1">Fill</label>
+                                                <div className="relative h-8 bg-white/5 border border-white/10 rounded-lg overflow-hidden group">
+                                                    <input type="color" value={selectedLayer.transform.fillColor || '#ffffff'} onChange={(e) => updateTransform(selectedLayerId!, { fillColor: e.target.value })} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                                                    <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: selectedLayer.transform.fillColor || '#ffffff' }}>
+                                                        <div className="w-3 h-3 rounded-full border border-black/20" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <NumberInput variant="minimal" label="Line Height" step={0.1} value={selectedLayer.transform.lineHeight || 1.2} onChange={(e) => updateTransform(selectedLayerId!, { lineHeight: Number(e.target.value) })} />
+                                            <NumberInput variant="minimal" label="Spacing" value={selectedLayer.transform.letterSpacing || 0} onChange={(e) => updateTransform(selectedLayerId!, { letterSpacing: Number(e.target.value) })} />
+                                        </div>
+                                        <div className="grid grid-cols-4 gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+                                            {(['left', 'center', 'right', 'justify'] as const).map(align => (
+                                                <button key={align} onClick={() => updateTransform(selectedLayerId!, { textAlign: align })} className={cn("p-1.5 rounded-lg transition-all flex items-center justify-center", (selectedLayer.transform.textAlign || 'center') === align ? "bg-accent-primary text-white" : "text-white/20 hover:text-white")}>
+                                                    {align === 'left' && <AlignLeft className="w-3.5 h-3.5" />}
+                                                    {align === 'center' && <AlignCenter className="w-3.5 h-3.5" />}
+                                                    {align === 'right' && <AlignRight className="w-3.5 h-3.5" />}
+                                                    {align === 'justify' && <AlignJustify className="w-3.5 h-3.5" />}
+                                                </button>
+                                            ))}
                                         </div>
                                     </div>
                                 )}
-
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <NumberInput
-                                            label="X Position"
-                                            value={Math.round(selectedLayer.transform.x)}
-                                            onChange={(e) => updateTransform(selectedLayerId!, { x: Number(e.target.value) })}
-                                        />
-                                        <NumberInput
-                                            label="Y Position"
-                                            value={Math.round(selectedLayer.transform.y)}
-                                            onChange={(e) => updateTransform(selectedLayerId!, { y: Number(e.target.value) })}
-                                        />
-                                        <NumberInput
-                                            label="Width"
-                                            value={Math.round(selectedLayer.transform.width)}
-                                            onChange={(e) => updateTransform(selectedLayerId!, { width: Number(e.target.value) })}
-                                        />
-                                        <NumberInput
-                                            label="Height"
-                                            value={Math.round(selectedLayer.transform.height)}
-                                            onChange={(e) => updateTransform(selectedLayerId!, { height: Number(e.target.value) })}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <div className="flex justify-between items-center">
-                                        <label className="text-[9px] font-bold text-white/20 uppercase tracking-tighter">Opacity</label>
-                                        <span className="text-[9px] font-bold text-accent-primary">{Math.round(selectedLayer.transform.opacity * 100)}%</span>
-                                    </div>
-                                    <input type="range" min="0" max="1" step="0.05" value={selectedLayer.transform.opacity} onChange={(e) => updateTransform(selectedLayerId!, { opacity: Number(e.target.value) })} className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-accent-primary" />
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-1.5">
-                                    <button onClick={() => toggleFlip(selectedLayerId!, 'flipX')} className={cn("p-2 rounded-lg border transition-all flex items-center justify-center", selectedLayer.transform.flipX ? "bg-accent-primary/20 border-accent-primary/50 text-accent-primary" : "bg-white/5 border-white/5 hover:bg-white/10 text-white/40")}>
-                                        <FlipHorizontal className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button onClick={() => toggleFlip(selectedLayerId!, 'flipY')} className={cn("p-2 rounded-lg border transition-all flex items-center justify-center", selectedLayer.transform.flipY ? "bg-accent-primary/20 border-accent-primary/50 text-accent-primary" : "bg-white/5 border-white/5 hover:bg-white/10 text-white/40")}>
-                                        <FlipVertical className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button onClick={() => resetTransform(selectedLayerId!)} className="p-2 rounded-lg border bg-white/5 border-white/5 hover:bg-white/10 transition-all flex items-center justify-center text-white/40">
-                                        <RotateCcw className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
                             </div>
                         ) : (
-                            <div className="flex-1 flex flex-col overflow-hidden">
-                                <div className="p-4 border-b border-white/5">
-                                    <h3 className="text-xs font-bold text-content-primary uppercase tracking-wider">Canvas Settings</h3>
-                                    <p className="text-[10px] text-content-tertiary mt-1">Adjust dimensions or choose a preset</p>
-                                </div>
-
-                                <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                                    <div className="space-y-3">
-                                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter">Custom Size</label>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <NumberInput
-                                                label="Width"
-                                                value={canvasWidth}
-                                                onChange={(e) => setCanvasWidth(Math.max(100, Number(e.target.value)))}
-                                            />
-                                            <NumberInput
-                                                label="Height"
-                                                value={canvasHeight}
-                                                onChange={(e) => setCanvasHeight(Math.max(100, Number(e.target.value)))}
-                                            />
-                                        </div>
+                            <div className="flex-1 flex flex-col p-4 space-y-6">
+                                <div className="space-y-4">
+                                    <label className="text-[9px] font-black text-white/20 uppercase tracking-widest">Canvas Dimensions</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <NumberInput variant="minimal" label="Width" value={canvasWidth} onChange={(e) => updatePartialConfig({ canvasWidth: Math.max(100, Number(e.target.value)) })} />
+                                        <NumberInput variant="minimal" label="Height" value={canvasHeight} onChange={(e) => updatePartialConfig({ canvasHeight: Math.max(100, Number(e.target.value)) })} />
                                     </div>
-
-                                    <div className="space-y-3">
-                                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-tighter">Social Presets</label>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {CANVAS_PRESETS.map((preset) => {
-                                                const Icon = preset.icon;
-                                                const isActive = canvasWidth === preset.width && canvasHeight === preset.height;
-                                                return (
-                                                    <button
-                                                        key={preset.label}
-                                                        onClick={() => changeCanvasSize(preset.width, preset.height)}
-                                                        className={cn("flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all duration-300 gap-1.5", isActive ? "bg-accent-primary/20 border-accent-primary/40 shadow-lg shadow-primary/10" : "bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20")}
-                                                    >
-                                                        <div className="w-7 h-7 rounded-lg flex items-center justify-center shadow-sm" style={{ backgroundColor: preset.color + '20', color: preset.color }}>
-                                                            <Icon className="w-3.5 h-3.5" />
-                                                        </div>
-                                                        <div className="flex flex-col items-center text-center">
-                                                            <span className={cn("text-[9px] font-bold leading-tight", isActive ? "text-white" : "text-white/60")}>{preset.label}</span>
-                                                            <span className="text-[8px] text-white/20 font-medium">{preset.width}×{preset.height}</span>
-                                                        </div>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                </div>
+                                <div className="space-y-3">
+                                    <label className="text-[9px] font-black text-white/20 uppercase tracking-widest">Studio Presets</label>
+                                    <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                                        {CANVAS_PRESETS.map((preset) => {
+                                            const Icon = preset.icon;
+                                            const isActive = canvasWidth === preset.width && canvasHeight === preset.height;
+                                            return (
+                                                <button key={preset.label} onClick={() => updatePartialConfig({ canvasWidth: preset.width, canvasHeight: preset.height })} className={cn("flex flex-col items-center p-3 rounded-xl border transition-all duration-300 gap-2", isActive ? "bg-accent-primary/10 border-accent-primary/40" : "bg-white/5 border-white/5 hover:bg-white/10")}>
+                                                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: preset.color + '15', color: preset.color }}><Icon className="w-4 h-4" /></div>
+                                                    <div className="text-center"><p className={cn("text-[9px] font-black leading-tight uppercase tracking-tighter", isActive ? "text-white" : "text-white/40")}>{preset.label}</p><p className="text-[8px] text-white/10 font-bold">{preset.width}×{preset.height}</p></div>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             </div>

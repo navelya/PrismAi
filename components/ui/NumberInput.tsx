@@ -11,12 +11,14 @@ interface NumberInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
     suffix?: string;
     inputClassName?: string;
     hideArrows?: boolean;
+    variant?: 'default' | 'minimal';
 }
 
-export function NumberInput({ label, error, suffix, className, inputClassName, hideArrows = false, ...props }: NumberInputProps) {
+export function NumberInput({ label, error, suffix, className, inputClassName, hideArrows = false, variant = 'default', ...props }: NumberInputProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const defaultId = useId();
     const id = props.id || defaultId;
+    const isMinimal = variant === 'minimal';
 
     const handleIncrement = () => {
         if (inputRef.current) {
@@ -49,10 +51,13 @@ export function NumberInput({ label, error, suffix, className, inputClassName, h
     };
 
     return (
-        <div className={cn("space-y-2", className)}>
+        <div className={cn("space-y-2", isMinimal && "space-y-1", className)}>
             {label && (
                 <RadixLabel.Root
-                    className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 flex items-center gap-1.5 opacity-80 h-5 leading-none cursor-pointer"
+                    className={cn(
+                        "font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 flex items-center gap-1.5 opacity-80 h-5 leading-none cursor-pointer",
+                        isMinimal ? "text-[8px]" : "text-[10px]"
+                    )}
                     htmlFor={id}
                 >
                     {label}
@@ -67,31 +72,35 @@ export function NumberInput({ label, error, suffix, className, inputClassName, h
                     ref={inputRef}
                     type="number"
                     className={cn(
-                        "w-full h-11 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/30 disabled:opacity-40 disabled:cursor-not-allowed",
+                        "w-full bg-white/5 border border-white/10 rounded-xl text-content-primary focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/30 disabled:opacity-40 disabled:cursor-not-allowed",
                         "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-                        suffix ? "pr-16" : (hideArrows ? "pr-4" : "pr-10"),
+                        isMinimal ? "h-8 px-2 text-xs rounded-lg" : "h-11 px-4 text-sm",
+                        suffix ? (isMinimal ? "pr-10" : "pr-16") : (hideArrows ? "pr-4" : (isMinimal ? "pr-8" : "pr-10")),
                         error && "border-red-500/50 focus:border-red-500/50 focus:ring-red-500/10",
                         inputClassName
                     )}
                 />
 
-                <div className="absolute right-10 flex items-center pr-2 pointer-events-none">
+                <div className={cn("absolute flex items-center pr-2 pointer-events-none", isMinimal ? "right-6" : "right-10")}>
                     {suffix && (
-                        <span className="text-[10px] font-black text-content-tertiary uppercase tracking-widest opacity-40">
+                        <span className={cn(
+                            "font-black text-content-tertiary uppercase tracking-widest opacity-40",
+                            isMinimal ? "text-[7px]" : "text-[10px]"
+                        )}>
                             {suffix}
                         </span>
                     )}
                 </div>
 
                 {!hideArrows && (
-                    <div className="absolute right-2.5 flex flex-col gap-0.5 pointer-events-none">
+                    <div className={cn("absolute flex flex-col gap-0.5 pointer-events-none", isMinimal ? "right-1.5" : "right-2.5")}>
                         <button
                             type="button"
                             onClick={handleIncrement}
                             disabled={props.disabled}
                             className="p-0.5 text-content-tertiary hover:text-content-primary transition-all disabled:opacity-20 pointer-events-auto active:scale-90"
                         >
-                            <ChevronUp className="w-3.5 h-3.5" />
+                            <ChevronUp className={isMinimal ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} />
                         </button>
                         <button
                             type="button"
@@ -99,7 +108,7 @@ export function NumberInput({ label, error, suffix, className, inputClassName, h
                             disabled={props.disabled}
                             className="p-0.5 text-content-tertiary hover:text-content-primary transition-all disabled:opacity-20 pointer-events-auto active:scale-90"
                         >
-                            <ChevronDown className="w-3.5 h-3.5" />
+                            <ChevronDown className={isMinimal ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} />
                         </button>
                     </div>
                 )}
