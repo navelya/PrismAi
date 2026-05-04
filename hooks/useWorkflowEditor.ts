@@ -45,11 +45,14 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
         }
     }, []);
 
-    // Handle Drag Start (Snapshot for Undo + Bring to Front)
-    const onNodeDragStart = useCallback((_event: any, node: any) => {
+    // Handle Drag Start. Snapshot only — the z-index pop is done locally in
+    // EditorCanvas's setLocalNodes for instant feedback, and committed to the
+    // global store on drag-stop. Doing the global write here triggered a
+    // re-render of every store subscriber synchronously the moment the user
+    // grabbed a node, which was the visible drag-start lag.
+    const onNodeDragStart = useCallback((_event: any, _node: any) => {
         takeSnapshot();
-        bringNodeToFront(node.id);
-    }, [takeSnapshot, bringNodeToFront]);
+    }, [takeSnapshot]);
 
     // Add a new node
     const addNode = useCallback((type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {

@@ -47,8 +47,6 @@ export interface WorkflowSlice {
 
     isDragging: boolean;
     setIsDragging: (isDragging: boolean) => void;
-    startNodeDrag: (nodeId: string) => void;
-    stopNodeDrag: () => void;
     copiedNode: WorkflowNode | null;
     copyNode: (nodeId: string) => void;
     pasteNode: (position?: { x: number; y: number }) => void;

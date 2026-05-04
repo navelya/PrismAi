@@ -163,7 +163,9 @@ export default function SharedWorkflowEditor({
     const selectedNodeData = useMemo(() => nodes.find(n => n.id === selectedNode), [nodes, selectedNode]);
 
     // Derive visibility from selected node type
-    const isAiNode = selectedNodeData?.type === 'ai_generator' || !!selectedNodeData?.data?.config?.node_type_id;
+    const selectedConfig = selectedNodeData?.data?.config;
+    const selectedNodeTypeId = selectedConfig && 'node_type_id' in selectedConfig ? selectedConfig.node_type_id : undefined;
+    const isAiNode = selectedNodeData?.type === 'ai_generator' || !!selectedNodeTypeId;
     const hasPropertyPanel = !!(selectedNodeData && (clientRegistry[selectedNodeData.type]?.propertyPanel || isAiNode));
 
     const isPropertyPanelVisible = hasPropertyPanel && !readOnly;

@@ -197,6 +197,11 @@ const EditorCanvasInner = ({
             updatePositions(positionsMap);
         }
 
+        // Commit the z-index pop applied locally in handleNodeDragStart so it
+        // survives the next prop sync. Doing it here instead of drag-start
+        // keeps the global store write away from the moment of interaction.
+        useAppStore.getState().bringNodeToFront(node.id);
+
         touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
     }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions]);
