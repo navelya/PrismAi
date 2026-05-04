@@ -27,6 +27,14 @@ import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 
+// Stable references for <ReactFlow> object props — see
+// https://reactflow.dev/learn/advanced-use/performance. Hoisted to module
+// scope so they never change identity across renders.
+const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 0.8 } as const;
+const FIT_VIEW_OPTIONS = { padding: 0.3, maxZoom: 0.8 } as const;
+const PRO_OPTIONS = { hideAttribution: true } as const;
+const preventDefault = (e: React.DragEvent) => e.preventDefault();
+
 interface EditorCanvasProps {
     nodes: any[];
     edges: any[];
@@ -94,11 +102,6 @@ const EditorCanvasInner = ({
         }
     }, [propNodes]);
 
-    const nodeTypeIds = useAppStore((state: any) =>
-        (state.nodeTypes as any[]).map((nt) => nt.id).sort().join(',')
-    );
-    const aiNodeTypeIds = useMemo(() => new Set(nodeTypeIds.split(',').filter(Boolean)), [nodeTypeIds]);
-
     const { getRFNode, getRFNodes, getRFEdges } = {
         getRFNode: (id: string) => reactFlowInstance?.getNode(id),
         getRFNodes: () => reactFlowInstance?.getNodes() || [],
@@ -123,15 +126,11 @@ const EditorCanvasInner = ({
 
     const touchInteraction = useAppStore((state) => state.touchInteraction);
 
-    const nodeTypes = useMemo(() => {
-        const dynamicTypes: Record<string, React.ComponentType<any>> = {};
-        nodeTypeIds.split(',').filter(Boolean).forEach(ntId => {
-            dynamicTypes[ntId] = stableNodeTypes.ai_generator;
-        });
-        return { ...stableNodeTypes, ...dynamicTypes };
-    }, [nodeTypeIds]);
-
-    const edgeTypes = useMemo(() => stableEdgeTypes, []);
+    // stableNodeTypes is a Proxy defined at module scope — see reactflow-types.ts.
+    // Unknown ids resolve to AIGeneratorNode, so we don't need to rebuild this
+    // object when ai_generator node type ids load.
+    const nodeTypes = stableNodeTypes;
+    const edgeTypes = stableEdgeTypes;
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -175,7 +174,7 @@ const EditorCanvasInner = ({
         isDraggingRef.current = true;
         setIsDragging(true);
 
-        // 🚀 Z-INDEX FIX: Update local state immediately so the node 
+        // 🚀 Z-INDEX FIX: Update local state immediately so the node
         // pops to the front the millisecond you grab it.
         setLocalNodes(nds => {
             const maxZ = Math.max(0, ...nds.map(n => n.zIndex || 0));
@@ -189,11 +188,11 @@ const EditorCanvasInner = ({
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = false;
         setIsDragging(false);
-        
+
         // Sync final positions to global store
         const positionsMap = new Map<string, { x: number; y: number }>();
         nodes.forEach(n => positionsMap.set(n.id, n.position));
-        
+
         if (updatePositions) {
             updatePositions(positionsMap);
         }
@@ -201,6 +200,47 @@ const EditorCanvasInner = ({
         touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
     }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions]);
+
+    const handleEdgesChange = useCallback((changes: any) => {
+        touchInteraction();
+        onEdgesChange(changes);
+    }, [touchInteraction, onEdgesChange]);
+
+    const handleConnect = useCallback((connection: Connection) => {
+        touchInteraction();
+        onConnect(connection);
+    }, [touchInteraction, onConnect]);
+
+    const handleEdgeClick = useCallback((e: React.MouseEvent, edge: Edge) => {
+        e.stopPropagation();
+        touchInteraction();
+        onEdgesChange([{ type: 'remove', id: edge.id }]);
+    }, [touchInteraction, onEdgesChange]);
+
+    const handleDrop = useCallback((event: React.DragEvent) => {
+        event.preventDefault();
+        const rawData = event.dataTransfer.getData('application/reactflow');
+        if (!rawData || !reactFlowInstance) return;
+        try {
+            const payload = JSON.parse(rawData);
+            const position = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+            onDrop(payload.type, position, payload.node_type_id, undefined, payload.initialConfig);
+        } catch (e) { /* fallback */ }
+    }, [reactFlowInstance, onDrop]);
+
+    const handleNodesDelete = useCallback((deleted: any[]) => {
+        touchInteraction();
+        onDelete?.(deleted.map(n => n.id));
+    }, [touchInteraction, onDelete]);
+
+    const handleIsValidConnection = useCallback((connection: Connection) => {
+        if (connection.source === connection.target) return false;
+        return true;
+    }, []);
+
+    const handlePaneClick = useCallback(() => {
+        setContextMenu(null);
+    }, []);
 
     useEffect(() => {
         const updateRect = () => {
@@ -243,58 +283,33 @@ const EditorCanvasInner = ({
                 nodes={localNodes}
                 edges={memoizedEdges}
                 onNodesChange={handleNodesChange}
-                onEdgesChange={(changes) => {
-                    touchInteraction();
-                    onEdgesChange(changes);
-                }}
-                onConnect={(connection) => {
-                    touchInteraction();
-                    onConnect(connection);
-                }}
+                onEdgesChange={handleEdgesChange}
+                onConnect={handleConnect}
                 onNodeClick={onNodeClick}
                 onNodeDragStart={handleNodeDragStart}
                 onNodeDragStop={handleNodeDragStop}
-                onEdgeClick={(e, edge) => {
-                    e.stopPropagation();
-                    touchInteraction();
-                    onEdgesChange([{ type: 'remove', id: edge.id }]);
-                }}
+                onEdgeClick={handleEdgeClick}
                 onInit={setReactFlowInstance}
-                onDrop={(event) => {
-                    event.preventDefault();
-                    const rawData = event.dataTransfer.getData('application/reactflow');
-                    if (!rawData || !reactFlowInstance) return;
-                    try {
-                        const payload = JSON.parse(rawData);
-                        const position = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-                        onDrop(payload.type, position, payload.node_type_id, undefined, payload.initialConfig);
-                    } catch (e) { /* fallback */ }
-                }}
-                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                onDragOver={preventDefault}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
-                defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+                defaultViewport={DEFAULT_VIEWPORT}
                 fitView
-                fitViewOptions={{ padding: 0.3, maxZoom: 0.8 }}
+                fitViewOptions={FIT_VIEW_OPTIONS}
                 minZoom={0.1}
                 maxZoom={2}
                 nodeDragThreshold={0}
                 deleteKeyCode="Delete"
-                onNodesDelete={(deleted) => {
-                    touchInteraction();
-                    onDelete?.(deleted.map(n => n.id));
-                }}
-                isValidConnection={(connection) => {
-                    if (connection.source === connection.target) return false;
-                    return true; // Simplified for brevity in this rewrite, should restore full check
-                }}
+                onNodesDelete={handleNodesDelete}
+                isValidConnection={handleIsValidConnection}
                 panOnScroll={true}
                 zoomOnScroll={false}
                 zoomOnPinch={true}
                 selectNodesOnDrag={false}
                 connectionMode={"loose" as any}
-                onPaneClick={() => setContextMenu(null)}
-                proOptions={{ hideAttribution: true }}
+                onPaneClick={handlePaneClick}
+                proOptions={PRO_OPTIONS}
             >
                 <BaseGridLayers />
                 <SpotlightGridLayers isMouseActive={isMouseActive} />

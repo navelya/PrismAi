@@ -166,10 +166,7 @@ export default function SharedWorkflowEditor({
     const isAiNode = selectedNodeData?.type === 'ai_generator' || !!selectedNodeData?.data?.config?.node_type_id;
     const hasPropertyPanel = !!(selectedNodeData && (clientRegistry[selectedNodeData.type]?.propertyPanel || isAiNode));
 
-    // 🚀 PERFORMANCE FIX: Defer/Hide the property panel while dragging.
-    // This prevents the complex parameter UI from mounting/re-rendering during
-    // the critical first frame of a drag, which was the primary source of lag.
-    const isPropertyPanelVisible = hasPropertyPanel && !readOnly && !isDragging;
+    const isPropertyPanelVisible = hasPropertyPanel && !readOnly;
 
     const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {
         if (readOnly) return;
@@ -501,13 +498,13 @@ export default function SharedWorkflowEditor({
                     )}
                 </div>
 
-                <AnimatePresence mode="wait">
+                <AnimatePresence>
                     {selectedNodeData && hasPropertyPanel && (
                         <motion.div
                             key={selectedNodeData.id}
                             initial={{ opacity: 0, x: 20, scale: 0.95 }}
                             animate={{ 
-                                opacity: isDragging ? 0 : 1, 
+                                opacity: 1, 
                                 x: 0, 
                                 scale: 1,
                                 transition: { duration: 0.15 } 
@@ -516,8 +513,8 @@ export default function SharedWorkflowEditor({
                             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                             className="absolute top-[72px] right-3 bottom-3 z-40 pointer-events-none flex flex-col items-end"
                             style={{ 
-                                visibility: (isPropertyPanelVisible || isDragging) ? 'visible' : 'hidden',
-                                pointerEvents: isDragging ? 'none' : 'auto'
+                                visibility: isPropertyPanelVisible ? 'visible' : 'hidden',
+                                pointerEvents: 'auto'
                             }}
                         >
                             <div className="pointer-events-auto max-h-full flex flex-col">

@@ -144,29 +144,55 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     }), [data.config]);
 
     /**
-     * Build the renderable list. Saved layers in config drive identity and
-     * transforms; orphan edges (no matching layer entry) get a transient
-     * default layer so the preview still shows them — this mainly helps in the
-     * narrow window before onConnect's auto-create lands and as a safety net
-     * for legacy data.
+     * Build the renderable list.
+     *
+     * Iteration order is `config.layers` (user-controlled z-order) — matching
+     * what the editor modal uses. The earlier version walked `layerEdges`
+     * (insertion order), which meant z-order changes made in the editor never
+     * showed up in this preview.
+     *
+     * Orphan edges that don't yet have a saved layer (the narrow window before
+     * onConnect's auto-create lands, plus legacy data) are appended at the end
+     * with placeholder transforms so they still render.
+     *
+     * Image URLs that come from Supabase Storage are routed through the
+     * /render/image/ endpoint at ~800px width. The compositor preview is at
+     * most ~320px wide on screen, so even a 1920×1080 layer image is grossly
+     * oversized — downscaling cuts the GPU's backdrop-blur sample cost
+     * dramatically without any visible quality loss at the rendered size.
      */
     const renderable: RenderableLayer[] = useMemo(() => {
         const savedById = new Map<string, CompositorLayer>(
             (config.layers || []).map((l) => [l.sourceHandleId, l])
         );
+        const edgeById = new Map(layerEdges.map((e) => [e.id, e]));
         const canvasW = config.canvasWidth || 1920;
         const canvasH = config.canvasHeight || 1080;
 
-        return layerEdges.map((edge) => {
+        const resolveUpstream = (edge: typeof layerEdges[number], selectedIndex: number) => {
             const upstream = upstreamBySource[edge.source];
             const normalized = upstream !== undefined ? toLegacyRenderableOutput(upstream) : null;
-
-            const saved = savedById.get(edge.id);
-            const selectedItem = Array.isArray(normalized)
-                ? (normalized[saved?.selectedIndex ?? 0] ?? normalized[0] ?? null)
+            const item = Array.isArray(normalized)
+                ? (normalized[selectedIndex] ?? normalized[0] ?? null)
                 : normalized;
+            return item;
+        };
 
-            const layer: CompositorLayer = saved ?? {
+        const out: RenderableLayer[] = [];
+        const seenEdgeIds = new Set<string>();
+
+        // 1. Saved layers in user-controlled z-order.
+        (config.layers || []).forEach((layer) => {
+            const edge = edgeById.get(layer.sourceHandleId);
+            if (!edge) return;
+            seenEdgeIds.add(edge.id);
+            out.push({ layer, resolved: resolveUpstream(edge, layer.selectedIndex ?? 0) });
+        });
+
+        // 2. Orphan edges (no saved layer yet) — appended on top.
+        layerEdges.forEach((edge) => {
+            if (seenEdgeIds.has(edge.id)) return;
+            const layer: CompositorLayer = savedById.get(edge.id) ?? {
                 id: `layer_${edge.id}`,
                 name: 'Layer',
                 sourceHandleId: edge.id,
@@ -175,9 +201,10 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 visible: true,
                 locked: false,
             };
-
-            return { layer, resolved: selectedItem ?? null };
+            out.push({ layer, resolved: resolveUpstream(edge, layer.selectedIndex ?? 0) });
         });
+
+        return out;
     }, [layerEdges, upstreamBySource, config.layers, config.canvasWidth, config.canvasHeight]);
 
     const updateConfig = useCallback((newConfig: Partial<CompositorConfig>) => {

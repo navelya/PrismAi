@@ -13,6 +13,7 @@ import { ImageObject } from '@/lib/nodes/types';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
+import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 
 interface BlurNodeData {
     label: string;
@@ -152,7 +153,15 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                     {imageUrl ? (
                         <div className="relative w-full h-full overflow-hidden cursor-zoom-in group/preview">
                             <img
-                                src={imageUrl}
+                                src={toThumbnailUrl(imageUrl, { width: 768 }) ?? imageUrl}
+                                onError={(e) => {
+                                    // Fall back to the original URL if the
+                                    // Supabase image-transform endpoint is
+                                    // unreachable (e.g. transformations not
+                                    // enabled on the project).
+                                    const t = e.currentTarget;
+                                    if (imageUrl && t.src !== imageUrl) t.src = imageUrl;
+                                }}
                                 alt="Blur preview"
                                 className={cn(
                                     "w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.05]",

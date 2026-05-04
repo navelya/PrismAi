@@ -17,11 +17,13 @@ const ANIMATE_TARGET = { scale: 1, opacity: 1 };
 // "half-second hesitation" before the node followed the cursor.
 const SHARED_TRANSITION = { 
     type: 'spring' as const, 
-    bounce: 0, // Disable bounce during active motion for snappier tracking
+    bounce: 0, 
     duration: 0.3,
-    // When dragging, we want transform changes to be instant (duration 0)
-    // but we can't easily toggle just one property in this object without 
-    // causing a re-render/reconciliation. 
+};
+
+const DRAG_TRANSITION = {
+    type: 'tween' as const,
+    duration: 0,
 };
 
 // We use a CSS-only approach for the hover/active states and keep 
@@ -151,16 +153,19 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             onAnimationComplete={() => {
                 if (isNew) updateNodeInternals(id);
             }}
-            transition={SHARED_TRANSITION}
+            transition={isDragging ? DRAG_TRANSITION : SHARED_TRANSITION}
             className={cn(
                 // CSS transitions on border/shadow/background are kept enabled
                 // unconditionally — `transform` is not in this property list, so
                 // it never affects drag motion. Toggling the class on drag-flip
                 // forced a synchronous style invalidation right when the user
                 // started moving the cursor.
-                "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40 transition-[border-color,box-shadow,background-color] duration-500 ease-out",
+                "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40 transition-[border-color,background-color] duration-500 ease-out",
                 selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] outline-none" : "border-stroke-subtle shadow-xl",
-                "hover:border-stroke-strong hover:bg-surface-elevated/50 hover:shadow-2xl",
+                // Hover affects ONLY borders + a barely-perceptible bg tint.
+                // Shadow stays constant on hover/drag/click — only the border
+                // is allowed to indicate interaction state.
+                "hover:border-stroke-strong hover:bg-surface-elevated/20",
                 typeof width === 'string' ? width : '',
                 className
             )}

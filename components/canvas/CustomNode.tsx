@@ -11,6 +11,7 @@ import { LayoutGrid, Square, Check, Image as ImageIcon, Loader2 } from 'lucide-r
 import { motion, AnimatePresence } from 'framer-motion';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
+import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 
 interface CustomNodeData {
     label: string;
@@ -111,13 +112,17 @@ function CustomNode({ data, type, id, selected, dragging = false }: NodeProps<Cu
                             return imageUrl ? (
                                 <motion.img
                                     initial={false}
-                                    animate={{ 
+                                    animate={{
                                         opacity: isTransitioning ? 0.4 : 1,
                                         filter: isTransitioning ? 'blur(20px)' : 'blur(0px)',
                                         scale: isTransitioning ? 0.95 : 1
                                     }}
                                     transition={isDragging ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }}
-                                    src={imageUrl}
+                                    src={toThumbnailUrl(imageUrl, { width: 768 }) ?? imageUrl}
+                                    onError={(e) => {
+                                        const t = e.currentTarget;
+                                        if (imageUrl && t.src !== imageUrl) t.src = imageUrl;
+                                    }}
                                     alt="Preview"
                                     className={cn(
                                         "w-full h-full object-contain",
@@ -162,7 +167,15 @@ function CustomNode({ data, type, id, selected, dragging = false }: NodeProps<Cu
                                         )}
                                     >
                                         {imageUrl ? (
-                                            <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+                                            <img
+                                                src={toThumbnailUrl(imageUrl, { width: 256 }) ?? imageUrl}
+                                                onError={(e) => {
+                                                    const t = e.currentTarget;
+                                                    if (imageUrl && t.src !== imageUrl) t.src = imageUrl;
+                                                }}
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                            />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-[9px]">?</div>
                                         )}

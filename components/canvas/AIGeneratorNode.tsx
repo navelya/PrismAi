@@ -12,6 +12,7 @@ import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
+import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
@@ -534,7 +535,8 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                 onClick={onPreviewClick}
             >
                 <BlurryImage
-                    src={url}
+                    src={toThumbnailUrl(url, { width: 768 }) ?? url}
+                    fallbackSrc={url}
                     alt="Output"
                     onLoad={onImageLoad}
                     className={cn(
@@ -567,7 +569,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                             {type === 'video' ? (
                                 <video src={url} className="w-full h-full object-cover" />
                             ) : (
-                                <BlurryImage src={url} alt="" onLoad={onImageLoad} className="w-full h-full object-cover" />
+                                <BlurryImage src={toThumbnailUrl(url, { width: 256 }) ?? url} fallbackSrc={url} alt="" onLoad={onImageLoad} className="w-full h-full object-cover" />
                             )}
                             {isActive && (
                                 <div className="absolute inset-0 bg-accent-primary/10 flex items-center justify-center">

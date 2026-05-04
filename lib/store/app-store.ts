@@ -20,9 +20,7 @@ export { type Message };
  * - editorState (zoom, viewport)
  * - isCanvasMode
  * - models, categories, nodeTypes, providers (catalog cache)
- * - isDragging (UI state)
  * - isModelsLoading
- * - runFromNodeId, runMode
  * 
  * **What is NOT persisted (runtime/session state):**
  * - activeSessionId - Set fresh on session load
@@ -97,6 +95,22 @@ export const useAppStore = create<RootState>()(
                     'statusMessage',
                     'isCopilotMinimized',
                     'liveNodePositions',
+                    'past',
+                    'future',
+                    'isDragging',
+                    'isWorkflowDirty',
+                    // Ephemeral trigger signals — must NOT persist across refresh.
+                    // Persisting them forces a JSON.stringify of every snapshot on
+                    // every set(), including takeSnapshot()/setIsDragging() called
+                    // synchronously on drag start, causing visible drag-start lag.
+                    // History does not need to survive a page refresh.
+                    'past',
+                    'future',
+                    // Transient UI flags. Writing localStorage every time the user
+                    // touches a node is pure waste; onRehydrateStorage already
+                    // resets isDragging to false anyway.
+                    'isDragging',
+                    'isWorkflowDirty',
                     // Ephemeral trigger signals — must NOT persist across refresh.
                     // If these survive rehydration, the useEffect in SharedWorkflowEditor
                     // re-fires the execution on every page load.
