@@ -1,0 +1,251 @@
+import { NodeSharedDef } from '@/lib/nodes/core/types';
+import { AiModel } from '@/lib/nodes/types';
+
+export interface ResolvedHandle {
+    id: string;
+    label: string;
+    type: string | string[];
+    isArray?: boolean;
+}
+
+export interface PendingConnection {
+    /** Node where the wire originated. */
+    nodeId: string;
+    /** Handle id on the originating node, or null if none. */
+    handleId: string | null;
+    /**
+     * 'source' = wire dragged from an OUTPUT handle (looking for an INPUT on the new node).
+     * 'target' = wire dragged from an INPUT handle (looking for an OUTPUT on the new node).
+     */
+    handleType: 'source' | 'target';
+    /**
+     * Data type id (or list of acceptable ids) of the originating handle, taken
+     * from the data_types table via the node's schema. Inputs may accept an
+     * array of types (e.g. compositor accepts ['image','text']).
+     */
+    dataType: string | string[];
+    isArray?: boolean;
+}
+
+interface MenuItemLike {
+    id: string;
+    item_type: 'header' | 'submenu' | 'node_type' | 'ai_model' | 'static_node' | 'provider';
+    action_value: string | null;
+    title: string;
+}
+
+/**
+ * Resolve the input/output handles available on the node a menu item would create.
+ *  - static_node → sharedRegistry definition
+ *  - ai_model → that model's inputs_schema/outputs_schema rows
+ *  - node_type → union of all models tagged with this node_type_id
+ */
+export function resolveHandlesForMenuItem(
+    item: MenuItemLike,
+    models: AiModel[],
+    sharedRegistry: Record<string, NodeSharedDef<any>>
+): { inputs: ResolvedHandle[]; outputs: ResolvedHandle[] } {
+    if (item.item_type === 'static_node' && item.action_value) {
+        const def = sharedRegistry[item.action_value];
+        if (!def) return { inputs: [], outputs: [] };
+        return {
+            inputs: (def.handles?.inputs || []).map((h: any) => ({
+                id: h.id,
+                label: h.label,
+                type: h.expectedType,
+                isArray: h.is_array,
+            })),
+            outputs: (def.handles?.outputs || []).map((h: any) => ({
+                id: h.id,
+                label: h.label,
+                type: h.dataType,
+                isArray: h.is_array,
+            })),
+        };
+    }
+
+    if (item.item_type === 'ai_model' && item.action_value) {
+        const modelId = parseInt(item.action_value, 10);
+        const model = models.find((m) => m.id === modelId);
+        if (!model) return { inputs: [], outputs: [] };
+        return {
+            inputs: (model.inputs_schema?.handles || [])
+                .filter((h) => h.is_visible !== false)
+                .map((h) => ({
+                    id: h.api_mapping_key || h.name,
+                    label: h.name,
+                    type: h.type,
+                    isArray: h.is_array,
+                })),
+            outputs: (model.outputs_schema?.handles || [])
+                .filter((h) => h.is_visible !== false)
+                .map((h) => ({
+                    id: h.api_mapping_key || h.name || 'output',
+                    label: h.name,
+                    type: h.type,
+                    isArray: h.is_array,
+                })),
+        };
+    }
+
+    if (item.item_type === 'node_type' && item.action_value) {
+        const matchingModels = models.filter((m) => m.node_type_id === item.action_value);
+        const inputs: ResolvedHandle[] = [];
+        const outputs: ResolvedHandle[] = [];
+        const seenInputs = new Set<string>();
+        const seenOutputs = new Set<string>();
+        matchingModels.forEach((model) => {
+            (model.inputs_schema?.handles || [])
+                .filter((h) => h.is_visible !== false)
+                .forEach((h) => {
+                    const key = `${h.api_mapping_key || h.name}|${h.type}`;
+                    if (seenInputs.has(key)) return;
+                    seenInputs.add(key);
+                    inputs.push({
+                        id: h.api_mapping_key || h.name,
+                        label: h.name,
+                        type: h.type,
+                        isArray: h.is_array,
+                    });
+                });
+            (model.outputs_schema?.handles || [])
+                .filter((h) => h.is_visible !== false)
+                .forEach((h) => {
+                    const key = `${h.api_mapping_key || h.name || 'output'}|${h.type}`;
+                    if (seenOutputs.has(key)) return;
+                    seenOutputs.add(key);
+                    outputs.push({
+                        id: h.api_mapping_key || h.name || 'output',
+                        label: h.name,
+                        type: h.type,
+                        isArray: h.is_array,
+                    });
+                });
+        });
+        return { inputs, outputs };
+    }
+
+    return { inputs: [], outputs: [] };
+}
+
+/**
+ * Two handles connect if they share a data-type id, or either side is 'any'.
+ * Either side may also be an array of accepted ids (input handles can declare
+ * a union, e.g. compositor accepts ['image','text']).
+ */
+export function typesAreCompatible(
+    sourceType: string | string[],
+    targetType: string | string[]
+): boolean {
+    if (!sourceType || !targetType) return false;
+    const sources = Array.isArray(sourceType) ? sourceType : [sourceType];
+    const targets = Array.isArray(targetType) ? targetType : [targetType];
+    if (sources.includes('any') || targets.includes('any')) return true;
+    return sources.some((s) => targets.includes(s));
+}
+
+/**
+ * Pick the first handle on the candidate node that the pending wire can connect to.
+ * - 'source' wire (originated at an output) → look for a compatible input.
+ * - 'target' wire (originated at an input)  → look for a compatible output.
+ * Returns null if none of the node's handles are compatible.
+ */
+export function findCompatibleHandle(
+    item: MenuItemLike,
+    pending: PendingConnection,
+    models: AiModel[],
+    sharedRegistry: Record<string, NodeSharedDef<any>>
+): ResolvedHandle | null {
+    const { inputs, outputs } = resolveHandlesForMenuItem(item, models, sharedRegistry);
+    const candidates = pending.handleType === 'source' ? inputs : outputs;
+    return candidates.find((h) => typesAreCompatible(pending.dataType, h.type)) || null;
+}
+
+/**
+ * Find a handle on an already-instantiated node that the pending wire can connect
+ * to. Same compatibility rule as findCompatibleHandle, but applied to a concrete
+ * node (so for ai_generator we use the resolved model's schema, not a union).
+ */
+export function findHandleForNode(
+    node: { type: string; data?: { config?: any } } | undefined,
+    pending: PendingConnection,
+    models: AiModel[],
+    sharedRegistry: Record<string, NodeSharedDef<any>>
+): ResolvedHandle | null {
+    if (!node) return null;
+
+    if (node.type === 'ai_generator') {
+        const modelId = node.data?.config?.model_id;
+        const model = modelId ? models.find((m) => m.id === modelId) : null;
+        if (!model) return null;
+        const rawHandles =
+            pending.handleType === 'source'
+                ? model.inputs_schema?.handles || []
+                : model.outputs_schema?.handles || [];
+        const visible = rawHandles.filter((h) => h.is_visible !== false);
+        const match = visible.find((h) => typesAreCompatible(pending.dataType, h.type));
+        if (!match) return null;
+        return {
+            id: match.api_mapping_key || match.name || (pending.handleType === 'source' ? '' : 'output'),
+            label: match.name,
+            type: match.type,
+            isArray: match.is_array,
+        };
+    }
+
+    const def = sharedRegistry[node.type];
+    if (!def) return null;
+    const rawHandles =
+        pending.handleType === 'source' ? def.handles?.inputs || [] : def.handles?.outputs || [];
+    const match = (rawHandles as any[]).find((h) => {
+        const t = pending.handleType === 'source' ? h.expectedType : h.dataType;
+        return typesAreCompatible(pending.dataType, t);
+    });
+    if (!match) return null;
+    return {
+        id: match.id,
+        label: match.label,
+        type: pending.handleType === 'source' ? match.expectedType : match.dataType,
+        isArray: match.is_array,
+    };
+}
+
+/**
+ * Resolve the data type of a specific handle on an existing node in the workflow.
+ * Used to figure out what the wire being dragged is carrying.
+ */
+export function getNodeHandleType(
+    node: { type: string; data?: { config?: any } } | undefined,
+    handleId: string | null,
+    handleType: 'source' | 'target',
+    models: AiModel[],
+    sharedRegistry: Record<string, NodeSharedDef<any>>
+): { type: string | string[]; isArray?: boolean } | null {
+    if (!node) return null;
+
+    if (node.type === 'ai_generator') {
+        const modelId = node.data?.config?.model_id;
+        const model = modelId ? models.find((m) => m.id === modelId) : null;
+        if (model) {
+            const handles =
+                handleType === 'source'
+                    ? model.outputs_schema?.handles || []
+                    : model.inputs_schema?.handles || [];
+            const h = handles.find(
+                (h) => (h.api_mapping_key || h.name || (handleType === 'source' ? 'output' : '')) === handleId
+            );
+            if (h) return { type: h.type, isArray: h.is_array };
+            // ai_generator with handleId === 'output' but no explicit handle → fall through to default
+        }
+    }
+
+    const def = sharedRegistry[node.type];
+    if (!def) return null;
+    const handles = handleType === 'source' ? def.handles?.outputs : def.handles?.inputs;
+    const h = (handles as any[])?.find((x) => x.id === handleId) || (handles as any[])?.[0];
+    if (!h) return null;
+    return {
+        type: handleType === 'source' ? h.dataType : h.expectedType,
+        isArray: h.is_array,
+    };
+}

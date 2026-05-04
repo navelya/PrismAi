@@ -262,7 +262,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
 }: CompositorLayerNodesProps) {
     return (
         <>
-            {layers.map(({ layer, resolved }) => {
+            {[...layers].reverse().map(({ layer, resolved }) => {
                 if (!layer.visible) return null;
                 if (resolved === null || resolved === undefined) return null;
 

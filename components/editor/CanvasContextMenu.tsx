@@ -11,6 +11,11 @@ import { useAppStore } from '@/lib/store/app-store';
 import { cn } from '@/lib/utils';
 import * as Icons from 'lucide-react';
 import { Plus, ChevronRight, Search as SearchIcon, Loader2, Inbox, LayoutGrid, Box } from 'lucide-react';
+import {
+    PendingConnection,
+    findCompatibleHandle,
+} from '@/lib/editor/handle-compatibility';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 
 interface ContextMenuItem {
     id: string;
@@ -26,9 +31,21 @@ interface ContextMenuItem {
 
 interface CanvasContextMenuProps {
     position: { x: number; y: number };
-    onSelectNode: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number) => void;
+    onSelectNode: (
+        type: NodeType,
+        position: { x: number; y: number },
+        nodeTypeId?: string,
+        modelId?: number,
+        autoConnectHandleId?: string
+    ) => void;
     onClose: () => void;
     models?: AiModel[];
+    /**
+     * When set, the menu is opened by dropping a wire on the canvas. Items are
+     * filtered down to those that have at least one handle compatible with the
+     * dragged wire's data type, and selecting one produces an auto-connect.
+     */
+    pendingConnection?: PendingConnection | null;
 }
 
 const MENU_WIDTH = 260;
@@ -39,6 +56,7 @@ export default function CanvasContextMenu({
     onSelectNode,
     onClose,
     models,
+    pendingConnection,
 }: CanvasContextMenuProps) {
     const triggerRef = useRef<HTMLSpanElement>(null);
     const tree = useAppStore(state => state.menuTree);
@@ -68,7 +86,7 @@ export default function CanvasContextMenu({
 
     const handleNodeClick = (item: ContextMenuItem) => {
         // Assume non-static types spawn an AI node that expects the configuration value
-        let typePath: NodeType = 'ai_generator'; 
+        let typePath: NodeType = 'ai_generator';
         let nodeTypeId: string | undefined = item.action_value || undefined;
         let modelId: number | undefined = undefined;
 
@@ -89,20 +107,70 @@ export default function CanvasContextMenu({
                 nodeTypeId = 'image_generation'; // Default safe fallback
             }
         }
-        
-        onSelectNode(typePath, position, nodeTypeId, modelId);
+
+        // If the menu was opened by a dragged wire, resolve the handle on the new
+        // node that will receive the auto-connect.
+        let autoConnectHandleId: string | undefined;
+        if (pendingConnection && models) {
+            const compat = findCompatibleHandle(item, pendingConnection, models, sharedRegistry);
+            autoConnectHandleId = compat?.id;
+        }
+
+        onSelectNode(typePath, position, nodeTypeId, modelId, autoConnectHandleId);
         onClose();
     };
+
+    // Tree-structured filter for wire-drop mode. Recursively prunes branches
+    // whose leaves have no compatible handles. Keeps the full hierarchy
+    // (headers, providers, submenus) for the user to navigate.
+    const filteredTree = useMemo<ContextMenuItem[]>(() => {
+        if (!pendingConnection || !models) return tree;
+        const prune = (nodes: ContextMenuItem[]): ContextMenuItem[] => {
+            const out: ContextMenuItem[] = [];
+            for (const n of nodes) {
+                if (n.item_type === 'static_node' || n.item_type === 'ai_model' || n.item_type === 'node_type') {
+                    if (findCompatibleHandle(n, pendingConnection, models, sharedRegistry)) {
+                        out.push(n);
+                    }
+                } else if (n.item_type === 'submenu' || n.item_type === 'provider') {
+                    const kids = prune(n.children || []);
+                    if (kids.length > 0) out.push({ ...n, children: kids });
+                } else if (n.item_type === 'header') {
+                    // Header is kept only if it has at least one compatible sibling/descendant
+                    // that follows it in the parent's order. Headers don't carry children,
+                    // so we keep them — they will be removed in a second pass if all
+                    // following items in the same parent are filtered out.
+                    out.push(n);
+                }
+            }
+            // Drop trailing/orphan headers (no leaf items following them in the same level).
+            const cleaned: ContextMenuItem[] = [];
+            for (let i = 0; i < out.length; i++) {
+                const cur = out[i];
+                if (cur.item_type === 'header') {
+                    const next = out[i + 1];
+                    if (!next || next.item_type === 'header') continue;
+                }
+                cleaned.push(cur);
+            }
+            return cleaned;
+        };
+        return prune(tree);
+    }, [pendingConnection, models, tree]);
 
     const searchResults = useMemo(() => {
         if (!searchQuery) return [];
         const query = searchQuery.toLowerCase();
-        
-        // Filter by type and query
-        const filtered = flatList.filter(item => 
-            ['static_node', 'ai_model', 'node_type'].includes(item.item_type) &&
-            item.title.toLowerCase().includes(query)
-        );
+
+        // Filter by type and query, plus wire-drop compatibility when active.
+        const filtered = flatList.filter(item => {
+            if (!['static_node', 'ai_model', 'node_type'].includes(item.item_type)) return false;
+            if (!item.title.toLowerCase().includes(query)) return false;
+            if (pendingConnection && models) {
+                return !!findCompatibleHandle(item, pendingConnection, models, sharedRegistry);
+            }
+            return true;
+        });
 
         // Deduplicate by title to avoid visual clutter in search results
         const seen = new Set<string>();
@@ -116,7 +184,7 @@ export default function CanvasContextMenu({
         // Reset index when results change
         setSelectedIndex(0);
         return results;
-    }, [searchQuery, flatList]);
+    }, [searchQuery, flatList, pendingConnection, models]);
 
     // Scroll selected item into view
     useEffect(() => {
@@ -263,7 +331,7 @@ export default function CanvasContextMenu({
                             <input
                                 ref={searchInputRef}
                                 type="text"
-                                placeholder="Search..."
+                                placeholder={pendingConnection ? 'Search compatible nodes...' : 'Search...'}
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                                 onKeyDown={handleKeyDown}
@@ -274,7 +342,7 @@ export default function CanvasContextMenu({
                     </div>
 
                     {/* Hierarchy/Results list */}
-                    <div 
+                    <div
                         ref={listRef}
                         className="p-1.5 max-h-[360px] overflow-y-auto custom-scrollbar flex flex-col gap-0.5 relative"
                     >
@@ -284,7 +352,22 @@ export default function CanvasContextMenu({
                             ) : (
                                 <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
                                     <Inbox className="w-6 h-6 text-content-tertiary opacity-40" />
-                                    <p className="text-xs font-medium text-content-tertiary">No matching nodes.</p>
+                                    <p className="text-xs font-medium text-content-tertiary">
+                                        {pendingConnection ? (
+                                            <>No compatible matches for {Array.isArray(pendingConnection.dataType) ? pendingConnection.dataType.join(' / ') : pendingConnection.dataType}.</>
+                                        ) : 'No matching nodes.'}
+                                    </p>
+                                </div>
+                            )
+                        ) : pendingConnection ? (
+                            filteredTree.length > 0 ? (
+                                renderTree(filteredTree)
+                            ) : (
+                                <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
+                                    <Inbox className="w-6 h-6 text-content-tertiary opacity-40" />
+                                    <p className="text-xs font-medium text-content-tertiary">
+                                        No compatible nodes for {Array.isArray(pendingConnection.dataType) ? pendingConnection.dataType.join(' / ') : pendingConnection.dataType}.
+                                    </p>
                                 </div>
                             )
                         ) : (

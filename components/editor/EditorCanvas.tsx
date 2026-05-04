@@ -26,6 +26,10 @@ import CanvasContextMenu from './CanvasContextMenu';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import {
+    PendingConnection,
+    getNodeHandleType,
+} from '@/lib/editor/handle-compatibility';
 
 // Stable references for <ReactFlow> object props — see
 // https://reactflow.dev/learn/advanced-use/performance. Hoisted to module
@@ -42,7 +46,14 @@ interface EditorCanvasProps {
     onEdgesChange: any;
     onConnect: any;
     onNodeClick?: NodeMouseHandler;
-    onDrop: (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => void;
+    onDrop: (
+        type: NodeType,
+        position: { x: number; y: number },
+        nodeTypeId?: string,
+        modelId?: number,
+        initialConfig?: Record<string, any>,
+        autoConnect?: PendingConnection,
+    ) => void;
     updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
     selectionMode?: boolean;
     onSelectionToggle?: () => void;
@@ -82,6 +93,16 @@ const EditorCanvasInner = ({
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+    const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null);
+    // Screen-space anchor for the source handle of the dragged wire — used to
+    // draw a static line from the handle to the open menu while the user picks.
+    const [pendingWireAnchor, setPendingWireAnchor] = useState<{ x: number; y: number } | null>(null);
+    // Holds the in-flight connection origin between onConnectStart and onConnectEnd.
+    const connectStartRef = useRef<{ nodeId: string; handleId: string | null; handleType: 'source' | 'target' } | null>(null);
+    // Timestamp of the last wire-drop menu open. React Flow can fire onPaneClick
+    // right after a wire drop on the pane — ignore those clicks for a short window
+    // so they don't immediately close the menu we just opened.
+    const wireDropOpenedAtRef = useRef<number>(0);
     const [isPanMode, setIsPanMode] = useState(false);
     const [isMouseActive, setIsMouseActive] = useState(false);
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,6 +237,75 @@ const EditorCanvasInner = ({
         onConnect(connection);
     }, [touchInteraction, onConnect]);
 
+    // Capture the originating side of a connection drag so we can filter the
+    // context menu by data-type compatibility when it ends on empty canvas.
+    const handleConnectStart = useCallback((_event: any, params: { nodeId: string | null; handleId: string | null; handleType: 'source' | 'target' | null }) => {
+        if (!params.nodeId || !params.handleType) return;
+        connectStartRef.current = {
+            nodeId: params.nodeId,
+            handleId: params.handleId,
+            handleType: params.handleType,
+        };
+    }, []);
+
+    // Wire dropped on canvas (not on a handle/node) → open the filtered context
+    // menu so the user can pick a compatible node and have it auto-wired.
+    const handleConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
+        const start = connectStartRef.current;
+        connectStartRef.current = null;
+        if (!start) return;
+
+        const clientX = 'clientX' in event
+            ? (event as MouseEvent).clientX
+            : (event as TouchEvent).changedTouches?.[0]?.clientX ?? 0;
+        const clientY = 'clientY' in event
+            ? (event as MouseEvent).clientY
+            : (event as TouchEvent).changedTouches?.[0]?.clientY ?? 0;
+
+        // Use the element under the actual drop point (event.target during a
+        // connection drag is often the SVG connection line itself, not the pane).
+        const elAtPoint = document.elementFromPoint(clientX, clientY) as Element | null;
+        const target = elAtPoint || (event.target as Element | null);
+
+        // If we dropped on a handle, React Flow's onConnect already handled it.
+        // If we dropped on a node body but not a handle, we also don't want to
+        // spawn a new node. Anything else (pane, grid, viewport) is fair game.
+        if (target?.closest?.('.react-flow__handle')) return;
+        if (target?.closest?.('.react-flow__node')) return;
+
+        const sourceNode = reactFlowInstance?.getNode(start.nodeId);
+        const models = useAppStore.getState().models;
+        const handleInfo = getNodeHandleType(sourceNode, start.handleId, start.handleType, models, sharedRegistry);
+        // If we can't resolve the source handle's type, fall back to 'any' so
+        // the user still gets a menu (just not type-filtered).
+        const dataType = handleInfo?.type ?? 'any';
+
+        // Snapshot the source handle's screen position so we can draw a static
+        // wire from it to the menu while the user picks a node.
+        const handleSelector = start.handleId
+            ? `.react-flow__handle[data-nodeid="${start.nodeId}"][data-handleid="${start.handleId}"]`
+            : `.react-flow__handle[data-nodeid="${start.nodeId}"].${start.handleType}`;
+        const handleEl = document.querySelector(handleSelector) as HTMLElement | null;
+        const handleRect = handleEl?.getBoundingClientRect();
+        const wrapperRect = reactFlowWrapper.current?.getBoundingClientRect();
+        if (handleRect && wrapperRect) {
+            setPendingWireAnchor({
+                x: handleRect.left + handleRect.width / 2 - wrapperRect.left,
+                y: handleRect.top + handleRect.height / 2 - wrapperRect.top,
+            });
+        }
+
+        setPendingConnection({
+            nodeId: start.nodeId,
+            handleId: start.handleId,
+            handleType: start.handleType,
+            dataType,
+            isArray: handleInfo?.isArray,
+        });
+        setContextMenu({ x: clientX, y: clientY });
+        wireDropOpenedAtRef.current = Date.now();
+    }, [reactFlowInstance]);
+
     const handleEdgeClick = useCallback((e: React.MouseEvent, edge: Edge) => {
         e.stopPropagation();
         touchInteraction();
@@ -244,7 +334,12 @@ const EditorCanvasInner = ({
     }, []);
 
     const handlePaneClick = useCallback(() => {
+        // Ignore the trailing pane click that React Flow fires immediately after
+        // a wire-drop on the pane — otherwise it closes the menu we just opened.
+        if (Date.now() - wireDropOpenedAtRef.current < 300) return;
         setContextMenu(null);
+        setPendingConnection(null);
+        setPendingWireAnchor(null);
     }, []);
 
     useEffect(() => {
@@ -277,8 +372,14 @@ const EditorCanvasInner = ({
             ref={reactFlowWrapper}
             className="w-full h-full relative canvas-container"
             onContextMenu={(e) => {
+                // CanvasContextMenu dispatches a synthetic contextmenu event on mount
+                // (to drive Radix's Trigger). Don't treat that as a fresh user gesture
+                // — otherwise it wipes the pendingConnection we just set on wire-drop.
+                if ((e.nativeEvent as any)._isSynthetic) return;
                 e.preventDefault();
                 if ((e.target as HTMLElement).closest('.react-flow__node')) return;
+                setPendingConnection(null);
+                setPendingWireAnchor(null);
                 setContextMenu({ x: e.clientX, y: e.clientY });
             }}
             onMouseMove={handleMouseMove}
@@ -290,6 +391,8 @@ const EditorCanvasInner = ({
                 onNodesChange={handleNodesChange}
                 onEdgesChange={handleEdgesChange}
                 onConnect={handleConnect}
+                onConnectStart={handleConnectStart}
+                onConnectEnd={handleConnectEnd}
                 onNodeClick={onNodeClick}
                 onNodeDragStart={handleNodeDragStart}
                 onNodeDragStop={handleNodeDragStop}
@@ -337,15 +440,50 @@ const EditorCanvasInner = ({
                 />
             </ReactFlow>
 
+            {/* Static "ghost" wire from the source handle to the open menu while
+                the user picks a node. The SVG covers the wrapper but lets clicks
+                through (pointer-events: none). */}
+            {pendingConnection && pendingWireAnchor && contextMenu && wrapperRectRef.current && (
+                <svg
+                    className="absolute inset-0 pointer-events-none z-[40]"
+                    width="100%"
+                    height="100%"
+                    style={{ overflow: 'visible' }}
+                >
+                    <path
+                        d={(() => {
+                            const sx = pendingWireAnchor.x;
+                            const sy = pendingWireAnchor.y;
+                            const tx = contextMenu.x - wrapperRectRef.current.left;
+                            const ty = contextMenu.y - wrapperRectRef.current.top;
+                            const dx = Math.max(40, Math.abs(tx - sx) * 0.5);
+                            const c1x = pendingConnection.handleType === 'source' ? sx + dx : sx - dx;
+                            const c2x = pendingConnection.handleType === 'source' ? tx - dx : tx + dx;
+                            return `M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${ty}, ${tx} ${ty}`;
+                        })()}
+                        fill="none"
+                        stroke="rgb(var(--canvas-edge))"
+                        strokeWidth={2}
+                    />
+                </svg>
+            )}
+
             {contextMenu && (
                 <CanvasContextMenu
                     position={contextMenu}
+                    pendingConnection={pendingConnection}
                     onSelectNode={(type, pos, tid, mid) => {
                         const flowPos = reactFlowInstance.screenToFlowPosition({ x: pos.x, y: pos.y });
-                        onDrop(type, flowPos, tid, mid);
+                        onDrop(type, flowPos, tid, mid, undefined, pendingConnection || undefined);
                         setContextMenu(null);
+                        setPendingConnection(null);
+                        setPendingWireAnchor(null);
                     }}
-                    onClose={() => setContextMenu(null)}
+                    onClose={() => {
+                        setContextMenu(null);
+                        setPendingConnection(null);
+                        setPendingWireAnchor(null);
+                    }}
                     models={models}
                 />
             )}

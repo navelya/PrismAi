@@ -167,7 +167,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                                     "w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.05]",
                                     !isDragging && "transition-all duration-300"
                                 )}
-                                style={{ 
+                                style={{
                                     filter: blurStyle,
                                     transform: `scale(1.1)`
                                 }}
@@ -177,11 +177,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                     ) : (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500">
                             <div className="text-xs font-medium px-4 text-center">
-                                {connectedInputId ? (
-                                    <span className="animate-pulse">Waiting for image...</span>
-                                ) : (
-                                    'Connect image'
-                                )}
+
                             </div>
                         </div>
                     )}
@@ -193,7 +189,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                 <div className="flex items-center gap-2 h-8">
                     {/* Blur Type Selector */}
                     <div className="w-[100px] shrink-0">
-                        <Select 
+                        <Select
                             options={blurTypeOptions}
                             value={config.type || 'gaussian'}
                             onChange={(e) => handleSync({ type: e.target.value as any })}
@@ -217,7 +213,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                         />
                         {/* Custom Track - Minimalist Line */}
                         <div className="absolute left-0 right-0 h-[1px] bg-white/10 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <div 
+                        <div
                             className="absolute left-0 h-[1px] bg-accent-primary top-1/2 -translate-y-1/2 pointer-events-none"
                             style={{ width: `${(localRadius / 100) * 100}%` }}
                         />
@@ -225,7 +221,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
 
                     {/* Custom Number Input */}
                     <div className="w-[38px] shrink-0">
-                        <NumberInput 
+                        <NumberInput
                             min={0}
                             max={100}
                             value={Math.round(localRadius)}

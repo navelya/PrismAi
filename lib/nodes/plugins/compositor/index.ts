@@ -19,7 +19,7 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
         outputs: [{ id: 'image_out', label: '', dataType: 'image' }],
     },
     defaultConfig: {
-        canvasWidth: 1920,
+        canvasWidth: 1080,
         canvasHeight: 1080,
         backgroundColor: '#00000000',
         layers: [],

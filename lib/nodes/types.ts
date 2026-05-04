@@ -164,7 +164,7 @@ export interface CompositorLayer {
  */
 export interface CompositorConfig {
     /** Canvas dimensions */
-    canvasWidth: number;        // Default: 1920
+    canvasWidth: number;        // Default: 1080
     canvasHeight: number;       // Default: 1080
 
     /** Background color (if no base image) */

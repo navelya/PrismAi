@@ -5,7 +5,8 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(Get-ChildItem -Path 'c:\\\\Projects\\\\Prisfol\\\\PrismAi' -Directory)",
       "Bash(Select-Object -First 20)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npx next *)"
     ]
   }
 }

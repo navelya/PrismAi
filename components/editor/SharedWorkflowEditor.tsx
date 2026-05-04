@@ -170,7 +170,14 @@ export default function SharedWorkflowEditor({
 
     const isPropertyPanelVisible = hasPropertyPanel && !readOnly;
 
-    const handleDrop = (type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {
+    const handleDrop = (
+        type: NodeType,
+        position: { x: number; y: number },
+        nodeTypeId?: string,
+        modelId?: number,
+        initialConfig?: Record<string, any>,
+        autoConnect?: import('@/lib/editor/handle-compatibility').PendingConnection,
+    ) => {
         if (readOnly) return;
 
         let resolvedModelId = modelId;
@@ -185,7 +192,7 @@ export default function SharedWorkflowEditor({
             if (firstActive) resolvedModelId = firstActive.id;
         }
 
-        addNode(type, position, nodeTypeId, resolvedModelId, initialConfig);
+        addNode(type, position, nodeTypeId, resolvedModelId, initialConfig, autoConnect);
     };
 
 

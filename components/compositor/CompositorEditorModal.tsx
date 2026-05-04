@@ -527,7 +527,7 @@ export default function CompositorEditorModal({
                     </div>
 
                     {/* Right Panel - Properties */}
-                    <div className="w-80 border-l border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl overflow-hidden shadow-2xl">
+                    <div className="w-96 border-l border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl overflow-hidden shadow-2xl">
                         <div className="p-4 border-b border-white/5 bg-white/5 font-black text-[10px] uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
                             <Plus className="w-3 h-3" /> Properties
                         </div>
@@ -634,22 +634,22 @@ export default function CompositorEditorModal({
                                 )}
                             </div>
                         ) : (
-                            <div className="flex-1 flex flex-col p-4 space-y-6">
-                                <div className="space-y-4">
+                            <div className="flex-1 flex flex-col p-4 space-y-6 min-h-0">
+                                <div className="space-y-4 shrink-0">
                                     <label className="text-[9px] font-black text-white/20 uppercase tracking-widest">Canvas Dimensions</label>
                                     <div className="grid grid-cols-2 gap-3">
                                         <NumberInput variant="minimal" label="Width" value={canvasWidth} onChange={(e) => updatePartialConfig({ canvasWidth: Math.max(100, Number(e.target.value)) })} />
                                         <NumberInput variant="minimal" label="Height" value={canvasHeight} onChange={(e) => updatePartialConfig({ canvasHeight: Math.max(100, Number(e.target.value)) })} />
                                     </div>
                                 </div>
-                                <div className="space-y-3">
+                                <div className="space-y-3 flex-1 flex flex-col min-h-0 overflow-hidden">
                                     <label className="text-[9px] font-black text-white/20 uppercase tracking-widest">Studio Presets</label>
-                                    <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                                    <div className="grid grid-cols-2 gap-2 overflow-y-auto flex-1 custom-scrollbar pr-1">
                                         {CANVAS_PRESETS.map((preset) => {
                                             const Icon = preset.icon;
                                             const isActive = canvasWidth === preset.width && canvasHeight === preset.height;
                                             return (
-                                                <button key={preset.label} onClick={() => updatePartialConfig({ canvasWidth: preset.width, canvasHeight: preset.height })} className={cn("flex flex-col items-center p-3 rounded-xl border transition-all duration-300 gap-2", isActive ? "bg-accent-primary/10 border-accent-primary/40" : "bg-white/5 border-white/5 hover:bg-white/10")}>
+                                                <button key={preset.label} onClick={() => updatePartialConfig({ canvasWidth: preset.width, canvasHeight: preset.height })} className={cn("flex flex-col items-center p-3 rounded-xl border transition-all duration-300 gap-2 h-fit w-full", isActive ? "bg-accent-primary/10 border-accent-primary/40" : "bg-white/5 border-white/5 hover:bg-white/10")}>
                                                     <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: preset.color + '15', color: preset.color }}><Icon className="w-4 h-4" /></div>
                                                     <div className="text-center"><p className={cn("text-[9px] font-black leading-tight uppercase tracking-tighter", isActive ? "text-white" : "text-white/40")}>{preset.label}</p><p className="text-[8px] text-white/10 font-bold">{preset.width}×{preset.height}</p></div>
                                                 </button>

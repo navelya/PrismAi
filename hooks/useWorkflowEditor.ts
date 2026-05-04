@@ -5,6 +5,8 @@ import { Connection, NodeChange, EdgeChange } from 'reactflow';
 import { NodeType, Workflow } from '@/lib/nodes/types';
 import { createNodeFromType } from '@/lib/editor/node-factory';
 import { useAppStore } from '@/lib/store/app-store';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import { findHandleForNode, PendingConnection } from '@/lib/editor/handle-compatibility';
 
 /**
  * useWorkflowEditor Hook (SSOT Version)
@@ -54,15 +56,45 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
         takeSnapshot();
     }, [takeSnapshot]);
 
-    // Add a new node
-    const addNode = useCallback((type: NodeType, position: { x: number; y: number }, nodeTypeId?: string, modelId?: number, initialConfig?: Record<string, any>) => {
+    // Add a new node. When `autoConnect` is provided, the node is created AND a
+    // matching edge is dispatched in one snapshot — used by the wire-drop menu
+    // so the user gets node + connection from a single action.
+    const addNode = useCallback((
+        type: NodeType,
+        position: { x: number; y: number },
+        nodeTypeId?: string,
+        modelId?: number,
+        initialConfig?: Record<string, any>,
+        autoConnect?: PendingConnection,
+    ) => {
         touchInteraction();
         takeSnapshot();
-        
+
         const newNode = createNodeFromType(type, position, nodeTypeId, modelId, initialConfig);
-        
+
         // Use onNodesChange to add the node to the store
         onNodesChange([{ type: 'add', item: newNode }]);
+
+        if (autoConnect) {
+            const models = useAppStore.getState().models;
+            const targetHandle = findHandleForNode(newNode as any, autoConnect, models, sharedRegistry);
+            if (targetHandle) {
+                const connection = autoConnect.handleType === 'source'
+                    ? {
+                        source: autoConnect.nodeId,
+                        sourceHandle: autoConnect.handleId,
+                        target: newNode.id,
+                        targetHandle: targetHandle.id,
+                    }
+                    : {
+                        source: newNode.id,
+                        sourceHandle: targetHandle.id,
+                        target: autoConnect.nodeId,
+                        targetHandle: autoConnect.handleId,
+                    };
+                useAppStore.getState().onConnect(connection);
+            }
+        }
     }, [touchInteraction, takeSnapshot, onNodesChange]);
 
     // Delete nodes

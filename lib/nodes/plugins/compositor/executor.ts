@@ -13,7 +13,7 @@ export const compositorExecutor = async (
 ): Promise<NodeExecutionResult> => {
     try {
         const {
-            canvasWidth = 1920,
+            canvasWidth = 1080,
             canvasHeight = 1080,
             backgroundColor = '#00000000',
             layers = [],

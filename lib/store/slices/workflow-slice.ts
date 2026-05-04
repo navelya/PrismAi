@@ -263,7 +263,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                 const newLayer = buildAutoLayerForEdge(
                     id,
                     sourceNode?.data?.label || 'Layer',
-                    cfg.canvasWidth || 1920,
+                    cfg.canvasWidth || 1080,
                     cfg.canvasHeight || 1080
                 );
                 updatedNodes = currentWorkflow.nodes.map((n) =>
@@ -272,7 +272,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                               ...n,
                               data: {
                                   ...n.data,
-                                  config: { ...cfg, layers: [...existing, newLayer] },
+                                  config: { ...cfg, layers: [newLayer, ...existing] },
                               },
                           }
                         : n
@@ -357,7 +357,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                     return buildAutoLayerForEdge(
                         e.id,
                         sourceNode?.data?.label || 'Layer',
-                        cfg.canvasWidth || 1920,
+                        cfg.canvasWidth || 1080,
                         cfg.canvasHeight || 1080
                     );
                 }),

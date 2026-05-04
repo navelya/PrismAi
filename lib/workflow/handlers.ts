@@ -318,7 +318,7 @@ async function handleCompositor(
   // Note: in ephemeral-executor, properties corresponds to `node.data`
   const config = properties.config || properties;
   
-  const width = Math.round(config.canvasWidth || 1920);
+  const width = Math.round(config.canvasWidth || 1080);
   const height = Math.round(config.canvasHeight || 1080);
   const layers = config.layers || [];
   
