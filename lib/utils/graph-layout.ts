@@ -9,12 +9,16 @@ const elk = new ELK();
 const ELK_OPTIONS = {
     'elk.algorithm': 'layered',
     'elk.direction': 'RIGHT',
-    'elk.spacing.nodeNode': '40', // Vertical gap between nodes
-    'elk.layered.spacing.nodeNodeBetweenLayers': '100', // Horizontal gap between columns
+    'elk.spacing.nodeNode': '60',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '120',
     'elk.padding': '[top=50,left=50,bottom=50,right=50]',
     'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
     'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
     'org.eclipse.elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+    // Without these, disconnected subgraphs (e.g. an orphan node from a duplicate)
+    // all get placed near the origin and overlap on top of each other.
+    'elk.separateConnectedComponents': 'true',
+    'elk.spacing.componentComponent': '80',
 };
 
 /**
@@ -27,20 +31,33 @@ export async function autoLayoutNodesAsync(
 ): Promise<Map<string, { x: number; y: number }>> {
     if (nodes.length === 0) return new Map();
 
-    // Convert nodes to ELK format using actual measured dimensions
     const elkNodes: ElkNode[] = nodes.map((node) => ({
         id: node.id,
-        // CRITICAL: Use measured dimensions to prevent overlaps
         width: node.measured?.width ?? node.width ?? 250,
         height: node.measured?.height ?? node.height ?? 150,
         properties: { 'portConstraints': 'FREE' }
     }));
 
-    const elkEdges: ElkEdge[] = edges.map((edge) => ({
-        id: edge.id,
-        sources: [edge.source],
-        targets: [edge.target],
-    }));
+    // ELK throws "Referenced shape does not exist" if any edge points at a node id
+    // that isn't in the children set — for example, an edge left dangling after a
+    // delete, or a duplicated edge that still references the original endpoint.
+    // Drop those edges instead of letting the whole layout fall back to a grid.
+    const nodeIds = new Set(nodes.map((n: any) => n.id));
+    const elkEdges: ElkEdge[] = edges
+        .filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+        .map(edge => ({
+            id: edge.id,
+            sources: [edge.source],
+            targets: [edge.target],
+        }));
+
+    const dropped = edges.length - elkEdges.length;
+    if (dropped > 0) {
+        // eslint-disable-next-line no-console
+        console.warn(`[autoLayout] dropped ${dropped} dangling edge(s) (source/target node missing):`,
+            edges.filter(e => !nodeIds.has(e.source) || !nodeIds.has(e.target))
+        );
+    }
 
     const graph: any = {
         id: 'root',

@@ -101,16 +101,28 @@ export function useWorkflowEditor(initialWorkflowRaw?: Workflow | null) {
     const deleteNodes = useCallback((nodeIds: string[]) => {
         touchInteraction();
         takeSnapshot();
-        
+
         const store = useAppStore.getState();
         nodeIds.forEach(id => store.deleteNodeWithAssets(id));
 
+        // Remove edges that touch any of the deleted nodes BEFORE removing the
+        // nodes themselves — otherwise those edges become dangling references in
+        // currentWorkflow.edges (source/target pointing at an id that no longer
+        // exists), which breaks ELK auto-layout and any other graph consumer.
+        const removingNodeIds = new Set(nodeIds);
+        const edgesToRemove = (store.currentWorkflow?.edges || []).filter(
+            e => removingNodeIds.has(e.source) || removingNodeIds.has(e.target),
+        );
+        if (edgesToRemove.length > 0) {
+            onEdgesChange(edgesToRemove.map(e => ({ type: 'remove', id: e.id })));
+        }
+
         onNodesChange(nodeIds.map(id => ({ type: 'remove', id })));
-        
+
         if (selectedNodeId && nodeIds.includes(selectedNodeId)) {
             setSelectedNodeId(null);
         }
-    }, [touchInteraction, takeSnapshot, onNodesChange, selectedNodeId, setSelectedNodeId]);
+    }, [touchInteraction, takeSnapshot, onNodesChange, onEdgesChange, selectedNodeId, setSelectedNodeId]);
 
     const deleteNode = useCallback((nodeId: string) => {
         deleteNodes([nodeId]);

@@ -113,6 +113,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const b1 = 1 / zoom;
     const b2 = 2 / zoom;
 
+    // Hide the per-node hover Copy/Delete buttons in multi-select mode (2+
+    // selected). The floating multi-select toolbar handles the bulk action,
+    // and per-node buttons would only act on this one node — confusing UX.
+    const isMultiSelectActive = useStore(
+        (s: ReactFlowState) => Array.from(s.nodeInternals.values()).filter(n => n.selected).length >= 2,
+    );
+
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
     const displayLabel = label || metadata?.label || 'Node';
@@ -194,29 +201,32 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             }}
             {...props}
         >
-            {/* Action Buttons */}
-            <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                {/* Input nodes don't have manual triggers anymore. Utility nodes compute reactively. */}
-                {customActions}
-                <button
-                    onClick={handleDuplicate}
-                    className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
-                                flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white/10 transition-all duration-200"
-                    style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
-                    title="Duplicate node"
-                >
-                    <Copy className="w-3 h-3 text-content-primary" />
-                </button>
-                <button
-                    onClick={handleDelete}
-                    className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
-                                flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
-                    style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
-                    title="Delete node"
-                >
-                    <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-content-inverted" />
-                </button>
-            </div>
+            {/* Action Buttons — suppressed in multi-select mode (the floating
+                toolbar above the selection handles bulk actions). */}
+            {!isMultiSelectActive && (
+                <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
+                    {/* Input nodes don't have manual triggers anymore. Utility nodes compute reactively. */}
+                    {customActions}
+                    <button
+                        onClick={handleDuplicate}
+                        className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
+                                    flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white/10 transition-all duration-200"
+                        style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
+                        title="Duplicate node"
+                    >
+                        <Copy className="w-3 h-3 text-content-primary" />
+                    </button>
+                    <button
+                        onClick={handleDelete}
+                        className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
+                                    flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
+                        style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
+                        title="Delete node"
+                    >
+                        <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-content-inverted" />
+                    </button>
+                </div>
+            )}
 
             {/* Status Badge */}
             {!hideStatus && status !== 'idle' && (

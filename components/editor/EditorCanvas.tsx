@@ -137,24 +137,74 @@ const EditorCanvasInner = ({
         style: edgeStyle,
     })), [edges, edgeStyle]);
 
-    const handleDuplicateSelected = useCallback(() => {
-        if (!onDuplicate) return;
-        const selectedNodes = localNodes.filter(n => n.selected);
-        if (selectedNodes.length === 0) return;
+    // Stable id array for the multi-select toolbar's nodeId prop. Recomputed only
+    // when the selected set changes — without this, every render of localNodes
+    // (drag, hover, etc.) would produce a fresh array, churning NodeToolbar's
+    // internal store subscription and risking remounts mid-click.
+    const selectedNodeIds = useMemo(
+        () => localNodes.filter(n => n.selected).map(n => n.id),
+        // Depend on a stable string key built from sorted ids so we don't
+        // re-create the array when the underlying nodes' positions change.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [localNodes.filter(n => n.selected).map(n => n.id).sort().join('|')],
+    );
 
-        const selectedEdges = memoizedEdges.filter(e =>
-            selectedNodes.some(n => n.id === e.source) &&
-            selectedNodes.some(n => n.id === e.target)
+    const handleDuplicateSelected = useCallback(() => {
+        // Read selection from RF's internal store rather than localNodes — the
+        // toolbar lives in a portal and clicks can land in a frame where
+        // localNodes hasn't fully synced selection state with RF yet.
+        const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
+        const selectedNodes = rfNodes.filter((n: any) => n.selected);
+        if (!onDuplicate || selectedNodes.length === 0) return;
+
+        const selectedNodeIdSet = new Set(selectedNodes.map((n: any) => n.id));
+        // Filter the raw edges (not memoizedEdges, which carry runtime style fields).
+        const selectedEdges = (edges || []).filter((e: any) =>
+            selectedNodeIdSet.has(e.source) && selectedNodeIdSet.has(e.target)
         );
-        onDuplicate(selectedNodes, selectedEdges);
-    }, [localNodes, memoizedEdges, onDuplicate]);
+
+        // Clone with fresh ids and remap edge endpoints. Without this, we'd be
+        // adding nodes/edges whose ids already exist in the workflow — which
+        // fails silently in applyNodeChanges and corrupts the graph.
+        const idMap = new Map<string, string>();
+        const stamp = Date.now();
+        const newNodes = selectedNodes.map((n: any, i: number) => {
+            const newId = `node_${stamp}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+            idMap.set(n.id, newId);
+            // Strip RF-internal fields so the duplicate enters as a clean node.
+            const { width: _w, height: _h, positionAbsolute: _pa, dragging: _dr, ...rest } = n as any;
+            return {
+                ...JSON.parse(JSON.stringify(rest)),
+                id: newId,
+                position: { x: (n.position?.x || 0) + 40, y: (n.position?.y || 0) + 40 },
+                selected: false,
+            };
+        });
+
+        const newEdges = selectedEdges.map((e: any, i: number) => {
+            const cloned = JSON.parse(JSON.stringify(e));
+            return {
+                ...cloned,
+                id: `edge_${stamp}_${i}_${Math.random().toString(36).slice(2, 8)}`,
+                source: idMap.get(e.source) as string,
+                target: idMap.get(e.target) as string,
+                selected: false,
+            };
+        });
+
+        onDuplicate(newNodes, newEdges);
+    }, [reactFlowInstance, localNodes, edges, onDuplicate]);
 
     const handleDeleteSelected = useCallback(() => {
         if (!onDelete) return;
-        const selectedNodes = localNodes.filter(n => n.selected);
-        if (selectedNodes.length === 0) return;
-        onDelete(selectedNodes);
-    }, [localNodes, onDelete]);
+        const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
+        const selectedNodeIds = rfNodes.filter((n: any) => n.selected).map((n: any) => n.id);
+        if (selectedNodeIds.length === 0) return;
+        // SharedWorkflowEditor's deleteNodes takes ids; the prop is typed as
+        // Node[] for legacy reasons. Match the keyboard-delete path that also
+        // passes ids (see handleNodesDelete).
+        (onDelete as any)(selectedNodeIds);
+    }, [reactFlowInstance, localNodes, onDelete]);
 
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const wrapperRectRef = useRef<{ left: number; top: number } | null>(null);
@@ -490,35 +540,41 @@ const EditorCanvasInner = ({
                 <BaseGridLayers />
                 <SpotlightGridLayers isMouseActive={isMouseActive} />
 
-                {(() => {
-                    const selectedIds = localNodes.filter(n => n.selected).map(n => n.id);
-                    if (selectedIds.length < 2) return null;
-                    return (
-                        <NodeToolbar
-                            isVisible={true}
-                            nodeId={selectedIds}
-                            position={Position.Top}
-                            align="end"
+                {selectedNodeIds.length >= 2 && (
+                    <NodeToolbar
+                        isVisible={true}
+                        nodeId={selectedNodeIds}
+                        position={Position.Top}
+                        align="end"
+                    >
+                        {/* nopan/nowheel keep RF from grabbing the pointer; pointer-events:auto
+                            and z-index 50 protect against any sibling overlay sitting on top. */}
+                        <div
+                            className="nopan nowheel flex items-center gap-0.5 p-0.5 rounded-md bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle shadow-lg"
+                            style={{ pointerEvents: 'auto', zIndex: 50 }}
+                            onMouseDown={(e) => e.stopPropagation()}
                         >
-                            <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-lg animate-in fade-in zoom-in-95 duration-150">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleDuplicateSelected(); }}
-                                    className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
-                                    title="Duplicate selected"
-                                >
-                                    <Copy className="w-3 h-3" />
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteSelected(); }}
-                                    className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
-                                    title="Delete selected"
-                                >
-                                    <Trash2 className="w-3 h-3" />
-                                </button>
-                            </div>
-                        </NodeToolbar>
-                    );
-                })()}
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                title="Duplicate selected"
+                            >
+                                <Copy className="w-3 h-3 pointer-events-none" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
+                                title="Delete selected"
+                            >
+                                <Trash2 className="w-3 h-3 pointer-events-none" />
+                            </button>
+                        </div>
+                    </NodeToolbar>
+                )}
                 <CanvasToolbar
                     undo={undo}
                     redo={redo}
@@ -526,8 +582,18 @@ const EditorCanvasInner = ({
                     canRedo={canRedo}
                     onAutoLayout={async () => {
                         if (localNodes.length === 0 || !updatePositions) return;
-                        const newPositions = await autoLayoutNodesAsync(localNodes, edges);
+                        // RF's internal nodes are guaranteed measured (width/height set
+                        // after the DOM round-trip). localNodes can be missing dimensions
+                        // right after a workflow load before measurement propagates.
+                        const measured = reactFlowInstance?.getNodes() ?? localNodes;
+                        const newPositions = await autoLayoutNodesAsync(measured, edges);
                         updatePositions(newPositions);
+                        // Wait for the position write to propagate through the store
+                        // and re-render before fitting the viewport — fitView reads RF's
+                        // current node bounds, so calling it synchronously fits the OLD layout.
+                        requestAnimationFrame(() => {
+                            reactFlowInstance?.fitView({ duration: 600, padding: 0.3 });
+                        });
                     }}
                     isPanMode={isPanMode}
                     onTogglePanMode={setIsPanMode}

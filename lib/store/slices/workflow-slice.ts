@@ -331,11 +331,23 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             return node;
         });
 
+        // Drop edges whose source or target node no longer exists. These can be
+        // left behind by older deletes that didn't clean up edges, and they break
+        // ELK auto-layout (`Referenced shape does not exist`) plus any other
+        // graph consumer that assumes edges resolve.
+        const validNodeIds = new Set(transformedNodes.map((n) => n.id));
+        const inputEdges = workflow.edges || [];
+        const allEdges = inputEdges.filter(
+            (e) => validNodeIds.has(e.source) && validNodeIds.has(e.target),
+        );
+        if (allEdges.length !== inputEdges.length) {
+            hasChanges = true;
+        }
+
         // Backfill compositor layers for legacy workflows: each compositor's
         // config.layers should have one entry per incoming edge (onConnect now
         // handles this for new connections, but workflows saved before that
         // change won't have entries for their existing edges).
-        const allEdges = workflow.edges || [];
         const backfilledNodes = transformedNodes.map((node) => {
             if (node.type !== 'compositor') return node;
             const cfg = (node.data?.config as CompositorConfig) || ({} as CompositorConfig);
@@ -372,7 +384,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             };
         });
 
-        const finalWorkflow = hasChanges ? { ...workflow, nodes: backfilledNodes } : workflow;
+        const finalWorkflow = hasChanges ? { ...workflow, nodes: backfilledNodes, edges: allEdges } : workflow;
 
         // Seed source-node values into the resolved-value store on hydrate so
         // freshly-loaded Prompt / MediaInput nodes are immediately renderable
