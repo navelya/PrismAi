@@ -257,7 +257,21 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
         updated_at: new Date().toISOString()
       })
       .eq('id', executionId);
-      
+
+    // If the execution failed, refund the credits that were debited at start.
+    // Idempotent on the execution id, so safe even if this path runs twice.
+    if (finalStatus === 'failed') {
+      const { error: refundError } = await supabase.rpc('refund_tokens', {
+        p_execution_id: executionId,
+        p_reason: 'execution_failed',
+      });
+      if (refundError) {
+        console.error(`[Orchestrator] Refund failed for execution ${executionId}:`, refundError);
+      } else {
+        console.log(`[Orchestrator] Refunded credits for failed execution ${executionId}`);
+      }
+    }
+
   } catch (error) {
     console.error(`[Orchestrator] Error updating final status:`, error);
   }

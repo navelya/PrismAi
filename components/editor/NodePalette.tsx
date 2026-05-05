@@ -72,23 +72,18 @@ export default function NodePalette({ onDragStart, isCollapsed, setIsCollapsed }
             )}>
                 <div className="w-64 h-full flex flex-col">
                     
-                    {/* Header */}
-                    <div className="h-16 flex items-center px-6 border-b border-stroke-subtle flex-shrink-0">
-                        {selectedCategoryId ? (
-                            <button 
+                    {/* Back button (only when inside a category) */}
+                    {selectedCategoryId && (
+                        <div className="h-12 flex items-center px-6 border-b border-stroke-subtle flex-shrink-0">
+                            <button
                                 onClick={() => setSelectedCategoryId(null)}
                                 className="flex items-center gap-2 text-content-primary hover:text-accent-primary transition-colors"
                             >
                                 <ArrowLeft className="w-4 h-4" />
                                 <span className="text-xs font-bold uppercase tracking-widest">Back</span>
                             </button>
-                        ) : (
-                            <h3 className="text-xs font-bold text-content-tertiary uppercase tracking-widest flex items-center gap-2">
-                                <Icons.Box className="w-3.5 h-3.5" />
-                                Node Library
-                            </h3>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
                     {/* View Switcher */}
                     <div className="flex-1 overflow-y-auto overflow-x-hidden relative">

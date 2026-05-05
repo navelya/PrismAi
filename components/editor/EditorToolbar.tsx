@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square } from 'lucide-react';
+import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square, Coins } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { useTokenBalance } from '@/lib/billing/use-balance';
+import { formatCredits } from '@/lib/billing/cost';
 
 interface EditorToolbarProps {
     workflowName: string;
@@ -28,6 +30,7 @@ export default function EditorToolbar({
     isPaletteOpen = true,
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
+    const { balance, loading: balanceLoading } = useTokenBalance();
     // State for auto-expanding width
     const [titleWidth, setTitleWidth] = useState('auto');
     const spanRef = React.useRef<HTMLSpanElement>(null);
@@ -52,6 +55,21 @@ export default function EditorToolbar({
             >
                 {workflowName || "Untitled Workflow"}
             </span>
+
+            {/* Credits Island (Left) */}
+            <div className={`${islandBase} rounded-full pl-3 pr-1.5`}>
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-content-primary tabular-nums">
+                    <Coins className="w-4 h-4 text-accent-primary" />
+                    <span>{balanceLoading ? '…' : formatCredits(balance)}</span>
+                </div>
+                <div className="w-[1px] h-4 bg-stroke-subtle mx-1" />
+                <button
+                    onClick={() => { /* TODO: open subscription page */ }}
+                    className="px-3 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/10 rounded-full transition-colors"
+                >
+                    Upgrade
+                </button>
+            </div>
 
             {/* Workflow Name Island (Centered) */}
             <div

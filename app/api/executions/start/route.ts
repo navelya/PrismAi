@@ -23,13 +23,22 @@ import { dispatchNode } from '@/lib/workflow/dispatch-v2';
 import { isEphemeralNode } from '@/lib/workflow/handlers';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
 import { getAiArrayInputKeys } from '@/lib/workflow/orchestrator';
+import { getAuthenticatedUser } from '@/lib/api/auth';
+import { computeExecutionCost, MAX_EXECUTION_COST, type CostNode } from '@/lib/billing/cost';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
-  
+
   try {
+    // Authenticate the caller. We use the authenticated user.id for the
+    // debit — never trust user_id from the body, which would let one user
+    // drain another's credits.
+    const auth = await getAuthenticatedUser();
+    if (auth.error) return auth.error;
+    const authedUserId = auth.user.id;
+
     const body = await request.json();
-    const { session_id, workflow, user_id, targetNodeId, mode } = body;
+    const { session_id, workflow, targetNodeId, mode } = body;
     let graph_json: GraphJson = body.graph_json;
     
     if (!session_id || (!graph_json && !workflow)) {
@@ -244,8 +253,106 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-    
+
     console.log(`[Execution/Start] Created execution ${execution.id}`);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Charge the user's credits BEFORE dispatching any nodes.
+    //
+    // Cost is computed server-side from the actual ai_models rows — the client
+    // estimate is advisory only. If the user can't pay, mark the execution
+    // failed and return 402; nothing has been dispatched yet so there's
+    // nothing to roll back. Idempotency key is the execution id, so a retried
+    // request never double-charges.
+    // ─────────────────────────────────────────────────────────────────────────
+    // V2 NodeConfig stores user data under `data`, not `config`. The shape can
+    // be either `data.config.model_id` (V1 preserved) or `data.model_id` (V2
+    // flattened). Mirror the same reads dispatch-v2 and orchestrator do.
+    const costNodes: CostNode[] = nodesToExecute.map((n: NodeConfig) => {
+      const data = (n as any).data || {};
+      const inner = data.config || {};
+      return {
+        id: n.id,
+        type: n.type,
+        config: {
+          model_id: inner.model_id ?? data.model_id,
+          control_values: inner.control_values ?? data.control_values,
+        },
+      };
+    });
+
+    const generativeNodeIds = costNodes
+      .filter(n => n.type === 'ai_generator')
+      .map(n => Number(n.config?.model_id))
+      .filter(id => Number.isFinite(id));
+
+    let cost = 0;
+    if (generativeNodeIds.length > 0) {
+      const { data: modelRows } = await supabase
+        .from('ai_models')
+        .select('id, credit_cost, inputs_schema')
+        .in('id', generativeNodeIds);
+
+      const modelsById = new Map<number, any>();
+      (modelRows || []).forEach((m: any) => modelsById.set(m.id, m));
+
+      const result = computeExecutionCost(costNodes, modelsById);
+      cost = result.cost;
+
+      console.log(`[Execution/Start] Cost calc — generative nodes: ${result.generativeCount}, total cost: ${cost}, model rows fetched: ${modelRows?.length ?? 0}, model ids referenced: [${generativeNodeIds.join(', ')}]`);
+
+      if (result.missingModels.length > 0) {
+        console.warn(`[Execution/Start] Missing model rows for ids: ${result.missingModels.join(', ')}`);
+      }
+    } else {
+      console.log(`[Execution/Start] No ai_generator nodes in target set — cost is 0, skipping debit.`);
+    }
+
+    if (cost > MAX_EXECUTION_COST) {
+      await supabase
+        .from('executions')
+        .update({ status: 'failed', error_message: 'Cost exceeds per-execution ceiling.' })
+        .eq('id', execution.id);
+      return NextResponse.json(
+        { error: `Computed cost (${cost}) exceeds the per-execution maximum (${MAX_EXECUTION_COST}). This is likely a configuration bug — please contact support.` },
+        { status: 400 }
+      );
+    }
+
+    if (cost > 0) {
+      console.log(`[Execution/Start] Debiting ${cost} credits from user ${authedUserId} for execution ${execution.id}`);
+      const { error: debitError } = await supabase.rpc('debit_tokens', {
+        p_user_id: authedUserId,
+        p_amount: cost,
+        p_reason: 'execution_debit',
+        p_idempotency_key: `exec:${execution.id}`,
+        p_execution_id: execution.id,
+        p_metadata: { mode: mode ?? 'all', node_count: nodesToExecute.length },
+      });
+
+      if (debitError) {
+        const isInsufficient = (debitError as any).message?.includes('INSUFFICIENT_TOKENS');
+        await supabase
+          .from('executions')
+          .update({
+            status: 'failed',
+            error_message: isInsufficient ? 'Insufficient credits' : `Debit failed: ${debitError.message}`,
+          })
+          .eq('id', execution.id);
+
+        if (isInsufficient) {
+          return NextResponse.json(
+            { error: 'INSUFFICIENT_TOKENS', message: 'Not enough credits to run this execution.' },
+            { status: 402 }
+          );
+        }
+        console.error('[Execution/Start] Debit failed:', debitError);
+        return NextResponse.json(
+          { error: `Debit failed: ${debitError.message}` },
+          { status: 500 }
+        );
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 5: Initialize all target nodes in node_results.

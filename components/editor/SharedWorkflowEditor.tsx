@@ -15,6 +15,7 @@ import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
 import { createClient } from '@/lib/supabase/client';
+import { buildModelsMap, computeExecutionCost, type CostNode } from '@/lib/billing/cost';
 
 interface SharedWorkflowEditorProps {
     workflow?: Workflow | null;
@@ -338,6 +339,9 @@ export default function SharedWorkflowEditor({
         }
     };
 
+    const models = useAppStore((state) => state.models);
+    const modelsById = useMemo(() => buildModelsMap(models as any[]), [models]);
+
     const calculateExecutionCost = useCallback((targetNodeId: string | null, mode: string) => {
         let executionNodes: typeof nodes = [];
 
@@ -354,19 +358,15 @@ export default function SharedWorkflowEditor({
             executionNodes = nodes;
         }
 
-        let cost = 0;
-        let count = 0;
+        const costNodes: CostNode[] = executionNodes.map(n => ({
+            id: n.id,
+            type: n.type as string,
+            config: (n.data as any)?.config,
+        }));
 
-        executionNodes.forEach((node) => {
-            const def = sharedRegistry[node.type as keyof typeof sharedRegistry];
-            if (def && def.category === 'generative') {
-                cost += (def.creditCost || 1);
-                count++;
-            }
-        });
-
-        return { cost, count };
-    }, [nodes, edges]);
+        const { cost, generativeCount } = computeExecutionCost(costNodes, modelsById);
+        return { cost, count: generativeCount };
+    }, [nodes, edges, modelsById]);
 
     const handleRun = async () => {
         const { cost, count } = calculateExecutionCost(null, 'all');

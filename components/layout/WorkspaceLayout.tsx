@@ -193,29 +193,24 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                         exit={{ opacity: 0, x: -24 }}
                         transition={{ duration: 0.18, ease: 'easeOut' }}
                     >
-                        <div className="w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-                            {/* Header */}
-                            <div className="flex items-center justify-between p-4 bg-white/5 border-b border-stroke-subtle flex-shrink-0">
-                                <div className="flex-1 min-w-0">
-                                    {(selectedCategoryId || selectedProviderId) ? (
-                                        <button onClick={() => { if (selectedProviderId) setSelectedProviderId(null); else setSelectedCategoryId(null); }} className="flex items-center gap-2 text-content-primary hover:text-accent-primary transition-colors group">
+                        <div className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+                            {/* Floating controls */}
+                            <div className="absolute top-2 left-2 right-2 z-10 flex items-center justify-between pointer-events-none">
+                                <div className="pointer-events-auto">
+                                    {(selectedCategoryId || selectedProviderId) && (
+                                        <button onClick={() => { if (selectedProviderId) setSelectedProviderId(null); else setSelectedCategoryId(null); }} className="flex items-center gap-2 px-2 py-1.5 bg-surface-elevated/80 backdrop-blur-md rounded-lg text-content-primary hover:text-accent-primary transition-colors group">
                                             <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
                                             <span className="text-xs font-bold uppercase tracking-widest">Back</span>
                                         </button>
-                                    ) : (
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-1 h-3 bg-accent-primary rounded-full" />
-                                            <h3 className="font-bold text-sm text-content-primary">Node Library</h3>
-                                        </div>
                                     )}
                                 </div>
-                                <button onClick={() => { setActivePanel(null); setSelectedCategoryId(null); setSelectedProviderId(null); }} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group">
+                                <button onClick={() => { setActivePanel(null); setSelectedCategoryId(null); setSelectedProviderId(null); }} className="pointer-events-auto p-1.5 bg-surface-elevated/80 backdrop-blur-md hover:bg-white/10 rounded-lg transition-colors group" title="Close">
                                     <X className="w-4 h-4 text-content-tertiary group-hover:text-content-primary" />
                                 </button>
                             </div>
 
                             {/* Content */}
-                            <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+                            <div className="flex-1 overflow-y-auto overflow-x-hidden relative pt-10">
                                 {/* Level 1 */}
                                 <div className={cn('absolute inset-0 p-4 space-y-8 transition-all duration-300', (selectedCategoryId || selectedProviderId) ? '-translate-x-full opacity-0 pointer-events-none' : 'translate-x-0 opacity-100')}>
                                     {/* Common Tools */}

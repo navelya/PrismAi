@@ -131,33 +131,23 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
 
 
     return (
-        <div className="w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-stroke-subtle flex-shrink-0">
-                <div className="flex items-center gap-2">
-                    <div className="w-1 h-3 bg-accent-primary rounded-full" />
-                    <h3 className="font-bold text-sm text-content-primary">Session Assets</h3>
-                    {assets.length > 0 && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-accent-primary/15 text-accent-primary">
-                            {assets.length}
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={fetchAssets}
-                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group"
-                        title="Refresh assets"
-                    >
-                        <RefreshCw className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary transition-colors" />
-                    </button>
-                    <button
-                        onClick={onClose}
-                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors group"
-                    >
-                        <X className="w-4 h-4 text-content-tertiary group-hover:text-content-primary" />
-                    </button>
-                </div>
+        <div className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            {/* Floating controls */}
+            <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                <button
+                    onClick={fetchAssets}
+                    className="p-1.5 bg-surface-elevated/80 backdrop-blur-md hover:bg-white/10 rounded-lg transition-colors group"
+                    title="Refresh assets"
+                >
+                    <RefreshCw className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary transition-colors" />
+                </button>
+                <button
+                    onClick={onClose}
+                    className="p-1.5 bg-surface-elevated/80 backdrop-blur-md hover:bg-white/10 rounded-lg transition-colors group"
+                    title="Close"
+                >
+                    <X className="w-4 h-4 text-content-tertiary group-hover:text-content-primary" />
+                </button>
             </div>
 
             {/* Body */}

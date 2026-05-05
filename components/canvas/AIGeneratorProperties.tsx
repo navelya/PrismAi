@@ -15,6 +15,7 @@ import { formatDisplayName } from '@/lib/utils/schema-parser';
 import { AiModel, Control } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { computeAiNodeCost } from '@/lib/billing/cost';
 
 // =============================================================================
 // SKELETON LOADER
@@ -128,34 +129,9 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
         return <PropertiesSkeleton />;
     }
 
-    // --- LIVE COST CALCULATION ---
-    const calculateTotalCost = () => {
-        if (!selectedModel) return 0;
-        let total = selectedModel.credit_cost || 0;
-
-        const controlValues = config.control_values || {};
-        const controls = selectedModel.inputs_schema?.controls || [];
-
-        controls.forEach(ctrl => {
-            const val = controlValues[ctrl.api_mapping_key] ?? ctrl.default_value;
-
-            // Cost Modifiers (Select / Checkbox)
-            if (ctrl.cost_modifiers) {
-                const modifierKey = typeof val === 'boolean' ? val.toString() : val;
-                const modifier = ctrl.cost_modifiers[modifierKey];
-                if (modifier) total += modifier;
-            }
-
-            // Cost Per Unit (Slider / Number Input)
-            if (ctrl.cost_per_unit && typeof val === 'number') {
-                total += val * ctrl.cost_per_unit;
-            }
-        });
-
-        return Number(total.toFixed(2));
-    };
-
-    const totalCost = calculateTotalCost();
+    const totalCost = selectedModel
+        ? Number(computeAiNodeCost(config.control_values, selectedModel).toFixed(2))
+        : 0;
 
     return (
         <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden">
