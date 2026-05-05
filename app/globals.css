@@ -23,14 +23,16 @@
 
   /* Mobile viewport lock for internal app pages. The class is applied on <html>
      by app/layout.tsx (pre-hydration) and components/layout/AppLayout.tsx (runtime,
-     reacts to route changes and viewport size). overflow:hidden + 100dvh keeps the
-     mobile browser chrome from collapsing on scroll; inner scroll containers still
-     work because they have their own overflow:auto. */
+     reacts to route changes and viewport size). The lock works by giving html/body
+     exactly 100dvh and letting the AppLayout shell (h-[100dvh] overflow-hidden) fit
+     within it — so the document has nothing to scroll and the mobile browser chrome
+     never collapses, but the document is still nominally scrollable, which keeps
+     Chrome Android's pull-to-refresh gesture working. overscroll-behavior:contain
+     prevents scroll-chaining from inner scroll containers without disabling PTR. */
   html.app-locked,
   html.app-locked body {
     height: 100dvh;
-    overflow: hidden;
-    overscroll-behavior: none;
+    overscroll-behavior-y: contain;
   }
 
   h1,
