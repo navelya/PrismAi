@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
+import { requireAdmin } from '@/lib/api/auth';
 
 export async function POST(req: Request) {
     try {
+        const auth = await requireAdmin();
+        if (auth.error) return auth.error;
         const { items } = await req.json(); // Array of { id, sort_order }
         
         if (!items || !Array.isArray(items)) {

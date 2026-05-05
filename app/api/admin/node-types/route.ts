@@ -1,16 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
-import { createClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/api/auth';
 
 export async function GET() {
     try {
-        const auth = await getAuthenticatedUser();
-        // Allow unauthenticated reads if needed, or restrict. For admin, we should restrict.
-        // If we want public access to node_types, we can skip auth check for GET.
-        // For now, we'll keep it open like categories if the UI needs it before auth.
-        const supabase = createClient();
+        const auth = await requireAdmin();
+        if (auth.error) return auth.error;
 
-        const { data, error } = await supabase
+        const { data, error } = await auth.supabase
             .from('node_types')
             .select('*')
             .order('display_name');
@@ -25,7 +21,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
 
         const body = await req.json();

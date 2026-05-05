@@ -37,7 +37,7 @@ export async function middleware(request: NextRequest) {
     const path = request.nextUrl.pathname;
 
     // Define protected page routes
-    const protectedPageRoutes = ['/chat', '/editor', '/library', '/settings'];
+    const protectedPageRoutes = ['/chat', '/editor', '/library', '/settings', '/admin'];
     const isProtectedPage = protectedPageRoutes.some(route => path.startsWith(route));
 
     // Define protected API routes (all /api/* except public ones)
@@ -74,6 +74,7 @@ export const config = {
         '/editor/:path*',
         '/library/:path*',
         '/settings/:path*',
+        '/admin/:path*',
         '/login',
         '/api/:path*',
     ],

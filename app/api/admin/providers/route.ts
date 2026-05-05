@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
+import { requireAdmin } from '@/lib/api/auth';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export async function GET() {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
 
         const { data, error } = await auth.supabase
@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
         const { supabase } = auth;
 

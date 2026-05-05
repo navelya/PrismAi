@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
+import { requireAdmin } from '@/lib/api/auth';
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
 
         const { id } = params;
@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
 
         const { id } = params;

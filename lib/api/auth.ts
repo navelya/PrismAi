@@ -39,3 +39,39 @@ export async function getAuthenticatedUser(): Promise<
         };
     }
 }
+
+/**
+ * Authenticate a request AND require the user to be an admin.
+ * Returns 401 for unauthenticated callers and 403 for non-admins.
+ *
+ * Usage:
+ * ```ts
+ * const auth = await requireAdmin();
+ * if (auth.error) return auth.error;
+ * const { user, supabase } = auth;
+ * ```
+ */
+export async function requireAdmin(): Promise<
+    | { user: any; supabase: ReturnType<typeof createClient>; error?: undefined }
+    | { user?: undefined; supabase?: undefined; error: NextResponse }
+> {
+    const auth = await getAuthenticatedUser();
+    if (auth.error) return auth;
+
+    const { data: profile, error } = await auth.supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', auth.user.id)
+        .single();
+
+    if (error || !profile?.is_admin) {
+        return {
+            error: NextResponse.json(
+                { error: 'Forbidden — admin role required' },
+                { status: 403 }
+            ),
+        };
+    }
+
+    return { user: auth.user, supabase: auth.supabase };
+}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
+import { requireAdmin } from '@/lib/api/auth';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
         const { supabase } = auth;
         const id = params.id;
@@ -75,7 +75,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
         const { supabase } = auth;
         const id = params.id;

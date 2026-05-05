@@ -28,6 +28,7 @@ export async function GET() {
             email: user.email,
             user_metadata: user.user_metadata,
             profile: profile || null,
+            is_admin: profile?.is_admin === true,
         },
     });
 }

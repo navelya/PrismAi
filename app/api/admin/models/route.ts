@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
+import { requireAdmin } from '@/lib/api/auth';
 
 export async function POST(req: Request) {
     try {
-        const auth = await getAuthenticatedUser();
+        const auth = await requireAdmin();
         if (auth.error) return auth.error;
 
         const body = await req.json();

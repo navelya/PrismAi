@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
+import { requireAdmin } from '@/lib/api/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
     try {
+        const auth = await requireAdmin();
+        if (auth.error) return auth.error;
         const supabase = createServiceClient();
         const { data, error } = await supabase
             .from('context_menu_items')
@@ -20,6 +23,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
     try {
+        const auth = await requireAdmin();
+        if (auth.error) return auth.error;
         const item = await req.json();
         const supabase = createServiceClient();
         

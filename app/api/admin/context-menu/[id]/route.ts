@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
+import { requireAdmin } from '@/lib/api/auth';
 
 // Cycle Prevention Logic
 async function causesCycle(supabase: any, itemId: string, targetParentId: string | null): Promise<boolean> {
@@ -28,6 +29,8 @@ async function causesCycle(supabase: any, itemId: string, targetParentId: string
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
     try {
+        const auth = await requireAdmin();
+        if (auth.error) return auth.error;
         const id = params.id;
         const updates = await req.json();
         const supabase = createServiceClient();
@@ -62,6 +65,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
     try {
+        const auth = await requireAdmin();
+        if (auth.error) return auth.error;
         const id = params.id;
         const supabase = createServiceClient();
 

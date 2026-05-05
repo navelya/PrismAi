@@ -538,14 +538,16 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                             <Settings className="w-4 h-4 text-content-tertiary" />
                                             <span>Settings</span>
                                         </Link>
-                                        <Link
-                                            href="/admin"
-                                            onClick={() => setIsProfileMenuOpen(false)}
-                                            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
-                                        >
-                                            <Boxes className="w-4 h-4 text-content-tertiary" />
-                                            <span>Admin Panel</span>
-                                        </Link>
+                                        {user?.is_admin && (
+                                            <Link
+                                                href="/admin"
+                                                onClick={() => setIsProfileMenuOpen(false)}
+                                                className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
+                                            >
+                                                <Boxes className="w-4 h-4 text-content-tertiary" />
+                                                <span>Admin Panel</span>
+                                            </Link>
+                                        )}
                                         <div className="h-px bg-stroke-subtle my-1.5 mx-1" />
                                         <button
                                             onClick={handleLogout}
