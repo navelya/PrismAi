@@ -5,6 +5,7 @@ import ReactFlow, {
     NodeMouseHandler,
     ReactFlowProvider,
     Edge,
+    Node,
     NodeDragHandler,
     NodeChange,
     getIncomers,
@@ -64,11 +65,11 @@ interface EditorCanvasProps {
     canUndo?: boolean;
     canRedo?: boolean;
     // Drag Handlers
-    onNodeDragStart?: (event: React.MouseEvent, node: Node) => void;
-    onNodeDragStop?: (event: React.MouseEvent, node: Node) => void;
+    onNodeDragStart?: (event: React.MouseEvent, node: Node, nodes: Node[]) => void;
+    onNodeDragStop?: (event: React.MouseEvent, node: Node, nodes: Node[]) => void;
     // Action Handlers
     onDuplicate?: (nodes: Node[], edges: Edge[]) => void;
-    onDelete?: (nodes: Node[]) => void;
+    onDelete?: (nodeIds: string[]) => void;
     onCopy?: (nodeId: string) => void;
     onPaste?: () => void;
 }
@@ -200,10 +201,7 @@ const EditorCanvasInner = ({
         const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
         const selectedNodeIds = rfNodes.filter((n: any) => n.selected).map((n: any) => n.id);
         if (selectedNodeIds.length === 0) return;
-        // SharedWorkflowEditor's deleteNodes takes ids; the prop is typed as
-        // Node[] for legacy reasons. Match the keyboard-delete path that also
-        // passes ids (see handleNodesDelete).
-        (onDelete as any)(selectedNodeIds);
+        onDelete(selectedNodeIds);
     }, [reactFlowInstance, localNodes, onDelete]);
 
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
