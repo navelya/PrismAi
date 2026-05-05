@@ -1906,7 +1906,7 @@ export default function Home() {
                                     The visual engine for AI image and video workflows.
                                 </p>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-12">
+                            <div className="grid grid-cols-4 gap-12 w-full">
                                 <div className="space-y-4">
                                     <h4 className="text-[7px] font-black uppercase tracking-[0.4em] text-accent-primary opacity-60">Product</h4>
                                     <ul className="space-y-2 text-[7px] font-black text-white/40 uppercase tracking-[0.2em]">
