@@ -8,6 +8,7 @@ import { useTheme } from '@/components/theme/ThemeProvider';
 import { createClient } from '@/lib/supabase/client';
 import { userApi } from '@/lib/api/client';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import PlanBillingView from '@/components/billing/PlanBillingView';
 import {
     Settings,
     Network,
@@ -85,7 +86,7 @@ const navSections: NavSection[] = [
     {
         title: 'Usage & Billing',
         items: [
-            { id: 'plan-billing', label: 'Plan & Billing', icon: <CreditCard className="w-4 h-4" />, comingSoon: true },
+            { id: 'plan-billing', label: 'Plan & Billing', icon: <CreditCard className="w-4 h-4" /> },
             { id: 'usage', label: 'Token / Credit Usage', icon: <Coins className="w-4 h-4" />, comingSoon: true },
         ],
     },
@@ -642,7 +643,6 @@ const comingSoonDescriptions: Record<string, { title: string; description: strin
     profile: { title: 'Public Profile', description: 'Manage your display name, avatar, and bio visible across the platform.' },
     security: { title: 'Security', description: 'Configure two-factor authentication, manage sessions, and update your password.' },
     notifications: { title: 'Notifications', description: 'Control how and when you receive workflow completion alerts and system updates.' },
-    'plan-billing': { title: 'Plan & Billing', description: 'View your current plan, manage subscriptions, and update payment methods.' },
     usage: { title: 'Token / Credit Usage', description: 'Monitor your API token consumption, credit balance, and usage history.' },
     'api-keys': { title: 'API Keys', description: 'Generate and manage API keys for programmatic access to Prisfol.' },
     integrations: { title: 'Integrations', description: 'Connect third-party services like Slack, GitHub, and cloud storage providers.' },
@@ -697,6 +697,10 @@ function SettingsContent() {
 
         if (activeTab === 'editor-appearance') {
             return <EditorAppearanceView user={user} onProfileUpdated={fetchUser} />;
+        }
+
+        if (activeTab === 'plan-billing') {
+            return <PlanBillingView />;
         }
 
         const info = comingSoonDescriptions[activeTab];

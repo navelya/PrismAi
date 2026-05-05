@@ -5,6 +5,7 @@ import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square, Coins
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { formatCredits } from '@/lib/billing/cost';
+import PlansModal from '@/components/billing/PlansModal';
 
 interface EditorToolbarProps {
     workflowName: string;
@@ -30,6 +31,7 @@ export default function EditorToolbar({
     isPaletteOpen = true,
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
+    const [showPlans, setShowPlans] = useState(false);
     const { balance, loading: balanceLoading } = useTokenBalance();
     // State for auto-expanding width
     const [titleWidth, setTitleWidth] = useState('auto');
@@ -64,12 +66,14 @@ export default function EditorToolbar({
                 </div>
                 <div className="w-[1px] h-4 bg-stroke-subtle mx-1" />
                 <button
-                    onClick={() => { /* TODO: open subscription page */ }}
+                    onClick={() => setShowPlans(true)}
                     className="px-3 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/10 rounded-full transition-colors"
                 >
                     Upgrade
                 </button>
             </div>
+
+            <PlansModal isOpen={showPlans} onClose={() => setShowPlans(false)} />
 
             {/* Workflow Name Island (Centered) */}
             <div

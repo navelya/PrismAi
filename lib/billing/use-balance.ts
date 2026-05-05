@@ -54,8 +54,8 @@ export function useTokenBalance() {
                             table: 'profiles',
                             filter: `id=eq.${user.id}`,
                         },
-                        (payload) => {
-                            const next = (payload.new as { token_balance?: number | string })?.token_balance;
+                        (payload: { new: { token_balance?: number | string } }) => {
+                            const next = payload.new?.token_balance;
                             if (next !== undefined && next !== null) {
                                 setBalance(Number(next));
                             }
