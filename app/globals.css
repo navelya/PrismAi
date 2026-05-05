@@ -21,6 +21,18 @@
     @apply antialiased selection:bg-accent-primary/30 selection:text-accent-primary;
   }
 
+  /* Mobile viewport lock for internal app pages. The class is applied on <html>
+     by app/layout.tsx (pre-hydration) and components/layout/AppLayout.tsx (runtime,
+     reacts to route changes and viewport size). overflow:hidden + 100dvh keeps the
+     mobile browser chrome from collapsing on scroll; inner scroll containers still
+     work because they have their own overflow:auto. */
+  html.app-locked,
+  html.app-locked body {
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   h1,
   h2,
   h3,

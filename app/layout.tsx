@@ -62,6 +62,22 @@ const themeScript = `
 })();
 `;
 
+// Mobile viewport lock - keeps the browser chrome from collapsing on internal app pages.
+// Runs pre-hydration so the lock is applied before first paint. Only mobile widths,
+// only non-public pages (skips home / login / demo / legal).
+const viewportLockScript = `
+(function() {
+  try {
+    var path = window.location.pathname;
+    var isPublic = path === '/' || path === '/login' || path === '/demo' || path.indexOf('/legal') === 0;
+    var isMobile = window.matchMedia('(max-width: 767px)').matches;
+    if (!isPublic && isMobile) {
+      document.documentElement.classList.add('app-locked');
+    }
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({
   children,
 }: {
@@ -72,6 +88,9 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{ __html: themeScript }}
+        />
+        <script
+          dangerouslySetInnerHTML={{ __html: viewportLockScript }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

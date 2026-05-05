@@ -44,6 +44,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // Hide sidebar on home page, login page, demo page, and legal pages
     const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname.startsWith('/legal');
 
+    // Lock the mobile viewport on internal app pages so the browser chrome stays put.
+    // Public pages keep normal scroll behavior.
+    React.useEffect(() => {
+        const mq = window.matchMedia('(max-width: 767px)');
+        const apply = () => {
+            const lock = !isPublicPage && mq.matches;
+            document.documentElement.classList.toggle('app-locked', lock);
+        };
+        apply();
+        mq.addEventListener('change', apply);
+        return () => mq.removeEventListener('change', apply);
+    }, [isPublicPage]);
+
     // Public pages get full width, no sidebar, and allow scrolling
     if (isPublicPage) {
         return (
