@@ -89,7 +89,6 @@ export default function SharedWorkflowEditor({
     const [isExecuting, setIsExecuting] = useState(false);
     const [executionError, setExecutionError] = useState<string | null>(null);
     const [showResults, setShowResults] = useState(false);
-    const [selectionMode, setSelectionMode] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
 
     const [showCreditModal, setShowCreditModal] = useState(false);
@@ -196,13 +195,6 @@ export default function SharedWorkflowEditor({
 
         addNode(type, position, nodeTypeId, resolvedModelId, initialConfig, autoConnect);
     }, [readOnly, addNode]);
-
-    // Stable callback refs for EditorCanvas — see React.memo on the default export.
-    // Inline arrows here would defeat memoization and cause the whole canvas tree
-    // to reconcile every time SharedWorkflowEditor re-renders (e.g. on isDragging flip).
-    const handleSelectionToggle = useCallback(() => {
-        setSelectionMode(prev => !prev);
-    }, []);
 
     const handleCopy = useCallback((id: string) => {
         useAppStore.getState().copyNode(id);
@@ -413,7 +405,7 @@ export default function SharedWorkflowEditor({
 
         const { cost, count } = calculateExecutionCost(targetId, mode);
 
-        if (cost > 0) {
+        if (cost > 0 && mode !== 'solo') {
             setPendingExecutionTarget({ id: targetId, mode });
             setPendingCost(cost);
             setPendingNodeCount(count);
@@ -468,8 +460,6 @@ export default function SharedWorkflowEditor({
                         isRunning={isExecuting}
                         onDelete={handleDelete}
                         onNew={handleNew}
-                        selectionMode={selectionMode}
-                        onSelectionModeChange={setSelectionMode}
                     />
                 )}
 
@@ -492,8 +482,6 @@ export default function SharedWorkflowEditor({
                                 onNodeClick={handleNodeClick}
                                 onDrop={handleDrop}
                                 updatePositions={updatePositions}
-                                selectionMode={selectionMode}
-                                onSelectionToggle={handleSelectionToggle}
                                 undo={undo}
                                 redo={redo}
                                 canUndo={canUndo}

@@ -13,8 +13,6 @@ interface EditorToolbarProps {
     isRunning?: boolean;
     onDelete: () => void;
     onNew: () => void;
-    selectionMode?: boolean;
-    onSelectionModeChange?: (enabled: boolean) => void;
     isPaletteOpen?: boolean;
 }
 
@@ -27,8 +25,6 @@ export default function EditorToolbar({
     isRunning = false,
     onDelete,
     onNew,
-    selectionMode = false,
-    onSelectionModeChange,
     isPaletteOpen = true,
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
@@ -132,13 +128,6 @@ export default function EditorToolbar({
                         <>
                             <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                             <div className="absolute right-0 top-full mt-2 w-48 bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle rounded-xl shadow-2xl z-20 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                                <button
-                                    onClick={() => { onSelectionModeChange?.(!selectionMode); setShowMenu(false); }}
-                                    className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors ${selectionMode ? 'text-accent-primary bg-accent-primary/5' : 'text-content-secondary hover:bg-surface-tertiary'}`}
-                                >
-                                    <MousePointer className="w-4 h-4" />
-                                    {selectionMode ? 'Exit Selection Mode' : 'Selection Mode'}
-                                </button>
                                 <button
                                     onClick={() => { onDelete(); setShowMenu(false); }}
                                     className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-500/5 transition-colors"

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, memo } from 'react';
 import { useUpdateNodeInternals } from 'reactflow';
-import { Zap, Check, Square, LayoutGrid, MoreHorizontal, Play } from 'lucide-react';
+import { Zap, Check, Square, LayoutGrid, MoreHorizontal, Play, Coins } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
@@ -334,8 +334,16 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                             status === 'running' && "opacity-50 pointer-events-none"
                         )}
                     >
-                        <Play className={cn("w-3 h-3", status !== 'running' && "fill-current")} />
-                        {status === 'running' ? 'Running' : 'Run'}
+                        <div className="flex items-center gap-1.5 border-r border-accent-primary/20 pr-1.5 mr-0.5">
+                            <Play className={cn("w-3 h-3", status !== 'running' && "fill-current")} />
+                            <span>{status === 'running' ? 'Running' : 'Run'}</span>
+                        </div>
+                        {selectedModel.credit_cost > 0 && (
+                            <div className="flex items-center gap-1 pl-0.5">
+                                <span className="opacity-80">{selectedModel.credit_cost}</span>
+                                <Coins className="w-3 h-3 opacity-60" />
+                            </div>
+                        )}
                     </button>
                 </div>
             )}

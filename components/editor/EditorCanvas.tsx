@@ -14,6 +14,9 @@ import ReactFlow, {
     Panel,
     useReactFlow,
     applyNodeChanges,
+    NodeToolbar,
+    Position,
+    SelectionMode,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
@@ -55,19 +58,17 @@ interface EditorCanvasProps {
         autoConnect?: PendingConnection,
     ) => void;
     updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
-    selectionMode?: boolean;
-    onSelectionToggle?: () => void;
     // Undo/Redo Props
     undo?: () => void;
     redo?: () => void;
     canUndo?: boolean;
     canRedo?: boolean;
     // Drag Handlers
-    onNodeDragStart?: NodeDragHandler;
-    onNodeDragStop?: NodeDragHandler;
+    onNodeDragStart?: (event: React.MouseEvent, node: Node) => void;
+    onNodeDragStop?: (event: React.MouseEvent, node: Node) => void;
     // Action Handlers
-    onDuplicate?: (nodes: any[], edges: any[]) => void;
-    onDelete?: (nodeIds: string[]) => void;
+    onDuplicate?: (nodes: Node[], edges: Edge[]) => void;
+    onDelete?: (nodes: Node[]) => void;
     onCopy?: (nodeId: string) => void;
     onPaste?: () => void;
 }
@@ -109,16 +110,10 @@ const EditorCanvasInner = ({
     const wireDropOpenedAtRef = useRef<number>(0);
     const [isPanMode, setIsPanMode] = useState(false);
     const [isMouseActive, setIsMouseActive] = useState(false);
-    const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const wrapperRectRef = useRef<{ left: number; top: number } | null>(null);
-    const { resolvedTheme } = useTheme();
 
-    const setIsDragging = useAppStore((state) => state.setIsDragging);
-    const models = useAppStore((state) => state.models);
-    
     // 🚀 THE CORE FIX: Local state for nodes during interaction
     const [localNodes, setLocalNodes] = useState(propNodes);
-    
+
     // Sync local nodes when prop nodes change externally (but NOT while dragging)
     const isDraggingRef = useRef(false);
     useEffect(() => {
@@ -127,14 +122,7 @@ const EditorCanvasInner = ({
         }
     }, [propNodes]);
 
-    const { getRFNode, getRFNodes, getRFEdges } = {
-        getRFNode: (id: string) => reactFlowInstance?.getNode(id),
-        getRFNodes: () => reactFlowInstance?.getNodes() || [],
-        getRFEdges: () => reactFlowInstance?.getEdges() || [],
-    };
-
-    const copyNode = useAppStore((state) => state.copyNode);
-    const pasteNode = useAppStore((state) => state.pasteNode);
+    const { resolvedTheme } = useTheme();
 
     const edgeStyle = useMemo(() => ({
         strokeWidth: 2,
@@ -148,6 +136,40 @@ const EditorCanvasInner = ({
         animated: false,
         style: edgeStyle,
     })), [edges, edgeStyle]);
+
+    const handleDuplicateSelected = useCallback(() => {
+        if (!onDuplicate) return;
+        const selectedNodes = localNodes.filter(n => n.selected);
+        if (selectedNodes.length === 0) return;
+
+        const selectedEdges = memoizedEdges.filter(e =>
+            selectedNodes.some(n => n.id === e.source) &&
+            selectedNodes.some(n => n.id === e.target)
+        );
+        onDuplicate(selectedNodes, selectedEdges);
+    }, [localNodes, memoizedEdges, onDuplicate]);
+
+    const handleDeleteSelected = useCallback(() => {
+        if (!onDelete) return;
+        const selectedNodes = localNodes.filter(n => n.selected);
+        if (selectedNodes.length === 0) return;
+        onDelete(selectedNodes);
+    }, [localNodes, onDelete]);
+
+    const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const wrapperRectRef = useRef<{ left: number; top: number } | null>(null);
+
+    const setIsDragging = useAppStore((state) => state.setIsDragging);
+    const models = useAppStore((state) => state.models);
+
+    const { getRFNode, getRFNodes, getRFEdges } = {
+        getRFNode: (id: string) => reactFlowInstance?.getNode(id),
+        getRFNodes: () => reactFlowInstance?.getNodes() || [],
+        getRFEdges: () => reactFlowInstance?.getEdges() || [],
+    };
+
+    const copyNode = useAppStore((state) => state.copyNode);
+    const pasteNode = useAppStore((state) => state.pasteNode);
 
     const touchInteraction = useAppStore((state) => state.touchInteraction);
 
@@ -241,6 +263,30 @@ const EditorCanvasInner = ({
         touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
     }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions]);
+
+    // After a marquee selection, React Flow renders a `.react-flow__nodesselection-rect`
+    // overlay with `pointer-events: all` — grabbing anywhere inside it (even on a
+    // node) fires the SELECTION drag, not the node drag. That hits onSelectionDrag*
+    // instead of onNodeDrag*, so without these handlers the position changes never
+    // reach the store and the next deselect re-syncs localNodes from stale propNodes.
+    const handleSelectionDragStart = useCallback(() => {
+        isDraggingRef.current = true;
+        setIsDragging(true);
+    }, [setIsDragging]);
+
+    const handleSelectionDragStop = useCallback((_event: React.MouseEvent, nodes: any[]) => {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+
+        const positionsMap = new Map<string, { x: number; y: number }>();
+        nodes.forEach(n => positionsMap.set(n.id, n.position));
+
+        if (updatePositions) {
+            updatePositions(positionsMap);
+        }
+
+        touchInteraction();
+    }, [setIsDragging, touchInteraction, updatePositions]);
 
     const handleEdgesChange = useCallback((changes: any) => {
         touchInteraction();
@@ -412,6 +458,8 @@ const EditorCanvasInner = ({
                 onNodeClick={onNodeClick}
                 onNodeDragStart={handleNodeDragStart}
                 onNodeDragStop={handleNodeDragStop}
+                onSelectionDragStart={handleSelectionDragStart}
+                onSelectionDragStop={handleSelectionDragStop}
                 onEdgeClick={handleEdgeClick}
                 onInit={setReactFlowInstance}
                 onDrop={handleDrop}
@@ -430,13 +478,47 @@ const EditorCanvasInner = ({
                 panOnScroll={true}
                 zoomOnScroll={false}
                 zoomOnPinch={true}
-                selectNodesOnDrag={false}
+                panOnDrag={isPanMode ? [0, 1] : [1]}
+                selectionOnDrag={!isPanMode}
+                selectNodesOnDrag={!isPanMode}
+                nodesDraggable={!isPanMode}
+                selectionMode={!isPanMode ? SelectionMode.Partial : undefined}
                 connectionMode={"loose" as any}
                 onPaneClick={handlePaneClick}
                 proOptions={PRO_OPTIONS}
             >
                 <BaseGridLayers />
                 <SpotlightGridLayers isMouseActive={isMouseActive} />
+
+                {(() => {
+                    const selectedIds = localNodes.filter(n => n.selected).map(n => n.id);
+                    if (selectedIds.length < 2) return null;
+                    return (
+                        <NodeToolbar
+                            isVisible={true}
+                            nodeId={selectedIds}
+                            position={Position.Top}
+                            align="end"
+                        >
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-lg animate-in fade-in zoom-in-95 duration-150">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleDuplicateSelected(); }}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                    title="Duplicate selected"
+                                >
+                                    <Copy className="w-3 h-3" />
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteSelected(); }}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
+                                    title="Delete selected"
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </button>
+                            </div>
+                        </NodeToolbar>
+                    );
+                })()}
                 <CanvasToolbar
                     undo={undo}
                     redo={redo}
@@ -449,9 +531,6 @@ const EditorCanvasInner = ({
                     }}
                     isPanMode={isPanMode}
                     onTogglePanMode={setIsPanMode}
-                    onFitView={() => reactFlowInstance?.fitView({ padding: 0.3, duration: 800 })}
-                    onZoomIn={() => reactFlowInstance?.zoomIn({ duration: 300 })}
-                    onZoomOut={() => reactFlowInstance?.zoomOut({ duration: 300 })}
                     isNodesEmpty={localNodes.length === 0}
                 />
             </ReactFlow>

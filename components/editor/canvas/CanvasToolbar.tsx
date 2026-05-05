@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Panel, useViewport } from 'reactflow';
+import { Panel, useReactFlow, useStore, ReactFlowState } from 'reactflow';
 import { Undo2, Redo2, Network, Hand, Maximize2, Minus, Plus } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 
@@ -13,9 +13,6 @@ interface CanvasToolbarProps {
     onAutoLayout: () => void;
     isPanMode: boolean;
     onTogglePanMode: (active: boolean) => void;
-    onFitView: () => void;
-    onZoomIn: () => void;
-    onZoomOut: () => void;
     isNodesEmpty: boolean;
 }
 
@@ -27,11 +24,10 @@ export function CanvasToolbar({
     onAutoLayout,
     isPanMode,
     onTogglePanMode,
-    onFitView,
-    onZoomIn,
-    onZoomOut,
     isNodesEmpty
 }: CanvasToolbarProps) {
+    const { zoomIn, zoomOut, fitView } = useReactFlow();
+
     return (
         <Panel position="bottom-center" className="!mb-4">
             <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl">
@@ -63,20 +59,20 @@ export function CanvasToolbar({
                 />
                 <ToolbarButton
                     icon={Maximize2}
-                    onClick={onFitView}
+                    onClick={() => fitView({ duration: 800, padding: 0.3 })}
                     title="Fit View"
                 />
                 <ToolbarDivider />
 
                 <ToolbarButton
                     icon={Minus}
-                    onClick={onZoomOut}
+                    onClick={() => zoomOut({ duration: 400 })}
                     title="Zoom Out"
                 />
                 <ZoomDisplay />
                 <ToolbarButton
                     icon={Plus}
-                    onClick={onZoomIn}
+                    onClick={() => zoomIn({ duration: 400 })}
                     title="Zoom In"
                 />
             </div>
@@ -132,12 +128,15 @@ export function ToolbarDivider() {
 }
 
 function ZoomDisplay() {
-    const { zoom } = useViewport();
-    // 🛡️ FIX: Provide fallback zoom to prevent NaN display
-    const displayZoom = (typeof zoom === 'number' && !isNaN(zoom)) ? zoom : 0.8;
+    // 🚀 PERFORMANCE FIX: Use useStore(selector) for real-time transform updates.
+    // useViewport() was occasionally returning undefined during transitions,
+    // causing the UI to flicker back to its fallback "80%" value.
+    const zoom = useStore((s: ReactFlowState) => s.transform[2]);
+    
     return (
         <span className="px-2 text-xs font-medium text-content-secondary min-w-[40px] text-center tabular-nums">
-            {Math.round(displayZoom * 100)}%
+            {Math.round((zoom || 0.8) * 100)}%
         </span>
     );
 }
+
