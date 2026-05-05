@@ -677,25 +677,66 @@ const GALLERY_IMAGES = [
     'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=600',
     'https://images.unsplash.com/photo-1604871000636-074fa5117945?auto=format&fit=crop&q=80&w=600',
     'https://images.unsplash.com/photo-1635322966219-b75ed372eb01?auto=format&fit=crop&q=80&w=600',
-    'https://images.unsplash.com/photo-1633101585272-9e0b0c3d9d4d?auto=format&fit=crop&q=80&w=600',
-    'https://images.unsplash.com/photo-1604871000318-d8a503fa8efb?auto=format&fit=crop&q=80&w=600',
-    'https://images.unsplash.com/photo-1633101585330-d72f60c43e9f?auto=format&fit=crop&q=80&w=600',
+    'https://images.unsplash.com/photo-1626544827763-d516dce335e2?auto=format&fit=crop&q=80&w=600',
+    'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?auto=format&fit=crop&q=80&w=600',
+    'https://images.unsplash.com/photo-1505839673365-e3971f8d9184?auto=format&fit=crop&q=80&w=600',
 ];
 
 function GalleryColumn({ images, direction = 'up', duration = 60, className }: { images: string[]; direction?: 'up' | 'down'; duration?: number; className?: string }) {
+    const trackRef = useRef<HTMLDivElement>(null);
+    const y = useMotionValue(0);
+    const halfHeightRef = useRef(0);
+    const initRef = useRef(false);
+
+    useEffect(() => {
+        const measure = () => {
+            const track = trackRef.current;
+            if (!track) return;
+            const children = track.children;
+            if (children.length <= images.length) return;
+            const half = (children[images.length] as HTMLElement).offsetTop;
+            if (half <= 0) return;
+            halfHeightRef.current = half;
+            if (!initRef.current) {
+                y.set(direction === 'down' ? -half : 0);
+                initRef.current = true;
+            }
+        };
+        measure();
+        const ro = new ResizeObserver(measure);
+        if (trackRef.current) ro.observe(trackRef.current);
+        const imgs = trackRef.current?.querySelectorAll('img') ?? [];
+        imgs.forEach((img) => img.addEventListener('load', measure));
+        return () => {
+            ro.disconnect();
+            imgs.forEach((img) => img.removeEventListener('load', measure));
+        };
+    }, [direction, images.length, y]);
+
+    useAnimationFrame((_, delta) => {
+        const half = halfHeightRef.current;
+        if (half === 0) return;
+        const speed = half / (duration * 1000);
+        let next = y.get() + (direction === 'up' ? -delta * speed : delta * speed);
+        while (next <= -half) next += half;
+        while (next > 0) next -= half;
+        y.set(next);
+    });
+
     const doubled = [...images, ...images];
     return (
         <div className={cn("relative h-[640px] overflow-hidden", className)}>
             <motion.div
-                className="flex flex-col gap-4"
-                animate={{ y: direction === 'up' ? ['0%', '-50%'] : ['-50%', '0%'] }}
-                transition={{ duration, ease: 'linear', repeat: Infinity }}
+                ref={trackRef}
+                className="flex flex-col gap-4 will-change-transform"
+                style={{ y }}
             >
                 {doubled.map((src, i) => (
                     <div key={i} className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl group/img">
                         <img
                             src={src}
                             loading="lazy"
+                            draggable={false}
                             className="w-full h-auto object-cover transition-transform duration-700 group-hover/img:scale-105"
                             alt=""
                         />
@@ -788,6 +829,89 @@ function PhaseCaption({
     );
 }
 
+function MobileActivePhase({ phases, scrollYProgress }: { phases: { tag: string; t: string; d: string }[]; scrollYProgress: MotionValue<number> }) {
+    const [idx, setIdx] = useState(0);
+    useEffect(() => {
+        return scrollYProgress.on('change', (v) => {
+            setIdx(Math.max(0, Math.min(phases.length - 1, Math.floor(v * phases.length))));
+        });
+    }, [scrollYProgress, phases.length]);
+
+    const phase = phases[idx];
+    return (
+        <div className="min-h-[72px] text-center">
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.3 }}
+                >
+                    <h3 className="text-base font-black uppercase font-display tracking-tight text-white leading-tight">
+                        {phase.t}
+                    </h3>
+                    <p className="mt-1.5 text-[11px] text-white/60 leading-snug max-w-xs mx-auto">
+                        {phase.d}
+                    </p>
+                </motion.div>
+            </AnimatePresence>
+        </div>
+    );
+}
+
+function StepDots({ count, scrollYProgress }: { count: number; scrollYProgress: MotionValue<number> }) {
+    const [active, setActive] = useState(0);
+    useEffect(() => {
+        return scrollYProgress.on('change', (v) => {
+            setActive(Math.max(0, Math.min(count - 1, Math.floor(v * count))));
+        });
+    }, [scrollYProgress, count]);
+
+    return (
+        <div className="flex items-center justify-center">
+            {Array.from({ length: count }).map((_, i) => {
+                const isActive = i === active;
+                const isCompleted = i < active;
+                const reached = isActive || isCompleted;
+                return (
+                    <React.Fragment key={i}>
+                        <motion.div
+                            initial={false}
+                            animate={{
+                                width: isActive ? 26 : 8,
+                                height: isActive ? 26 : 8,
+                            }}
+                            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                            className={cn(
+                                "relative rounded-full flex items-center justify-center shrink-0 transition-colors duration-300",
+                                reached ? "bg-accent-primary" : "bg-white/15"
+                            )}
+                        >
+                            {isActive && (
+                                <motion.span
+                                    initial={{ opacity: 0, scale: 0.5 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ duration: 0.2, delay: 0.1 }}
+                                    className="text-[10px] font-black text-slate-900 leading-none"
+                                >
+                                    {i + 1}
+                                </motion.span>
+                            )}
+                        </motion.div>
+                        {i < count - 1 && (
+                            <div className={cn(
+                                "h-px w-4 transition-colors duration-300",
+                                isCompleted ? "bg-accent-primary" : "bg-white/15"
+                            )} />
+                        )}
+                    </React.Fragment>
+                );
+            })}
+        </div>
+    );
+}
+
 function ScrollWorkflowSection() {
     const ref = useRef<HTMLDivElement>(null);
     const { scrollYProgress } = useScroll({
@@ -823,42 +947,27 @@ function ScrollWorkflowSection() {
     ];
 
     return (
-        <section ref={ref} className="relative w-full h-[300vh]" id="process">
+        <section ref={ref} className="relative w-full h-[250vh] md:h-[300vh]" id="process">
             <div className="sticky top-0 h-screen w-full flex items-center overflow-hidden">
-                <div className="w-full max-w-7xl mx-auto px-8 grid md:grid-cols-[1fr_1.2fr] gap-8 md:gap-14 items-center">
-                    {/* Left: Captions */}
-                    <div className="space-y-8">
-                        <div>
-                            <span className="text-[7px] font-black uppercase tracking-[0.5em] text-accent-primary opacity-60">Anatomy</span>
-                            <h2 className="mt-5 text-3xl md:text-5xl font-black leading-[0.95] uppercase font-display text-white">
-                                Anatomy of a render.
-                            </h2>
-                            <p className="mt-4 text-xs font-bold uppercase tracking-wider text-slate-400 max-w-md">
-                                Five nodes. One canvas. Scroll to assemble.
-                            </p>
-                        </div>
-
-                        <div className="space-y-5 pt-2">
-                            {phases.map((p, i) => (
-                                <PhaseCaption
-                                    key={i}
-                                    idx={i}
-                                    tag={p.tag}
-                                    title={p.t}
-                                    desc={p.d}
-                                    scrollYProgress={scrollYProgress}
-                                    isLast={i === phases.length - 1}
-                                />
-                            ))}
-                        </div>
-
-                        <div className="relative h-0.5 bg-white/10 rounded-full overflow-hidden mt-8 max-w-sm">
-                            <motion.div style={{ width: progressW }} className="absolute inset-y-0 left-0 bg-accent-primary" />
-                        </div>
+                <div className="w-full max-w-7xl mx-auto px-5 md:px-8 grid grid-cols-1 md:grid-cols-[1fr_1.2fr] md:grid-rows-[auto_1fr_auto] gap-4 md:gap-x-14 md:gap-y-6 md:items-center">
+                    {/* Heading — col 1 row 1 on desktop, top on mobile */}
+                    <div className="md:col-start-1 md:row-start-1">
+                        <span className="text-[7px] font-black uppercase tracking-[0.5em] text-accent-primary opacity-60">Anatomy</span>
+                        <h2 className="mt-3 md:mt-5 text-2xl md:text-5xl font-black leading-[0.95] uppercase font-display text-white">
+                            Anatomy of a render.
+                        </h2>
+                        <p className="hidden md:block mt-4 text-xs font-bold uppercase tracking-wider text-slate-400 max-w-md">
+                            Five nodes. One canvas. Scroll to assemble.
+                        </p>
                     </div>
 
-                    {/* Right: Canvas */}
-                    <div className="relative w-full aspect-[6/4] rounded-3xl border border-white/10 bg-slate-950/60 backdrop-blur overflow-hidden shadow-[0_30px_80px_-20px_rgba(56,189,248,0.25)]">
+                    {/* Step dots — mobile only, between heading and canvas */}
+                    <div className="md:hidden h-12 content-center">
+                        <StepDots count={phases.length} scrollYProgress={scrollYProgress} />
+                    </div>
+
+                    {/* Canvas — col 2 spanning all rows on desktop, between dots and active text on mobile */}
+                    <div className="relative w-full aspect-[5/4] md:aspect-[6/4] md:col-start-2 md:row-start-1 md:row-span-3 rounded-2xl md:rounded-3xl border border-white/10 bg-slate-950/60 backdrop-blur overflow-hidden shadow-[0_30px_80px_-20px_rgba(56,189,248,0.25)]">
                         {/* Window chrome */}
                         <div className="absolute top-0 left-0 right-0 z-20 flex items-center gap-2 px-4 py-2.5 border-b border-white/5 bg-white/[0.02] backdrop-blur">
                             <div className="flex gap-1.5">
@@ -972,6 +1081,31 @@ function ScrollWorkflowSection() {
                             </div>
                         </motion.div>
                     </div>
+
+                    {/* Desktop phase list — col 1 row 2 */}
+                    <div className="hidden md:block md:col-start-1 md:row-start-2 space-y-5 pt-2">
+                        {phases.map((p, i) => (
+                            <PhaseCaption
+                                key={i}
+                                idx={i}
+                                tag={p.tag}
+                                title={p.t}
+                                desc={p.d}
+                                scrollYProgress={scrollYProgress}
+                                isLast={i === phases.length - 1}
+                            />
+                        ))}
+                    </div>
+
+                    {/* Mobile active phase text — below canvas */}
+                    <div className="md:hidden">
+                        <MobileActivePhase phases={phases} scrollYProgress={scrollYProgress} />
+                    </div>
+
+                    {/* Desktop progress bar — col 1 row 3 */}
+                    <div className="hidden md:block md:col-start-1 md:row-start-3 relative h-0.5 bg-white/10 rounded-full overflow-hidden mt-2 max-w-sm">
+                        <motion.div style={{ width: progressW }} className="absolute inset-y-0 left-0 bg-accent-primary" />
+                    </div>
                 </div>
             </div>
         </section>
@@ -1045,7 +1179,7 @@ const TEMPLATES = [
         category: 'Editing',
         tag: 'One-click',
         desc: 'Cut your subject. Recompose anywhere. Studio-clean edges.',
-        img: 'https://images.unsplash.com/photo-1633101585272-9e0b0c3d9d4d?auto=format&fit=crop&q=80&w=1400',
+        img: 'https://images.unsplash.com/photo-1626544827763-d516dce335e2?auto=format&fit=crop&q=80&w=1400',
     },
 ];
 
@@ -1248,11 +1382,11 @@ export default function Home() {
             <div className="relative z-10 w-full flex flex-col items-center overflow-x-clip">
                 {/* ─── Floating Glass Nav ─────────────────────────────────────── */}
                 <motion.nav
-                    initial={{ y: -20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
+                    initial={{ y: -20, x: '-50%', opacity: 0 }}
+                    animate={{ y: 0, x: '-50%', opacity: 1 }}
                     transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                     className={cn(
-                        "fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-5xl rounded-2xl transition-all duration-500",
+                        "fixed top-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-5xl rounded-2xl transition-all duration-500",
                         navScrolled
                             ? "bg-white/80 backdrop-blur-xl border border-slate-200/80 shadow-lg shadow-slate-900/5"
                             : "bg-transparent border border-transparent"
@@ -1282,8 +1416,16 @@ export default function Home() {
 
                 {/* ─── Hero & Workflow Unified Section ─────────────────────────── */}
                 <section className="relative w-full min-h-[100vh] flex flex-col items-center pb-12 pt-10" id="workflow">
-                    <div className="absolute inset-x-0 top-4 bottom-4 z-0 overflow-hidden">
+                    <div className="absolute inset-x-0 top-4 bottom-4 z-0 overflow-hidden hidden md:block">
                         {mounted && <InteractiveWorkflowDemo />}
+                    </div>
+
+                    {/* Mobile-only static hero visual */}
+                    <div className="md:hidden absolute inset-x-0 top-8 bottom-0 z-0 overflow-hidden pointer-events-none">
+                        <div className="absolute inset-x-0 top-0 h-full bg-[radial-gradient(ellipse_at_50%_30%,rgba(56,189,248,0.18),transparent_60%)]" />
+                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[120%] aspect-square rounded-full border border-accent-primary/20" />
+                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[80%] aspect-square rounded-full border border-accent-primary/10" />
+                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[40%] aspect-square rounded-full border border-accent-primary/10" />
                     </div>
 
                     {/*
@@ -1613,14 +1755,6 @@ export default function Home() {
                 <div className="w-full bg-slate-900 flex flex-col items-center relative overflow-x-clip">
                     <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-white to-transparent pointer-events-none z-10" />
 
-                    <div
-                        className="absolute inset-0 opacity-[0.04] pointer-events-none"
-                        style={{
-                            backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
-                            backgroundSize: '48px 48px'
-                        }}
-                    />
-
                     {/* ─── Brand Carousel ───────────────────────────────────────── */}
                     {mounted && (
                         <motion.div
@@ -1690,7 +1824,7 @@ export default function Home() {
                         <SectionHeader
                             tag="Gallery"
                             title="Made by creators, on the canvas."
-                            description="A live look at workflows shipping right now. Hover to pause."
+                            description="A live look at workflows shipping right now."
                             dark
                             center
                         />
