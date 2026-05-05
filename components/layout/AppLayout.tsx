@@ -69,7 +69,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // Mobile layout: Header + Content + Slide-out drawer
     if (isMobile) {
         return (
-            <div className="w-full h-screen flex flex-col overflow-hidden">
+            <div className="w-full h-[100dvh] flex flex-col overflow-hidden">
                 {/* Mobile Header */}
                 <header className="flex-shrink-0 h-14 bg-surface-primary border-b border-stroke-subtle flex items-center px-4 gap-3">
                     <button
@@ -106,7 +106,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
     // Desktop layout: Side navigation
     return (
-        <div className="w-full h-screen flex overflow-hidden">
+        <div className="w-full h-[100dvh] flex overflow-hidden">
             {/* Sidebar Navigation */}
             <Sidebar />
 
