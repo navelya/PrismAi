@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { PLANS, type PlanDisplay } from '@/lib/billing/plans-config';
@@ -16,6 +17,13 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
     const { subscription } = useSubscription();
     const currentPlanId = subscription?.planId ?? 'free';
 
+    // Portal mount guard — prevents SSR mismatch and lets the modal escape
+    // any ancestor with `transform`/`will-change`/`filter`, which would
+    // otherwise re-anchor `position: fixed` and let workspace panels (chat,
+    // tool rail, side panel) render on top of the backdrop.
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
+
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
@@ -24,30 +32,34 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
         return () => document.removeEventListener('keydown', handler);
     }, [isOpen, onClose]);
 
-    return (
+    const overlay = (
         <AnimatePresence>
             {isOpen && (
                 <>
+                    {/* Single full-viewport layer that owns BOTH the blurred
+                        backdrop and the modal content. Using one layer (and
+                        catching clicks on the wrapper) guarantees that every
+                        pixel outside the card closes the modal — and that no
+                        stray sibling can render above the blur. */}
                     <motion.div
-                        key="plans-backdrop"
-                        className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-md"
+                        key="plans-overlay"
+                        className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 overflow-y-auto"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={onClose}
-                    />
-
-                    <motion.div
-                        key="plans-modal"
-                        className="fixed inset-0 z-[91] flex items-center justify-center p-4 sm:p-8 pointer-events-none overflow-y-auto"
-                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
                     >
-                        <div
-                            className="relative w-full max-w-6xl my-auto bg-surface-elevated border border-stroke-subtle rounded-3xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
+                        <motion.div
+                            key="plans-card-wrap"
+                            className="relative w-full max-w-6xl my-auto"
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
                             onClick={(e) => e.stopPropagation()}
+                        >
+                        <div
+                            className="relative w-full bg-surface-elevated border border-stroke-subtle rounded-3xl shadow-2xl flex flex-col overflow-hidden"
                         >
                             {/* Decorative gradient */}
                             <div className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-accent-primary/10 blur-3xl" />
@@ -86,11 +98,15 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                 Paid plans coming soon. Prices in USD, billed monthly. Taxes may apply.
                             </div>
                         </div>
+                        </motion.div>
                     </motion.div>
                 </>
             )}
         </AnimatePresence>
     );
+
+    if (!mounted) return null;
+    return createPortal(overlay, document.body);
 }
 
 interface PlanCardProps {

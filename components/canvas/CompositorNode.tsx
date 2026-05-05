@@ -13,6 +13,7 @@ import CompositorEditorModal from '@/components/compositor/CompositorEditorModal
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from '@/components/compositor/CompositorRenderer';
+import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 
 const defaultConfig: CompositorConfig = {
     canvasWidth: 1920,
@@ -115,6 +116,16 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const stageRef = useRef<any>(null);
 
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
+
+    // Drive the client-side compositor executor so this node's composited
+    // output is published into nodeOutputs[id]. Downstream nodes (Blur, AI
+    // Generator, ...) read through that same path.
+    useNodeAutoCompute(id);
+
+    // Read this compositor's published output (envelope) for the lightbox so
+    // the user downloads the full-canvas composition, not the down-scaled
+    // Konva preview capture.
+    const composedOutput = useAppStore((state) => state.nodeOutputs[id]);
 
     // Edges currently targeting this compositor's "layers" input.
     const layerEdges = useAppStore(useShallow((state) =>
@@ -326,18 +337,39 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 />,
                 document.body
             )}
-            {lightboxOpen && (
-                <ImageLightbox
-                    media={[{
-                        base64: stageRef.current ? stageRef.current.toDataURL({
-                            pixelRatio: 1 / stageRef.current.scaleX()
-                        }) : ''
-                    }]}
-                    type="image"
-                    initialIndex={0}
-                    onClose={() => setLightboxOpen(false)}
-                />
-            )}
+            {lightboxOpen && (() => {
+                // Prefer the published full-resolution composition so the
+                // download/zoom button matches what downstream nodes consume.
+                // Fall back to a high-DPI Konva capture if the executor hasn't
+                // produced output yet.
+                const normalized = composedOutput
+                    ? toLegacyRenderableOutput(composedOutput)
+                    : null;
+                const first = Array.isArray(normalized) ? normalized[0] : normalized;
+                const composedUrl =
+                    first && typeof first === 'object' && typeof (first as any).url === 'string'
+                        ? (first as any).url
+                        : null;
+
+                let mediaSrc = composedUrl;
+                if (!mediaSrc && stageRef.current) {
+                    const scale = stageRef.current.scaleX?.() || 1;
+                    mediaSrc = stageRef.current.toDataURL({
+                        pixelRatio: scale > 0 ? 1 / scale : 1,
+                    });
+                }
+
+                if (!mediaSrc) return null;
+
+                return (
+                    <ImageLightbox
+                        media={mediaSrc}
+                        type="image"
+                        initialIndex={0}
+                        onClose={() => setLightboxOpen(false)}
+                    />
+                );
+            })()}
         </>
     );
 }

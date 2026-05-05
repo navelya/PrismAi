@@ -10,7 +10,8 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(python scripts/search.py \"AI creative tool workflow visual canvas premium dark professional\" --design-system -p \"PrismAI\")",
       "Bash(node -e \"const i=require\\('lucide-react'\\); ['Wand2','Layers3','Eraser','Maximize2','Film','Type','Plus','Minus','Zap','Cpu','Globe2','Shield','Network','Hand'].forEach\\(n=>console.log\\(n,!!i[n]\\)\\);\")",
-      "Bash(curl -o /dev/null -s -w '%{http_code}' -L 'https://images.unsplash.com/__TRACKED_VAR__?auto=format&fit=crop&q=80&w=600' --max-time 8)"
+      "Bash(curl -o /dev/null -s -w '%{http_code}' -L 'https://images.unsplash.com/__TRACKED_VAR__?auto=format&fit=crop&q=80&w=600' --max-time 8)",
+      "Bash(echo \"EXIT $?\")"
     ]
   }
 }
