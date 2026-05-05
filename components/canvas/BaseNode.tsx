@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Handle, Position, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
 import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -95,6 +95,18 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
     const edges = useEdges();
+
+    // Precompute the set of this node's connected target handles once per
+    // render so the per-handle "missing mandatory" check is O(1) instead of
+    // O(edges) per handle. The empty-targetHandle case (edge created without
+    // an explicit handle id) is normalized to '__default__'.
+    const connectedTargetHandles = useMemo(() => {
+        const set = new Set<string>();
+        for (const e of edges) {
+            if (e.target === id) set.add(e.targetHandle || '__default__');
+        }
+        return set;
+    }, [edges, id]);
 
     // Get the current zoom level to compensate border-widths
     const zoom = useStore((s: ReactFlowState) => s.transform[2]);
@@ -234,6 +246,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         const spacing = 36;
                         const totalHeight = (totalHandles - 1) * spacing;
                         const offset = (index * spacing) - (totalHeight / 2);
+                        const isMissing = (input as any).isMandatory && !connectedTargetHandles.has(input.id);
 
                         return (
                             <React.Fragment key={input.id}>
@@ -244,13 +257,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     className={cn(
                                         "w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center",
                                         "before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]",
-                                        (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id) && "animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.4)]"
+                                        isMissing && "animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.4)]"
                                     )}
                                     style={{
                                         borderWidth: `${b2}px`,
                                         borderStyle: 'solid',
                                         background: input.color || nodeColor,
-                                        boxShadow: (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id)
+                                        boxShadow: isMissing
                                             ? `0 0 12px ${input.color || nodeColor}80`
                                             : `0 0 10px ${input.color || nodeColor}40`,
                                         left: -5,
@@ -258,7 +271,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     }}
                                 >
                                     {input.label && (() => {
-                                        const isMissing = (input as any).isMandatory && !edges.some(e => e.target === id && e.targetHandle === input.id);
                                         const isErrorState = !hideStatus && status === 'error' && isMissing;
 
                                         return (
@@ -290,7 +302,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     >
                         {defaultInputLabel && (() => {
                             const defaultInput = sharedDef?.handles?.inputs?.[0];
-                            const isMissing = defaultInput?.isMandatory && !edges.some(e => e.target === id && (!e.targetHandle || e.targetHandle === defaultInput.id));
+                            const isMissing = defaultInput?.isMandatory && !(
+                                (defaultInput.id && connectedTargetHandles.has(defaultInput.id)) ||
+                                connectedTargetHandles.has('__default__')
+                            );
                             const isErrorState = !hideStatus && status === 'error' && isMissing;
 
                             return (

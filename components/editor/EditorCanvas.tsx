@@ -97,6 +97,10 @@ const EditorCanvasInner = ({
     // Screen-space anchor for the source handle of the dragged wire — used to
     // draw a static line from the handle to the open menu while the user picks.
     const [pendingWireAnchor, setPendingWireAnchor] = useState<{ x: number; y: number } | null>(null);
+    // Node that's mid-positioning after a wire drop. Rendered with visibility:
+    // hidden via the injected <style> below until we measure its handle and
+    // shift it so the handle lands exactly under the original drop point.
+    const [positioningNodeId, setPositioningNodeId] = useState<string | null>(null);
     // Holds the in-flight connection origin between onConnectStart and onConnectEnd.
     const connectStartRef = useRef<{ nodeId: string; handleId: string | null; handleType: 'source' | 'target' } | null>(null);
     // Timestamp of the last wire-drop menu open. React Flow can fire onPaneClick
@@ -194,17 +198,28 @@ const EditorCanvasInner = ({
     const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = true;
         setIsDragging(true);
-
-        // 🚀 Z-INDEX FIX: Update local state immediately so the node
-        // pops to the front the millisecond you grab it.
-        setLocalNodes(nds => {
-            const maxZ = Math.max(0, ...nds.map(n => n.zIndex || 0));
-            if ((node.zIndex || 0) >= maxZ && maxZ > 0) return nds;
-            return nds.map(n => n.id === node.id ? { ...n, zIndex: maxZ + 1 } : n);
-        });
-
         if (onNodeDragStart) onNodeDragStart(event, node, nodes);
     }, [onNodeDragStart, setIsDragging]);
+
+    // Bring node to front on press — LOCAL ONLY for instant visual feedback.
+    // The global store write (bringNodeToFront) is deferred to drag-stop or
+    // onNodeClick, because writing to the store on mousedown rebuilds
+    // currentWorkflow.nodes, which changes the `nodes` prop ref and forces
+    // an extra render cycle right before the drag begins — visible as a
+    // first-frame stall when the user grabs a node.
+    const handleWrapperMouseDown = useCallback((e: React.MouseEvent) => {
+        const nodeEl = (e.target as HTMLElement).closest?.('.react-flow__node') as HTMLElement | null;
+        if (!nodeEl) return;
+        const nodeId = nodeEl.getAttribute('data-id');
+        if (!nodeId) return;
+
+        setLocalNodes(nds => {
+            const maxZ = Math.max(0, ...nds.map(n => n.zIndex || 0));
+            const target = nds.find(n => n.id === nodeId);
+            if (!target || ((target.zIndex || 0) >= maxZ && maxZ > 0)) return nds;
+            return nds.map(n => n.id === nodeId ? { ...n, zIndex: maxZ + 1 } : n);
+        });
+    }, []);
 
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = false;
@@ -218,9 +233,9 @@ const EditorCanvasInner = ({
             updatePositions(positionsMap);
         }
 
-        // Commit the z-index pop applied locally in handleNodeDragStart so it
-        // survives the next prop sync. Doing it here instead of drag-start
-        // keeps the global store write away from the moment of interaction.
+        // Commit the local zIndex pop applied in handleWrapperMouseDown so it
+        // survives the next prop sync. Doing it here keeps the global store
+        // write away from the moment of grab.
         useAppStore.getState().bringNodeToFront(node.id);
 
         touchInteraction();
@@ -382,6 +397,7 @@ const EditorCanvasInner = ({
                 setPendingWireAnchor(null);
                 setContextMenu({ x: e.clientX, y: e.clientY });
             }}
+            onMouseDownCapture={handleWrapperMouseDown}
             onMouseMove={handleMouseMove}
             onMouseLeave={() => setIsMouseActive(false)}
         >
@@ -407,7 +423,7 @@ const EditorCanvasInner = ({
                 fitViewOptions={FIT_VIEW_OPTIONS}
                 minZoom={0.1}
                 maxZoom={2}
-                nodeDragThreshold={0}
+                nodeDragThreshold={1}
                 deleteKeyCode="Delete"
                 onNodesDelete={handleNodesDelete}
                 isValidConnection={handleIsValidConnection}
@@ -439,6 +455,14 @@ const EditorCanvasInner = ({
                     isNodesEmpty={localNodes.length === 0}
                 />
             </ReactFlow>
+
+            {/* Hide the just-placed wire-drop node on its first commit, until we
+                measure its handle and shift the node so the handle lands exactly
+                under the drop point. Using visibility (not display) so the DOM is
+                still measurable via getBoundingClientRect. */}
+            {positioningNodeId && (
+                <style>{`.react-flow__node[data-id="${positioningNodeId}"]{visibility:hidden}`}</style>
+            )}
 
             {/* Static "ghost" wire from the source handle to the open menu while
                 the user picks a node. The SVG covers the wrapper but lets clicks
@@ -474,10 +498,101 @@ const EditorCanvasInner = ({
                     pendingConnection={pendingConnection}
                     onSelectNode={(type, pos, tid, mid) => {
                         const flowPos = reactFlowInstance.screenToFlowPosition({ x: pos.x, y: pos.y });
-                        onDrop(type, flowPos, tid, mid, undefined, pendingConnection || undefined);
+                        const pending = pendingConnection;
+                        const dropClient = pending ? { x: pos.x, y: pos.y } : null;
+                        const beforeIds = new Set(
+                            (useAppStore.getState().currentWorkflow?.nodes || []).map((n: any) => n.id),
+                        );
+
+                        onDrop(type, flowPos, tid, mid, undefined, pending || undefined);
                         setContextMenu(null);
                         setPendingConnection(null);
                         setPendingWireAnchor(null);
+
+                        // Wire-drop alignment: after the new node renders, shift it so its
+                        // connecting handle is exactly under the original drop point.
+                        if (pending && dropClient) {
+                            // The store updated synchronously when onDrop ran — read the
+                            // new node's id NOW so React can batch our hide-flag update
+                            // with the addition. The injected <style> rule then hides the
+                            // node on its very first commit, so the user never sees it
+                            // briefly at the wrong spot.
+                            const wf = useAppStore.getState().currentWorkflow;
+                            const newNode = wf?.nodes.find((n: any) => !beforeIds.has(n.id));
+                            if (newNode) setPositioningNodeId(newNode.id);
+
+                            requestAnimationFrame(() => {
+                                const state = useAppStore.getState();
+                                const wf2 = state.currentWorkflow;
+                                if (!wf2 || !newNode) {
+                                    setPositioningNodeId(null);
+                                    return;
+                                }
+
+                                const newEdge = (wf2.edges || []).find(
+                                    (e: any) => e.source === newNode.id || e.target === newNode.id,
+                                );
+                                if (!newEdge) {
+                                    setPositioningNodeId(null);
+                                    return;
+                                }
+
+                                const handleId = newNode.id === newEdge.source
+                                    ? newEdge.sourceHandle
+                                    : newEdge.targetHandle;
+
+                                const nodeEl = document.querySelector(
+                                    `.react-flow__node[data-id="${newNode.id}"]`,
+                                ) as HTMLElement | null;
+                                if (!nodeEl) {
+                                    setPositioningNodeId(null);
+                                    return;
+                                }
+
+                                const handleEl = (handleId
+                                    ? nodeEl.querySelector(`.react-flow__handle[data-handleid="${handleId}"]`)
+                                    : nodeEl.querySelector('.react-flow__handle')) as HTMLElement | null;
+                                if (!handleEl) {
+                                    setPositioningNodeId(null);
+                                    return;
+                                }
+
+                                // Walk the offsetParent chain from handle → node to get the
+                                // handle's position in the node's *natural* layout (in
+                                // un-transformed CSS pixels). offsetLeft/offsetTop ignore
+                                // the entrance scale animation, so this measurement is
+                                // stable from the very first frame.
+                                let offX = handleEl.offsetWidth / 2;
+                                let offY = handleEl.offsetHeight / 2;
+                                let walker: HTMLElement | null = handleEl;
+                                while (walker && walker !== nodeEl) {
+                                    offX += walker.offsetLeft;
+                                    offY += walker.offsetTop;
+                                    walker = walker.offsetParent as HTMLElement | null;
+                                }
+
+                                // Convert the original drop point to flow space, then place
+                                // the node so handle offset lines up with it exactly.
+                                const dropFlow = reactFlowInstance.screenToFlowPosition(dropClient);
+                                const correctedX = dropFlow.x - offX;
+                                const correctedY = dropFlow.y - offY;
+
+                                if (
+                                    Math.abs(correctedX - newNode.position.x) < 0.5 &&
+                                    Math.abs(correctedY - newNode.position.y) < 0.5
+                                ) {
+                                    setPositioningNodeId(null);
+                                    return;
+                                }
+
+                                useAppStore.getState().updateNodePositions(
+                                    new Map([[newNode.id, { x: correctedX, y: correctedY }]]),
+                                );
+                                // Reveal the node on the next frame so the position
+                                // update has actually applied to the DOM.
+                                requestAnimationFrame(() => setPositioningNodeId(null));
+                            });
+                        }
                     }}
                     onClose={() => {
                         setContextMenu(null);
@@ -491,10 +606,12 @@ const EditorCanvasInner = ({
     );
 };
 
-export default function EditorCanvas(props: EditorCanvasProps) {
+function EditorCanvas(props: EditorCanvasProps) {
     return (
         <ReactFlowProvider>
             <EditorCanvasInner {...props} />
         </ReactFlowProvider>
     );
 }
+
+export default React.memo(EditorCanvas);

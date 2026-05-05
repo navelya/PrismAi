@@ -92,8 +92,6 @@ export default function SharedWorkflowEditor({
     const [selectionMode, setSelectionMode] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    const isDragging = useAppStore((state) => state.isDragging);
-
     const [showCreditModal, setShowCreditModal] = useState(false);
     const [pendingExecutionTarget, setPendingExecutionTarget] = useState<{ id: string | null, mode: 'all' | 'solo' | 'chain' | 'ab_test' } | null>(null);
     const [pendingCost, setPendingCost] = useState(0);
@@ -110,18 +108,22 @@ export default function SharedWorkflowEditor({
     }, []);
 
     // Sync state for auto-save. Fires only on real workflow changes.
-    // 🚀 PERFORMANCE FIX: Skip this entirely while dragging.
-    // This prevents the parent client (and its auto-save/serialization logic) 
-    // from blocking the UI thread during the critical start of a drag.
+    // 🚀 PERFORMANCE FIX: read isDragging imperatively, not via subscription.
+    // Subscribing here forced a full SharedWorkflowEditor re-render every
+    // drag-start which cascaded through the canvas tree. Position changes
+    // are kept local during a drag, so global `nodes` doesn't change mid-drag
+    // and this effect won't fire — the imperative check is just a defensive
+    // skip for the rare case where a structural change lands while a drag
+    // is in flight.
     useEffect(() => {
-        if (isDragging) return;
+        if (useAppStore.getState().isDragging) return;
         if (nodes.length > 0 || edges.length > 0) {
             const workflow = getCurrentWorkflow();
             if (onWorkflowChange) {
                 onWorkflowChange(workflow);
             }
         }
-    }, [nodes, edges, workflowName, onWorkflowChange, getCurrentWorkflow, isDragging]);
+    }, [nodes, edges, workflowName, onWorkflowChange, getCurrentWorkflow]);
 
     // 🔄 Watch for execution completion via websocket updates
     const nodeStatuses = useAppStore((state) => state.nodeStatuses);
@@ -170,7 +172,7 @@ export default function SharedWorkflowEditor({
 
     const isPropertyPanelVisible = hasPropertyPanel && !readOnly;
 
-    const handleDrop = (
+    const handleDrop = useCallback((
         type: NodeType,
         position: { x: number; y: number },
         nodeTypeId?: string,
@@ -193,7 +195,32 @@ export default function SharedWorkflowEditor({
         }
 
         addNode(type, position, nodeTypeId, resolvedModelId, initialConfig, autoConnect);
-    };
+    }, [readOnly, addNode]);
+
+    // Stable callback refs for EditorCanvas — see React.memo on the default export.
+    // Inline arrows here would defeat memoization and cause the whole canvas tree
+    // to reconcile every time SharedWorkflowEditor re-renders (e.g. on isDragging flip).
+    const handleSelectionToggle = useCallback(() => {
+        setSelectionMode(prev => !prev);
+    }, []);
+
+    const handleCopy = useCallback((id: string) => {
+        useAppStore.getState().copyNode(id);
+    }, []);
+
+    const handlePaste = useCallback(() => {
+        const copiedNode = useAppStore.getState().copiedNode;
+        if (!copiedNode) return;
+        const newNode = {
+            ...JSON.parse(JSON.stringify(copiedNode)),
+            id: generateNodeId(),
+            position: {
+                x: copiedNode.position.x + 50,
+                y: copiedNode.position.y + 50,
+            },
+        };
+        duplicateNodes([newNode], []);
+    }, [duplicateNodes]);
 
 
     const handleSave = async () => {
@@ -466,34 +493,16 @@ export default function SharedWorkflowEditor({
                                 onDrop={handleDrop}
                                 updatePositions={updatePositions}
                                 selectionMode={selectionMode}
-                                onSelectionToggle={() => setSelectionMode(!selectionMode)}
+                                onSelectionToggle={handleSelectionToggle}
                                 undo={undo}
                                 redo={redo}
                                 canUndo={canUndo}
                                 canRedo={canRedo}
                                 onNodeDragStart={onNodeDragStart}
-                                onNodeDragStop={(e, node, nodes) => {
-                                    // Local state in EditorCanvas handles the live motion.
-                                    // Nothing else needed here on stop besides what's 
-                                    // already handled by EditorCanvas calling updatePositions.
-                                }}
                                 onDuplicate={duplicateNodes}
                                 onDelete={deleteNodes}
-                                onCopy={(id) => useAppStore.getState().copyNode(id)}
-                                onPaste={() => {
-                                    const copiedNode = useAppStore.getState().copiedNode;
-                                    if (copiedNode) {
-                                        const newNode = {
-                                            ...JSON.parse(JSON.stringify(copiedNode)),
-                                            id: generateNodeId(),
-                                            position: {
-                                                x: copiedNode.position.x + 50,
-                                                y: copiedNode.position.y + 50
-                                            },
-                                        };
-                                        duplicateNodes([newNode], []);
-                                    }
-                                }}
+                                onCopy={handleCopy}
+                                onPaste={handlePaste}
                             />
                         )}
                     </div>

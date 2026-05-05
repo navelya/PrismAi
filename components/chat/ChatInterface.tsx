@@ -227,6 +227,21 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
     const lastScrollTopRef = useRef(0);
 
+    const [pinnedUserMessageId, setPinnedUserMessageId] = useState<string | null>(null);
+    const pinnedUserMessageIdRef = useRef<string | null>(null);
+    const prevMessagesLengthRef = useRef(messages.length);
+    const lastPinnedScrolledIdRef = useRef<string | null>(null);
+    const spacerRef = useRef<HTMLDivElement>(null);
+    // Viewport offset of the pinned user message — what we try to preserve
+    // across chat-panel resizes (min↔full screen). Initialized to 16 (pin
+    // position) and updated as the user scrolls.
+    const userMsgViewportOffsetRef = useRef<number>(16);
+    const isProgrammaticScrollRef = useRef(false);
+
+    useEffect(() => {
+        pinnedUserMessageIdRef.current = pinnedUserMessageId;
+    }, [pinnedUserMessageId]);
+
     const handleScroll = useCallback(() => {
         const container = scrollContainerRef.current;
         if (!container) return;
@@ -241,6 +256,20 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         setAutoScrollEnabled(isNearBottom);
 
         lastScrollTopRef.current = scrollTop;
+
+        // Track where the pinned user message sits in the viewport, so we can
+        // restore that exact offset after a chat-panel resize. Skip while we
+        // are mid-programmatic-scroll to avoid feedback loops.
+        if (pinnedUserMessageIdRef.current && !isProgrammaticScrollRef.current) {
+            const el = container.querySelector(
+                `[data-message-id="${pinnedUserMessageIdRef.current}"]`
+            ) as HTMLElement | null;
+            if (el) {
+                const containerRect = container.getBoundingClientRect();
+                const elRect = el.getBoundingClientRect();
+                userMsgViewportOffsetRef.current = elRect.top - containerRect.top;
+            }
+        }
     }, [isLoading, setChatScrollTop]);
 
     // RESTORE scroll position instantly on mount (avoid eye-jump)
@@ -258,7 +287,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         if (!content || !container) return;
 
         const resizeObserver = new ResizeObserver(() => {
-            if (autoScrollEnabled) {
+            if (autoScrollEnabled && !pinnedUserMessageIdRef.current) {
                 container.scrollTop = container.scrollHeight;
                 lastScrollTopRef.current = container.scrollTop;
             }
@@ -282,11 +311,143 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         if (sessionId) {
             setChatScrollTop(9999999);
             setAutoScrollEnabled(true);
+            setPinnedUserMessageId(null);
+            if (spacerRef.current) spacerRef.current.style.height = '0px';
+            lastPinnedScrolledIdRef.current = null;
+            prevMessagesLengthRef.current = 0;
         }
     }, [sessionId, setChatScrollTop]);
 
+    // ChatGPT-style pin: when a new user message is appended, anchor it to the
+    // top of the viewport with a spacer below so the assistant reply has the
+    // full chat height to render into before scrolling kicks in.
+    // handleSend adds user + empty assistant placeholder in one batch, so the
+    // last message is the assistant — scan backward through the newly-added
+    // range to find the most recent user message.
+    useLayoutEffect(() => {
+        if (messages.length > prevMessagesLengthRef.current) {
+            let newUserMessageId: string | null = null;
+            for (let i = messages.length - 1; i >= prevMessagesLengthRef.current; i--) {
+                if (messages[i]?.type === 'user') {
+                    newUserMessageId = messages[i].id;
+                    break;
+                }
+            }
+            if (newUserMessageId) {
+                const container = scrollContainerRef.current;
+                // Generous initial spacer so the smooth-scroll has room. The
+                // dynamic-spacer effect will tighten this to the exact value
+                // once the assistant content settles.
+                if (container && spacerRef.current) {
+                    spacerRef.current.style.height = `${container.clientHeight}px`;
+                }
+                // Reset the viewport-offset target to the pin position. The
+                // smooth-scroll will land the user message at 16px from top.
+                userMsgViewportOffsetRef.current = 16;
+                // Set ref synchronously so the ResizeObserver bottom-pin gate
+                // sees it on the very next tick, before our smooth scroll runs.
+                pinnedUserMessageIdRef.current = newUserMessageId;
+                setPinnedUserMessageId(newUserMessageId);
+            }
+        }
+        prevMessagesLengthRef.current = messages.length;
+    }, [messages]);
+
+    useLayoutEffect(() => {
+        if (!pinnedUserMessageId) return;
+        if (lastPinnedScrolledIdRef.current === pinnedUserMessageId) return;
+
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        const el = container.querySelector(
+            `[data-message-id="${pinnedUserMessageId}"]`
+        ) as HTMLElement | null;
+        if (!el) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const targetScrollTop = container.scrollTop + (elRect.top - containerRect.top) - 16;
+        container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+        lastPinnedScrolledIdRef.current = pinnedUserMessageId;
+    }, [pinnedUserMessageId]);
+
+    // Dynamic spacer: keep the spacer sized so that max-scrollTop equals the
+    // pinned-position scrollTop. That way the user can't scroll past the pin,
+    // and the pin survives chat-panel resizes (e.g. min↔full screen).
+    // spacer = max(0, clientHeight − (content below the user message))
+    //
+    // Two observers: container resize also restores the user-msg viewport
+    // offset (because reflow changes message heights and shifts user-msg
+    // position); content resize only adjusts the spacer (offset is invariant
+    // when content above the user message doesn't change).
     useEffect(() => {
-        if (autoScrollEnabled) {
+        if (!pinnedUserMessageId) return;
+
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const updateSpacer = (restoreOffset: boolean) => {
+            const userMsgEl = container.querySelector(
+                `[data-message-id="${pinnedUserMessageId}"]`
+            ) as HTMLElement | null;
+            const spacer = spacerRef.current;
+            if (!userMsgEl || !spacer) return;
+
+            const containerHeight = container.clientHeight;
+            const containerRect = container.getBoundingClientRect();
+            const userMsgRect = userMsgEl.getBoundingClientRect();
+
+            // Invariant offset of the user message inside the scrollable content.
+            const userMsgTopInContent =
+                userMsgRect.top - containerRect.top + container.scrollTop;
+
+            const currentSpacerHeight = spacer.offsetHeight;
+            const naturalScrollHeight = container.scrollHeight - currentSpacerHeight;
+
+            // We want max-scrollTop = userMsgTopInContent − 16.
+            //   max-scrollTop = scrollHeight − clientHeight
+            // → scrollHeight = userMsgTopInContent − 16 + clientHeight
+            const desiredScrollHeight = userMsgTopInContent - 16 + containerHeight;
+            const desiredSpacer = Math.max(0, desiredScrollHeight - naturalScrollHeight);
+
+            if (Math.abs(desiredSpacer - currentSpacerHeight) > 1) {
+                spacer.style.height = `${desiredSpacer}px`;
+            }
+
+            // After a chat-panel resize, message reflow may have shifted the
+            // user message — adjust scrollTop so its viewport position matches
+            // the previously-captured offset.
+            if (restoreOffset) {
+                const containerRectAfter = container.getBoundingClientRect();
+                const userMsgRectAfter = userMsgEl.getBoundingClientRect();
+                const currentOffset = userMsgRectAfter.top - containerRectAfter.top;
+                const adjustment = currentOffset - userMsgViewportOffsetRef.current;
+                if (Math.abs(adjustment) > 1) {
+                    isProgrammaticScrollRef.current = true;
+                    container.scrollTop += adjustment;
+                    requestAnimationFrame(() => {
+                        isProgrammaticScrollRef.current = false;
+                    });
+                }
+            }
+        };
+
+        updateSpacer(false);
+
+        const containerRO = new ResizeObserver(() => updateSpacer(true));
+        containerRO.observe(container);
+
+        const contentRO = new ResizeObserver(() => updateSpacer(false));
+        if (contentRef.current) contentRO.observe(contentRef.current);
+
+        return () => {
+            containerRO.disconnect();
+            contentRO.disconnect();
+        };
+    }, [pinnedUserMessageId]);
+
+    useEffect(() => {
+        if (autoScrollEnabled && !pinnedUserMessageId) {
             const container = scrollContainerRef.current;
             if (!container) return;
 
@@ -301,7 +462,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 lastScrollTime.current = now;
             }
         }
-    }, [messages, autoScrollEnabled, isLoading]);
+    }, [messages, autoScrollEnabled, isLoading, pinnedUserMessageId]);
 
     useLayoutEffect(() => {
         const textarea = textareaRef.current;
@@ -944,6 +1105,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         </div>
                     )}
 
+                    <div ref={spacerRef} style={{ height: 0 }} aria-hidden="true" />
+
                     <div ref={messagesEndRef} />
                 </div>
             </div>
@@ -1052,7 +1215,8 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
 
     return (
         <div
-            className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} ${message.type === 'user' ? 'justify-end animate-fade-in' : 'justify-start'} 
+            data-message-id={message.id}
+            className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} ${message.type === 'user' ? 'justify-end animate-fade-in' : 'justify-start'}
                 ${isDisabled ? 'opacity-40 grayscale pointer-events-none select-none filter blur-[1px]' : ''}
                 ${isEditing ? 'z-10 relative' : ''}`}
         >
