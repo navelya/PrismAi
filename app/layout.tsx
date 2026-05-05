@@ -5,8 +5,7 @@ import './globals.css';
 import AppLayout from '@/components/layout/AppLayout';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
-import { SpeedInsights } from '@vercel/speed-insights/next';
-import { Analytics } from '@vercel/analytics/next';
+import { CookieConsent } from '@/components/legal/CookieConsent';
 import { CrashRecoveryProvider } from '@/components/providers/CrashRecoveryProvider';
 
 // const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -91,8 +90,7 @@ export default function RootLayout({
             </CrashRecoveryProvider>
           </TooltipProvider>
         </ThemeProvider>
-        <SpeedInsights />
-        <Analytics />
+        <CookieConsent />
       </body>
     </html>
   );

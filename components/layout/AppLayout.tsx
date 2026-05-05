@@ -41,8 +41,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const workflowName = currentWorkflow?.name || 'Prisfol';
 
-    // Hide sidebar on home page, login page, and demo page
-    const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo';
+    // Hide sidebar on home page, login page, demo page, and legal pages
+    const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname.startsWith('/legal');
 
     // Public pages get full width, no sidebar, and allow scrolling
     if (isPublicPage) {

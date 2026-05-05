@@ -698,6 +698,14 @@ export default function Home() {
                                         <li><a href="#" className="hover:text-white transition-colors">Discord</a></li>
                                     </ul>
                                 </div>
+                                <div className="space-y-4">
+                                    <h4 className="text-[7px] font-black uppercase tracking-[0.4em] text-accent-primary opacity-60">Legal</h4>
+                                    <ul className="space-y-2 text-[7px] font-black text-white/40 uppercase tracking-[0.2em]">
+                                        <li><Link href="/legal/terms" className="hover:text-white transition-colors">Terms</Link></li>
+                                        <li><Link href="/legal/privacy" className="hover:text-white transition-colors">Privacy</Link></li>
+                                        <li><Link href="/legal/refund" className="hover:text-white transition-colors">Refunds</Link></li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                         <div className="flex justify-between items-center pt-8 border-t border-white/5 text-[7px] font-black tracking-[0.6em] text-white/10 uppercase">
