@@ -28,6 +28,10 @@ const REASON_LABELS: Record<string, string> = {
     admin_adjustment: 'Adjustment',
     stripe_refund: 'Stripe refund',
     stripe_chargeback: 'Chargeback',
+    paddle_pack_purchase: 'Credit pack',
+    paddle_subscription_grant: 'Subscription credits',
+    paddle_refund: 'Refund',
+    paddle_chargeback: 'Chargeback',
 };
 
 function humanizeReason(row: LedgerRow): string {
@@ -144,12 +148,17 @@ export default function PlanBillingView() {
                                     {formatCredits(balance)}
                                 </div>
                             </div>
-                            <button
-                                onClick={() => setShowPlans(true)}
-                                className="px-4 py-2 rounded-full bg-accent-primary text-white text-sm font-semibold hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/30"
-                            >
-                                Change plan
-                            </button>
+                            <div className="flex flex-col gap-2">
+                                <button
+                                    onClick={() => setShowPlans(true)}
+                                    className="px-4 py-2 rounded-full bg-accent-primary text-white text-sm font-semibold hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/30"
+                                >
+                                    Change plan
+                                </button>
+                                {subscription && subscription.planId !== 'free' && (
+                                    <ManagePortalButton />
+                                )}
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -213,6 +222,44 @@ export default function PlanBillingView() {
             </div>
 
             <PlansModal isOpen={showPlans} onClose={() => setShowPlans(false)} />
+        </>
+    );
+}
+
+function ManagePortalButton() {
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleClick = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/billing/portal', { method: 'POST' });
+            const json = await res.json();
+            if (!res.ok || !json.url) {
+                setError(json.error || 'Failed to open portal');
+                return;
+            }
+            window.open(json.url, '_blank', 'noopener,noreferrer');
+        } catch (e: any) {
+            setError(e?.message || 'Failed to open portal');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <>
+            <button
+                onClick={handleClick}
+                disabled={loading}
+                className="px-4 py-2 rounded-full border border-stroke-subtle text-content-secondary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all disabled:opacity-50"
+            >
+                {loading ? 'Opening…' : 'Manage subscription'}
+            </button>
+            {error && (
+                <span className="text-[10px] text-accent-error">{error}</span>
+            )}
         </>
     );
 }

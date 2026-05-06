@@ -3,10 +3,12 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
-import { PLANS, type PlanDisplay } from '@/lib/billing/plans-config';
+import { X, Loader2 } from 'lucide-react';
+import { PLANS, CREDIT_PACKS, type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
 import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
+import { openPaddleCheckout } from '@/lib/billing/paddle-client';
+import { createClient } from '@/lib/supabase/client';
 
 interface PlansModalProps {
     isOpen: boolean;
@@ -83,7 +85,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                             </div>
 
                             {/* Plan cards grid */}
-                            <div className="relative px-6 sm:px-8 pb-6 sm:pb-8 pt-6 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+                            <div className="relative px-6 sm:px-8 pt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
                                 {PLANS.map((plan) => (
                                     <PlanCard
                                         key={plan.id}
@@ -93,9 +95,28 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                 ))}
                             </div>
 
+                            {/* Credit packs section */}
+                            <div className="relative px-6 sm:px-8 pt-10 pb-2">
+                                <div className="flex items-baseline justify-between mb-4">
+                                    <div>
+                                        <h3 className="text-base sm:text-lg font-bold font-display text-content-primary tracking-tight">
+                                            Need a one-time top-up?
+                                        </h3>
+                                        <p className="text-xs text-content-tertiary mt-0.5">
+                                            Buy credits without changing your plan. Top-up credits never expire.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                                    {CREDIT_PACKS.map((pack) => (
+                                        <CreditPackCard key={pack.id} pack={pack} />
+                                    ))}
+                                </div>
+                            </div>
+
                             {/* Footer */}
-                            <div className="relative px-8 pb-6 text-center text-xs text-content-tertiary border-t border-stroke-subtle pt-4">
-                                Paid plans coming soon. Prices in USD, billed monthly. Taxes may apply.
+                            <div className="relative px-8 pt-6 pb-6 mt-6 text-center text-xs text-content-tertiary border-t border-stroke-subtle">
+                                Prices in USD. Sales tax / VAT calculated at checkout by Paddle, our Merchant of Record.
                             </div>
                         </div>
                         </motion.div>
@@ -124,13 +145,18 @@ function PlanCard({ plan, isCurrent }: PlanCardProps) {
 
     return (
         <div
-            className={`relative rounded-2xl border p-6 flex flex-col ${accentClasses} transition-all duration-300`}
+            className={`relative rounded-2xl border p-5 flex flex-col ${accentClasses} transition-all duration-300`}
         >
             {/* Badges */}
             <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex gap-2 items-center">
                 {plan.accent === 'highlight' && !isCurrent && (
                     <span className="px-3 py-1 text-[10px] font-bold tracking-wider uppercase rounded-full bg-accent-primary text-white shadow-lg shadow-accent-primary/30">
                         Recommended
+                    </span>
+                )}
+                {plan.accent === 'premium' && !isCurrent && (
+                    <span className="px-3 py-1 text-[10px] font-bold tracking-wider uppercase rounded-full bg-gradient-to-r from-purple-500 to-accent-primary text-white shadow-lg shadow-purple-500/30">
+                        Teams
                     </span>
                 )}
                 {isCurrent && (
@@ -150,11 +176,11 @@ function PlanCard({ plan, isCurrent }: PlanCardProps) {
 
             {/* Price */}
             <div className="flex items-baseline gap-1 mb-1">
-                <span className="text-4xl font-bold font-display text-content-primary tracking-tight">
+                <span className="text-3xl font-bold font-display text-content-primary tracking-tight">
                     ${plan.priceMonthly}
                 </span>
                 {plan.priceMonthly > 0 && (
-                    <span className="text-sm text-content-tertiary">/month</span>
+                    <span className="text-xs text-content-tertiary">/month</span>
                 )}
             </div>
 
@@ -167,9 +193,9 @@ function PlanCard({ plan, isCurrent }: PlanCardProps) {
             </div>
 
             {/* Features */}
-            <ul className="space-y-2.5 mb-6 flex-1">
+            <ul className="space-y-2 mb-6 flex-1">
                 {plan.features.map((feature, i) => (
-                    <li key={i} className="text-sm text-content-secondary leading-relaxed">
+                    <li key={i} className="text-xs text-content-secondary leading-relaxed">
                         {feature}
                     </li>
                 ))}
@@ -181,7 +207,91 @@ function PlanCard({ plan, isCurrent }: PlanCardProps) {
     );
 }
 
+// =============================================================================
+// CREDIT PACK CARD
+// =============================================================================
+
+function CreditPackCard({ pack }: { pack: CreditPack }) {
+    const [loading, setLoading] = useState(false);
+
+    const accentClasses =
+        pack.accent === 'highlight'
+            ? 'border-accent-primary/40 bg-gradient-to-b from-accent-primary/[0.06] to-transparent'
+            : pack.accent === 'premium'
+                ? 'border-stroke-subtle bg-gradient-to-b from-purple-500/[0.04] via-accent-primary/[0.02] to-transparent'
+                : 'border-stroke-subtle bg-surface-primary/40';
+
+    const buttonClass = pack.accent === 'highlight'
+        ? 'bg-accent-primary text-white hover:bg-accent-primary/90 shadow-md shadow-accent-primary/30'
+        : 'bg-surface-tertiary text-content-primary hover:bg-surface-tertiary/70';
+
+    const isReady = pack.available && pack.paddlePriceId;
+
+    const handleClick = async () => {
+        if (loading || !pack.paddlePriceId) return;
+        setLoading(true);
+        try {
+            const supabase = createClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user || !user.email) {
+                console.error('[Checkout] No authenticated user found.');
+                setLoading(false);
+                return;
+            }
+            await openPaddleCheckout({
+                priceId: pack.paddlePriceId,
+                userId: user.id,
+                userEmail: user.email,
+            });
+        } catch (e) {
+            console.error('[Checkout] Failed to open Paddle checkout:', e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className={`relative rounded-xl border p-4 flex items-center gap-4 ${accentClasses} transition-all duration-300`}>
+            {pack.accent === 'highlight' && (
+                <span className="absolute -top-2.5 left-4 px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase rounded-full bg-accent-primary text-white shadow-md shadow-accent-primary/30">
+                    {pack.tagline}
+                </span>
+            )}
+
+            <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-1.5">
+                    <span className="text-lg font-bold font-display text-content-primary leading-tight">
+                        {pack.name}
+                    </span>
+                    <span className="text-[10px] text-content-tertiary uppercase tracking-wider">
+                        ${(pack.price / pack.credits).toFixed(3)}/cr
+                    </span>
+                </div>
+                <div className="mt-1 text-xs text-content-secondary">
+                    <span className="font-semibold text-content-primary">{formatCredits(pack.credits)}</span> credits
+                </div>
+            </div>
+
+            <button
+                onClick={handleClick}
+                disabled={!isReady || loading}
+                title={isReady ? '' : 'Credit packs launch soon'}
+                className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all whitespace-nowrap flex items-center gap-2 ${
+                    isReady
+                        ? `${buttonClass} disabled:opacity-60 disabled:cursor-not-allowed`
+                        : 'bg-surface-tertiary/50 text-content-tertiary opacity-60 cursor-not-allowed border border-stroke-subtle'
+                }`}
+            >
+                {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {loading ? '…' : `$${pack.price}`}
+            </button>
+        </div>
+    );
+}
+
 function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean }) {
+    const [loading, setLoading] = useState(false);
+
     if (isCurrent) {
         return (
             <button
@@ -193,7 +303,7 @@ function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean })
         );
     }
 
-    if (!plan.available) {
+    if (!plan.available || !plan.paddlePriceIdMonthly) {
         return (
             <button
                 disabled
@@ -212,11 +322,37 @@ function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean })
                 ? 'bg-gradient-to-r from-purple-500 to-accent-primary text-white hover:opacity-90 shadow-lg shadow-purple-500/20'
                 : 'bg-surface-tertiary text-content-primary hover:bg-surface-tertiary/70';
 
+    const handleClick = async () => {
+        if (loading || !plan.paddlePriceIdMonthly) return;
+        setLoading(true);
+        try {
+            const supabase = createClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user || !user.email) {
+                console.error('[Checkout] No authenticated user found.');
+                setLoading(false);
+                return;
+            }
+            await openPaddleCheckout({
+                priceId: plan.paddlePriceIdMonthly,
+                userId: user.id,
+                userEmail: user.email,
+            });
+        } catch (e) {
+            console.error('[Checkout] Failed to open Paddle checkout:', e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <button
-            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all ${buttonClass}`}
+            onClick={handleClick}
+            disabled={loading}
+            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${buttonClass}`}
         >
-            Upgrade to {plan.name}
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {loading ? 'Opening checkout…' : `Upgrade to ${plan.name}`}
         </button>
     );
 }
