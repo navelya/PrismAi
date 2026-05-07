@@ -108,6 +108,43 @@
     box-shadow: 0 0 60px -10px rgb(var(--accent-primary) / 0.15);
   }
 
+  /* Radix popover/select content — smooth fade + scale on open/close.
+     Driven by Radix's data-state attribute, so any element using
+     .popover-animate inside a Radix Portal gets the right transition. */
+  .popover-animate[data-state='open'] {
+    animation: popover-in 140ms ease-out;
+  }
+  .popover-animate[data-state='closed'] {
+    animation: popover-out 110ms ease-in forwards;
+  }
+  .popover-animate[data-side='bottom'][data-state='open'] {
+    transform-origin: top center;
+  }
+  .popover-animate[data-side='top'][data-state='open'] {
+    transform-origin: bottom center;
+  }
+
+  @keyframes popover-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  @keyframes popover-out {
+    from {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.96) translateY(-4px);
+    }
+  }
+
   .animate-infinite-scroll {
     animation: infinite-scroll 80s linear infinite;
   }

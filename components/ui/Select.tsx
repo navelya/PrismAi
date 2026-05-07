@@ -8,6 +8,10 @@ import { cn } from '@/lib/utils';
 export interface SelectOption {
     id: string;
     display_name: string;
+    /** Optional left-side icon URL (e.g. provider logo). */
+    icon_url?: string | null;
+    /** Optional right-side content (e.g. cost badge). Plain string or any node. */
+    meta?: React.ReactNode;
 }
 
 interface SelectProps {
@@ -24,6 +28,18 @@ interface SelectProps {
     variant?: 'default' | 'minimal';
 }
 
+function OptionIcon({ url, size }: { url?: string | null; size: number }) {
+    if (!url) return null;
+    return (
+        <span
+            className="shrink-0 inline-flex items-center justify-center rounded-md overflow-hidden bg-white/5 border border-white/10"
+            style={{ width: size, height: size }}
+        >
+            <img src={url} alt="" className="w-full h-full object-contain p-[2px]" />
+        </span>
+    );
+}
+
 export function Select({
     label,
     error,
@@ -38,6 +54,9 @@ export function Select({
     variant = 'default',
 }: SelectProps) {
     const isMinimal = variant === 'minimal';
+    const selected = options.find((o) => o.id === value);
+    const triggerIconSize = isMinimal ? 16 : 20;
+    const itemIconSize = isMinimal ? 16 : 20;
 
     return (
         <div className={cn("space-y-2 flex-1", isMinimal && "space-y-1")}>
@@ -59,13 +78,23 @@ export function Select({
                 <RadixSelect.Trigger
                     aria-label={label}
                     className={cn(
-                        'w-full bg-white/5 border border-white/10 rounded-xl text-content-primary flex items-center justify-between transition-all hover:bg-white/10 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 data-[state=open]:border-accent-primary/50 data-[state=open]:ring-4 data-[state=open]:ring-accent-primary/10 disabled:opacity-40 disabled:cursor-not-allowed',
+                        'w-full bg-white/5 border border-white/10 rounded-xl text-content-primary flex items-center gap-2 transition-colors hover:bg-white/10 outline-none focus-visible:border-accent-primary/50 focus-visible:ring-4 focus-visible:ring-accent-primary/10 data-[state=open]:border-accent-primary/50 data-[state=open]:ring-4 data-[state=open]:ring-accent-primary/10 disabled:opacity-40 disabled:cursor-not-allowed',
                         isMinimal ? 'h-8 px-2 text-xs rounded-lg' : 'h-11 px-4 py-2 text-sm',
-                        error && 'border-red-500/50 focus:border-red-500/50 focus:ring-red-500/10',
+                        error && 'border-red-500/50 focus-visible:border-red-500/50 focus-visible:ring-red-500/10',
                         className
                     )}
                 >
-                    <RadixSelect.Value placeholder={placeholder} />
+                    {selected ? (
+                        <>
+                            <OptionIcon url={selected.icon_url} size={triggerIconSize} />
+                            <span className="flex-1 text-left truncate font-semibold">{selected.display_name}</span>
+                            {selected.meta && (
+                                <span className="shrink-0 text-content-tertiary">{selected.meta}</span>
+                            )}
+                        </>
+                    ) : (
+                        <span className="flex-1 text-left truncate text-content-tertiary/60">{placeholder}</span>
+                    )}
                     <RadixSelect.Icon asChild>
                         <ChevronDown className={cn(
                             "text-content-tertiary transition-transform duration-300 data-[state=open]:rotate-180 data-[state=open]:text-accent-primary shrink-0",
@@ -77,20 +106,16 @@ export function Select({
                 <RadixSelect.Portal>
                     <RadixSelect.Content
                         className={cn(
-                            'z-[100001] w-[var(--radix-select-trigger-width)] min-w-[8rem] overflow-hidden',
-                            'bg-surface-primary/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl ring-1 ring-white/5',
-                            'data-[state=open]:animate-in data-[state=closed]:animate-out',
-                            'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-                            'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-                            'data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2'
+                            'popover-animate z-[100001] w-[var(--radix-select-trigger-width)] min-w-[12rem] overflow-hidden',
+                            'bg-surface-primary/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl ring-1 ring-white/5'
                         )}
                         position="popper"
                         sideOffset={8}
                         collisionPadding={16}
                     >
-                        <RadixSelect.Viewport className="p-1.5 space-y-0.5 max-h-[240px]">
+                        <RadixSelect.Viewport className="p-1.5 space-y-0.5 max-h-[280px]">
                             {options.length === 0 ? (
-                                <div className="px-4 py-3 text-xs text-content-tertiary italic">
+                                <div className="px-3 py-3 text-xs text-content-tertiary italic">
                                     No options available
                                 </div>
                             ) : (
@@ -99,17 +124,27 @@ export function Select({
                                         key={opt.id}
                                         value={opt.id}
                                         className={cn(
-                                            'relative w-full px-3 py-2 text-left text-sm rounded-lg cursor-pointer',
-                                            'flex items-center justify-between outline-none select-none',
-                                            'text-content-primary/70 transition-colors',
+                                            'relative w-full px-2 py-1.5 text-left rounded-lg cursor-pointer',
+                                            'flex items-center gap-2 outline-none select-none transition-colors',
+                                            'text-content-primary/80',
                                             'data-[highlighted]:bg-white/5 data-[highlighted]:text-content-primary',
-                                            'data-[state=checked]:bg-accent-primary/10 data-[state=checked]:text-accent-primary data-[state=checked]:font-bold'
+                                            'data-[state=checked]:text-content-primary data-[state=checked]:font-semibold',
+                                            isMinimal ? 'text-xs' : 'text-sm'
                                         )}
                                     >
-                                        <RadixSelect.ItemText>{opt.display_name}</RadixSelect.ItemText>
-                                        <RadixSelect.ItemIndicator>
-                                            <div className="w-1.5 h-1.5 rounded-full bg-accent-primary shadow-[0_0_8px_rgba(var(--accent-primary-rgb),0.5)]" />
-                                        </RadixSelect.ItemIndicator>
+                                        <OptionIcon url={opt.icon_url} size={itemIconSize} />
+                                        <RadixSelect.ItemText asChild>
+                                            <span className="flex-1 truncate">{opt.display_name}</span>
+                                        </RadixSelect.ItemText>
+                                        {opt.meta && (
+                                            <span className="shrink-0 text-content-tertiary">{opt.meta}</span>
+                                        )}
+                                        {/* Reserve a fixed-width slot for the check so meta columns align across rows. */}
+                                        <span className="shrink-0 w-3.5 h-3.5 flex items-center justify-center">
+                                            <RadixSelect.ItemIndicator>
+                                                <Check className="w-3.5 h-3.5 text-accent-primary" strokeWidth={3} />
+                                            </RadixSelect.ItemIndicator>
+                                        </span>
                                     </RadixSelect.Item>
                                 ))
                             )}

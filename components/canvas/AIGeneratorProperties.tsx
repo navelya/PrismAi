@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Info, Play, Coins } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { Eye, EyeOff, Play, Coins, Link2 } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { NumberInput } from '@/components/ui/NumberInput';
@@ -23,45 +23,31 @@ import { computeAiNodeCost } from '@/lib/billing/cost';
 
 function PropertiesSkeleton() {
     return (
-        <div className="flex-1 flex flex-col min-h-0 animate-in fade-in duration-500 overflow-hidden">
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-5 pt-1 pb-8 space-y-8">
-                {/* Model Selector Skeleton */}
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 shadow-xl ring-1 ring-white/5 space-y-3">
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-10 w-full rounded-xl" />
+        <div className="flex-1 flex flex-col min-h-0 animate-in fade-in duration-300 overflow-hidden">
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pt-3 pb-3 space-y-3">
+                <div className="space-y-1.5">
+                    <Skeleton className="h-2.5 w-12" />
+                    <Skeleton className="h-8 w-full rounded-lg" />
                 </div>
 
-                {/* Parameters Divider Skeleton */}
-                <div className="flex items-center gap-3 py-2">
-                    <div className="h-px flex-1 bg-white/10" />
-                    <Skeleton className="h-3 w-24" />
-                    <div className="h-px flex-1 bg-white/10" />
-                </div>
+                <Skeleton className="h-2.5 w-20" />
 
-                {/* Controls Skeletons */}
-                <div className="space-y-6">
+                <div className="space-y-3">
                     {[1, 2, 3].map((i) => (
-                        <div key={i} className="space-y-3">
-                            <div className="flex justify-between">
-                                <Skeleton className="h-3 w-20" />
-                                <Skeleton className="h-3 w-10 rounded-full" />
-                            </div>
+                        <div key={i} className="space-y-1.5">
+                            <Skeleton className="h-2.5 w-16" />
                             <Skeleton className={cn(
-                                "w-full rounded-2xl",
-                                i === 1 ? "h-32" : i === 2 ? "h-20" : "h-14"
+                                "w-full rounded-lg",
+                                i === 1 ? "h-20" : i === 2 ? "h-12" : "h-8"
                             )} />
                         </div>
                     ))}
                 </div>
             </div>
 
-            {/* Footer Skeleton */}
-            <div className="px-5 py-4 bg-surface-elevated/95 backdrop-blur-xl border-t border-white/10 flex items-center justify-between gap-3 z-30 shrink-0">
-                <div className="flex items-center gap-3">
-                    <Skeleton className="h-4 w-4 rounded-full" />
-                    <Skeleton className="h-6 w-32" />
-                </div>
-                <Skeleton className="h-9 w-28 rounded-xl" />
+            <div className="px-3 py-2 bg-surface-elevated/95 backdrop-blur-xl border-t border-stroke-subtle/60 flex items-center justify-between gap-2 z-30 shrink-0">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-7 w-20 rounded-lg" />
             </div>
         </div>
     );
@@ -134,45 +120,51 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
         : 0;
 
     return (
-        <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden">
-            {/* Parameters Content Area - Scrolls independently when window is at max height */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-5 pt-1 pb-8 space-y-8">
+        <div className="flex-1 flex flex-col min-h-0 animate-in fade-in duration-300 overflow-hidden">
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pt-3 pb-3 space-y-3">
                 {/* Model Selection */}
                 {!hideSelector && (
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 shadow-xl ring-1 ring-white/5">
-                        <Select
-                            label="Model"
-                            value={config.model_id?.toString() || ''}
-                            onChange={(e) => handleModelChange(e.target.value)}
-                            options={filteredModels.filter(m => m.is_active).map(m => ({
-                                id: m.id.toString(),
-                                display_name: m.display_name
-                            }))}
-                            placeholder="Select a model..."
-                        />
-                    </div>
+                    <Select
+                        label="Model"
+                        value={config.model_id?.toString() || ''}
+                        onChange={(e) => handleModelChange(e.target.value)}
+                        options={filteredModels.filter(m => m.is_active).map(m => ({
+                            id: m.id.toString(),
+                            display_name: m.display_name,
+                            icon_url: m.providers?.logo_url ?? undefined,
+                            meta: (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-mono tabular-nums text-content-tertiary">
+                                    <Link2 className="w-3 h-3 -rotate-45 opacity-70" />
+                                    {m.credit_cost}
+                                </span>
+                            ),
+                        }))}
+                        placeholder="Select a model..."
+                        variant="minimal"
+                    />
                 )}
 
-                {/* Curation Handles */}
+                {/* Curation Handles (edit mode only) */}
                 {editMode && (handles.length > 0 || (selectedModel?.outputs_schema?.handles?.length ?? 0) > 0) && (
-                    <div className="space-y-6 bg-white/5 border border-white/10 rounded-2xl p-4">
+                    <div className="space-y-2 bg-white/5 border border-white/10 rounded-lg p-2">
                          {handles.length > 0 && (
-                             <div className="space-y-3">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary px-1">Inputs</p>
-                                <div className="flex flex-wrap gap-2">
+                             <div className="space-y-1.5">
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-content-tertiary px-0.5">Inputs</p>
+                                <div className="flex flex-wrap gap-1">
                                     {handles.map(h => (
                                         <button
                                             key={h.api_mapping_key}
                                             type="button"
                                             onClick={() => onToggleVisibility?.(h.api_mapping_key, 'input-handle' as any)}
                                             className={cn(
-                                                "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
-                                                h.is_visible 
-                                                    ? "bg-blue-500/10 border-blue-500/30 text-blue-400" 
+                                                "flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[9px] font-semibold uppercase transition-all",
+                                                h.is_visible
+                                                    ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
                                                     : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
                                             )}
                                         >
-                                            {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                            {h.is_visible ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
                                             {h.name}
                                         </button>
                                     ))}
@@ -181,22 +173,22 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                          )}
 
                          {(selectedModel?.outputs_schema?.handles?.length ?? 0) > 0 && (
-                             <div className="space-y-3 pt-2 border-t border-white/5">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-content-tertiary px-1">Outputs</p>
-                                <div className="flex flex-wrap gap-2">
+                             <div className="space-y-1.5 pt-1.5 border-t border-white/5">
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-content-tertiary px-0.5">Outputs</p>
+                                <div className="flex flex-wrap gap-1">
                                     {selectedModel?.outputs_schema?.handles?.map(h => (
                                         <button
                                             key={h.api_mapping_key}
                                             type="button"
                                             onClick={() => onToggleVisibility?.(h.api_mapping_key, 'output-handle' as any)}
                                             className={cn(
-                                                "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
-                                                h.is_visible 
-                                                    ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary" 
+                                                "flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[9px] font-semibold uppercase transition-all",
+                                                h.is_visible
+                                                    ? "bg-accent-primary/10 border-accent-primary/30 text-accent-primary"
                                                     : "bg-white/5 border-white/10 text-content-tertiary line-through opacity-50"
                                             )}
                                         >
-                                            {h.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                            {h.is_visible ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
                                             {h.name || formatDisplayName(h.api_mapping_key)}
                                         </button>
                                     ))}
@@ -208,32 +200,28 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
 
                 {/* Dynamic Controls */}
                 {controls.length > 0 && (
-                    <div className="space-y-6 pt-2">
-                        <div className="flex items-center gap-3">
-                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-content-tertiary whitespace-nowrap">
-                                Parameters
-                            </p>
-                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                        </div>
+                    <div className="space-y-2 pt-1">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-content-tertiary px-0.5">
+                            Parameters
+                        </p>
 
-                        <div className="space-y-5">
+                        <div className="space-y-2.5">
                             {controls
                                 .filter(ctrl => editMode || ctrl.is_visible)
                                 .map(ctrl => (
                                     <div key={ctrl.api_mapping_key} className="relative group/field">
                                         {editMode && (
-                                            <button 
+                                            <button
                                                 type="button"
                                                 onClick={() => onToggleVisibility?.(ctrl.api_mapping_key, 'control')}
                                                 className={cn(
-                                                    "absolute -top-1 -right-1 z-10 w-6 h-6 rounded-full flex items-center justify-center border shadow-xl transition-all",
-                                                    ctrl.is_visible 
-                                                        ? "bg-green-500 border-green-400 text-white" 
+                                                    "absolute -top-1 -right-1 z-10 w-5 h-5 rounded-full flex items-center justify-center border shadow-md transition-all",
+                                                    ctrl.is_visible
+                                                        ? "bg-green-500 border-green-400 text-white"
                                                         : "bg-red-500 border-red-400 text-white"
                                                 )}
                                             >
-                                                {ctrl.is_visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                                {ctrl.is_visible ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
                                             </button>
                                         )}
                                         <div className={cn("transition-all", !ctrl.is_visible && "opacity-40 grayscale-[0.5]")}>
@@ -250,28 +238,26 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                 )}
             </div>
 
-            {/* Premium Flush Footer - Fixed at the very bottom */}
-            <div className="px-5 py-4 bg-surface-elevated/95 backdrop-blur-xl border-t border-white/10 flex items-center justify-between gap-3 z-30 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                    <Coins className="w-4 h-4 text-accent-primary" />
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-[11px] font-black text-accent-primary uppercase tracking-tight whitespace-nowrap">Total cost</span>
-                        <span className="text-xl font-black text-accent-primary tracking-tighter leading-none truncate">
-                            {totalCost}
-                        </span>
-                        <span className="text-[10px] font-bold text-accent-primary/60 uppercase tracking-tighter leading-none whitespace-nowrap">
-                            CR{selectedModel?.is_per_second ? '/s' : ''}
-                        </span>
-                    </div>
+            {/* Compact Footer */}
+            <div className="px-3 py-2 bg-surface-elevated/95 backdrop-blur-xl border-t border-stroke-subtle/60 flex items-center justify-between gap-2 z-30 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <Coins className="w-3 h-3 text-accent-primary shrink-0" />
+                    <span className="text-[9px] font-bold text-accent-primary/80 uppercase tracking-widest whitespace-nowrap">Cost</span>
+                    <span className="text-sm font-black text-accent-primary tracking-tight leading-none truncate">
+                        {totalCost}
+                    </span>
+                    <span className="text-[9px] font-bold text-accent-primary/60 uppercase tracking-tight leading-none whitespace-nowrap">
+                        CR{selectedModel?.is_per_second ? '/s' : ''}
+                    </span>
                 </div>
 
                 <button
                     onClick={() => nodeId && triggerRunFromNode(nodeId, 'solo')}
                     disabled={!nodeId}
-                    className="h-9 px-5 bg-accent-primary hover:bg-accent-primary/90 border border-accent-primary/20 rounded-xl flex items-center justify-center gap-2 text-white font-black uppercase tracking-widest text-[10px] shadow-lg shadow-accent-primary/20 transition-all disabled:opacity-30 active:scale-95 group shrink-0"
+                    className="h-7 px-2.5 bg-accent-primary hover:bg-accent-primary/90 rounded-lg flex items-center justify-center gap-1 text-white font-bold uppercase tracking-wider text-[10px] shadow-md shadow-accent-primary/20 transition-all disabled:opacity-30 active:scale-95 shrink-0"
                 >
-                    <Play className="w-3 h-3 fill-white" />
-                    Run Node
+                    <Play className="w-2.5 h-2.5 fill-white" />
+                    Run
                 </button>
             </div>
         </div>
@@ -291,31 +277,23 @@ function ControlRenderer({
     value: any;
     onChange: (key: string, val: any) => void;
 }) {
-    const baseInputClass =
-        'w-full bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm px-4 py-3 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/50 hover:bg-white/10 hover:border-white/20 shadow-inner';
-
     const label = control.label || formatDisplayName(control.api_mapping_key);
+
+    const minimalLabelClass = "text-[8px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-0.5 leading-none opacity-80";
 
     switch (control.component) {
         case 'textarea':
         case 'prompt_textarea':
         case 'negative_prompt':
             return (
-                <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                         <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.1em] pl-1 opacity-60 leading-none">
-                            {label}
-                        </label>
-                        {control.type === 'string' && (
-                             <span className="text-[8px] font-bold text-accent-primary/40 uppercase tracking-widest px-2 py-0.5 rounded-full border border-accent-primary/10">TEXT</span>
-                        )}
-                    </div>
+                <div className="space-y-1">
+                    <label className={minimalLabelClass}>{label}</label>
                     <textarea
                         value={value ?? control.default_value ?? ''}
                         onChange={e => onChange(control.api_mapping_key, e.target.value)}
-                        placeholder={control.component === 'negative_prompt' ? 'What to exclude...' : 'What to generate...'}
-                        rows={4}
-                        className={cn(baseInputClass, 'resize-none leading-relaxed')}
+                        placeholder={control.component === 'negative_prompt' ? 'What to exclude…' : 'What to generate…'}
+                        rows={3}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg text-content-primary text-xs px-2 py-1.5 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/40 resize-none leading-relaxed"
                     />
                 </div>
             );
@@ -328,57 +306,49 @@ function ControlRenderer({
                     label={label}
                     value={value ?? control.default_value ?? ''}
                     onChange={e => onChange(control.api_mapping_key, e.target.value)}
-                    options={(control.options || []).map(opt => ({ 
-                        id: opt, 
-                        display_name: formatDisplayName(opt.toString()) 
+                    options={(control.options || []).map(opt => ({
+                        id: opt,
+                        display_name: formatDisplayName(opt.toString())
                     }))}
+                    variant="minimal"
                 />
             );
         case 'slider':
-        case 'threshold':
+        case 'threshold': {
+            const current = value ?? control.default_value ?? 0.5;
             return (
-                <div className="space-y-4 p-1.5 bg-white/[0.02] rounded-2xl border border-white/5 shadow-inner transition-all hover:bg-white/[0.05]">
-                    <div className="flex items-center justify-between px-1">
-                        <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.1em] opacity-60 leading-none">
-                            {label}
-                        </label>
-                        <span className="text-[8px] font-mono font-bold text-accent-primary/60 uppercase tracking-widest px-2 py-0.5 rounded-full border border-accent-primary/10 bg-accent-primary/5">
-                            {control.type?.toUpperCase() || 'NUM'}
+                <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                        <label className={minimalLabelClass}>{label}</label>
+                        <span className="text-[9px] font-mono font-semibold text-accent-primary tracking-tight tabular-nums">
+                            {current}
                         </span>
                     </div>
-                    <div className="space-y-3 px-1 pb-1">
-                        <input
-                            type="range"
-                            min={control.min ?? 0}
-                            max={control.max ?? 1}
-                            step={control.step ?? 0.01}
-                            value={value ?? control.default_value ?? 0.5}
-                            onChange={e => onChange(control.api_mapping_key, parseFloat(e.target.value))}
-                            className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary transition-all hover:scale-y-125"
-                        />
-                        <div className="flex justify-between items-center text-[10px] font-mono text-content-tertiary/60">
-                            <span className="opacity-40">{control.min ?? 0}</span>
-                            <div className="px-2 py-0.5 rounded bg-accent-primary/10 border border-accent-primary/20 text-accent-primary font-black scale-110 shadow-lg shadow-accent-primary/10">
-                                {value ?? control.default_value ?? 0.5}
-                            </div>
-                            <span className="opacity-40">{control.max ?? 1}</span>
-                        </div>
+                    <input
+                        type="range"
+                        min={control.min ?? 0}
+                        max={control.max ?? 1}
+                        step={control.step ?? 0.01}
+                        value={current}
+                        onChange={e => onChange(control.api_mapping_key, parseFloat(e.target.value))}
+                        className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
+                    />
+                    <div className="flex justify-between text-[8px] font-mono text-content-tertiary/40 tabular-nums px-0.5">
+                        <span>{control.min ?? 0}</span>
+                        <span>{control.max ?? 1}</span>
                     </div>
                 </div>
             );
+        }
         case 'checkbox':
         case 'reverse':
             return (
-                <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 shadow-inner group/switch transition-all hover:bg-white/10">
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.1em] opacity-60 leading-none block">
-                            {label}
-                        </label>
-                        <span className="text-[8px] font-bold text-accent-primary/40 uppercase tracking-widest px-2 py-0.5 rounded-full border border-accent-primary/10 bg-accent-primary/5 inline-block">
-                            BOOL
-                        </span>
-                    </div>
+                <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-white/5 border border-white/10 rounded-lg transition-colors hover:bg-white/[0.07]">
+                    <label className="text-[10px] font-bold text-content-secondary tracking-tight truncate">
+                        {label}
+                    </label>
                     <Switch
+                        size="sm"
                         checked={value ?? control.default_value ?? false}
                         onCheckedChange={(checked) => onChange(control.api_mapping_key, checked)}
                     />
@@ -393,6 +363,7 @@ function ControlRenderer({
                     step={control.step ?? 1}
                     value={value ?? control.default_value ?? 0}
                     onChange={e => onChange(control.api_mapping_key, parseFloat(e.target.value))}
+                    variant="minimal"
                 />
             );
         case 'text_input':
@@ -402,7 +373,8 @@ function ControlRenderer({
                     label={label}
                     value={value ?? control.default_value ?? ''}
                     onChange={e => onChange(control.api_mapping_key, e.target.value)}
-                    placeholder={`${control.api_mapping_key}...`}
+                    placeholder={`${control.api_mapping_key}…`}
+                    variant="minimal"
                 />
             );
     }

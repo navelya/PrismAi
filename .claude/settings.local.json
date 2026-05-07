@@ -19,7 +19,8 @@
       "Bash(Select-Object Name)",
       "Bash(xargs grep *)",
       "Bash(grep -E \"\\(use-session|app-store|BaseNode|chat\\\\\\\\\\\\[id\\\\\\\\\\\\]\\)\")",
-      "Bash(awk -F'\\(' '{print $1}')"
+      "Bash(awk -F'\\(' '{print $1}')",
+      "Bash(Get-ChildItem -Path \"C:\\\\Projects\\\\Prisfol\\\\PrismAi\" -Directory)"
     ]
   }
 }

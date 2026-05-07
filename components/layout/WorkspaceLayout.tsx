@@ -142,8 +142,10 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     }, []);
 
     const PAD = 16;
+    const TOP_BAR_OFFSET = 64; // clears the credits/upgrade pill at top-left of the canvas
     const canvasLeft = 16;  // matches left-4 = 16px (same as other panels)
-    const canvasTop = Math.max(0, containerSize.h - SIDEBAR_HEIGHT - PAD);
+    const canvasTop = TOP_BAR_OFFSET;
+    const chatHeight = Math.max(SIDEBAR_HEIGHT, containerSize.h - TOP_BAR_OFFSET - PAD);
 
     // Rail left position:
     //   chat open  → right edge of chat panel (PAD + SIDEBAR_WIDTH + gap)
@@ -191,8 +193,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 {isCanvasMode && isNodeLibraryOpen && (
                     <motion.div
                         key="node-library"
-                        className="absolute left-4 top-4 bottom-4 z-[55] pointer-events-auto"
-                        style={{ width: `${PANEL_W}px` }}
+                        className="absolute left-4 bottom-4 z-[55] pointer-events-auto"
+                        style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
                         initial={{ opacity: 0, x: -24 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -24 }}
@@ -351,8 +353,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 {isCanvasMode && isAssetsOpen && (
                     <motion.div
                         key="assets-panel"
-                        className="absolute left-4 top-4 bottom-4 z-[55] pointer-events-auto"
-                        style={{ width: `${PANEL_W}px` }}
+                        className="absolute left-4 bottom-4 z-[55] pointer-events-auto"
+                        style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
                         initial={{ opacity: 0, x: -24 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -24 }}
@@ -401,8 +403,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                     !isCanvasMode
                         ? { left: 0, top: 0, right: 0, bottom: 0, width: '100%' as any, height: '100%' as any, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                         : isCopilotMinimized
-                            ? { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, height: SIDEBAR_HEIGHT, opacity: 0, x: -24, pointerEvents: 'none' as any }
-                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, height: SIDEBAR_HEIGHT, opacity: 1, x: 0, pointerEvents: 'auto' as any }
+                            ? { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, height: chatHeight, opacity: 0, x: -24, pointerEvents: 'none' as any }
+                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, height: chatHeight, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                 }
                 transition={isCanvasMode ? { duration: 0.18, ease: 'easeOut' } : RESIZE_TRANSITION}
                 style={isCanvasMode ? { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', background: 'rgba(12, 12, 16, 0.88)' } : { background: undefined }}

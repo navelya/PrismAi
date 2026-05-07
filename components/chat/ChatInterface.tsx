@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen, AlertTriangle, Maximize2 } from 'lucide-react';
+import { Send, Loader2, Bot, User, Mic, Sparkles, MicOff, Square, Plus, X, Image, ImagePlus, ChevronUp, Pen, AlertTriangle, Maximize2, MessageCircleMore, Camera, Megaphone, HelpCircle, Workflow as WorkflowIcon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { TableModal } from '@/components/ui/TableModal';
 import remarkGfm from 'remark-gfm';
@@ -1046,10 +1046,20 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             <div
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
-                className={`flex-1 overflow-y-auto overflow-x-hidden ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
+                className={`flex-1 overflow-y-auto overflow-x-hidden flex flex-col ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
                 style={{ overflowAnchor: 'auto' }}
             >
-                <div ref={contentRef} className="max-w-3xl mx-auto space-y-6 pb-2">
+                {!isLoadingSession && messages.length === 0 && !isLoading && (
+                    <WorkflowEmptyState
+                        userName={userName}
+                        isCanvasMode={isCanvasMode}
+                        onSuggestionClick={(text) => {
+                            setInput(text);
+                            textareaRef.current?.focus();
+                        }}
+                    />
+                )}
+                <div ref={contentRef} className={`max-w-3xl mx-auto space-y-6 pb-2 w-full ${!isLoadingSession && messages.length === 0 && !isLoading ? 'hidden' : ''}`}>
                     {isLoadingSession ? (
                         <ChatSkeletons isCanvasMode={isCanvasMode} />
                     ) : (
@@ -1153,6 +1163,61 @@ export function ExecutionUserFeedback({ serverStatus }: { serverStatus?: string 
         <span className="text-sm min-w-[120px]">
             {statusText}{dots}
         </span>
+    );
+}
+
+function WorkflowEmptyState({
+    userName,
+    isCanvasMode,
+    onSuggestionClick,
+}: {
+    userName?: string;
+    isCanvasMode: boolean;
+    onSuggestionClick: (prompt: string) => void;
+}) {
+    const firstName = userName?.trim().split(' ')[0]?.replace(/^./, c => c.toUpperCase()) || '';
+
+    const suggestions = [
+        { icon: Camera, text: 'Create a product shot workflow' },
+        { icon: Megaphone, text: 'Generate ad creatives for my brand' },
+        { icon: WorkflowIcon, text: 'Help me pick the right model for my project' },
+        { icon: HelpCircle, text: 'What can I build with Prisfol?' },
+    ];
+
+    return (
+        <div className="flex-1 w-full flex flex-col animate-in fade-in duration-500">
+            <div className="flex-1 flex flex-col items-center justify-center text-center">
+                <div className={`flex items-center justify-center gap-2.5 ${isCanvasMode ? 'mb-2' : 'mb-3'}`}>
+                    <div className={`${isCanvasMode ? 'w-7 h-7' : 'w-9 h-9'} rounded-2xl bg-accent-primary/10 flex items-center justify-center`}>
+                        <MessageCircleMore className={`${isCanvasMode ? 'w-4 h-4' : 'w-[18px] h-[18px]'} text-accent-primary`} strokeWidth={2.2} />
+                    </div>
+                    <h1 className={`${isCanvasMode ? 'text-xl' : 'text-3xl'} font-semibold text-content-primary tracking-tight`}>
+                        Hey{firstName ? ` ${firstName}` : ''}
+                    </h1>
+                </div>
+                <p className={`text-content-secondary leading-relaxed ${isCanvasMode ? 'text-xs max-w-[260px]' : 'text-sm max-w-md'}`}>
+                    I help you build workflows and get advice on your creative projects. Ask me anything.
+                </p>
+            </div>
+
+            <div className={`flex flex-col gap-2 w-full mx-auto ${isCanvasMode ? 'max-w-[300px]' : 'max-w-md'}`}>
+                {suggestions.map(({ icon: Icon, text }) => (
+                    <button
+                        key={text}
+                        type="button"
+                        onClick={() => onSuggestionClick(text)}
+                        className={`group flex items-center gap-2.5 ${isCanvasMode ? 'px-3 py-2 text-xs' : 'px-4 py-2.5 text-sm'}
+                                    rounded-xl bg-surface-secondary hover:bg-surface-tertiary
+                                    border border-stroke-subtle hover:border-accent-primary/40
+                                    text-content-secondary hover:text-content-primary
+                                    transition-colors text-left`}
+                    >
+                        <Icon className={`${isCanvasMode ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-content-tertiary group-hover:text-accent-primary transition-colors flex-shrink-0`} strokeWidth={2} />
+                        <span className="truncate">{text}</span>
+                    </button>
+                ))}
+            </div>
+        </div>
     );
 }
 
