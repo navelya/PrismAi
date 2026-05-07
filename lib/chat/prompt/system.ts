@@ -34,6 +34,13 @@ const RESPONSE_FORMAT = `RESPONSE FORMAT:
 - Mention cost or tokens only if the user asked.
 - End with one forward question.`;
 
+const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
+1. Every node you add MUST have its config fully populated. NEVER emit \`data.config: {}\` — empty config corrupts the canvas. Read the REQUIRED CONFIG block for each node type below.
+2. For ai_generator, model_id is MANDATORY. Pick a model from the "AI GENERATOR MODELS" list and set both top-level model_id AND data.config.model_id to its numeric id.
+3. For compositor, populate config.layers with one entry per inbound edge BEFORE adding the edges. The edge's targetHandle MUST match the layer's sourceHandleId (e.g., "layer_0", "layer_1").
+4. When you call a tool, ALWAYS emit at least one short sentence of confirmation text before the tool call — no silent tool calls.
+5. Respond in the same language the user wrote in. If the user wrote in Hebrew, reply in Hebrew. If Spanish, reply in Spanish. Never translate.`;
+
 export interface BuildSystemInput {
   workflow: Workflow | null | undefined;
   registry: RegistryContextInput;
@@ -50,6 +57,7 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
     IDENTITY,
     VOICE_RULES,
     CAPABILITIES,
+    CRITICAL_RULES,
     formatRegistryContext(input.registry),
     TOOL_RULES,
     RESPONSE_FORMAT,

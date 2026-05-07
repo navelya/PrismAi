@@ -44,6 +44,75 @@ export function formatRegistryContext(input: RegistryContextInput): string {
     } else {
       block += `\n  {}`;
     }
+
+    // --- REQUIRED CONFIG block (plain English, unmissable) ---
+    if (type === 'ai_generator') {
+      block += `\n\nREQUIRED CONFIG for ai_generator:`;
+      block += `\n- \`model_id\` (number): REQUIRED. Pick from "AI GENERATOR MODELS" list above. Set both at the top level (model_id field) AND inside data.config.model_id.`;
+      block += `\n- \`node_type_id\` (string): REQUIRED. Must match the type bucket the chosen model belongs to.`;
+      block += `\n- Without model_id, this node cannot run.`;
+    } else if (def.aiSchema && Object.keys(def.aiSchema).length > 0) {
+      const topRequired: string[] = Array.isArray(def.aiSchema.required) ? def.aiSchema.required : [];
+      const properties: Record<string, any> = def.aiSchema.properties || {};
+
+      // Collect nested required fields from array property items
+      const nestedRequiredByProp: Record<string, string[]> = {};
+      for (const [propKey, propDef] of Object.entries(properties)) {
+        if (
+          propDef &&
+          typeof propDef === 'object' &&
+          (propDef as any).type === 'array' &&
+          (propDef as any).items &&
+          Array.isArray((propDef as any).items.required)
+        ) {
+          nestedRequiredByProp[propKey] = (propDef as any).items.required as string[];
+        }
+      }
+
+      const hasRequired = topRequired.length > 0 || Object.keys(nestedRequiredByProp).length > 0;
+      if (hasRequired) {
+        block += `\n\nREQUIRED CONFIG for ${type}:`;
+        for (const field of topRequired) {
+          const propDef = properties[field] as any;
+          const fieldType = propDef?.type || 'value';
+          const nestedRequired = nestedRequiredByProp[field];
+          if (fieldType === 'array' && nestedRequired) {
+            block += `\n- \`${field}\`: array. ONE ENTRY PER INBOUND EDGE. Each item needs:`;
+            for (const nestedField of nestedRequired) {
+              const itemProps = propDef?.items?.properties?.[nestedField] as any;
+              const nestedType = itemProps?.type || 'string';
+              const nestedDesc = itemProps?.description ? ` — ${itemProps.description}` : '';
+              if (nestedField === 'sourceHandleId') {
+                block += `\n    • ${nestedField} (${nestedType}): MUST match the targetHandle set on the edge connecting to this node (e.g., "layer_0", "layer_1")`;
+              } else {
+                block += `\n    • ${nestedField} (${nestedType})${nestedDesc}`;
+              }
+            }
+            block += `\n- Without \`${field}\` populated, edges to this node will fail.`;
+          } else {
+            const desc = propDef?.description ? ` — ${propDef.description}` : '';
+            block += `\n- \`${field}\` (${fieldType}): REQUIRED${desc}`;
+          }
+        }
+        // Surface nested required for fields that aren't in top-level required but have nested required
+        for (const [propKey, nestedRequired] of Object.entries(nestedRequiredByProp)) {
+          if (topRequired.includes(propKey)) continue; // already handled above
+          const propDef = properties[propKey] as any;
+          block += `\n- \`${propKey}\`: array. Each item needs:`;
+          for (const nestedField of nestedRequired) {
+            const itemProps = propDef?.items?.properties?.[nestedField] as any;
+            const nestedType = itemProps?.type || 'string';
+            const nestedDesc = itemProps?.description ? ` — ${itemProps.description}` : '';
+            if (nestedField === 'sourceHandleId') {
+              block += `\n    • ${nestedField} (${nestedType}): MUST match the targetHandle set on the edge connecting to this node`;
+            } else {
+              block += `\n    • ${nestedField} (${nestedType})${nestedDesc}`;
+            }
+          }
+        }
+      }
+    }
+
     nodeDocs.push(block);
   }
 
