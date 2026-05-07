@@ -29,8 +29,19 @@ interface ContextMenuItem {
 
 export function ContextMenuBuilder() {
     const [items, setItems] = useState<ContextMenuItem[]>([]);
-    
-    const tree = useMemo(() => buildTree(items), [items]);
+
+    // DnD State (declared early so previewItems can read it)
+    const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+    const [dropTarget, setDropTarget] = useState<{ id: string, position: 'top' | 'bottom' | 'inside' } | null>(null);
+
+    // During drag, render the tree as if the drop already happened — items shift
+    // live to show their new positions instead of a placeholder line.
+    const previewItems = useMemo(() => {
+        if (!draggedItemId || !dropTarget) return items;
+        return computeMove(items, draggedItemId, dropTarget.id, dropTarget.position);
+    }, [items, draggedItemId, dropTarget]);
+
+    const tree = useMemo(() => buildTree(previewItems), [previewItems]);
     
     // Reference data
     const [models, setModels] = useState<any[]>([]);
@@ -63,10 +74,6 @@ export function ContextMenuBuilder() {
         is_active: true
     };
     const [form, setForm] = useState<Partial<ContextMenuItem>>(defaultForm);
-
-    // DnD State
-    const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
-    const [dropTarget, setDropTarget] = useState<{ id: string, position: 'top' | 'bottom' | 'inside' } | null>(null);
 
     useEffect(() => {
         loadData();
@@ -107,17 +114,59 @@ export function ContextMenuBuilder() {
             }));
     }
 
+    // Pure move: returns a new flat items array with sourceId moved to the
+    // requested position relative to targetId. Used both for live drag preview
+    // and the final committed move on drop.
+    function computeMove(
+        flatItems: ContextMenuItem[],
+        sourceId: string,
+        targetId: string,
+        position: 'top' | 'bottom' | 'inside'
+    ): ContextMenuItem[] {
+        if (sourceId === targetId) return flatItems;
+        const next = flatItems.map(i => ({ ...i }));
+        const source = next.find(i => i.id === sourceId);
+        const target = next.find(i => i.id === targetId);
+        if (!source || !target) return flatItems;
+
+        if (position === 'inside') {
+            source.parent_id = targetId;
+            const siblings = next.filter(i => i.parent_id === targetId && i.id !== sourceId);
+            source.sort_order = siblings.length > 0
+                ? Math.max(...siblings.map(s => s.sort_order)) + 10
+                : 0;
+        } else {
+            source.parent_id = target.parent_id;
+            source.sort_order = position === 'top'
+                ? target.sort_order - 5
+                : target.sort_order + 5;
+        }
+
+        return normalizeSortOrdersPure(next);
+    }
+
+    function normalizeSortOrdersPure(flatItems: ContextMenuItem[]): ContextMenuItem[] {
+        const result = flatItems.map(i => ({ ...i }));
+        const parents = Array.from(new Set(result.map(i => i.parent_id)));
+        parents.forEach(pid => {
+            const siblings = result
+                .filter(i => i.parent_id === pid)
+                .sort((a, b) => (a.sort_order - b.sort_order) || a.id.localeCompare(b.id));
+            siblings.forEach((item, idx) => {
+                item.sort_order = idx * 10;
+            });
+        });
+        return result;
+    }
+
     // DnD Handlers
     const handleDragStart = (e: React.DragEvent, id: string) => {
         e.stopPropagation();
         setDraggedItemId(id);
         e.dataTransfer.setData('itemId', id);
         e.dataTransfer.effectAllowed = 'move';
-        
-        // Set a transparent drag image
-        const img = new Image();
-        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-        e.dataTransfer.setDragImage(img, 0, 0);
+        // No setDragImage — let the browser use its default (a translucent
+        // snapshot of the row) so the user sees the layer being dragged out.
     };
 
     const handleDragOver = (e: React.DragEvent, targetId: string, itemType: string) => {
@@ -130,27 +179,32 @@ export function ContextMenuBuilder() {
         const h = rect.height;
 
         let position: 'top' | 'bottom' | 'inside' = 'inside';
-        
-        // Only Submenus and Providers can receive interior drops
         const canHaveChildren = ['submenu', 'provider'].includes(itemType);
-        
+
         if (canHaveChildren) {
-            // Wider 'inside' zone for folders (50% center)
             if (y < h * 0.25) position = 'top';
             else if (y > h * 0.75) position = 'bottom';
             else position = 'inside';
         } else {
-            // No 'inside' drop for non-folders
             position = y < h * 0.5 ? 'top' : 'bottom';
         }
 
-        // Parent-into-child safeguard
+        // Parent-into-child safeguard — can't drop a folder inside its own descendant.
         if (position === 'inside' && isChildOf(draggedItemId!, targetId, items)) {
-            setDropTarget(null);
+            setDropTarget(prev => prev === null ? prev : null);
             return;
         }
 
-        setDropTarget({ id: targetId, position });
+        // Auto-expand a folder when hovering "inside" so the user sees the live shift.
+        if (position === 'inside' && canHaveChildren) {
+            setExpanded(prev => prev.has(targetId) ? prev : new Set([...prev, targetId]));
+        }
+
+        // Skip no-op updates so dragover doesn't churn re-renders pixel-by-pixel.
+        setDropTarget(prev => {
+            if (prev?.id === targetId && prev.position === position) return prev;
+            return { id: targetId, position };
+        });
     };
 
     const handleDrop = (e: React.DragEvent) => {
@@ -166,12 +220,13 @@ export function ContextMenuBuilder() {
         const targetId = dropTarget.id;
         const position = dropTarget.position;
 
-        if (sourceId === targetId) return;
-
-        moveItem(sourceId, targetId, position);
-        
         setDraggedItemId(null);
         setDropTarget(null);
+
+        if (sourceId === targetId) return;
+
+        // previewItems already reflects the desired final state — commit it.
+        setItems(prev => computeMove(prev, sourceId, targetId, position));
         setHasChanges(true);
     };
 
@@ -182,48 +237,6 @@ export function ContextMenuBuilder() {
             current = allItems.find(i => i.id === current!.parent_id);
         }
         return false;
-    };
-
-    const moveItem = (sourceId: string, targetId: string, position: 'top' | 'bottom' | 'inside') => {
-        setItems(prev => {
-            const newItems = [...prev.map(i => ({ ...i }))];
-            const sourceItem = newItems.find(i => i.id === sourceId);
-            const targetItem = newItems.find(i => i.id === targetId);
-            
-            if (!sourceItem || !targetItem) return prev;
-
-            // 1. Determine new parent
-            if (position === 'inside') {
-                sourceItem.parent_id = targetId;
-                // Move to end of that group
-                const siblings = newItems.filter(i => i.parent_id === targetId);
-                sourceItem.sort_order = siblings.length > 0 ? Math.max(...siblings.map(s => s.sort_order)) + 10 : 0;
-            } else {
-                sourceItem.parent_id = targetItem.parent_id;
-                // Temporary sort order for positioning
-                sourceItem.sort_order = position === 'top' ? targetItem.sort_order - 5 : targetItem.sort_order + 5;
-            }
-
-            // 2. Normalize all sort orders to keep it clean
-            return normalizeSortOrders(newItems);
-        });
-    };
-
-    const normalizeSortOrders = (flatItems: ContextMenuItem[]): ContextMenuItem[] => {
-        const result = [...flatItems];
-        const parents = Array.from(new Set(result.map(i => i.parent_id)));
-        
-        parents.forEach(pid => {
-            const siblings = result
-                .filter(i => i.parent_id === pid)
-                .sort((a, b) => (a.sort_order - b.sort_order) || a.id.localeCompare(b.id));
-            
-            siblings.forEach((item, idx) => {
-                item.sort_order = idx * 10;
-            });
-        });
-
-        return result;
     };
 
     const toggleExpand = (id: string, e: React.MouseEvent) => {
@@ -432,16 +445,20 @@ export function ContextMenuBuilder() {
             const hasChildren = node.children && node.children.length > 0;
             const isExpanded = expanded.has(node.id);
 
+            const isDraggingThis = draggedItemId === node.id;
+            const isInsideTarget = dropTarget?.id === node.id && dropTarget.position === 'inside';
+
             return (
                 <div key={node.id} className="flex flex-col relative text-left">
-                    <motion.div 
-                        layout
+                    <motion.div
+                        layoutId={node.id}
+                        transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.6 }}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
                         className={cn(
-                            "relative group transition-all duration-200",
-                            draggedItemId === node.id && "opacity-30 scale-95",
+                            "relative group cursor-grab active:cursor-grabbing",
+                            isDraggingThis && "z-30 scale-[1.02]"
                         )}
                         draggable
                         onDragStart={(e) => handleDragStart(e as any, node.id)}
@@ -452,28 +469,14 @@ export function ContextMenuBuilder() {
                             setDropTarget(null);
                         }}
                     >
-                        {/* Drop Indicators */}
-                        {dropTarget?.id === node.id && (
-                            <div className="absolute inset-x-0 pointer-events-none z-50">
-                                {dropTarget.position === 'top' && (
-                                    <div className="absolute -top-1 inset-x-0 h-1 bg-accent-primary shadow-[0_0_10px_rgba(6,182,212,1)] rounded-full z-50" />
-                                )}
-                                {dropTarget.position === 'bottom' && (
-                                    <div className="absolute -bottom-1 inset-x-0 h-1 bg-accent-primary shadow-[0_0_10px_rgba(6,182,212,1)] rounded-full z-50" />
-                                )}
-                                {dropTarget.position === 'inside' && (
-                                    <div className="absolute inset-0 bg-accent-primary/10 border-2 border-accent-primary rounded-xl z-50" />
-                                )}
-                            </div>
-                        )}
-
                         <div className={cn(
                             "flex items-center justify-between p-3 rounded-xl border border-transparent hover:border-white/10 hover:bg-white/5 transition-all group/row",
                             editingItem?.id === node.id && "bg-accent-primary/5 border-accent-primary/30",
-                            dropTarget?.id === node.id && dropTarget.position === 'inside' && "bg-accent-primary/5 border-accent-primary/20 scale-[1.02]"
+                            isInsideTarget && "bg-accent-primary/10 border-accent-primary/40 ring-1 ring-accent-primary/30",
+                            isDraggingThis && "bg-white/10 border-accent-primary/40 ring-2 ring-accent-primary/40 shadow-2xl shadow-black/50"
                         )}>
                         <div className="flex items-center gap-3">
-                            <div className="cursor-grab active:cursor-grabbing p-1 text-content-tertiary/40 hover:text-content-secondary transition-colors">
+                            <div className="p-1 text-content-tertiary/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                 <GripVertical className="w-4 h-4" />
                             </div>
                             
@@ -545,17 +548,22 @@ export function ContextMenuBuilder() {
                         </div>
                     </div>
                     
-                    {['submenu', 'provider'].includes(node.item_type) && hasChildren && isExpanded && (
-                        <motion.div 
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="flex flex-col ml-4 border-l border-white/5 pl-2"
-                        >
-                            <AnimatePresence mode="popLayout">
-                                {renderTree(node.children!, level + 1)}
-                            </AnimatePresence>
-                        </motion.div>
+                    {['submenu', 'provider'].includes(node.item_type) && hasChildren && (
+                        <AnimatePresence initial={false}>
+                            {isExpanded && (
+                                <motion.div
+                                    key="children"
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.2, ease: 'easeOut' }}
+                                    style={{ overflow: 'hidden' }}
+                                    className="flex flex-col ml-4 border-l border-white/5 pl-2"
+                                >
+                                    {renderTree(node.children!, level + 1)}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     )}
                     </motion.div>
                 </div>

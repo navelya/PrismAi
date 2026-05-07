@@ -244,6 +244,24 @@ export default function SharedWorkflowEditor({
         store.setActiveExecutionId(executionId);
         store.setExecutionStartTime(Date.now());
 
+        // A node should appear "running" the moment Run is clicked if it is
+        // either a graph root OR all of its incoming edges come from
+        // non-generative families (input/utility/output — prompt, media_input,
+        // blur, compositor, etc.). Those parents execute server-side in <100ms,
+        // so the downstream node is the first one the user actually perceives
+        // as generating. Marking it 'pending' (slate dot) for the realtime
+        // roundtrip from the orchestrator's dispatch read as "idle for 2s".
+        const hasGenerativeParent = (nodeId: string): boolean => {
+            return edges
+                .filter(e => e.target === nodeId)
+                .some(e => {
+                    const parent = nodes.find(n => n.id === e.source);
+                    if (!parent) return false;
+                    const def = sharedRegistry[parent.type as keyof typeof sharedRegistry];
+                    return (def as any)?.family === 'generative';
+                });
+        };
+
         if (targetNodeId && mode === 'solo') {
             store.setNodeStatus(targetNodeId, 'running');
         } else if (targetNodeId && mode === 'chain') {
@@ -259,8 +277,7 @@ export default function SharedWorkflowEditor({
             // the compositor preview keeps working while the run is queued.
             store.reseedSourceNodeOutputs();
             nodes.forEach(n => {
-                const hasIncomingEdges = edges.some(e => e.target === n.id);
-                store.setNodeStatus(n.id, hasIncomingEdges ? 'pending' : 'running');
+                store.setNodeStatus(n.id, hasGenerativeParent(n.id) ? 'pending' : 'running');
             });
         }
 

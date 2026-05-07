@@ -21,18 +21,17 @@ export { type Message };
  * - isCanvasMode
  * - models, categories, nodeTypes, providers (catalog cache)
  * - isModelsLoading
- * - activeSessionId, activeExecutionId — last-known session/execution pointer
- * - nodeStatuses, nodeOutputs — last-known DB state for the current session.
- *   The DB (`node_results` table) is the source of truth; we cache the latest
- *   view client-side so refresh / back-nav paints the correct status on the
- *   first frame instead of flashing 'idle'. The page-level session-id check
- *   ([app/chat/[id]/page.tsx]) wipes them when the URL session id ≠ persisted
- *   activeSessionId, so a stale session's status never bleeds into a new one.
  *
  * **What is NOT persisted (runtime/session state):**
+ * - activeSessionId - Set fresh on session load
  * - currentWorkflow - Loaded from Supabase on demand
  * - chatMessages - Fetched from Supabase per session
- * - executionResults - Summary state, recomputed on load
+ * - executionResults, nodeStatuses, nodeOutputs - DB-driven execution state.
+ *   The DB (`node_results` table) is the SOLE source of truth; we never cache
+ *   it client-side. On every load, getSessionExecutions fetches the current
+ *   state and the realtime channel keeps it live thereafter. Until the fetch
+ *   resolves, the canvas shows a "checking" indicator (see BaseNode.tsx),
+ *   never a stale or invented status.
  * - copiedNode, liveNodePositions - Temporary UI state
  * - runFromNodeId, runMode - Trigger signals, MUST NOT survive refresh
  *
@@ -89,11 +88,13 @@ export const useAppStore = create<RootState>()(
             storage: createJSONStorage(() => localStorage),
             partialize: (state) => Object.fromEntries(
                 Object.entries(state).filter(([key]) => ![
-                    // activeSessionId, activeExecutionId, nodeStatuses, nodeOutputs
-                    // are intentionally PERSISTED — see store doc comment.
+                    'activeSessionId',
                     'currentWorkflow',
                     'chatMessages',
                     'executionResults',
+                    'nodeStatuses',
+                    'nodeOutputs',
+                    'activeExecutionId',
                     'copiedNode',
                     'isLoading',
                     'isLoadingSession',
@@ -123,16 +124,13 @@ export const useAppStore = create<RootState>()(
             ),
             onRehydrateStorage: () => (state) => {
                 if (state) {
-                    // activeSessionId, activeExecutionId, nodeStatuses, nodeOutputs
-                    // intentionally NOT cleared — the page-level session-id mismatch
-                    // check ([app/chat/[id]/page.tsx]) wipes them via clearAllState
-                    // when the URL session ≠ persisted session, so a stale session's
-                    // state never bleeds into a new one.
+                    state.activeSessionId = null;
                     state.chatMessages = [];
                     state.isDragging = false;
+                    state.nodeStatuses = {};
+                    state.nodeOutputs = {};
                     state.executionResults = {};
-                    // executionStartTime drives elapsed-time UI; a stale value would
-                    // claim the current run took hours. Always reset on load.
+                    state.activeExecutionId = null;
                     state.executionStartTime = null;
                     state.isCopilotMinimized = false;
                     state.isLoadingSession = false;

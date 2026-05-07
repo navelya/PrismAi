@@ -378,13 +378,31 @@ export async function POST(request: NextRequest) {
     });
     const rootNodeIds = new Set(rootNodes.map(n => n.id));
 
+    // "Initially running" set: graph-topological roots PLUS any node whose
+    // every parent in the execution set is ephemeral (prompt, media_input,
+    // blur, compositor — server-side handlers that run in <100ms). These
+    // downstream nodes are what the user actually perceives as generating;
+    // marking them 'pending' costs ~2s of "idle-looking" UI on a refresh
+    // mid-execution while the orchestrator's realtime 'running' event
+    // propagates. The dispatch loop below still walks ONLY graph roots —
+    // this set is for the initial node_results status only.
+    const initiallyRunningIds = new Set<string>(rootNodeIds);
+    for (const node of nodesToExecute) {
+      if (initiallyRunningIds.has(node.id)) continue;
+      const parentEdgesInSet = edgesToInclude.filter(e => e.target === node.id);
+      if (parentEdgesInSet.length === 0) continue;
+      const allParentsEphemeral = parentEdgesInSet.every(e => {
+        const parent = nodesToExecute.find(n => n.id === e.source);
+        return !!parent && isEphemeralNode(parent.type);
+      });
+      if (allParentsEphemeral) initiallyRunningIds.add(node.id);
+    }
+
     const initialNodeResults = nodesToExecute.map((node: NodeConfig) => ({
       execution_id: execution.id,
       node_id: node.id,
       session_id: session_id,
-      // Root nodes start as 'running' so the client's first realtime event is already correct.
-      // Non-root nodes start as 'pending' — they'll be updated when their parents complete.
-      status: rootNodeIds.has(node.id) ? 'running' : 'pending',
+      status: initiallyRunningIds.has(node.id) ? 'running' : 'pending',
       updated_at: new Date().toISOString(),
     }));
     

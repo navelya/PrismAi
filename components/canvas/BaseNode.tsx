@@ -2,10 +2,11 @@
 
 import React, { memo, useMemo } from 'react';
 import { Handle, Position, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
-import { Copy, X, Loader2, Check } from 'lucide-react';
+import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import type { NodeStatus } from '@/lib/nodes/types';
 import { NodeHeader } from './NodeHeader';
 import { motion } from 'framer-motion';
 
@@ -89,7 +90,20 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const metadata = sharedDef?.meta;
 
     // Status and Store Actions
-    const status = useAppStore((state) => state.nodeStatuses[id] || 'idle');
+    //
+    // Status resolution order:
+    //   1. Known status from store (persisted from prior render OR set by
+    //      DB hydration / realtime). Shown as-is.
+    //   2. No known status BUT a session is currently loading: render as
+    //      'pending' so the badge reads as "checking" instead of flashing
+    //      'idle'. Critical for cross-device opens where localStorage is
+    //      empty — the canvas mounts before getSessionExecutions returns,
+    //      and without this fallback running nodes would briefly show no
+    //      badge until DB hydration runs.
+    //   3. Else: 'idle' (no badge).
+    const rawStatus = useAppStore((state) => state.nodeStatuses[id]);
+    const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+    const status: NodeStatus = rawStatus ?? (isLoadingSession ? 'pending' : 'idle');
     const updateNodeLabel = useAppStore((state) => state.updateNodeLabel);
     const touchInteraction = useAppStore((state) => state.touchInteraction);
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
@@ -234,21 +248,17 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     className={cn(
                         "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
                         "shadow-lg border-surface-primary transition-all duration-300",
-                        // Pending uses the same accent family as running but dimmer
-                        // and without the glow — reads as "queued / loading shortly",
-                        // not as "idle" (the previous slate dot looked inert and
-                        // misled users into thinking nothing was happening).
-                        status === 'pending' && "bg-accent-primary/40 animate-pulse",
+                        status === 'pending' && "bg-slate-500",
                         status === 'running' && "bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]",
                         status === 'success' && "bg-accent-secondary shadow-[0_0_10px_rgba(20,184,166,0.5)]",
                         status === 'error' && "bg-accent-error"
                     )}
                     style={{ borderWidth: `${b2}px` }}
                 >
-                    {status === 'pending' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted/70" />}
                     {status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
                     {status === 'success' && <Check className="w-4 h-4 text-content-inverted" />}
                     {status === 'error' && <X className="w-4 h-4 text-content-inverted" />}
+                    {status === 'pending' && <Circle className="w-2 h-2 text-content-inverted fill-current" />}
                 </div>
             )}
 

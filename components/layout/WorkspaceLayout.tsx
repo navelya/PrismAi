@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Workflow as WorkflowIcon,
@@ -40,11 +40,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const isMobile = useIsMobile();
 
     // BOOTSTRAP (render-phase, runs once before the first paint):
-    // Sync the store to the optimistic mode now, so the first paint and every
-    // store subscriber (including the chat panel) agree. Without this, the
-    // first paint inherits the persisted value (often isCanvasMode=false) and
-    // we get a visible "full-screen → canvas" flicker once the verification
-    // effect lands.
+    // Sync the store to the optimistic mode now so the first paint and every
+    // store subscriber (chat panel included) agree.
     const hasBootstrappedMode = useRef(false);
     if (!hasBootstrappedMode.current) {
         hasBootstrappedMode.current = true;
@@ -62,19 +59,29 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
-    // VERIFICATION: Once the workflow actually loads, downgrade to full-screen
-    // chat if it turned out to be empty. Canvas mode is already in place from
-    // the bootstrap above, so non-empty workflows render with no transition.
+    // MAINTENANCE: While the session is still loading (workflow not yet
+    // resolved), keep canvas mode pinned. This defends against
+    // `clearAllState()` in /chat/[id]/page.tsx, which fires AFTER our render
+    // bootstrap and resets isCanvasMode to false. useLayoutEffect runs before
+    // paint, so the user never sees the intermediate full-screen frame.
     const hasHandledInitialMode = useRef(false);
+    useLayoutEffect(() => {
+        if (hasHandledInitialMode.current) return;
+        const store = useAppStore.getState();
+        const wantCanvas = !!sessionId;
+        if (store.isCanvasMode !== wantCanvas) store.setIsCanvasMode(wantCanvas);
+        if (store.isCopilotMinimized) store.setIsCopilotMinimized(false);
+    });
+
+    // VERIFICATION: When the workflow lands, commit the final mode based on
+    // whether it has nodes, then release the maintenance loop above.
     useEffect(() => {
         if (!sessionId || hasHandledInitialMode.current) return;
 
         if (workflow && workflow.id === sessionId) {
             const hasNodes = (workflow.nodes?.length || 0) > 0;
-            if (!hasNodes) {
-                setIsCanvasMode(false);
-                setIsCopilotMinimized(false);
-            }
+            setIsCanvasMode(hasNodes);
+            setIsCopilotMinimized(false);
             hasHandledInitialMode.current = true;
         }
     }, [sessionId, workflow, setIsCanvasMode, setIsCopilotMinimized]);
