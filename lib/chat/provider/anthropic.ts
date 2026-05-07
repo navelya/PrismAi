@@ -44,6 +44,12 @@ export interface StreamArgs {
   system: SystemBlock[];
   messages: ChatTurn[];
   tools: AnthropicTool[];
+  /**
+   * Disable extended thinking for this turn. Used by the brain to make
+   * trivial messages ("hi", short Q&A, simple updates) respond instantly
+   * without the ~700ms thinking floor.
+   */
+  disableThinking?: boolean;
 }
 
 let client: Anthropic | null = null;
@@ -81,10 +87,14 @@ function toAnthropicMessages(turns: ChatTurn[]): Anthropic.MessageParam[] {
 export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<ProviderEvent> {
   const c = getClient();
 
+  const thinking = args.disableThinking
+    ? { type: 'disabled' as const }
+    : { type: 'enabled' as const, budget_tokens: THINKING_BUDGET };
+
   const stream = c.messages.stream({
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET },
+    thinking,
     system: args.system as any,
     tools: args.tools as any,
     messages: toAnthropicMessages(args.messages)

@@ -44,8 +44,24 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let hadAnyOutput = false;
   let usage: BrainResult['usage'] = null;
 
+  // Trivial-message heuristic: if the user's last turn is short, has no
+  // images, and doesn't look like a workflow change, skip extended thinking
+  // entirely. This brings "hi", short Q&A, and simple updates back to
+  // ~1s response time. False positives just waste a tiny bit of model
+  // capability for one turn — false negatives (missing thinking on a
+  // complex turn) cost more, so the heuristic is conservative.
+  const lastTurn = input.turns.length > 0 ? input.turns[input.turns.length - 1] : null;
+  const lastUserText = lastTurn && lastTurn.role === 'user' ? lastTurn.text : '';
+  const lastUserImages = lastTurn && lastTurn.role === 'user' ? (lastTurn.images?.length ?? 0) : 0;
+  const ACTION_VERBS = /\b(make|build|add|create|change|fix|update|remove|use|switch|replace|generate|set up|wire|connect|delete|rewire|swap|configure|customize)\b/i;
+  const disableThinking =
+    lastUserText.length > 0 &&
+    lastUserText.length <= 80 &&
+    lastUserImages === 0 &&
+    !ACTION_VERBS.test(lastUserText);
+
   try {
-    const stream = streamAnthropicTurn({ system, messages: input.turns, tools: TOOLS });
+    const stream = streamAnthropicTurn({ system, messages: input.turns, tools: TOOLS, disableThinking });
 
     for await (const event of stream) {
       if (!input.encoder.isConnected()) break;
