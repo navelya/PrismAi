@@ -152,6 +152,8 @@ export function useSession() {
                     // Fall back to `canvas_state` for backwards compat with old messages
                     const messageWorkflow = msg.workflow || msg.canvas_state || undefined;
 
+                    const metadata = (msg.metadata ?? {}) as { thinking?: string | null; usage?: any };
+
                     return {
                         id: msg.id,
                         type: msg.role, // 'user' | 'assistant'
@@ -159,7 +161,9 @@ export function useSession() {
                         timestamp: new Date(msg.created_at),
                         images: msg.role === 'user' ? images : undefined, // Only user messages show inline images
                         result: result, // Assistant messages use result for image display
-                        workflow: messageWorkflow // Attach snapshot if available
+                        workflow: messageWorkflow, // Attach snapshot if available
+                        thinking: metadata.thinking ?? '',
+                        usage: metadata.usage ?? null,
                     };
                 });
 
