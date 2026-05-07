@@ -14,6 +14,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { generateNodeId, generateEdgeId, formatRelativeTime } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Toast } from '@/components/ui/Toast';
 
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
@@ -194,7 +195,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         handleChatDragLeave,
         handleChatDrop,
         removeAttachedImage,
-        clearAttachments
+        clearAttachments,
+        evictionToast,
+        evictionToastMessage,
+        dismissEvictionToast,
     } = useFileUpload();
 
     const { createNewSession } = useSession();
@@ -1012,6 +1016,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 <div className="sticky bottom-0 border-t border-stroke-subtle p-4 bg-surface-primary/80 backdrop-blur-sm">
                     {InputField}
                 </div>
+                {evictionToast && (
+                    <Toast
+                        message={evictionToastMessage}
+                        duration={4000}
+                        onClose={dismissEvictionToast}
+                    />
+                )}
             </div>
         );
     }
@@ -1147,6 +1158,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 )}
                 {InputField}
             </div>
+            {evictionToast && (
+                <Toast
+                    message={evictionToastMessage}
+                    duration={4000}
+                    onClose={dismissEvictionToast}
+                />
+            )}
         </div>
     );
 }

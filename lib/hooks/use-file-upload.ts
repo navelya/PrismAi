@@ -1,10 +1,18 @@
 import { useState, useRef, useCallback } from 'react';
 import { convertImageToWebP } from '@/lib/utils/image-processing';
 
+const IMAGE_CAP = 4;
+const EVICTION_TOAST_MSG = 'Removed earliest photo — chat keeps the 4 most recent images active.';
+
 export function useFileUpload() {
     const [attachedImages, setAttachedImages] = useState<string[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
+    const [evictionToast, setEvictionToast] = useState(false);
     const attachedBlobsRef = useRef<Blob[]>([]);
+
+    const dismissEvictionToast = useCallback(() => {
+        setEvictionToast(false);
+    }, []);
 
     const handleImageFiles = useCallback(async (files: FileList | null) => {
         if (!files || files.length === 0) return;
@@ -13,7 +21,7 @@ export function useFileUpload() {
             if (file.type.startsWith('image/')) {
                 try {
                     const webpBlob = await convertImageToWebP(file);
-                    // Create preview
+                    // Create preview (data-URI — safe to send as request body to the server)
                     const preview = await new Promise<string>((resolve) => {
                         const reader = new FileReader();
                         reader.onloadend = () => resolve(reader.result as string);
@@ -31,9 +39,29 @@ export function useFileUpload() {
         const results = await Promise.all(promises);
         const validResults = results.filter((r): r is { blob: Blob, preview: string } => r !== null);
 
-        if (validResults.length > 0) {
-            attachedBlobsRef.current = [...attachedBlobsRef.current, ...validResults.map(r => r.blob)];
-            setAttachedImages(prev => [...prev, ...validResults.map(r => r.preview)]);
+        if (validResults.length === 0) return;
+
+        let evicted = false;
+        setAttachedImages(prev => {
+            const combined = [...prev, ...validResults.map(r => r.preview)];
+            if (combined.length > IMAGE_CAP) {
+                evicted = true;
+                return combined.slice(combined.length - IMAGE_CAP);
+            }
+            return combined;
+        });
+
+        // Keep blobs in sync with images (oldest-first eviction mirrors the state logic above)
+        const combinedBlobs = [...attachedBlobsRef.current, ...validResults.map(r => r.blob)];
+        if (combinedBlobs.length > IMAGE_CAP) {
+            attachedBlobsRef.current = combinedBlobs.slice(combinedBlobs.length - IMAGE_CAP);
+            evicted = true;
+        } else {
+            attachedBlobsRef.current = combinedBlobs;
+        }
+
+        if (evicted) {
+            setEvictionToast(true);
         }
     }, []);
 
@@ -80,6 +108,9 @@ export function useFileUpload() {
         handleChatDragLeave,
         handleChatDrop,
         removeAttachedImage,
-        clearAttachments
+        clearAttachments,
+        evictionToast,
+        evictionToastMessage: EVICTION_TOAST_MSG,
+        dismissEvictionToast,
     };
 }
