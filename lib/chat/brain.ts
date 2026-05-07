@@ -106,6 +106,15 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     input.encoder.send({ type: 'error', message, recoverable });
   }
 
+  // Safety net: if the model used tools but emitted no text, the message
+  // bubble would render empty and feel "stuck." Synthesize a brief
+  // confirmation so the user always sees something.
+  if (finalText.length === 0 && accumulatedPatch) {
+    const fallback = 'Done — applied the changes to the canvas.';
+    finalText = fallback;
+    input.encoder.send({ type: 'text', text: fallback });
+  }
+
   const finalWorkflow = accumulatedPatch
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
