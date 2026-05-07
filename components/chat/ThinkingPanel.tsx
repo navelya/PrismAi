@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 
 const VISIBILITY_CHAR_THRESHOLD = 100;
 const VISIBILITY_TIME_THRESHOLD_MS = 500;
@@ -15,11 +16,9 @@ export interface ThinkingPanelProps {
 }
 
 /**
- * Collapsible reasoning display. Hidden until thinking exceeds 100 chars
- * OR 500ms — keeps the panel from flickering for trivial turns.
- *
- * After the turn ends, the panel collapses by default. Click the header
- * to re-expand. On history reload, the same rules apply.
+ * Minimalist collapsible reasoning display, modeled on Claude.ai's
+ * "thinking" chip. Hidden until thinking exceeds 100 chars OR 500ms —
+ * prevents flicker for trivial turns.
  */
 export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPanelProps) {
   const [expanded, setExpanded] = useState(false);
@@ -27,11 +26,9 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
 
   useEffect(() => {
     if (!isStreaming) {
-      // After stream ends, visibility is based on final thinking length.
       setCrossedThreshold(thinking.length >= VISIBILITY_CHAR_THRESHOLD);
       return;
     }
-    // While streaming, cross the threshold on length OR a 500ms timer.
     if (thinking.length >= VISIBILITY_CHAR_THRESHOLD) {
       setCrossedThreshold(true);
       return;
@@ -43,24 +40,41 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
   if (!crossedThreshold) return null;
 
   const headerLabel = isStreaming
-    ? 'Thinking...'
-    : `Thinking · ${formatDuration(durationMs)}`;
+    ? 'Thinking'
+    : `Thought for ${formatDuration(durationMs)}`;
 
   return (
-    <div className="my-2 rounded border border-zinc-200 bg-zinc-50 text-zinc-600 text-sm dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
+    <div className="my-1.5 text-sm">
       <button
         type="button"
         onClick={() => setExpanded(e => !e)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
+        className="group inline-flex items-center gap-1.5 text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+        aria-expanded={expanded}
       >
-        <span className="text-xs">{expanded ? '▾' : '▸'}</span>
-        <span className="font-medium">{headerLabel}</span>
+        <ChevronRight
+          size={14}
+          className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="font-normal">{headerLabel}</span>
+        {isStreaming && (
+          <span className="ml-1 inline-flex items-center gap-0.5">
+            <span className="size-1 animate-pulse rounded-full bg-current opacity-60 [animation-delay:0ms]" />
+            <span className="size-1 animate-pulse rounded-full bg-current opacity-60 [animation-delay:150ms]" />
+            <span className="size-1 animate-pulse rounded-full bg-current opacity-60 [animation-delay:300ms]" />
+          </span>
+        )}
       </button>
-      {expanded && (
-        <div className="px-3 pb-3 pt-1 italic whitespace-pre-wrap leading-relaxed">
-          {thinking || '(no reasoning recorded)'}
+      <div
+        className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out ${
+          expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="mt-2 ml-2 border-l-2 border-zinc-200 pl-3 italic whitespace-pre-wrap leading-relaxed text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+            {thinking || '(no reasoning recorded)'}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
