@@ -1119,13 +1119,16 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     )}
 
                     {isLoading && !(messages.length > 0 && messages[messages.length - 1].type === 'assistant' && !messages[messages.length - 1].content) && (
-                        <div className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} animate-in fade-in slide-in-from-left-2 duration-500`}>
-                            <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-10 h-10'} rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center shadow-sm`}>
-                                <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-accent-primary`} />
-                            </div>
-                            <div className="flex items-center gap-2 text-content-secondary">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                <ExecutionUserFeedback serverStatus={statusMessage} />
+                        <div className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} animate-in fade-in slide-in-from-left-2 duration-300`}>
+                            {!isCanvasMode && (
+                                <div className="flex-shrink-0 w-9 h-9 flex items-center justify-center mt-1">
+                                    <Bot className="w-5 h-5 text-accent-primary opacity-80" />
+                                </div>
+                            )}
+                            <div className="flex items-center gap-1 px-1 py-2">
+                                <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms] dark:bg-zinc-400" />
+                                <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:120ms] dark:bg-zinc-400" />
+                                <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:240ms] dark:bg-zinc-400" />
                             </div>
                         </div>
                     )}
