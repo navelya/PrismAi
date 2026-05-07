@@ -154,8 +154,11 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
   // versions expose it. The cost calc is still accurate.
   const thinkingTokens = 0;
 
+  // Anthropic reports input_tokens as the *uncached* portion only;
+  // cache_read_input_tokens is reported separately and billed at 10%.
+  // Sum the three terms — do NOT subtract cacheReadTokens from inputTokens.
   const costUsd =
-    ((inputTokens - cacheReadTokens) * PRICE_INPUT_PER_MTOK) / 1_000_000 +
+    (inputTokens * PRICE_INPUT_PER_MTOK) / 1_000_000 +
     (cacheReadTokens * PRICE_CACHE_READ_PER_MTOK) / 1_000_000 +
     (outputTokens * PRICE_OUTPUT_PER_MTOK) / 1_000_000;
 
