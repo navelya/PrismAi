@@ -109,6 +109,8 @@ export interface UISlice {
     setIsCopilotMinimized: (v: boolean) => void;
     lastInteraction: number;
     touchInteraction: () => void;
+    nodeLabelDraft: { nodeId: string; label: string } | null;
+    setNodeLabelDraft: (draft: { nodeId: string; label: string } | null) => void;
     models: AiModel[];
     categories: any[];
     nodeTypes: any[];

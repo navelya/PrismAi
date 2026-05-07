@@ -13,6 +13,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     isCanvasMode: false,
     isCopilotMinimized: false,
     lastInteraction: Date.now(),
+    nodeLabelDraft: null,
     models: [],
     categories: [],
     nodeTypes: [],
@@ -36,6 +37,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     setIsCanvasMode: (v) => set({ isCanvasMode: v }),
     setIsCopilotMinimized: (v) => set({ isCopilotMinimized: v }),
     touchInteraction: () => set({ lastInteraction: Date.now() }),
+    setNodeLabelDraft: (draft) => set({ nodeLabelDraft: draft }),
 
     fetchModelCatalog: async () => {
         if (get().models.length > 0) return;

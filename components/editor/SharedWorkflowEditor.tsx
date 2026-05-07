@@ -170,6 +170,48 @@ export default function SharedWorkflowEditor({
     const isAiNode = selectedNodeData?.type === 'ai_generator' || !!selectedNodeTypeId;
     const hasPropertyPanel = !!(selectedNodeData && (clientRegistry[selectedNodeData.type]?.propertyPanel || isAiNode));
 
+    const nodeTypesForIcon = useAppStore((state) => state.nodeTypes);
+    const nodeLabelDraft = useAppStore((state) => state.nodeLabelDraft);
+
+    const selectedNodeIcon = useMemo(() => {
+        if (!selectedNodeData) return undefined;
+        if (isAiNode) {
+            const aiNodeType = nodeTypesForIcon.find(nt => nt.id === selectedNodeTypeId);
+            return aiNodeType?.icon_reference || sharedRegistry.ai_generator?.meta?.icon || 'Zap';
+        }
+        return sharedRegistry[selectedNodeData.type as keyof typeof sharedRegistry]?.meta?.icon || 'Box';
+    }, [selectedNodeData, isAiNode, selectedNodeTypeId, nodeTypesForIcon]);
+
+    const selectedNodeLabel = useMemo(() => {
+        if (!selectedNodeData) return '';
+
+        // 1. Live typing draft on the node header — wins over everything so the panel
+        //    mirrors what the user is typing in real time.
+        if (nodeLabelDraft && nodeLabelDraft.nodeId === selectedNodeData.id) {
+            const trimmed = nodeLabelDraft.label.trim();
+            if (trimmed.length > 0) return trimmed;
+        }
+
+        const persistedRaw = typeof selectedNodeData.data?.label === 'string' ? selectedNodeData.data.label.trim() : '';
+
+        // 2. AI nodes: the factory seeds data.label with a placeholder ("AI Generator", "AI Model",
+        //    "Ai Generator") that the canvas hides in favor of the resolved nodeType.display_name.
+        //    Mirror that here so the panel shows the same human-facing title.
+        if (isAiNode) {
+            const aiNodeType = nodeTypesForIcon.find(nt => nt.id === selectedNodeTypeId);
+            const aiDefaultLabel = aiNodeType?.display_name || 'AI Generator';
+            const isDefaultFactoryLabel =
+                persistedRaw === '' ||
+                persistedRaw === 'Ai Generator' ||
+                persistedRaw === 'AI Generator' ||
+                persistedRaw === 'AI Model';
+            return isDefaultFactoryLabel ? aiDefaultLabel : persistedRaw;
+        }
+
+        if (persistedRaw.length > 0) return persistedRaw;
+        return sharedRegistry[selectedNodeData.type as keyof typeof sharedRegistry]?.meta?.label || 'Node';
+    }, [selectedNodeData, isAiNode, selectedNodeTypeId, nodeTypesForIcon, nodeLabelDraft]);
+
     const isPropertyPanelVisible = hasPropertyPanel && !readOnly;
 
     const handleDrop = useCallback((
@@ -545,6 +587,8 @@ export default function SharedWorkflowEditor({
                                     nodeId={selectedNodeData.id}
                                     nodeType={selectedNodeData.type}
                                     config={selectedNodeData.data.config}
+                                    label={selectedNodeLabel}
+                                    icon={selectedNodeIcon}
                                     onUpdate={(config) => updateNodeConfig(selectedNodeData.id, config)}
                                     onClose={() => setSelectedNode(null)}
                                 />

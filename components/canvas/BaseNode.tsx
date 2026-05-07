@@ -105,6 +105,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
     const status: NodeStatus = rawStatus ?? (isLoadingSession ? 'pending' : 'idle');
     const updateNodeLabel = useAppStore((state) => state.updateNodeLabel);
+    const setNodeLabelDraft = useAppStore((state) => state.setNodeLabelDraft);
     const touchInteraction = useAppStore((state) => state.touchInteraction);
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
@@ -353,6 +354,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 onLabelChange={(nextLabel) => {
                     touchInteraction();
                     updateNodeLabel(id, nextLabel);
+                }}
+                onLabelDraft={(draft) => {
+                    setNodeLabelDraft(draft === null ? null : { nodeId: id, label: draft });
                 }}
             />
 

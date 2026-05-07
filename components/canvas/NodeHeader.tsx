@@ -13,9 +13,10 @@ interface NodeHeaderProps {
     className?: string;
     providerLogo?: string;
     onLabelChange?: (label: string) => void;
+    onLabelDraft?: (label: string | null) => void;
 }
 
-export function NodeHeader({ icon, label, color, badgeCount, className, providerLogo, onLabelChange }: NodeHeaderProps) {
+export function NodeHeader({ icon, label, color, badgeCount, className, providerLogo, onLabelChange, onLabelDraft }: NodeHeaderProps) {
     const IconComponent = (Icons[icon as keyof typeof Icons] as React.ComponentType<any>) || Icons.Box;
     const [isEditing, setIsEditing] = useState(false);
     const [draftLabel, setDraftLabel] = useState(label);
@@ -28,9 +29,16 @@ export function NodeHeader({ icon, label, color, badgeCount, className, provider
     }, [label, isEditing]);
 
     useEffect(() => {
-        if (!isEditing || !inputRef.current) return;
-        inputRef.current.focus();
-        inputRef.current.select();
+        if (!isEditing) return;
+        if (inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+        // Seed the live draft so subscribers (e.g. the properties panel) match
+        // the in-progress value from the moment editing starts.
+        onLabelDraft?.(draftLabel);
+        // Note: intentionally not depending on draftLabel/onLabelDraft — only seed once on entry.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isEditing]);
 
     const commitLabel = () => {
@@ -39,6 +47,13 @@ export function NodeHeader({ icon, label, color, badgeCount, className, provider
         if (onLabelChange && nextLabel !== label) {
             onLabelChange(nextLabel);
         }
+        onLabelDraft?.(null);
+        setIsEditing(false);
+    };
+
+    const cancelEditing = () => {
+        setDraftLabel(label);
+        onLabelDraft?.(null);
         setIsEditing(false);
     };
 
@@ -66,7 +81,11 @@ export function NodeHeader({ icon, label, color, badgeCount, className, provider
                         <input
                             ref={inputRef}
                             value={draftLabel}
-                            onChange={(e) => setDraftLabel(e.target.value)}
+                            onChange={(e) => {
+                                const next = e.target.value;
+                                setDraftLabel(next);
+                                onLabelDraft?.(next);
+                            }}
                             onBlur={commitLabel}
                             onClick={(e) => e.stopPropagation()}
                             onDoubleClick={(e) => e.stopPropagation()}
@@ -78,8 +97,7 @@ export function NodeHeader({ icon, label, color, badgeCount, className, provider
                                 }
                                 if (e.key === 'Escape') {
                                     e.preventDefault();
-                                    setDraftLabel(label);
-                                    setIsEditing(false);
+                                    cancelEditing();
                                 }
                             }}
                             className="nodrag absolute inset-0 w-full bg-transparent border border-white/40 rounded px-1.5 py-0.5 text-[11px] font-bold text-content-primary tracking-wide focus:outline-none min-w-0 normal-case"

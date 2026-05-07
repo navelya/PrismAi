@@ -120,6 +120,8 @@ export const useAppStore = create<RootState>()(
                     'menuTree',
                     'menuFlat',
                     'isMenuLoading',
+                    // Ephemeral typing draft for the node label — must not persist.
+                    'nodeLabelDraft',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {
