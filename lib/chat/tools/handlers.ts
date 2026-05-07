@@ -22,15 +22,12 @@ function getValidTargetHandles(node: { type?: string; data?: { config?: any } })
     ? def.handles.inputs.map((h: any) => h?.id).filter((id: any): id is string => typeof id === 'string')
     : [];
 
-  if (node.type === 'compositor') {
-    const layers = node.data?.config?.layers;
-    if (Array.isArray(layers)) {
-      for (const layer of layers) {
-        const id = layer?.sourceHandleId;
-        if (typeof id === 'string' && !staticIds.includes(id)) staticIds.push(id);
-      }
-    }
-  }
+  // For compositor, only the static "layers" handle is valid. The
+  // sourceHandleId field in config.layers is the runtime edge id, NOT
+  // a handle name on the node — see CompositorNode.tsx where edges are
+  // filtered by `targetHandle === 'layers'`. We deliberately don't add
+  // config.layers values here so layer_0/layer_1/etc. tool calls get
+  // rejected.
   return staticIds;
 }
 

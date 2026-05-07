@@ -51,6 +51,17 @@ export function formatRegistryContext(input: RegistryContextInput): string {
       block += `\n- \`model_id\` (number): REQUIRED. Pick from "AI GENERATOR MODELS" list above. Set both at the top level (model_id field) AND inside data.config.model_id.`;
       block += `\n- \`node_type_id\` (string): REQUIRED. Must match the type bucket the chosen model belongs to.`;
       block += `\n- Without model_id, this node cannot run.`;
+    } else if (type === 'compositor') {
+      // Override the misleading aiSchema docs. The canvas reads edges that
+      // target the static handle "layers"; sourceHandleId in config.layers
+      // stores the runtime edge id (not a handle name). The compositor has
+      // an orphan-edge fallback that auto-creates layers from incoming
+      // edges, so the model should leave config.layers empty.
+      block += `\n\nREQUIRED CONFIG for compositor:`;
+      block += `\n- All edges connecting INTO a compositor MUST use targetHandle: "layers" (the only valid handle on this node).`;
+      block += `\n- Do NOT use targetHandle values like "layer_0", "layer_1", etc. — they don't exist and will be rejected by the canvas.`;
+      block += `\n- Leave \`config.layers\` as an empty array \`[]\`. The canvas auto-creates layers from incoming edges.`;
+      block += `\n- The aiSchema below for this node is misleading — ignore the layer/sourceHandleId guidance there. Trust THIS section instead.`;
     } else if (def.aiSchema && Object.keys(def.aiSchema).length > 0) {
       const topRequired: string[] = Array.isArray(def.aiSchema.required) ? def.aiSchema.required : [];
       const properties: Record<string, any> = def.aiSchema.properties || {};

@@ -37,7 +37,7 @@ const RESPONSE_FORMAT = `RESPONSE FORMAT:
 const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
 1. Every node you add MUST have its config fully populated. NEVER emit \`data.config: {}\` — empty config corrupts the canvas. Read the REQUIRED CONFIG block for each node type below.
 2. For ai_generator, model_id is MANDATORY. Pick a model from the "AI GENERATOR MODELS" list and set both top-level model_id AND data.config.model_id to its numeric id.
-3. For compositor, populate config.layers with one entry per inbound edge BEFORE adding the edges. The edge's targetHandle MUST match the layer's sourceHandleId (e.g., "layer_0", "layer_1").
+3. For compositor, edges connecting INTO it MUST use targetHandle: "layers" (the only valid handle). Do NOT use "layer_0", "layer_1", etc. Leave config.layers as []; the canvas auto-creates layers from incoming edges.
 4. When you call a tool, ALWAYS emit at least one short sentence of confirmation text before the tool call — no silent tool calls.
 5. Respond in the same language the user wrote in. If the user wrote in Hebrew, reply in Hebrew. If Spanish, reply in Spanish. Never translate.`;
 
