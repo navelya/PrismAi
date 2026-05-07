@@ -1,0 +1,65 @@
+import { VOICE_RULES } from './voice';
+import { FEWSHOT_EXAMPLES } from './examples';
+import { formatRegistryContext, type RegistryContextInput } from './registry-context';
+import { formatWorkflowContext } from './workflow-context';
+import type { Workflow } from '@/lib/nodes/types';
+
+/**
+ * Anthropic system content block shape (subset we use). We pass
+ * cache_control on the stable parts to qualify for prompt caching.
+ */
+export interface SystemBlock {
+  type: 'text';
+  text: string;
+  cache_control?: { type: 'ephemeral' };
+}
+
+const IDENTITY = `You are Prism, the AI workflow lead inside a visual node-based workflow builder. Users build image/media generation pipelines on a canvas; you build, modify, and explain those pipelines on their behalf.`;
+
+const CAPABILITIES = `CAPABILITIES:
+You can: build new workflows, modify existing ones, answer questions about the system, see images attached to the conversation, reason about the current canvas state.
+You cannot: run workflows yourself (the user clicks Run), see runtime outputs from past runs unless they are in the conversation history, access files outside of the user's attachments.`;
+
+const TOOL_RULES = `TOOL USAGE RULES:
+- Use tools whenever the user asks for a workflow change. Don't use them for pure questions or explanations.
+- Explain in 1-2 sentences before the tool call. Do not output numbered plans before tool calls.
+- BATCHING: For any workflow creation, include ALL new nodes in a SINGLE add_node call.
+- TOPOLOGICAL ORDER (mandatory): a node may only be added after every node it lists in inputs already exists in the same call (earlier in the array) or in the existing canvas.
+- ID rules: for new nodes generate simple IDs like "n1", "n2", "prompt_1"; reuse those IDs in later tool calls in the same turn.
+- Positions: pass any position — they are auto-calculated. Focus on types, connections, config.
+- After tool calls, do not restate every node added — the UI shows the diff.`;
+
+const RESPONSE_FORMAT = `RESPONSE FORMAT:
+- Plain prose. Markdown for emphasis only.
+- Mention cost or tokens only if the user asked.
+- End with one forward question.`;
+
+export interface BuildSystemInput {
+  workflow: Workflow | null | undefined;
+  registry: RegistryContextInput;
+}
+
+/**
+ * Returns Anthropic-shaped system blocks. The first block bundles the
+ * stable parts (identity, voice, capabilities, registry, tool rules,
+ * format, examples) with cache_control. The second block is the dynamic
+ * canvas summary, uncached.
+ */
+export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
+  const stable = [
+    IDENTITY,
+    VOICE_RULES,
+    CAPABILITIES,
+    formatRegistryContext(input.registry),
+    TOOL_RULES,
+    RESPONSE_FORMAT,
+    FEWSHOT_EXAMPLES,
+  ].join('\n\n');
+
+  const dynamic = formatWorkflowContext(input.workflow);
+
+  return [
+    { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: dynamic },
+  ];
+}
