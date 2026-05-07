@@ -8,6 +8,7 @@ import { TableModal } from '@/components/ui/TableModal';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import MessageRenderer from './MessageRenderer';
+import { ThinkingPanel } from './ThinkingPanel';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -33,6 +34,9 @@ interface Message {
     timestamp: Date;
     status?: 'running' | 'completed' | 'error';
     executionResult?: any;
+    thinking?: string;
+    isThinking?: boolean;
+    thinkingDurationMs?: number;
 }
 
 interface ChatInterfaceProps {
@@ -1326,6 +1330,14 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                                 </div>
                             ))}
                         </div>
+                    )}
+
+                    {message.type === 'assistant' && message.thinking !== undefined && (
+                        <ThinkingPanel
+                            thinking={message.thinking ?? ''}
+                            isStreaming={(message.status === 'running' || message.isThinking === true)}
+                            durationMs={message.thinkingDurationMs}
+                        />
                     )}
 
                     {message.content ? (
