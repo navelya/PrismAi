@@ -9,7 +9,10 @@ import { applyAddNodeOp, applyRemoveNodeOp, applyUpdateNodeOp } from '@/lib/work
 import { applyWorkflowPatch, createEmptyWorkflow, mergeWorkflowPatches, WorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/lib/chat';
 
-export const runtime = 'edge';
+// Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
+// node:fs transitively, which Edge runtime cannot bundle. Both providers
+// (Gemini via @ai-sdk/google and Anthropic) work on Node runtime.
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
