@@ -12,6 +12,17 @@ export interface Message {
     sessionId?: string;
     status?: 'running' | 'completed' | 'error';
     workflow?: any;
+    // Thinking / extended-brain fields (new brain only)
+    thinking?: string;
+    isThinking?: boolean;
+    thinkingStartedAt?: number;
+    thinkingDurationMs?: number;
+    usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        thinkingTokens: number;
+        costUsd: number;
+    };
 }
 
 // Editor state interface

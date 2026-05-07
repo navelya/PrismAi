@@ -285,8 +285,40 @@ export function useChatMessages({
 
             const processStreamLine = async (parsed: any) => {
                 if (parsed.type === 'text') {
-                    networkText += parsed.content;
-                    console.log('📝 [Stream] Text chunk received:', parsed.content, '| Total length:', networkText.length);
+                    // Accept either new-brain `text` field or legacy `content` field
+                    const chunk = parsed.text ?? parsed.content ?? '';
+                    networkText += chunk;
+                    console.log('📝 [Stream] Text chunk received:', chunk, '| Total length:', networkText.length);
+                }
+                else if (parsed.type === 'thinking_start') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        thinking: '',
+                        isThinking: true,
+                        thinkingStartedAt: Date.now(),
+                    });
+                }
+                else if (parsed.type === 'thinking_delta') {
+                    const current = useAppStore.getState().chatMessages.find(m => m.id === assistantMsgId);
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        thinking: (current?.thinking ?? '') + (parsed.text ?? ''),
+                    });
+                }
+                else if (parsed.type === 'thinking_end') {
+                    const current = useAppStore.getState().chatMessages.find(m => m.id === assistantMsgId);
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        isThinking: false,
+                        thinkingDurationMs: Date.now() - (current?.thinkingStartedAt ?? Date.now()),
+                    });
+                }
+                else if (parsed.type === 'usage') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        usage: {
+                            inputTokens: parsed.inputTokens,
+                            outputTokens: parsed.outputTokens,
+                            thinkingTokens: parsed.thinkingTokens,
+                            costUsd: parsed.costUsd,
+                        },
+                    });
                 }
                 else if (parsed.type === 'tool' && ['add_node', 'update_node', 'remove_node', 'mutate_workflow'].includes(parsed.name)) {
                     if (parsed.message) {
@@ -345,7 +377,15 @@ export function useChatMessages({
                     }
                 }
                 else if (parsed.type === 'error') {
-                    networkText += (networkText ? '\n\n' : '') + `⚠️ ${parsed.content}`;
+                    // Accept either new-brain `message` field or legacy `content` field
+                    const errorText = parsed.message ?? parsed.content ?? 'Unknown error';
+                    networkText += (networkText ? '\n\n' : '') + `⚠️ ${errorText}`;
+                }
+                else if (parsed.type === 'done') {
+                    // Mark message as completed when the stream signals done
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        status: 'completed',
+                    });
                 }
             };
 
