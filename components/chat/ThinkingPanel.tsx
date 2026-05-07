@@ -16,9 +16,10 @@ export interface ThinkingPanelProps {
 }
 
 /**
- * Minimalist collapsible reasoning display, modeled on Claude.ai's
- * "thinking" chip. Hidden until thinking exceeds 100 chars OR 500ms —
- * prevents flicker for trivial turns.
+ * Minimalist reasoning indicator. While streaming: just three jumping
+ * dots with a subtle shimmer beneath. After streaming: a small chevron
+ * + "Thought for Xs" affordance that expands to show the persisted
+ * reasoning in a quote-block-style indent.
  */
 export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPanelProps) {
   const [expanded, setExpanded] = useState(false);
@@ -39,30 +40,62 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
 
   if (!crossedThreshold) return null;
 
-  const headerLabel = isStreaming
-    ? 'Thinking'
-    : `Thought for ${formatDuration(durationMs)}`;
+  if (isStreaming) {
+    // Streaming: just three jumping dots with a delicate shimmer line beneath.
+    return (
+      <div className="my-1.5 inline-flex flex-col">
+        <div className="inline-flex items-center gap-1 px-1 py-1.5">
+          <span className="size-1 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms] dark:bg-zinc-400" />
+          <span className="size-1 animate-bounce rounded-full bg-zinc-500 [animation-delay:120ms] dark:bg-zinc-400" />
+          <span className="size-1 animate-bounce rounded-full bg-zinc-500 [animation-delay:240ms] dark:bg-zinc-400" />
+        </div>
+        <span
+          className="thinking-shimmer h-px w-12"
+          aria-hidden="true"
+        />
+        <style jsx>{`
+          .thinking-shimmer {
+            background: linear-gradient(
+              90deg,
+              transparent 0%,
+              rgba(120, 120, 120, 0.45) 50%,
+              transparent 100%
+            );
+            background-size: 200% 100%;
+            animation: shimmer-sweep 1.6s ease-in-out infinite;
+          }
+          :global(.dark) .thinking-shimmer {
+            background: linear-gradient(
+              90deg,
+              transparent 0%,
+              rgba(200, 200, 200, 0.45) 50%,
+              transparent 100%
+            );
+            background-size: 200% 100%;
+          }
+          @keyframes shimmer-sweep {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
+  // Done thinking: minimal chevron + "Thought for Xs" label, expandable.
   return (
-    <div className="my-1.5 text-sm">
+    <div className="my-1 text-xs">
       <button
         type="button"
         onClick={() => setExpanded(e => !e)}
-        className="group inline-flex items-center gap-1.5 text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+        className="group inline-flex items-center gap-1 text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
         aria-expanded={expanded}
       >
         <ChevronRight
-          size={14}
+          size={12}
           className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
-        <span className="font-normal">{headerLabel}</span>
-        {isStreaming && (
-          <span className="ml-1 inline-flex items-center gap-0.5">
-            <span className="size-1 animate-pulse rounded-full bg-current opacity-60 [animation-delay:0ms]" />
-            <span className="size-1 animate-pulse rounded-full bg-current opacity-60 [animation-delay:150ms]" />
-            <span className="size-1 animate-pulse rounded-full bg-current opacity-60 [animation-delay:300ms]" />
-          </span>
-        )}
+        <span className="font-normal tracking-tight">Thought for {formatDuration(durationMs)}</span>
       </button>
       <div
         className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out ${
@@ -70,7 +103,7 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="mt-2 ml-2 border-l-2 border-zinc-200 pl-3 italic whitespace-pre-wrap leading-relaxed text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+          <div className="mt-1.5 ml-1.5 border-l border-zinc-200/70 pl-2.5 italic leading-snug tracking-tight whitespace-pre-wrap text-[11px] text-zinc-500 dark:border-zinc-700/70 dark:text-zinc-400">
             {thinking || '(no reasoning recorded)'}
           </div>
         </div>
