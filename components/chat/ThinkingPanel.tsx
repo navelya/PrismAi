@@ -95,12 +95,12 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
         <span className="font-normal tracking-tight">Thought for {formatDuration(durationMs)}</span>
       </button>
       <div
-        className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out ${
+        className={`grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out ${
           expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="mt-1.5 ml-1.5 border-l border-zinc-200/70 pl-2.5 italic leading-snug tracking-tight whitespace-pre-wrap text-[11px] text-zinc-500 dark:border-zinc-700/70 dark:text-zinc-400">
+          <div className="mt-2 ml-1 border-l border-zinc-200/50 pl-3 italic leading-relaxed whitespace-pre-wrap text-xs text-zinc-500/90 dark:border-zinc-700/40 dark:text-zinc-400/90">
             {thinking || '(no reasoning recorded)'}
           </div>
         </div>
