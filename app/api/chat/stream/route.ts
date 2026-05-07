@@ -7,6 +7,7 @@ import { waitUntil } from '@vercel/functions';
 import { Workflow } from '@/lib/nodes/types';
 import { applyAddNodeOp, applyRemoveNodeOp, applyUpdateNodeOp } from '@/lib/workflow/graph-ops';
 import { applyWorkflowPatch, createEmptyWorkflow, mergeWorkflowPatches, WorkflowPatch } from '@/lib/workflow/workflow-patch';
+import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/lib/chat';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -51,7 +52,128 @@ function getBaseWorkflow(previousWorkflow: any): Workflow {
     return createEmptyWorkflow();
 }
 
+function parseImageAttachments(raw: any): ImageAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ImageAttachment[] = [];
+  for (const item of raw) {
+    const url: string | undefined = typeof item === 'string' ? item : item?.dataUrl ?? item?.url;
+    if (!url || typeof url !== 'string') continue;
+    const match = url.match(/^data:(image\/(?:webp|png|jpeg|gif));base64,(.+)$/);
+    if (!match) continue;
+    out.push({ mediaType: match[1] as ImageAttachment['mediaType'], data: match[2] });
+    if (out.length >= 4) break; // hard cap from spec
+  }
+  return out;
+}
+
+async function handleWithNewBrain(req: Request): Promise<Response> {
+  const body = await req.json();
+  const { messages, sessionId, previousWorkflow, attachedImages } = body ?? {};
+
+  const supabase = createServiceClient();
+
+  const [{ data: modelsData }, { data: nodeTypesData }] = await Promise.all([
+    supabase.from('ai_models')
+      .select('id, display_name, node_type_id, providers(name)')
+      .eq('is_active', true)
+      .order('display_name') as any,
+    supabase.from('node_types')
+      .select('id, display_name')
+      .order('display_name') as any
+  ]);
+
+  const chatWindow = (messages || [])
+    .filter((m: any) => m.content && m.content.trim().length > 0)
+    .slice(-8);
+
+  const images = parseImageAttachments(attachedImages);
+
+  // The most recent user message gets the images attached as content blocks.
+  const turns: ChatTurn[] = chatWindow.map((m: any, i: number, arr: any[]) => {
+    const role = (m.role || m.type) === 'assistant' ? 'assistant' : 'user';
+    if (role === 'assistant') return { role: 'assistant', text: m.content };
+    const isLast = i === arr.length - 1;
+    return { role: 'user', text: m.content, images: isLast ? images : undefined };
+  });
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new StreamEncoder(controller);
+
+      waitUntil((async () => {
+        const result = await runBrain({
+          turns,
+          workflow: previousWorkflow,
+          registry: {
+            models: (modelsData as any[]) || [],
+            nodeTypes: (nodeTypesData as any[]) || []
+          },
+          encoder
+        });
+
+        if (sessionId && result.hadAnyOutput && messages?.length > 0) {
+          const lastUserMsg = messages[messages.length - 1];
+          const dbOps: Promise<any>[] = [];
+
+          if (lastUserMsg.role === 'user' || lastUserMsg.type === 'user') {
+            dbOps.push(
+              Promise.resolve(supabase.from('messages').insert({
+                session_id: sessionId,
+                role: 'user',
+                content: lastUserMsg.content,
+                status: 'completed',
+                created_at: new Date().toISOString()
+              }) as any)
+            );
+          }
+
+          if (result.finalText) {
+            dbOps.push(
+              Promise.resolve(supabase.from('messages').insert({
+                session_id: sessionId,
+                role: 'assistant',
+                content: result.finalText,
+                metadata: { thinking: result.finalThinking || null, usage: result.usage || null },
+                status: 'completed',
+                created_at: new Date(Date.now() + 1000).toISOString()
+              }) as any)
+            );
+          }
+
+          if (result.accumulatedPatch) {
+            dbOps.push(
+              Promise.resolve(supabase.from('sessions').update({
+                canvas_state: { nodes: result.finalWorkflow.nodes, edges: result.finalWorkflow.edges },
+                updated_at: new Date().toISOString()
+              }).eq('id', sessionId) as any)
+            );
+          }
+
+          if (dbOps.length > 0) await Promise.all(dbOps);
+        }
+
+        encoder.send({ type: 'done' });
+        encoder.close();
+      })());
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform'
+    }
+  });
+}
+
 export async function POST(req: Request) {
+    if (process.env.CHAT_USE_NEW_BRAIN === 'true') {
+        try {
+            return await handleWithNewBrain(req);
+        } catch (error: any) {
+            return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        }
+    }
     try {
         const body = await req.json();
         const { messages, sessionId, previousWorkflow, attachedImages } = body;
