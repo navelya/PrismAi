@@ -93,34 +93,33 @@ export function useSession() {
                 return;
             }
 
-            // Hydrate Workflow from Session State (primary source of truth for blueprint/layout)
-            if (session.canvas_state && session.canvas_state.nodes && session.canvas_state.nodes.length > 0) {
-                const workflow = { 
-                    ...session.canvas_state,
-                    id: session.id // 🆔 Inject session ID to ensure unique identity
-                } as Workflow;
-                
-                // V3.1: Strip any legacy status/output from the blueprint nodes
-                // This ensures we don't show "Success" from 2 days ago while loading fresh results
-                workflow.nodes = workflow.nodes.map((n: any) => ({
+            // Hydrate Workflow from Session State (primary source of truth for blueprint/layout).
+            // Freshly-created sessions store canvas_state as `{}` (the column default), so we
+            // must still hand the store a valid empty workflow — otherwise currentWorkflow stays
+            // null and onNodesChange/onConnect bail on their null guards, making it impossible
+            // to add the first node.
+            const rawCanvas = (session.canvas_state || {}) as Partial<Workflow>;
+            const workflow: Workflow = {
+                ...rawCanvas,
+                id: session.id,
+                name: rawCanvas.name || session.title || 'Untitled Workflow',
+                nodes: (rawCanvas.nodes || []).map((n: any) => ({
                     ...n,
                     data: {
                         ...n.data,
+                        // V3.1: Strip any legacy status/output from blueprint nodes so a stale
+                        // "Success" from a previous run doesn't flash while fresh results load.
                         status: undefined,
                         output: undefined,
                         outputMetadata: undefined,
-                        error: undefined
-                    }
-                }));
+                        error: undefined,
+                    },
+                })),
+                edges: rawCanvas.edges || [],
+            };
 
-                // Stamp the server hash so auto-save skips the echo write after page load
-                setServerWorkflowHash(workflow);
-                store.setCurrentWorkflow(workflow, false); // NOT dirty on initial load!
-            } else {
-                // Clear workflow if no valid canvas_state
-                setServerWorkflowHash(null);
-                store.setCurrentWorkflow(null, false);
-            }
+            setServerWorkflowHash(workflow);
+            store.setCurrentWorkflow(workflow, false); // NOT dirty on initial load!
 
             // Hydrate Messages
             const formattedMessages: any[] = messages

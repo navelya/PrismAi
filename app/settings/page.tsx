@@ -10,7 +10,6 @@ import { userApi } from '@/lib/api/client';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import PlanBillingView from '@/components/billing/PlanBillingView';
 import {
-    Settings,
     Network,
     Palette,
     Bell,
@@ -661,6 +660,7 @@ function SettingsContent() {
     const activeTab: TabId = tabParam && validTabs.includes(tabParam) ? tabParam : 'profile';
 
     const [mobileShowContent, setMobileShowContent] = useState(false);
+    const [sidebarHovered, setSidebarHovered] = useState(false);
     const [user, setUser] = useState<any>(null);
 
     const fetchUser = async () => {
@@ -715,67 +715,77 @@ function SettingsContent() {
     const activeItem = navSections.flatMap(s => s.items).find(i => i.id === activeTab);
 
     return (
-        <div className="w-full h-full flex bg-surface-primary mesh-gradient overflow-hidden">
-            {/* Sidebar Navigation — full width on mobile, fixed 264px on desktop */}
-            <aside className={`
-                md:w-72 md:shrink-0 md:border-r md:border-white/5 bg-surface-primary/60 backdrop-blur-3xl md:overflow-y-auto md:block shadow-2xl z-20 transition-all duration-300
-                ${mobileShowContent ? 'hidden' : 'w-full bg-surface-primary overflow-y-auto'}
-            `}>
-                <div className="p-8">
-                    <div className="flex items-center gap-4 mb-10">
-                        <div className="w-10 h-10 rounded-2xl bg-gradient-premium flex items-center justify-center text-white shadow-premium ring-4 ring-white/5">
-                            <Settings className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-black text-content-primary uppercase tracking-tighter">Settings</h1>
-                            <p className="text-[10px] font-bold text-content-tertiary uppercase tracking-widest mt-0.5 opacity-60">Preferences Hub</p>
-                        </div>
+        <div className="w-full h-full flex bg-surface-primary mesh-gradient overflow-hidden relative">
+            {/* Spacer reserves the collapsed-rail width on desktop so main content doesn't shift on hover */}
+            <div className="hidden md:block md:w-20 md:shrink-0" aria-hidden="true" />
+
+            {/* Sidebar Navigation — full width on mobile, hover-expanding overlay rail on desktop */}
+            <aside
+                onMouseEnter={() => setSidebarHovered(true)}
+                onMouseLeave={() => setSidebarHovered(false)}
+                className={`
+                    md:absolute md:left-0 md:top-0 md:bottom-0 md:z-30
+                    md:border-r md:border-white/5 bg-surface-primary/60 backdrop-blur-3xl md:overflow-hidden md:block shadow-2xl
+                    transition-[width] duration-300 ease-out
+                    ${sidebarHovered ? 'md:w-72' : 'md:w-20'}
+                    ${mobileShowContent ? 'hidden' : 'w-full bg-surface-primary overflow-y-auto z-20'}
+                `}
+            >
+                <div className={`md:h-full md:flex md:flex-col ${sidebarHovered ? 'md:overflow-y-auto' : 'md:overflow-hidden'}`}>
+                    <div className="py-8 px-8 md:px-4">
+                        <nav className="space-y-1.5">
+                            {navSections.flatMap((section) => section.items).map((item) => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => handleTabSelect(item.id)}
+                                    title={item.label}
+                                    className={`
+                                        w-full flex items-center gap-4 py-3 px-4 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-colors duration-300 border
+                                        ${activeTab === item.id
+                                            ? 'bg-white/10 text-accent-primary border-white/10 shadow-premium ring-1 ring-white/10'
+                                            : 'text-content-tertiary border-transparent hover:bg-white/5 hover:text-content-primary hover:border-white/5'
+                                        }
+                                    `}
+                                >
+                                    <span className={`shrink-0 transition-colors ${activeTab === item.id ? 'text-accent-primary' : 'text-content-tertiary'}`}>
+                                        {item.icon}
+                                    </span>
+                                    <span className={`
+                                        flex-1 text-left truncate transition-opacity duration-200 whitespace-nowrap
+                                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
+                                    `}>
+                                        {item.label}
+                                    </span>
+                                    {item.comingSoon && (
+                                        <span className={`
+                                            px-2 py-0.5 text-[8px] font-black bg-white/5 text-content-tertiary rounded-full shrink-0 border border-white/10 transition-opacity duration-200
+                                            ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
+                                        `}>
+                                            Soon
+                                        </span>
+                                    )}
+                                    <ChevronRight className={`
+                                        w-4 h-4 shrink-0 transition-opacity duration-200
+                                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
+                                        ${activeTab === item.id ? 'translate-x-1' : 'opacity-0'}
+                                    `} />
+                                </button>
+                            ))}
+                        </nav>
                     </div>
 
-                    <nav className="space-y-8">
-                        {navSections.map((section) => (
-                            <div key={section.title}>
-                                <h3 className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.2em] mb-4 px-3 opacity-60">
-                                    {section.title}
-                                </h3>
-                                <div className="space-y-1.5">
-                                    {section.items.map((item) => (
-                                        <button
-                                            key={item.id}
-                                            onClick={() => handleTabSelect(item.id)}
-                                            className={`
-                                                w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all duration-300 border
-                                                ${activeTab === item.id
-                                                    ? 'bg-white/10 text-accent-primary border-white/10 shadow-premium ring-1 ring-white/10'
-                                                    : 'text-content-tertiary border-transparent hover:bg-white/5 hover:text-content-primary hover:border-white/5'
-                                                }
-                                            `}
-                                        >
-                                            <span className={`shrink-0 transition-colors ${activeTab === item.id ? 'text-accent-primary' : 'text-content-tertiary group-hover:text-content-secondary'}`}>
-                                                {item.icon}
-                                            </span>
-                                            <span className="flex-1 text-left truncate">{item.label}</span>
-                                            {item.comingSoon && (
-                                                <span className="px-2 py-0.5 text-[8px] font-black bg-white/5 text-content-tertiary rounded-full shrink-0 border border-white/10">
-                                                    Soon
-                                                </span>
-                                            )}
-                                            <ChevronRight className={`w-4 h-4 shrink-0 transition-transform ${activeTab === item.id ? 'translate-x-1 opacity-100' : 'opacity-0'}`} />
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </nav>
-                </div>
-
-                {/* Footer */}
-                <div className="p-8 border-t border-white/5 mt-8 bg-black/10">
-                    <div className="flex items-center justify-center gap-2 opacity-40">
-                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                        <p className="text-[9px] font-black text-content-tertiary uppercase tracking-[0.3em]">
-                            System v1.0.0
-                        </p>
+                    {/* Footer */}
+                    <div className={`
+                        p-8 border-t border-white/5 mt-auto bg-black/10
+                        transition-opacity duration-200
+                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0 md:pointer-events-none'}
+                    `}>
+                        <div className="flex items-center justify-center gap-2 opacity-40">
+                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                            <p className="text-[9px] font-black text-content-tertiary uppercase tracking-[0.3em]">
+                                System v1.0.0
+                            </p>
+                        </div>
                     </div>
                 </div>
             </aside>

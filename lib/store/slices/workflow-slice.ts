@@ -297,8 +297,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         }
 
         const nodes = workflow.nodes || [];
-        let hasChanges = false;
-        
+
         const transformedNodes = nodes.map((node) => {
             let nodeChanged = false;
             const def = sharedRegistry[node.type];
@@ -321,7 +320,6 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             }
 
             if (nodeChanged) {
-                hasChanges = true;
                 return {
                     ...node,
                     position: newPosition,
@@ -340,10 +338,6 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const allEdges = inputEdges.filter(
             (e) => validNodeIds.has(e.source) && validNodeIds.has(e.target),
         );
-        if (allEdges.length !== inputEdges.length) {
-            hasChanges = true;
-        }
-
         // Backfill compositor layers for legacy workflows: each compositor's
         // config.layers should have one entry per incoming edge (onConnect now
         // handles this for new connections, but workflows saved before that
@@ -374,7 +368,6 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                     );
                 }),
             ];
-            hasChanges = true;
             return {
                 ...node,
                 data: {
@@ -384,7 +377,10 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             };
         });
 
-        const finalWorkflow = hasChanges ? { ...workflow, nodes: backfilledNodes, edges: allEdges } : workflow;
+        // Always rebuild with normalized nodes/edges arrays — the input `workflow`
+        // may be missing these fields entirely (e.g. a freshly-created session whose
+        // canvas_state is `{}`), and the seeding loop below assumes `nodes` is iterable.
+        const finalWorkflow = { ...workflow, nodes: backfilledNodes, edges: allEdges };
 
         // Seed source-node values into the resolved-value store on hydrate so
         // freshly-loaded Prompt / MediaInput nodes are immediately renderable

@@ -85,12 +85,26 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         }
     }, [status]);
 
-    // When the model changes, tell ReactFlow to re-scan this node's handles.
-    // Without this, ReactFlow's internal handle registry is stale after a model switch,
-    // which causes the #008 "Couldn't create edge" error when connecting to new handles.
+    const inputHandles = selectedModel?.inputs_schema?.handles || [];
+    const outputHandles = selectedModel?.outputs_schema?.handles || [];
+
+    // Tell ReactFlow to re-scan this node's handles whenever the visible handle
+    // shape changes (ids, types, count, visibility). Watching only `model_id` is
+    // not enough: `models` is fetched async, so `selectedModel.inputs_schema` can
+    // arrive AFTER the node first rendered with a placeholder handle list, which
+    // leaves ReactFlow's measured handle positions out of sync with the DOM. The
+    // visible symptom is wires appearing to leave/enter a different handle than
+    // the one the user grabbed; duplicating the node "fixes" it because the
+    // duplicate measures fresh on mount.
+    const inputHandlesSig = inputHandles
+        .map(h => `${h.api_mapping_key || h.name}:${h.type}:${h.is_visible !== false ? 1 : 0}`)
+        .join('|');
+    const outputHandlesSig = outputHandles
+        .map(h => `${h.api_mapping_key || h.name || 'output'}:${h.type}:${h.is_visible !== false ? 1 : 0}`)
+        .join('|');
     useEffect(() => {
         updateNodeInternals(id);
-    }, [id, data.config?.model_id, updateNodeInternals]);
+    }, [id, inputHandlesSig, outputHandlesSig, updateNodeInternals]);
 
 
     // ✅ PHASE 1 FIX: Edge cleanup logic removed
@@ -134,9 +148,6 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         }
     }, [id, selectedModel, getEdges, setEdges, data.config?.model_id]);
     */
-
-    const inputHandles = selectedModel?.inputs_schema?.handles || [];
-    const outputHandles = selectedModel?.outputs_schema?.handles || [];
 
     const customInputs = inputHandles
         .filter(h => h.is_visible !== false)

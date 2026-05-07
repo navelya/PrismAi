@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { PLANS, CREDIT_PACKS, type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
 import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
@@ -290,7 +291,7 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
 }
 
 function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean }) {
-    const [loading, setLoading] = useState(false);
+    const router = useRouter();
 
     if (isCurrent) {
         return (
@@ -322,37 +323,16 @@ function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean })
                 ? 'bg-gradient-to-r from-purple-500 to-accent-primary text-white hover:opacity-90 shadow-lg shadow-purple-500/20'
                 : 'bg-surface-tertiary text-content-primary hover:bg-surface-tertiary/70';
 
-    const handleClick = async () => {
-        if (loading || !plan.paddlePriceIdMonthly) return;
-        setLoading(true);
-        try {
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user || !user.email) {
-                console.error('[Checkout] No authenticated user found.');
-                setLoading(false);
-                return;
-            }
-            await openPaddleCheckout({
-                priceId: plan.paddlePriceIdMonthly,
-                userId: user.id,
-                userEmail: user.email,
-            });
-        } catch (e) {
-            console.error('[Checkout] Failed to open Paddle checkout:', e);
-        } finally {
-            setLoading(false);
-        }
+    const handleClick = () => {
+        router.push(`/checkout/${plan.id}?cycle=monthly`);
     };
 
     return (
         <button
             onClick={handleClick}
-            disabled={loading}
-            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${buttonClass}`}
+            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all ${buttonClass}`}
         >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? 'Opening checkout…' : `Upgrade to ${plan.name}`}
+            Upgrade to {plan.name}
         </button>
     );
 }

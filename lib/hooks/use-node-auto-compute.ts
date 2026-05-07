@@ -50,9 +50,15 @@ export function useNodeAutoCompute(nodeId: string): void {
             incoming.forEach((edge) => {
                 const handleKey = edge.targetHandle || 'image';
                 const upstream = state.nodeOutputs[edge.source];
-                if (upstream !== undefined) {
-                    out[handleKey] = upstream;
-                }
+                if (upstream === undefined) return;
+                // Key by both the target handle (single-input nodes like Blur
+                // read inputs.image) AND the edge id (Compositor stores
+                // `layer.sourceHandleId = edge.id` because every layer edge
+                // shares the same 'layers' target handle, so the per-edge id
+                // is the only way to disambiguate which layer received which
+                // upstream value).
+                out[handleKey] = upstream;
+                out[edge.id] = upstream;
             });
             return out;
         })
