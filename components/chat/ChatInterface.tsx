@@ -1370,9 +1370,10 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                             />
                         </div>
                     ) : message.type === 'assistant' && !message.result && (
-                        <div className="flex items-center gap-2 text-content-primary py-1">
-                            <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
-                            <ExecutionUserFeedback serverStatus={serverStatus} />
+                        <div className="flex items-center gap-1 px-1 py-1.5">
+                            <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms] dark:bg-zinc-400" />
+                            <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:120ms] dark:bg-zinc-400" />
+                            <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:240ms] dark:bg-zinc-400" />
                         </div>
                     )}
 

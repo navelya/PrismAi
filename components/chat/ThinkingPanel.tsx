@@ -16,10 +16,13 @@ export interface ThinkingPanelProps {
 }
 
 /**
- * Minimalist reasoning indicator. While streaming: just three jumping
- * dots with a subtle shimmer beneath. After streaming: a small chevron
- * + "Thought for Xs" affordance that expands to show the persisted
- * reasoning in a quote-block-style indent.
+ * Minimalist reasoning indicator. While streaming: a "Thinking" title
+ * with a delicate shimmer sweep across the text (premium feel). After
+ * streaming: a small chevron + "Thought for Xs" affordance that expands
+ * to show the persisted reasoning in a quote-block-style indent.
+ *
+ * Three-dot loaders are intentionally NOT used here — they belong in
+ * the loading-skeleton state (between sending and stream start).
  */
 export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPanelProps) {
   const [expanded, setExpanded] = useState(false);
@@ -41,35 +44,29 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
   if (!crossedThreshold) return null;
 
   if (isStreaming) {
-    // Streaming: just three jumping dots with a delicate shimmer line beneath.
+    // Shimmering "Thinking" title — gradient sweeps across the text.
     return (
-      <div className="my-1.5 inline-flex flex-col">
-        <div className="inline-flex items-center gap-1 px-1 py-1.5">
-          <span className="size-1 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms] dark:bg-zinc-400" />
-          <span className="size-1 animate-bounce rounded-full bg-zinc-500 [animation-delay:120ms] dark:bg-zinc-400" />
-          <span className="size-1 animate-bounce rounded-full bg-zinc-500 [animation-delay:240ms] dark:bg-zinc-400" />
-        </div>
-        <span
-          className="thinking-shimmer h-px w-12"
-          aria-hidden="true"
-        />
+      <div className="my-1 text-xs">
+        <span className="thinking-shimmer inline-block bg-clip-text font-normal tracking-tight text-transparent">
+          Thinking
+        </span>
         <style jsx>{`
           .thinking-shimmer {
-            background: linear-gradient(
+            background-image: linear-gradient(
               90deg,
-              transparent 0%,
-              rgba(120, 120, 120, 0.45) 50%,
-              transparent 100%
+              rgb(161, 161, 170) 0%,
+              rgb(212, 212, 216) 50%,
+              rgb(161, 161, 170) 100%
             );
             background-size: 200% 100%;
             animation: shimmer-sweep 1.6s ease-in-out infinite;
           }
           :global(.dark) .thinking-shimmer {
-            background: linear-gradient(
+            background-image: linear-gradient(
               90deg,
-              transparent 0%,
-              rgba(200, 200, 200, 0.45) 50%,
-              transparent 100%
+              rgb(113, 113, 122) 0%,
+              rgb(228, 228, 231) 50%,
+              rgb(113, 113, 122) 100%
             );
             background-size: 200% 100%;
           }
