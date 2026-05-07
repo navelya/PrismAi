@@ -1307,9 +1307,9 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                 ${isDisabled ? 'opacity-40 grayscale pointer-events-none select-none filter blur-[1px]' : ''}
                 ${isEditing ? 'z-10 relative' : ''}`}
         >
-            {message.type === 'assistant' && (
-                <div className={`flex-shrink-0 ${isCanvasMode ? 'w-6 h-6' : 'w-9 h-9'} flex items-center justify-center mt-1`}>
-                    <Bot className={`${isCanvasMode ? 'w-4 h-4' : 'w-5 h-5'} text-accent-primary opacity-80`} />
+            {message.type === 'assistant' && !isCanvasMode && (
+                <div className="flex-shrink-0 w-9 h-9 flex items-center justify-center mt-1">
+                    <Bot className="w-5 h-5 text-accent-primary opacity-80" />
                 </div>
             )}
 
