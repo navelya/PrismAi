@@ -8,6 +8,7 @@ import { Workflow } from '@/lib/nodes/types';
 import { applyAddNodeOp, applyRemoveNodeOp, applyUpdateNodeOp } from '@/lib/workflow/graph-ops';
 import { applyWorkflowPatch, createEmptyWorkflow, mergeWorkflowPatches, WorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/lib/chat';
+import { uploadBase64ToStorage } from '@/lib/utils/image-processing';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle. Both providers
@@ -91,6 +92,22 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
 
   const images = parseImageAttachments(attachedImages);
 
+  // Upload attached images to storage so the model can reference stable URLs.
+  const attachedImageUrls: string[] = [];
+  const rawAttached: any[] = Array.isArray(attachedImages) ? attachedImages : [];
+  const folder = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : 'anonymous';
+  for (const item of rawAttached) {
+    const url: string | undefined = typeof item === 'string' ? item : item?.dataUrl ?? item?.url;
+    if (!url || !/^data:image\//.test(url)) continue;
+    try {
+      const { publicUrl } = await uploadBase64ToStorage(url, folder, supabase);
+      attachedImageUrls.push(publicUrl);
+    } catch (err) {
+      console.error('[chat] image upload failed:', err);
+    }
+    if (attachedImageUrls.length >= 4) break; // hard cap consistent with parseImageAttachments
+  }
+
   // The most recent user message gets the images attached as content blocks.
   const turns: ChatTurn[] = chatWindow.map((m: any, i: number, arr: any[]) => {
     const role = (m.role || m.type) === 'assistant' ? 'assistant' : 'user';
@@ -111,7 +128,8 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
             models: (modelsData as any[]) || [],
             nodeTypes: (nodeTypesData as any[]) || []
           },
-          encoder
+          encoder,
+          attachedImageUrls,
         });
 
         if (sessionId && result.hadAnyOutput && messages?.length > 0) {

@@ -21,6 +21,7 @@ export interface BrainInput {
   workflow: Workflow | null | undefined;
   registry: RegistryContextInput;
   encoder: StreamEncoder;
+  attachedImageUrls?: string[];
 }
 
 export async function runBrain(input: BrainInput): Promise<BrainResult> {
@@ -31,7 +32,11 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
   const state: ToolHandlerState = { workflow: baseWorkflow, idMap: new Map() };
 
-  const system = buildSystemPrompt({ workflow: baseWorkflow, registry: input.registry });
+  const system = buildSystemPrompt({
+    workflow: baseWorkflow,
+    registry: input.registry,
+    attachedImageUrls: input.attachedImageUrls ?? [],
+  });
 
   let finalText = '';
   let finalThinking = '';

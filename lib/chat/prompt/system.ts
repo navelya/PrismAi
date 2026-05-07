@@ -44,13 +44,24 @@ const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
 export interface BuildSystemInput {
   workflow: Workflow | null | undefined;
   registry: RegistryContextInput;
+  attachedImageUrls?: string[];
+}
+
+function formatAttachedImagesBlock(urls: string[] | undefined): string {
+  if (!urls || urls.length === 0) return '';
+  const list = urls.map((u, i) => `${i + 1}. ${u}`).join('\n');
+  return `USER ATTACHED IMAGES (storage URLs ready for use):
+${list}
+
+When the user wants to use one of these images in their workflow, add a media_input node and set config.images to an array containing the matching URL(s) above. The image is already uploaded — these URLs are stable and the workflow can read them at run time.`;
 }
 
 /**
  * Returns Anthropic-shaped system blocks. The first block bundles the
  * stable parts (identity, voice, capabilities, registry, tool rules,
  * format, examples) with cache_control. The second block is the dynamic
- * canvas summary, uncached.
+ * canvas summary, uncached. An optional third block surfaces attached
+ * image storage URLs for the current turn.
  */
 export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
   const stable = [
@@ -66,8 +77,13 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
 
   const dynamic = formatWorkflowContext(input.workflow);
 
-  return [
+  const blocks: SystemBlock[] = [
     { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
     { type: 'text', text: dynamic },
   ];
+
+  const attachedBlock = formatAttachedImagesBlock(input.attachedImageUrls);
+  if (attachedBlock) blocks.push({ type: 'text', text: attachedBlock });
+
+  return blocks;
 }
