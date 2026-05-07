@@ -59,7 +59,7 @@ export default function EditorToolbar({
             </span>
 
             {/* Credits Island (Left) */}
-            <div className={`${islandBase} rounded-full pl-3 pr-1.5`}>
+            <div className={`${islandBase} rounded-xl pl-3 pr-1.5`}>
                 <div className="flex items-center gap-1.5 text-sm font-semibold text-content-primary tabular-nums">
                     <Coins className="w-4 h-4 text-accent-primary" />
                     <span>{balanceLoading ? '…' : formatCredits(balance)}</span>
@@ -77,7 +77,7 @@ export default function EditorToolbar({
 
             {/* Workflow Name Island (Centered) */}
             <div
-                className={`${islandBase} rounded-2xl absolute left-1/2 -translate-x-1/2`}
+                className={`${islandBase} rounded-xl absolute left-1/2 -translate-x-1/2`}
                 style={{ width: titleWidth }}
             >
                 <div className="flex items-center gap-2 w-full justify-center px-1">
@@ -94,46 +94,46 @@ export default function EditorToolbar({
 
             <div className="flex-1" />
 
-            {/* Actions Island (Right) */}
-            <div className={`${islandBase} rounded-full`}>
-                {/* Primary Action - Run/Stop toggle */}
+            {/* Actions Island (Right) — minimal */}
+            <div className="pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle shadow-lg rounded-xl px-1.5 py-1 flex items-center gap-1 transition-colors">
+                {/* Primary CTA: Run / Stop — kept prominent */}
                 {isRunning ? (
-                    <Tooltip content="Stop" position="bottom">
+                    <Tooltip content="Stop workflow" position="bottom">
                         <button
                             onClick={onStop}
-                            className="p-2.5 bg-accent-error/20 border border-accent-error/30 text-accent-error rounded-full hover:bg-accent-error/30 transition-all shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                            className="h-8 px-3 bg-accent-error/15 border border-accent-error/30 hover:bg-accent-error/25 text-accent-error rounded-lg flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] active:scale-95 transition-colors"
                         >
-                            <Square className="w-4 h-4 fill-current" />
+                            <Square className="w-3 h-3 fill-current" />
+                            Stop
                         </button>
                     </Tooltip>
                 ) : (
-                    <Tooltip content="Run" position="bottom">
-                        <button
-                            onClick={onRun}
-                            className="p-2.5 bg-accent-primary text-white rounded-full hover:scale-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] border border-accent-primary/50"
-                        >
-                            <Play className="w-4 h-4 fill-current" />
-                        </button>
-                    </Tooltip>
+                    <button
+                        onClick={onRun}
+                        className="h-8 px-3 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] shadow-md shadow-accent-primary/20 active:scale-95 transition-colors"
+                    >
+                        <Play className="w-3 h-3 fill-current" />
+                        Run workflow
+                    </button>
                 )}
 
-                <div className="w-[1px] h-4 bg-stroke-subtle mx-1" />
+                <div className="w-px h-4 bg-stroke-subtle mx-0.5" />
 
                 <Tooltip content="Save" position="bottom">
                     <button
                         onClick={onSave}
-                        className="p-2 text-content-secondary hover:text-content-primary hover:bg-surface-tertiary rounded-full transition-colors"
+                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
                     >
-                        <Save className="w-4 h-4" />
+                        <Save className="w-3.5 h-3.5" />
                     </button>
                 </Tooltip>
 
                 <Tooltip content="New" position="bottom">
                     <button
                         onClick={onNew}
-                        className="p-2 text-content-secondary hover:text-content-primary hover:bg-surface-tertiary rounded-full transition-colors"
+                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
                     >
-                        <FilePlus className="w-4 h-4" />
+                        <FilePlus className="w-3.5 h-3.5" />
                     </button>
                 </Tooltip>
 
@@ -141,20 +141,20 @@ export default function EditorToolbar({
                 <div className="relative">
                     <button
                         onClick={() => setShowMenu(!showMenu)}
-                        className="p-2 text-content-secondary hover:text-content-primary hover:bg-surface-tertiary rounded-full transition-colors"
+                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
                     >
-                        <MoreVertical className="w-4 h-4" />
+                        <MoreVertical className="w-3.5 h-3.5" />
                     </button>
 
                     {showMenu && (
                         <>
                             <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                            <div className="absolute right-0 top-full mt-2 w-48 bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle rounded-xl shadow-2xl z-20 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <div className="absolute right-0 top-full mt-1.5 w-44 bg-surface-primary/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl ring-1 ring-white/5 z-20 p-1 overflow-hidden">
                                 <button
                                     onClick={() => { onDelete(); setShowMenu(false); }}
-                                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-500/5 transition-colors"
+                                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/10 transition-colors"
                                 >
-                                    <Trash2 className="w-4 h-4" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                     Delete Workflow
                                 </button>
                             </div>
