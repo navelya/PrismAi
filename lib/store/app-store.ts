@@ -11,24 +11,31 @@ export { type Message };
 
 /**
  * Prism AI Global State Store
- * 
+ *
  * Multi-slice Zustand store with localStorage persistence.
- * 
+ *
  * Storage Strategy:
- * 
+ *
  * **What IS persisted to localStorage (via Zustand persist):**
  * - editorState (zoom, viewport)
  * - isCanvasMode
  * - models, categories, nodeTypes, providers (catalog cache)
  * - isModelsLoading
- * 
+ * - activeSessionId, activeExecutionId — last-known session/execution pointer
+ * - nodeStatuses, nodeOutputs — last-known DB state for the current session.
+ *   The DB (`node_results` table) is the source of truth; we cache the latest
+ *   view client-side so refresh / back-nav paints the correct status on the
+ *   first frame instead of flashing 'idle'. The page-level session-id check
+ *   ([app/chat/[id]/page.tsx]) wipes them when the URL session id ≠ persisted
+ *   activeSessionId, so a stale session's status never bleeds into a new one.
+ *
  * **What is NOT persisted (runtime/session state):**
- * - activeSessionId - Set fresh on session load
  * - currentWorkflow - Loaded from Supabase on demand
  * - chatMessages - Fetched from Supabase per session
- * - executionResults, nodeStatuses, nodeOutputs - Ephemeral execution state
+ * - executionResults - Summary state, recomputed on load
  * - copiedNode, liveNodePositions - Temporary UI state
- * 
+ * - runFromNodeId, runMode - Trigger signals, MUST NOT survive refresh
+ *
  * **Why separate from IndexedDB backups?**
  * - localStorage (this): UI preferences, fast sync access
  * - IndexedDB (localforage): Large workflow snapshots, async operations
@@ -82,28 +89,21 @@ export const useAppStore = create<RootState>()(
             storage: createJSONStorage(() => localStorage),
             partialize: (state) => Object.fromEntries(
                 Object.entries(state).filter(([key]) => ![
-                    'activeSessionId',
+                    // activeSessionId, activeExecutionId, nodeStatuses, nodeOutputs
+                    // are intentionally PERSISTED — see store doc comment.
                     'currentWorkflow',
                     'chatMessages',
                     'executionResults',
-                    'nodeStatuses',
-                    'nodeOutputs',
-                    'activeExecutionId',
                     'copiedNode',
                     'isLoading',
                     'isLoadingSession',
                     'statusMessage',
                     'isCopilotMinimized',
                     'liveNodePositions',
-                    'past',
-                    'future',
-                    'isDragging',
-                    'isWorkflowDirty',
-                    // Ephemeral trigger signals — must NOT persist across refresh.
-                    // Persisting them forces a JSON.stringify of every snapshot on
-                    // every set(), including takeSnapshot()/setIsDragging() called
-                    // synchronously on drag start, causing visible drag-start lag.
-                    // History does not need to survive a page refresh.
+                    // History does not need to survive a page refresh; persisting
+                    // forces a JSON.stringify of every snapshot on every set(),
+                    // including takeSnapshot()/setIsDragging() on drag start,
+                    // causing visible drag-start lag.
                     'past',
                     'future',
                     // Transient UI flags. Writing localStorage every time the user
@@ -123,13 +123,16 @@ export const useAppStore = create<RootState>()(
             ),
             onRehydrateStorage: () => (state) => {
                 if (state) {
-                    state.activeSessionId = null;
+                    // activeSessionId, activeExecutionId, nodeStatuses, nodeOutputs
+                    // intentionally NOT cleared — the page-level session-id mismatch
+                    // check ([app/chat/[id]/page.tsx]) wipes them via clearAllState
+                    // when the URL session ≠ persisted session, so a stale session's
+                    // state never bleeds into a new one.
                     state.chatMessages = [];
                     state.isDragging = false;
-                    state.nodeStatuses = {};
-                    state.nodeOutputs = {};
                     state.executionResults = {};
-                    state.activeExecutionId = null;
+                    // executionStartTime drives elapsed-time UI; a stale value would
+                    // claim the current run took hours. Always reset on load.
                     state.executionStartTime = null;
                     state.isCopilotMinimized = false;
                     state.isLoadingSession = false;

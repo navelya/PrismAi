@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Save, Layers, Link2, Settings2, Trash2, X, Eye, EyeOff } from 'lucide-react';
+import { Reorder } from 'framer-motion';
+import { Save, Layers, Link2, Settings2, Trash2, X, Eye, EyeOff, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -40,6 +41,51 @@ function FormSection({ title, description, children }: FormSectionProps) {
         </div>
     );
 }
+
+interface ReorderArrowsProps {
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+    onMoveUp: () => void;
+    onMoveDown: () => void;
+}
+
+function ReorderArrows({ canMoveUp, canMoveDown, onMoveUp, onMoveDown }: ReorderArrowsProps) {
+    const stopProp = (e: React.PointerEvent) => e.stopPropagation();
+    return (
+        <div className="flex items-center select-none" onPointerDown={stopProp}>
+            <button
+                type="button"
+                onClick={onMoveUp}
+                disabled={!canMoveUp}
+                className="p-1.5 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors"
+                title="Move up"
+            >
+                <ChevronUp className="w-4 h-4" />
+            </button>
+            <button
+                type="button"
+                onClick={onMoveDown}
+                disabled={!canMoveDown}
+                className="p-1.5 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors"
+                title="Move down"
+            >
+                <ChevronDown className="w-4 h-4" />
+            </button>
+        </div>
+    );
+}
+
+function arrayShift<T extends { id: string }>(list: T[], id: string, direction: -1 | 1): T[] {
+    const idx = list.findIndex(i => i.id === id);
+    if (idx === -1) return list;
+    const target = idx + direction;
+    if (target < 0 || target >= list.length) return list;
+    const next = list.slice();
+    [next[idx], next[target]] = [next[target], next[idx]];
+    return next;
+}
+
+const stopPointerProp = (e: React.PointerEvent) => e.stopPropagation();
 
 // =============================================================================
 // CONSTANTS
@@ -512,11 +558,25 @@ export function ModelForm({
                 title="UI Properties"
                 description="Refine the visual interface and set dynamic pricing rules."
             >
-                <div className="space-y-6">
+                <Reorder.Group
+                    axis="y"
+                    values={visualControls}
+                    onReorder={setVisualControls}
+                    className="space-y-6"
+                >
                     {visualControls.map((ctrl, index) => (
-                        <div key={ctrl.id} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-6">
+                        <Reorder.Item
+                            key={ctrl.id}
+                            value={ctrl}
+                            transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.6 }}
+                            whileDrag={{ scale: 1.02, zIndex: 50, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}
+                            className="group relative bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-6 cursor-grab active:cursor-grabbing"
+                        >
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="text-content-tertiary opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
+                                        <GripVertical className="w-4 h-4" />
+                                    </div>
                                     <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center text-accent-primary">
                                         <Settings2 className="w-5 h-5" />
                                     </div>
@@ -525,7 +585,13 @@ export function ModelForm({
                                         <p className="text-[10px] text-content-tertiary font-mono opacity-60">{ctrl.api_mapping_key}</p>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2" onPointerDown={stopPointerProp}>
+                                    <ReorderArrows
+                                        canMoveUp={index > 0}
+                                        canMoveDown={index < visualControls.length - 1}
+                                        onMoveUp={() => setVisualControls(prev => arrayShift(prev, ctrl.id, -1))}
+                                        onMoveDown={() => setVisualControls(prev => arrayShift(prev, ctrl.id, 1))}
+                                    />
                                     <button
                                         type="button"
                                         onClick={() => handleToggleVisibility(ctrl.api_mapping_key, 'control')}
@@ -539,6 +605,7 @@ export function ModelForm({
                                     </button>
                                 </div>
                             </div>
+                            <div onPointerDown={stopPointerProp} className="space-y-6 cursor-default">
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <Input
@@ -730,7 +797,7 @@ export function ModelForm({
                                             value={ctrl.cost_per_unit || 0}
                                             onChange={e => {
                                                 const val = Number(e.target.value);
-                                                setVisualControls(prev => prev.map(c => 
+                                                setVisualControls(prev => prev.map(c =>
                                                     c.id === ctrl.id ? { ...c, cost_per_unit: val } : c
                                                 ));
                                             }}
@@ -739,25 +806,40 @@ export function ModelForm({
                                     </div>
                                 )}
                             </div>
-                        </div>
+                            </div>
+                        </Reorder.Item>
                     ))}
-                </div>
+                </Reorder.Group>
             </FormSection>
 
             <FormSection
                 title="Input Handles"
                 description="Customize how external data flows into this model."
             >
-                <div className="space-y-6">
-                    {visualInputWires.length === 0 && (
-                        <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
-                            No input handles found in schema
-                        </div>
-                    )}
-                    {visualInputWires.map((wire) => (
-                        <div key={wire.id} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4">
+                {visualInputWires.length === 0 && (
+                    <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
+                        No input handles found in schema
+                    </div>
+                )}
+                <Reorder.Group
+                    axis="y"
+                    values={visualInputWires}
+                    onReorder={setVisualInputWires}
+                    className="space-y-6"
+                >
+                    {visualInputWires.map((wire, index) => (
+                        <Reorder.Item
+                            key={wire.id}
+                            value={wire}
+                            transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.6 }}
+                            whileDrag={{ scale: 1.02, zIndex: 50, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}
+                            className="group relative bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4 cursor-grab active:cursor-grabbing"
+                        >
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="text-content-tertiary opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
+                                        <GripVertical className="w-4 h-4" />
+                                    </div>
                                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
                                         <Link2 className="w-5 h-5" />
                                     </div>
@@ -766,20 +848,28 @@ export function ModelForm({
                                         <p className="text-[10px] text-content-tertiary font-mono opacity-60">{wire.api_mapping_key}</p>
                                     </div>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => handleToggleVisibility(wire.api_mapping_key, 'input-handle')}
-                                    className={cn(
-                                        "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
-                                        wire.is_visible ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-white/5 border-white/10 text-content-tertiary opacity-40"
-                                    )}
-                                >
-                                    {wire.is_visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                                    {wire.is_visible ? 'Visible' : 'Hidden'}
-                                </button>
+                                <div className="flex items-center gap-2" onPointerDown={stopPointerProp}>
+                                    <ReorderArrows
+                                        canMoveUp={index > 0}
+                                        canMoveDown={index < visualInputWires.length - 1}
+                                        onMoveUp={() => setVisualInputWires(prev => arrayShift(prev, wire.id, -1))}
+                                        onMoveDown={() => setVisualInputWires(prev => arrayShift(prev, wire.id, 1))}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => handleToggleVisibility(wire.api_mapping_key, 'input-handle')}
+                                        className={cn(
+                                            "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
+                                            wire.is_visible ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-white/5 border-white/10 text-content-tertiary opacity-40"
+                                        )}
+                                    >
+                                        {wire.is_visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                        {wire.is_visible ? 'Visible' : 'Hidden'}
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                            <div onPointerDown={stopPointerProp} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end cursor-default">
                                 <Input
                                     label="Custom Label"
                                     value={wire.name}
@@ -804,25 +894,39 @@ export function ModelForm({
                                     />
                                 </div>
                             </div>
-                        </div>
+                        </Reorder.Item>
                     ))}
-                </div>
+                </Reorder.Group>
             </FormSection>
 
             <FormSection
                 title="Output Handles"
                 description="Customize how this model exports data."
             >
-                <div className="space-y-6">
-                    {visualOutputWires.length === 0 && (
-                        <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
-                            No output handles found in schema
-                        </div>
-                    )}
-                    {visualOutputWires.map((wire) => (
-                        <div key={wire.id} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4">
+                {visualOutputWires.length === 0 && (
+                    <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
+                        No output handles found in schema
+                    </div>
+                )}
+                <Reorder.Group
+                    axis="y"
+                    values={visualOutputWires}
+                    onReorder={setVisualOutputWires}
+                    className="space-y-6"
+                >
+                    {visualOutputWires.map((wire, index) => (
+                        <Reorder.Item
+                            key={wire.id}
+                            value={wire}
+                            transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.6 }}
+                            whileDrag={{ scale: 1.02, zIndex: 50, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}
+                            className="group relative bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-4 cursor-grab active:cursor-grabbing"
+                        >
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="text-content-tertiary opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
+                                        <GripVertical className="w-4 h-4" />
+                                    </div>
                                     <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center text-accent-primary">
                                         <Layers className="w-5 h-5" />
                                     </div>
@@ -831,20 +935,28 @@ export function ModelForm({
                                         <p className="text-[10px] text-content-tertiary font-mono opacity-60">{wire.api_mapping_key}</p>
                                     </div>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => handleToggleVisibility(wire.api_mapping_key, 'output-handle')}
-                                    className={cn(
-                                        "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
-                                        wire.is_visible ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-white/5 border-white/10 text-content-tertiary opacity-40"
-                                    )}
-                                >
-                                    {wire.is_visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                                    {wire.is_visible ? 'Visible' : 'Hidden'}
-                                </button>
+                                <div className="flex items-center gap-2" onPointerDown={stopPointerProp}>
+                                    <ReorderArrows
+                                        canMoveUp={index > 0}
+                                        canMoveDown={index < visualOutputWires.length - 1}
+                                        onMoveUp={() => setVisualOutputWires(prev => arrayShift(prev, wire.id, -1))}
+                                        onMoveDown={() => setVisualOutputWires(prev => arrayShift(prev, wire.id, 1))}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => handleToggleVisibility(wire.api_mapping_key, 'output-handle')}
+                                        className={cn(
+                                            "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
+                                            wire.is_visible ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-white/5 border-white/10 text-content-tertiary opacity-40"
+                                        )}
+                                    >
+                                        {wire.is_visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                        {wire.is_visible ? 'Visible' : 'Hidden'}
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                            <div onPointerDown={stopPointerProp} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end cursor-default">
                                 <Input
                                     label="Custom Label"
                                     value={wire.name}
@@ -864,9 +976,9 @@ export function ModelForm({
                                     />
                                 </div>
                             </div>
-                        </div>
+                        </Reorder.Item>
                     ))}
-                </div>
+                </Reorder.Group>
             </FormSection>
 
             {/* LIVE PREVIEW SECTION */}

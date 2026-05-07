@@ -65,26 +65,31 @@ export function useSession() {
 
         setIsLoading(true);
 
-        // ⚠️ CRITICAL: Immediately clear current workflow state BEFORE async operations
-        // This prevents stale data from leaking between session switches.
+        // We deliberately do NOT wipe nodeStatuses / nodeOutputs / currentWorkflow
+        // here. They are persisted across refresh ([lib/store/app-store.ts]) and
+        // represent the last-known DB view of the current session. Clearing them
+        // before the async fetch below would flash 'idle' on the canvas while
+        // running nodes are still in flight on the server.
         //
-        // We also clear nodeOutputs and nodeStatuses HERE rather than later in
-        // this function: the upcoming setCurrentWorkflow(workflow, false) call
-        // seeds source-node outputs (Prompt text, MediaInput URLs) into
-        // nodeOutputs as part of hydration. Clearing AFTER that seed would
-        // wipe it — which is what was causing freshly-reloaded compositors to
-        // show no preview until the user nudged something.
+        // Cross-session safety: when the user navigates between different
+        // sessions, [app/chat/[id]/page.tsx] detects the mismatch and calls
+        // store.clearAllState() before this hook runs, so the prior session's
+        // state is already gone by the time we get here.
         const store = useAppStore.getState();
         store.setIsLoadingSession(true); // Guard auto-save
         store.setActiveSessionId(sessionId);
-        store.setCurrentWorkflow(null, false);  // Clear workflow first without triggering dirty!
-        store.resetNodeStatuses();
-        store.clearNodeOutputs();
 
 
         try {
-            // Fetch session with messages via BFF API
-            const { session, messages } = await sessionsApi.load(sessionId);
+            // Fire both reads in parallel — they have no dependency on each other,
+            // and running them sequentially adds 100-300ms to the time-to-first
+            // correct render.
+            const [sessionResult, executionsResult] = await Promise.all([
+                sessionsApi.load(sessionId),
+                getSessionExecutions(sessionId),
+            ]);
+            const { session, messages } = sessionResult;
+            const { executions, latestExecutionId } = executionsResult;
 
             // STALE CHECK: If the user navigated away while we were loading, ignore results
             const currentStore = useAppStore.getState();
@@ -182,18 +187,14 @@ export function useSession() {
 
             formattedMessages.forEach((msg: any) => store.addMessage(msg));
 
-            // ✅ PHASE 3 FIX: Hydrate Node Statuses and Outputs from node_executions table
-            // (clears for these maps already happened at the top of loadSession,
-            //  before setCurrentWorkflow seeded source-node outputs.)
+            // Hydrate node statuses + outputs from node_results (DB is the
+            // source of truth; the persisted store cache gets overwritten with
+            // fresh values here).
             if (session.canvas_state?.nodes?.length > 0) {
-                // Fetch execution state from node_executions table
-                const { executions, latestExecutionId } = await getSessionExecutions(sessionId);
-                
                 if (latestExecutionId) {
                     store.setActiveExecutionId(latestExecutionId);
                 }
-                
-                // Create lookup map for quick access
+
                 const executionMap = new Map(
                     executions.map((exec: any) => [exec.nodeId, exec])
                 );
@@ -203,16 +204,26 @@ export function useSession() {
 
                 session.canvas_state.nodes.forEach((node: any) => {
                     const execution = executionMap.get(node.id);
-                    
+
                     if (execution) {
-                        // Use execution state from node_executions table (authoritative)
                         if (execution.status) {
                             let mappedStatus = execution.status;
                             if (mappedStatus === 'completed') mappedStatus = 'success';
                             if (mappedStatus === 'failed') mappedStatus = 'error';
-                            store.setNodeStatus(node.id, mappedStatus as import('@/lib/nodes/types').NodeStatus);
+
+                            // Downgrade guard — mirrors [lib/hooks/use-execution-channel.ts:32-35].
+                            // A stale 'pending' row from a prior queueing must not overwrite
+                            // a more-advanced 'running'/'success' that's already in the store
+                            // (either persisted from before, or applied by realtime).
+                            const current = useAppStore.getState().nodeStatuses[node.id];
+                            const isStalePending =
+                                mappedStatus === 'pending' &&
+                                (current === 'running' || current === 'success');
+                            if (!isStalePending) {
+                                store.setNodeStatus(node.id, mappedStatus as import('@/lib/nodes/types').NodeStatus);
+                            }
                         }
-                        
+
                         // Priority 1: Check the new outputMetadata property (from the new DB column)
                         if (execution.outputMetadata?.preview_urls && Array.isArray(execution.outputMetadata.preview_urls) && execution.outputMetadata.preview_urls.length > 0) {
                             const imageObjects = execution.outputMetadata.preview_urls.map((url: string, idx: number) => ({

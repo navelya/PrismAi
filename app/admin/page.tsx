@@ -277,7 +277,8 @@ function AdminPageContent() {
     };
 
     return (
-        <div className="w-full h-full flex flex-col bg-surface-primary mesh-gradient overflow-y-auto custom-scrollbar">
+        <div className="w-full h-full overflow-y-auto custom-scrollbar bg-surface-primary mesh-gradient">
+            <div className="min-h-full flex flex-col">
             {/* Header */}
             <header className="sticky top-0 z-30 bg-surface-primary/60 backdrop-blur-xl border-b border-white/5 px-8 py-5 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-2xl">
                 <div className="flex items-center gap-5">
@@ -922,6 +923,7 @@ function AdminPageContent() {
                 message={`Are you sure you want to delete "${nodeTypeToDelete?.display_name}"? This may affect models associated with this category.`}
                 variant="danger"
             />
+            </div>
         </div>
     );
 }

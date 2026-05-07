@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Workflow as WorkflowIcon,
@@ -38,6 +38,22 @@ type ActivePanel = 'node-library' | 'assets' | 'templates' | null;
 
 export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult, sessionId }: WorkspaceLayoutProps) {
     const isMobile = useIsMobile();
+
+    // BOOTSTRAP (render-phase, runs once before the first paint):
+    // Sync the store to the optimistic mode now, so the first paint and every
+    // store subscriber (including the chat panel) agree. Without this, the
+    // first paint inherits the persisted value (often isCanvasMode=false) and
+    // we get a visible "full-screen → canvas" flicker once the verification
+    // effect lands.
+    const hasBootstrappedMode = useRef(false);
+    if (!hasBootstrappedMode.current) {
+        hasBootstrappedMode.current = true;
+        const store = useAppStore.getState();
+        const wantCanvas = !!sessionId;
+        if (store.isCanvasMode !== wantCanvas) store.setIsCanvasMode(wantCanvas);
+        if (store.isCopilotMinimized) store.setIsCopilotMinimized(false);
+    }
+
     const isCanvasMode = useAppStore(s => s.isCanvasMode);
     const setIsCanvasMode = useAppStore(s => s.setIsCanvasMode);
     const isCopilotMinimized = useAppStore(s => s.isCopilotMinimized);
@@ -46,35 +62,17 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
-    // ── Auto-open canvas logic ──────────────────────────────────────────────
+    // VERIFICATION: Once the workflow actually loads, downgrade to full-screen
+    // chat if it turned out to be empty. Canvas mode is already in place from
+    // the bootstrap above, so non-empty workflows render with no transition.
     const hasHandledInitialMode = useRef(false);
-
-    // 1. OPTIMISTIC: On mount, if we have a sessionId, assume it's an existing workflow and start in Canvas Mode
-    // This prevents the "Full Screen -> jump to Canvas" flicker for non-empty workflows.
-    useLayoutEffect(() => {
-        if (sessionId && !hasHandledInitialMode.current) {
-            setIsCanvasMode(true);
-            setIsCopilotMinimized(false);
-        } else if (!sessionId) {
-            setIsCanvasMode(false);
-            setIsCopilotMinimized(false);
-        }
-    }, [sessionId, setIsCanvasMode, setIsCopilotMinimized]);
-
-    // 2. VERIFICATION: Once the workflow actually loads, if it's empty, we revert to Full Screen Chat.
     useEffect(() => {
-        if (!sessionId) return;
+        if (!sessionId || hasHandledInitialMode.current) return;
 
-        if (workflow && workflow.id === sessionId && !hasHandledInitialMode.current) {
+        if (workflow && workflow.id === sessionId) {
             const hasNodes = (workflow.nodes?.length || 0) > 0;
-
             if (!hasNodes) {
-                // It's empty -> Revert to Full Screen Chat
                 setIsCanvasMode(false);
-                setIsCopilotMinimized(false);
-            } else {
-                // It has content -> Keep Canvas Mode (already set optimistically)
-                setIsCanvasMode(true);
                 setIsCopilotMinimized(false);
             }
             hasHandledInitialMode.current = true;

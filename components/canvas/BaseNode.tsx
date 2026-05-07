@@ -2,7 +2,7 @@
 
 import React, { memo, useMemo } from 'react';
 import { Handle, Position, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
-import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
+import { Copy, X, Loader2, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -234,17 +234,21 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     className={cn(
                         "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
                         "shadow-lg border-surface-primary transition-all duration-300",
-                        status === 'pending' && "bg-slate-500",
+                        // Pending uses the same accent family as running but dimmer
+                        // and without the glow — reads as "queued / loading shortly",
+                        // not as "idle" (the previous slate dot looked inert and
+                        // misled users into thinking nothing was happening).
+                        status === 'pending' && "bg-accent-primary/40 animate-pulse",
                         status === 'running' && "bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]",
                         status === 'success' && "bg-accent-secondary shadow-[0_0_10px_rgba(20,184,166,0.5)]",
                         status === 'error' && "bg-accent-error"
                     )}
                     style={{ borderWidth: `${b2}px` }}
                 >
+                    {status === 'pending' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted/70" />}
                     {status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
                     {status === 'success' && <Check className="w-4 h-4 text-content-inverted" />}
                     {status === 'error' && <X className="w-4 h-4 text-content-inverted" />}
-                    {status === 'pending' && <Circle className="w-2 h-2 text-content-inverted fill-current" />}
                 </div>
             )}
 

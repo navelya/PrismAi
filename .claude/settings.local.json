@@ -13,7 +13,13 @@
       "Bash(curl -o /dev/null -s -w '%{http_code}' -L 'https://images.unsplash.com/__TRACKED_VAR__?auto=format&fit=crop&q=80&w=600' --max-time 8)",
       "Bash(echo \"EXIT $?\")",
       "Bash(npx --no-install tsc --noEmit)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Projects\\\\Prisfol\\\\PrismAi\" -Recurse -Directory -Filter \"admin\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Projects\\\\Prisfol\\\\PrismAi\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(xargs grep *)",
+      "Bash(grep -E \"\\(use-session|app-store|BaseNode|chat\\\\\\\\\\\\[id\\\\\\\\\\\\]\\)\")",
+      "Bash(awk -F'\\(' '{print $1}')"
     ]
   }
 }
