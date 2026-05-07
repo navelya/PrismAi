@@ -15,6 +15,42 @@ export interface ToolResult {
   error?: string;
 }
 
+function getValidTargetHandles(node: { type?: string; data?: { config?: any } }): string[] {
+  if (!node?.type) return [];
+  const def = (sharedRegistry as any)[node.type];
+  const staticIds: string[] = Array.isArray(def?.handles?.inputs)
+    ? def.handles.inputs.map((h: any) => h?.id).filter((id: any): id is string => typeof id === 'string')
+    : [];
+
+  if (node.type === 'compositor') {
+    const layers = node.data?.config?.layers;
+    if (Array.isArray(layers)) {
+      for (const layer of layers) {
+        const id = layer?.sourceHandleId;
+        if (typeof id === 'string' && !staticIds.includes(id)) staticIds.push(id);
+      }
+    }
+  }
+  return staticIds;
+}
+
+function validateEdgeHandles(node: { id?: string; type?: string; data?: { config?: any }; inputs?: any[] }): string | null {
+  const inputs = Array.isArray(node?.inputs) ? node.inputs : [];
+  if (inputs.length === 0) return null;
+  const validTargets = getValidTargetHandles(node);
+  for (const edge of inputs) {
+    const target = edge?.targetHandle;
+    if (target == null || target === '') continue; // optional handle is fine
+    if (typeof target !== 'string') {
+      return `Node "${node.id}" has an edge with non-string targetHandle.`;
+    }
+    if (!validTargets.includes(target)) {
+      return `Node "${node.id}" (type "${node.type}") edge from "${edge?.source}" uses targetHandle "${target}" which does not exist. Valid target handles for this node: ${validTargets.length > 0 ? validTargets.join(', ') : '(none)'}.`;
+    }
+  }
+  return null;
+}
+
 /**
  * Lightweight aiSchema validator: checks that every required key listed in
  * the registry's aiSchema is present in the node's data.config. We don't
@@ -49,6 +85,13 @@ export function runAddNode(state: ToolHandlerState, args: any): ToolResult {
     if (err) return { success: false, error: err };
   }
 
+  // Defense-in-depth: reject edges whose targetHandle doesn't exist on the
+  // destination node (static handles + dynamic compositor layer ids).
+  for (const node of args.nodes) {
+    const err = validateEdgeHandles(node);
+    if (err) return { success: false, error: err };
+  }
+
   const patches: WorkflowPatch[] = [];
   for (const node of args.nodes) {
     const result = applyAddNodeOp(state.workflow, node, state.idMap);
@@ -67,6 +110,18 @@ export function runUpdateNode(state: ToolHandlerState, args: any): ToolResult {
   if (!args?.id || typeof args.id !== 'string') {
     return { success: false, error: 'update_node requires an "id" string.' };
   }
+
+  // Validate replace_inputs edges against the existing node's target handles,
+  // merging in any incoming config override for dynamic handle resolution.
+  if (Array.isArray(args.replace_inputs) && args.replace_inputs.length > 0) {
+    const existing = state.workflow.nodes.find((n: any) => n.id === args.id || state.idMap.get(args.id) === n.id);
+    if (existing) {
+      const merged = { ...existing, data: { ...(existing.data || {}), config: args.data?.config ?? existing.data?.config } } as any;
+      const err = validateEdgeHandles({ ...merged, id: args.id, inputs: args.replace_inputs });
+      if (err) return { success: false, error: err };
+    }
+  }
+
   const result = applyUpdateNodeOp(state.workflow, args, state.idMap);
   if (!result.success) return { success: false, error: result.error || 'update_node failed.' };
   state.workflow = result.workflow;
