@@ -291,8 +291,9 @@ export function useChatMessages({
                     console.log('📝 [Stream] Text chunk received:', chunk, '| Total length:', networkText.length);
                 }
                 else if (parsed.type === 'thinking_start') {
+                    const current = useAppStore.getState().chatMessages.find(m => m.id === assistantMsgId);
                     useAppStore.getState().updateMessage(assistantMsgId, {
-                        thinking: '',
+                        thinking: current?.thinking ?? '',
                         isThinking: true,
                         thinkingStartedAt: Date.now(),
                     });
