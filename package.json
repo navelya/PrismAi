@@ -11,6 +11,7 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.43",
     "@ai-sdk/react": "^3.0.118",
+    "@anthropic-ai/sdk": "^0.95.1",
     "@google/generative-ai": "^0.21.0",
     "@paddle/paddle-js": "^1.6.4",
     "@paddle/paddle-node-sdk": "^3.8.0",

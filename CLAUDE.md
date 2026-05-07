@@ -19,7 +19,7 @@ There is no test runner. Ad-hoc integration scripts in [scripts/](scripts/) are 
 
 A separate Python background-removal service runs on port 8000 (see [STARTUP.md](STARTUP.md), [DEPLOYMENT.md](DEPLOYMENT.md)) — its `python-backend/` directory ships separately to Hugging Face Spaces and is not in this repo.
 
-Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `REPLICATE_API_TOKEN`, `REPLICATE_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_APP_URL` (used as the Replicate webhook base URL — must be publicly reachable), `CRON_SECRET`.
+Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY` (legacy chat path; removed after Task 25 of the chat-brain-rework plan), `ANTHROPIC_API_KEY` (new chat brain), `CHAT_USE_NEW_BRAIN` ("true" to route chat through `lib/chat/*`; defaults to false during rollout), `REPLICATE_API_TOKEN`, `REPLICATE_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_APP_URL` (used as the Replicate webhook base URL — must be publicly reachable), `CRON_SECRET`.
 
 ## Things that bite
 
