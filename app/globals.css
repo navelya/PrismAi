@@ -145,6 +145,22 @@
     }
   }
 
+  /* Chat assistant text fades in on first paint when content arrives,
+     so it doesn't snap into place after the loading spinner. */
+  .chat-text-fade-in {
+    animation: chat-text-fade-in 280ms ease-out;
+  }
+  @keyframes chat-text-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   .animate-infinite-scroll {
     animation: infinite-scroll 80s linear infinite;
   }

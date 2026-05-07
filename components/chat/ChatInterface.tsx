@@ -1185,7 +1185,7 @@ function WorkflowEmptyState({
     ];
 
     return (
-        <div className="flex-1 w-full flex flex-col animate-in fade-in duration-500">
+        <div className="flex-1 w-full flex flex-col chat-text-fade-in">
             <div className="flex-1 flex flex-col items-center justify-center text-center">
                 <div className={`flex items-center justify-center gap-2.5 ${isCanvasMode ? 'mb-2' : 'mb-3'}`}>
                     <div className={`${isCanvasMode ? 'w-7 h-7' : 'w-9 h-9'} rounded-2xl bg-accent-primary/10 flex items-center justify-center`}>
@@ -1329,11 +1329,13 @@ const MemoizedMessage = React.memo(function MemoizedMessage({
                     )}
 
                     {message.content ? (
-                        <ChatMessageContent
-                            message={message}
-                            isGenerating={!!isGenerating}
-                            isCanvasMode={isCanvasMode}
-                        />
+                        <div className={message.type === 'assistant' ? 'chat-text-fade-in' : undefined}>
+                            <ChatMessageContent
+                                message={message}
+                                isGenerating={!!isGenerating}
+                                isCanvasMode={isCanvasMode}
+                            />
+                        </div>
                     ) : message.type === 'assistant' && !message.result && (
                         <div className="flex items-center gap-2 text-content-primary py-1">
                             <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
