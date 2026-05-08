@@ -39,6 +39,11 @@ export function ChipCard({ options, answer, onAnswer }: ChipCardProps) {
         onAnswer({ chosenIndex: null, text: trimmed });
     };
 
+    const handleSkip = () => {
+        if (isAnswered) return;
+        onAnswer({ chosenIndex: null, text: 'Skip' });
+    };
+
     const typedDisplay = isAnswered && answer?.chosenIndex === null ? answer.text : draft;
     const typedFilled = isAnswered && answer?.chosenIndex === null;
 
@@ -91,6 +96,15 @@ export function ChipCard({ options, answer, onAnswer }: ChipCardProps) {
                     disabled={isAnswered}
                     className="flex-1 bg-transparent focus:outline-none text-sm placeholder-content-tertiary disabled:cursor-not-allowed"
                 />
+                {!isAnswered && (
+                    <button
+                        type="button"
+                        onClick={handleSkip}
+                        className="flex-shrink-0 px-2 py-0.5 rounded-md text-xs font-medium text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary/80 transition-colors"
+                    >
+                        Skip
+                    </button>
+                )}
                 {!isAnswered && draft.trim().length > 0 && (
                     <button
                         type="button"

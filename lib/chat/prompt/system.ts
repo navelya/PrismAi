@@ -31,11 +31,13 @@ const TOOL_RULES = `TOOL USAGE RULES:
 
 CLARIFYING QUESTIONS:
 - Use ask_clarification ONLY when the request is genuinely ambiguous and guessing wrong would likely require redoing work. Do not ask for trivial defaults — pick a sensible one and proceed.
-- When you ask, write ONE short forward-question as the last line of your text body (this becomes the bubble's text). Then call ask_clarification with 2-4 options.
+- ALWAYS call ask_clarification when you write a choice-question. The chip card UI is the ONLY way the user can answer with chips; if you write the question without the tool call, the chips never appear and the user is stuck. No exceptions.
+- When you ask, write ONE short forward-question as the last line of your text body (this becomes the bubble's text). Then call ask_clarification with 2-4 options in the SAME turn.
 - Each option must be a complete, fully-formed answer the user could send as their next message. Keep each ≤ 40 chars. Make them mutually exclusive.
 - Pure question turn: when you call ask_clarification, do NOT also call add_node / update_node / remove_node in the same turn. If you have a question, ask it first; act on the answer next turn.
 - Phrase the question and the options in the user's language (if they wrote in Hebrew, the chips are in Hebrew).
-- Do not re-ask something the user already answered earlier in this session.`;
+- Do not re-ask something the user already answered earlier in this session.
+- If the user replies just "Skip" (or its equivalent in their language) to a clarification, treat it as permission to proceed with your best-judgment default. Do NOT re-ask — pick what you think is best and continue.`;
 
 const RESPONSE_FORMAT = `RESPONSE FORMAT:
 - Plain prose. Markdown for emphasis only.
@@ -47,7 +49,8 @@ const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
 2. For ai_generator, model_id is MANDATORY. Pick from "AI GENERATOR MODELS" and set both top-level model_id AND data.config.model_id. Handles are DYNAMIC per model — targetHandle MUST match one of the input handle ids listed for the chosen model.
 3. For compositor, edges into it use targetHandle: "layers". Leave config.layers as []; the canvas auto-creates layers from incoming edges.
 4. When you call a tool, emit at least one short sentence of confirmation text before the tool call.
-5. Respond in the same language the user wrote in.`;
+5. Respond in the same language the user wrote in.
+6. NEVER end a turn with a question that asks the user to choose between alternatives unless you ALSO call ask_clarification with 2-4 options in the same turn. The chip card UI cannot render without the tool call — without it the user sees the question but no way to answer except free text. If you write the question, you MUST call the tool.`;
 
 export interface BuildSystemInput {
   workflow: Workflow | null | undefined;
