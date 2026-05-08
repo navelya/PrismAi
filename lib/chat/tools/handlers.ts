@@ -7,6 +7,15 @@ import type { ToolName } from './definitions';
 export interface ToolHandlerState {
   workflow: Workflow;
   idMap: Map<string, string>;
+  /**
+   * Per-model dynamic input handle ids for ai_generator nodes.
+   * Keyed by model_id (number) → array of api_mapping_keys from
+   * inputs_schema.handles. Used to validate edge targetHandles for
+   * ai_generator nodes — the static registry only lists fallback
+   * handles (trigger/prompt/image) which don't apply for most real
+   * models.
+   */
+  aiModelHandles?: Map<number, string[]>;
 }
 
 export interface ToolResult {
@@ -15,8 +24,29 @@ export interface ToolResult {
   error?: string;
 }
 
-function getValidTargetHandles(node: { type?: string; data?: { config?: any } }): string[] {
+function getValidTargetHandles(
+  node: { type?: string; data?: { config?: any } },
+  aiModelHandles?: Map<number, string[]>,
+): string[] {
   if (!node?.type) return [];
+
+  // ai_generator handles are DYNAMIC per chosen model — the rendered
+  // node uses inputs_schema.handles[*].api_mapping_key from ai_models,
+  // not the static registry's fallback handles. If we know the model_id
+  // and have the handle list cached, return that. Otherwise fall through
+  // and accept anything (don't block — the canvas already rejects bad
+  // edges, and being too strict here trades a console warning for a
+  // hard error in chat).
+  if (node.type === 'ai_generator') {
+    const modelId = node.data?.config?.model_id;
+    if (typeof modelId === 'number' && aiModelHandles) {
+      const handles = aiModelHandles.get(modelId);
+      if (handles && handles.length > 0) return handles;
+    }
+    // Unknown model_id or unknown handles — permissive fallback.
+    return [];
+  }
+
   const def = (sharedRegistry as any)[node.type];
   const staticIds: string[] = Array.isArray(def?.handles?.inputs)
     ? def.handles.inputs.map((h: any) => h?.id).filter((id: any): id is string => typeof id === 'string')
@@ -31,10 +61,17 @@ function getValidTargetHandles(node: { type?: string; data?: { config?: any } })
   return staticIds;
 }
 
-function validateEdgeHandles(node: { id?: string; type?: string; data?: { config?: any }; inputs?: any[] }): string | null {
+function validateEdgeHandles(
+  node: { id?: string; type?: string; data?: { config?: any }; inputs?: any[] },
+  aiModelHandles?: Map<number, string[]>,
+): string | null {
   const inputs = Array.isArray(node?.inputs) ? node.inputs : [];
   if (inputs.length === 0) return null;
-  const validTargets = getValidTargetHandles(node);
+  const validTargets = getValidTargetHandles(node, aiModelHandles);
+  // Permissive fallback: empty list means "we don't know the valid
+  // handles for this node" (e.g., ai_generator with an unknown
+  // model_id). Skip validation rather than reject every edge.
+  if (validTargets.length === 0) return null;
   for (const edge of inputs) {
     const target = edge?.targetHandle;
     if (target == null || target === '') continue; // optional handle is fine
@@ -42,7 +79,7 @@ function validateEdgeHandles(node: { id?: string; type?: string; data?: { config
       return `Node "${node.id}" has an edge with non-string targetHandle.`;
     }
     if (!validTargets.includes(target)) {
-      return `Node "${node.id}" (type "${node.type}") edge from "${edge?.source}" uses targetHandle "${target}" which does not exist. Valid target handles for this node: ${validTargets.length > 0 ? validTargets.join(', ') : '(none)'}.`;
+      return `Node "${node.id}" (type "${node.type}") edge from "${edge?.source}" uses targetHandle "${target}" which does not exist. Valid target handles for this node: ${validTargets.join(', ')}.`;
     }
   }
   return null;
@@ -83,9 +120,10 @@ export function runAddNode(state: ToolHandlerState, args: any): ToolResult {
   }
 
   // Defense-in-depth: reject edges whose targetHandle doesn't exist on the
-  // destination node (static handles + dynamic compositor layer ids).
+  // destination node (static handles + dynamic compositor layer ids +
+  // dynamic ai_generator handles per model).
   for (const node of args.nodes) {
-    const err = validateEdgeHandles(node);
+    const err = validateEdgeHandles(node, state.aiModelHandles);
     if (err) return { success: false, error: err };
   }
 
@@ -114,7 +152,7 @@ export function runUpdateNode(state: ToolHandlerState, args: any): ToolResult {
     const existing = state.workflow.nodes.find((n: any) => n.id === args.id || state.idMap.get(args.id) === n.id);
     if (existing) {
       const merged = { ...existing, data: { ...(existing.data || {}), config: args.data?.config ?? existing.data?.config } } as any;
-      const err = validateEdgeHandles({ ...merged, id: args.id, inputs: args.replace_inputs });
+      const err = validateEdgeHandles({ ...merged, id: args.id, inputs: args.replace_inputs }, state.aiModelHandles);
       if (err) return { success: false, error: err };
     }
   }

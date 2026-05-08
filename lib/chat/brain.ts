@@ -30,7 +30,22 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
       ? input.workflow
       : createEmptyWorkflow();
 
-  const state: ToolHandlerState = { workflow: baseWorkflow, idMap: new Map() };
+  // Build a model_id → input handle ids map so the tool handler can
+  // validate ai_generator edges against the chosen model's actual
+  // handles (rather than the static registry's fallback list).
+  const aiModelHandles = new Map<number, string[]>();
+  for (const m of input.registry.models) {
+    const schema = (m as any).inputs_schema;
+    if (!schema || !Array.isArray(schema.handles)) continue;
+    const ids: string[] = [];
+    for (const h of schema.handles) {
+      const key = h?.api_mapping_key;
+      if (typeof key === 'string' && key.length > 0) ids.push(key);
+    }
+    if (ids.length > 0) aiModelHandles.set(m.id, ids);
+  }
+
+  const state: ToolHandlerState = { workflow: baseWorkflow, idMap: new Map(), aiModelHandles };
 
   const system = buildSystemPrompt({
     workflow: baseWorkflow,
