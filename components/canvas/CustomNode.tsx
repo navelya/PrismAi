@@ -75,15 +75,15 @@ function CustomNode({ data, type, id, selected, dragging = false }: NodeProps<Cu
             width={output && aspectRatio ? Math.min(MAX_WIDTH, 320 * aspectRatio) : 320}
         >
             <motion.div
-                layout={!isDragging && ((status === 'running' || status === 'success') && !!output) ? "position" : false}
+                layout={!isDragging ? "size" : false}
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden border border-white/10 shadow-inner group/node",
                     !output ? "bg-white/5" : "bg-transparent",
                     !isDragging && "transition-all duration-500"
                 )}
                 style={{
-                    minHeight: output ? 0 : MIN_HEIGHT,
-                    height: output && aspectRatio ? 'auto' : (output ? 'auto' : MIN_HEIGHT),
+                    minHeight: MIN_HEIGHT,
+                    height: 'auto',
                 }}
             >
                 {/* Frosty Placeholder background */}

@@ -20,7 +20,17 @@
       "Bash(xargs grep *)",
       "Bash(grep -E \"\\(use-session|app-store|BaseNode|chat\\\\\\\\\\\\[id\\\\\\\\\\\\]\\)\")",
       "Bash(awk -F'\\(' '{print $1}')",
-      "Bash(Get-ChildItem -Path \"C:\\\\Projects\\\\Prisfol\\\\PrismAi\" -Directory)"
+      "Bash(Get-ChildItem -Path \"C:\\\\Projects\\\\Prisfol\\\\PrismAi\" -Directory)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Projects\\\\Prisfol\\\\PrismAi\" -Recurse -Filter \"*blur*\" -ErrorAction SilentlyContinue)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git checkout *)",
+      "Bash(git commit *)",
+      "PowerShell(cd \"C:\\\\Projects\\\\Prisfol\\\\PrismAi\"; npx tsc --noEmit; Write-Output \"Exit code: $LASTEXITCODE\")",
+      "Bash(git diff-tree *)",
+      "PowerShell(New-Item *)",
+      "Bash(node -e \"const t = require\\('./node_modules/@anthropic-ai/sdk/dist/index.js'\\); console.log\\('ok'\\)\")",
+      "Bash(git *)"
     ]
   }
 }

@@ -140,11 +140,10 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             width={nodeWidth}
         >
             <motion.div
-                layout={!isDragging && !!imageUrl ? "position" : false}
+                layout={!isDragging ? "size" : false}
                 className={cn(
-                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node border border-white/10 bg-white/5",
-                    !isDragging && "transition-all duration-500",
-                    !imageUrl ? "min-h-[200px]" : "min-h-0"
+                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node border border-white/10 bg-white/5 min-h-[200px]",
+                    !isDragging && "transition-all duration-500"
                 )}
             >
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />

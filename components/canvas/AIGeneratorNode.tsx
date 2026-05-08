@@ -231,17 +231,12 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             isNew={(data as any).isNew}
         >
             <motion.div
-                layout={!isDragging && ((status === 'running' || status === 'success') && !!output) ? "position" : false}
+                layout={!isDragging && activeType !== 'text' ? "size" : false}
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden shadow-inner group/node",
                     activeType === 'text' ? "bg-transparent border-none" : "border border-white/10 bg-white/5",
                     !isDragging && "transition-all duration-500",
-                    // Heights:
-                    //  - Text/Prompt: dynamic via textMinHeightClass
-                    //  - No output (empty placeholder): 200px — generous presence on canvas
-                    //  - Running/loading: 200px — space for the glassy loader overlay
-                    //  - Image loaded: shrink to fit naturally (min-h-0)
-                    activeType === 'text' ? textMinHeightClass : (!output || status === 'running' || !imageLoaded) ? "min-h-[200px]" : "min-h-0"
+                    activeType === 'text' ? textMinHeightClass : "min-h-[200px]"
                 )}
             >
                 {/* Frosty Placeholder background */}
