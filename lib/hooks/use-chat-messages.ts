@@ -122,9 +122,28 @@ export function useChatMessages({
         attachedBlobs: Blob[],
         attachedImages: string[],
         clearAttachments: () => void,
-        setInput: (val: string) => void
+        setInput: (val: string) => void,
+        clarificationAnswerOverride?: { questionMessageId: string; chosenIndex: number | null }
     ) => {
         if (!trimmedInput && attachedImages.length === 0) return;
+
+        // Resolve clarification answer: explicit override (from a chip click) OR
+        // implicit (the most recent assistant message has a pending clarification
+        // and the user is responding via the main chat input).
+        const allChatMessages = useAppStore.getState().chatMessages;
+        let resolvedClarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =
+            clarificationAnswerOverride;
+        if (!resolvedClarificationAnswer) {
+            for (let i = allChatMessages.length - 1; i >= 0; i--) {
+                const m = allChatMessages[i];
+                if (m.type === 'assistant') {
+                    if (m.clarification?.options && !m.clarificationAnswer) {
+                        resolvedClarificationAnswer = { questionMessageId: m.id, chosenIndex: null };
+                    }
+                    break; // only inspect the most recent assistant
+                }
+            }
+        }
 
         // 📸 Capture history snapshot BEFORE any optimistic updates or clearing
         const historySnapshot = useAppStore.getState().chatMessages;
@@ -191,6 +210,15 @@ export function useChatMessages({
             timestamp: new Date(),
         });
 
+        if (resolvedClarificationAnswer) {
+            useAppStore.getState().updateMessage(resolvedClarificationAnswer.questionMessageId, {
+                clarificationAnswer: {
+                    chosenIndex: resolvedClarificationAnswer.chosenIndex,
+                    text: trimmedInput,
+                },
+            });
+        }
+
         setIsLoading(true);
         setStatusMessage('Prism is thinking...');
 
@@ -222,6 +250,7 @@ export function useChatMessages({
                     previousWorkflow: useAppStore.getState().currentWorkflow,
                     attachedImages: imagesToSend,
                     selectedModel: useAppStore.getState().selectedChatModel,
+                    clarificationAnswer: resolvedClarificationAnswer,
                 }),
             });
 
@@ -320,6 +349,11 @@ export function useChatMessages({
                             thinkingTokens: parsed.thinkingTokens,
                             costUsd: parsed.costUsd,
                         },
+                    });
+                }
+                else if (parsed.type === 'clarification') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        clarification: { options: Array.isArray(parsed.options) ? parsed.options : [] },
                     });
                 }
                 else if (parsed.type === 'tool' && ['add_node', 'update_node', 'remove_node', 'mutate_workflow'].includes(parsed.name)) {
