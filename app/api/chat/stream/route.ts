@@ -27,6 +27,16 @@ function parseImageAttachments(raw: any): ImageAttachment[] {
 async function handleWithNewBrain(req: Request): Promise<Response> {
   const body = await req.json();
   const { messages, sessionId, previousWorkflow, attachedImages } = body ?? {};
+  const clarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =
+    body?.clarificationAnswer && typeof body.clarificationAnswer === 'object'
+      ? {
+          questionMessageId: String(body.clarificationAnswer.questionMessageId ?? ''),
+          chosenIndex:
+            typeof body.clarificationAnswer.chosenIndex === 'number'
+              ? body.clarificationAnswer.chosenIndex
+              : null,
+        }
+      : undefined;
 
   const supabase = createServiceClient();
 
@@ -108,12 +118,17 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           const dbOps: Promise<any>[] = [];
 
           if (lastUserMsg.role === 'user' || lastUserMsg.type === 'user') {
+            const userMetadata =
+              clarificationAnswer && clarificationAnswer.questionMessageId.length > 0
+                ? { clarification_answer: clarificationAnswer }
+                : null;
             dbOps.push(
               Promise.resolve(supabase.from('messages').insert({
                 session_id: sessionId,
                 role: 'user',
                 content: lastUserMsg.content,
                 status: 'completed',
+                metadata: userMetadata,
                 created_at: new Date().toISOString()
               }) as any)
             );
@@ -125,7 +140,11 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                 session_id: sessionId,
                 role: 'assistant',
                 content: result.finalText,
-                metadata: { thinking: result.finalThinking || null, usage: result.usage || null },
+                metadata: {
+                  thinking: result.finalThinking || null,
+                  usage: result.usage || null,
+                  clarification: result.clarification || null,
+                },
                 status: 'completed',
                 created_at: new Date(Date.now() + 1000).toISOString()
               }) as any)
