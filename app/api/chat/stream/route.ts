@@ -28,7 +28,7 @@ function parseImageAttachments(raw: any): ImageAttachment[] {
 async function handlePlanApprove(opts: {
   supabase: ReturnType<typeof createServiceClient>;
   sessionId: string;
-  planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string; blueprint?: { nodes?: any[]; edges?: any[] } };
+  planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string };
   userMessageId?: string;
   lastUserContent: string;
 }): Promise<Response> {
@@ -41,50 +41,42 @@ async function handlePlanApprove(opts: {
 
       waitUntil((async () => {
         try {
-          // 1. Resolve the blueprint. Prefer the client-supplied one (works
-          // even when the original plan turn's persistence hasn't committed
-          // yet — closes the race where the user clicks Approve before the
-          // brain's `done` fires). Fall back to a DB read for the post-
-          // reload case (the in-memory store loses blueprint on hydrate).
-          let blueprint: { nodes?: any[]; edges?: any[] } | null =
-            planAnswer.blueprint && typeof planAnswer.blueprint === 'object' ? planAnswer.blueprint : null;
+          // 1. Read the assistant plan row.
+          const { data: planRow, error: planErr } = await supabase
+            .from('messages')
+            .select('id, session_id, metadata')
+            .eq('id', planAnswer.planMessageId)
+            .single();
+          if (planErr || !planRow) {
+            encoder.send({
+              type: 'error',
+              message: 'Plan not found, please retry the request.',
+              recoverable: false,
+            });
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
+          }
+          if (planRow.session_id !== sessionId) {
+            encoder.send({
+              type: 'error',
+              message: 'Plan does not belong to this session.',
+              recoverable: false,
+            });
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
+          }
+          const blueprint = planRow.metadata?.plan?.blueprint;
           if (!blueprint) {
-            const { data: planRow, error: planErr } = await supabase
-              .from('messages')
-              .select('id, session_id, metadata')
-              .eq('id', planAnswer.planMessageId)
-              .single();
-            if (planErr || !planRow) {
-              encoder.send({
-                type: 'error',
-                message: 'Plan not found, please retry the request.',
-                recoverable: false,
-              });
-              encoder.send({ type: 'done' });
-              encoder.close();
-              return;
-            }
-            if (planRow.session_id !== sessionId) {
-              encoder.send({
-                type: 'error',
-                message: 'Plan does not belong to this session.',
-                recoverable: false,
-              });
-              encoder.send({ type: 'done' });
-              encoder.close();
-              return;
-            }
-            blueprint = planRow.metadata?.plan?.blueprint ?? null;
-            if (!blueprint) {
-              encoder.send({
-                type: 'error',
-                message: 'Plan has no blueprint to apply.',
-                recoverable: false,
-              });
-              encoder.send({ type: 'done' });
-              encoder.close();
-              return;
-            }
+            encoder.send({
+              type: 'error',
+              message: 'Plan has no blueprint to apply.',
+              recoverable: false,
+            });
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
           }
 
           // 2. Idempotency check: was this plan already approved?
@@ -238,7 +230,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
               : null,
         }
       : undefined;
-  const planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string; blueprint?: { nodes?: any[]; edges?: any[] } } | undefined =
+  const planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string } | undefined =
     body?.planAnswer && typeof body.planAnswer === 'object'
       ? {
             planMessageId: String(body.planAnswer.planMessageId ?? ''),
@@ -248,16 +240,6 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                     : 'feedback',
             feedbackText:
                 typeof body.planAnswer.feedbackText === 'string' ? body.planAnswer.feedbackText : undefined,
-            // Optional client-supplied blueprint for the approve path. Lets the
-            // server skip the DB plan-row lookup when the original plan turn's
-            // persistence hasn't committed yet (race: user clicks Approve
-            // before the brain's `done` fires). Validated by dispatchTool the
-            // same as the DB-sourced blueprint, so trusting it isn't a new
-            // attack surface — the user could call add_node directly anyway.
-            blueprint:
-                body.planAnswer.blueprint && typeof body.planAnswer.blueprint === 'object'
-                    ? body.planAnswer.blueprint
-                    : undefined,
         }
       : undefined;
   // Client-supplied UUIDs so the in-memory message IDs match the DB row IDs.
@@ -410,13 +392,20 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
             );
           }
 
-          if (result.finalText) {
+          // Persist the assistant row whenever the brain produced anything
+          // meaningful — text OR a plan OR a clarification. Gating on
+          // finalText alone (the prior behavior) silently dropped plan
+          // turns where the model skipped the prose preamble, and would
+          // similarly drop clarification turns that didn't write a question
+          // line. The card had already streamed and rendered, so the row
+          // must exist for reload + approve to work against the same id.
+          if (result.finalText || result.plan || result.clarification) {
             dbOps.push(
               Promise.resolve(supabase.from('messages').insert({
                 ...(assistantMessageId ? { id: assistantMessageId } : {}),
                 session_id: sessionId,
                 role: 'assistant',
-                content: result.finalText,
+                content: result.finalText || '',
                 metadata: {
                   thinking: result.finalThinking || null,
                   usage: result.usage || null,

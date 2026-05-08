@@ -124,7 +124,7 @@ export function useChatMessages({
         clearAttachments: () => void,
         setInput: (val: string) => void,
         clarificationAnswerOverride?: { questionMessageId: string; chosenIndex: number | null },
-        planAnswerOverride?: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string; blueprint?: { nodes?: any[]; edges?: any[] } }
+        planAnswerOverride?: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string }
     ) => {
         if (!trimmedInput && attachedImages.length === 0) return;
 
@@ -151,7 +151,7 @@ export function useChatMessages({
         // Resolve plan answer: explicit override (from approve / feedback button) OR
         // implicit (the most recent assistant message has a pending plan and the
         // user is responding via the main chat input — treated as feedback).
-        let resolvedPlanAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string; blueprint?: { nodes?: any[]; edges?: any[] } } | undefined =
+        let resolvedPlanAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string } | undefined =
             planAnswerOverride;
         if (!resolvedPlanAnswer) {
             for (let i = messages.length - 1; i >= 0; i--) {
@@ -565,19 +565,9 @@ export function useChatMessages({
 
     /** Called when the user clicks Approve & Build on a plan card. */
     const handlePlanApprove = (planMessageId: string) => {
-        // Pull the blueprint from the in-memory store. During the active turn
-        // (before its `done` event commits the assistant message to DB) the
-        // server-side DB lookup of the plan row would race-fail with "Plan
-        // not found"; sending the blueprint inline lets the route apply it
-        // without needing the row. After reload the blueprint is absent
-        // (use-session.ts intentionally hydrates only the prose fields), and
-        // the route falls back to a DB lookup which is safe by then.
-        const planMsg = useAppStore.getState().chatMessages.find(m => m.id === planMessageId);
-        const blueprint = (planMsg as any)?.plan?.blueprint;
         handleSend('Approved', [], [], () => {}, () => {}, undefined, {
             planMessageId,
             action: 'approve',
-            blueprint: blueprint && typeof blueprint === 'object' ? blueprint : undefined,
         });
     };
 
