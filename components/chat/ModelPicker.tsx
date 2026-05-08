@@ -1,17 +1,16 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Check, ChevronDown, Zap } from 'lucide-react';
+import { Sparkles, Check, Settings2, Zap } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface ModelPickerProps {
   selectedModel: 'haiku' | 'sonnet';
   onSelect: (m: 'haiku' | 'sonnet') => void;
   isPaid: boolean;
-  isCanvasMode: boolean;
 }
 
-export function ModelPicker({ selectedModel, onSelect, isPaid, isCanvasMode }: ModelPickerProps) {
+export function ModelPicker({ selectedModel, onSelect, isPaid }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -28,28 +27,19 @@ export function ModelPicker({ selectedModel, onSelect, isPaid, isCanvasMode }: M
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const label = !isPaid ? 'Auto' : selectedModel === 'haiku' ? 'Haiku' : 'Sonnet';
-
   return (
     <div ref={containerRef} className="relative z-10">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1 rounded-lg transition-colors
-          ${open
+        className={`p-2 rounded-lg transition-colors ${
+          open
             ? 'bg-surface-tertiary text-content-primary'
             : 'bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary'
-          }
-          ${isCanvasMode ? 'px-1.5 py-1.5' : 'px-2 py-2'}`}
+        }`}
         aria-label="Select chat model"
       >
-        <Sparkles className={isCanvasMode ? 'w-4 h-4' : 'w-4 h-4'} />
-        {!isCanvasMode && (
-          <span className="text-xs font-medium leading-none">{label}</span>
-        )}
-        <ChevronDown
-          className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
+        <Settings2 className="w-5 h-5" />
       </button>
 
       {open && (

@@ -312,7 +312,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                                     selectedModel={selectedModel}
                                     onSelect={onModelSelect}
                                     isPaid={isPaid}
-                                    isCanvasMode={isCanvasMode}
                                 />
                             )}
                         </div>
