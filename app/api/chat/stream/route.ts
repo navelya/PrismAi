@@ -8,6 +8,7 @@ import { Workflow } from '@/lib/nodes/types';
 import { applyAddNodeOp, applyRemoveNodeOp, applyUpdateNodeOp } from '@/lib/workflow/graph-ops';
 import { applyWorkflowPatch, createEmptyWorkflow, mergeWorkflowPatches, WorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/lib/chat';
+import { getRegistryContext } from '@/lib/chat/registry-cache';
 import { uploadBase64ToStorage } from '@/lib/utils/image-processing';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
@@ -76,15 +77,8 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
 
   const supabase = createServiceClient();
 
-  const [{ data: modelsData }, { data: nodeTypesData }] = await Promise.all([
-    supabase.from('ai_models')
-      .select('id, display_name, node_type_id, inputs_schema, providers(name)')
-      .eq('is_active', true)
-      .order('display_name') as any,
-    supabase.from('node_types')
-      .select('id, display_name')
-      .order('display_name') as any
-  ]);
+  // Cached for 5 min — see lib/chat/registry-cache.ts
+  const registry = await getRegistryContext(supabase);
 
   const chatWindow = (messages || [])
     .filter((m: any) => m.content && m.content.trim().length > 0)
@@ -124,10 +118,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
         const result = await runBrain({
           turns,
           workflow: previousWorkflow,
-          registry: {
-            models: (modelsData as any[]) || [],
-            nodeTypes: (nodeTypesData as any[]) || []
-          },
+          registry,
           encoder,
           attachedImageUrls,
         });
