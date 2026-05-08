@@ -16,13 +16,13 @@ export interface ThinkingPanelProps {
 }
 
 /**
- * Minimalist reasoning indicator. While streaming: a "Thinking" title
- * with a delicate shimmer sweep across the text (premium feel). After
- * streaming: a small chevron + "Thought for Xs" affordance that expands
- * to show the persisted reasoning in a quote-block-style indent.
+ * Reasoning indicator + collapsible body. Header is clickable in BOTH
+ * states (streaming and done) so the user can read live thoughts while
+ * the assistant is still thinking.
  *
- * Three-dot loaders are intentionally NOT used here — they belong in
- * the loading-skeleton state (between sending and stream start).
+ * - While streaming: header shows shimmering "Thinking" (no duration yet).
+ * - After streaming: header shows "Thought for Xs" with the same chevron.
+ * - Body (when expanded) renders the live `thinking` text in either state.
  */
 export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPanelProps) {
   const [expanded, setExpanded] = useState(false);
@@ -43,43 +43,6 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
 
   if (!crossedThreshold) return null;
 
-  if (isStreaming) {
-    // Shimmering "Thinking" title — gradient sweeps across the text.
-    return (
-      <div className="my-1 text-xs">
-        <span className="thinking-shimmer inline-block bg-clip-text font-normal tracking-tight text-transparent">
-          Thinking
-        </span>
-        <style jsx>{`
-          .thinking-shimmer {
-            background-image: linear-gradient(
-              90deg,
-              rgb(161, 161, 170) 0%,
-              rgb(212, 212, 216) 50%,
-              rgb(161, 161, 170) 100%
-            );
-            background-size: 200% 100%;
-            animation: shimmer-sweep 1.6s ease-in-out infinite;
-          }
-          :global(.dark) .thinking-shimmer {
-            background-image: linear-gradient(
-              90deg,
-              rgb(113, 113, 122) 0%,
-              rgb(228, 228, 231) 50%,
-              rgb(113, 113, 122) 100%
-            );
-            background-size: 200% 100%;
-          }
-          @keyframes shimmer-sweep {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-          }
-        `}</style>
-      </div>
-    );
-  }
-
-  // Done thinking: minimal chevron + "Thought for Xs" label, expandable.
   return (
     <div className="my-1 text-xs">
       <button
@@ -92,7 +55,15 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
           size={12}
           className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
-        <span className="font-normal tracking-tight">Thought for {formatDuration(durationMs)}</span>
+        {isStreaming ? (
+          <span className="thinking-shimmer inline-block bg-clip-text font-normal tracking-tight text-transparent">
+            Thinking
+          </span>
+        ) : (
+          <span className="font-normal tracking-tight">
+            Thought for {formatDuration(durationMs)}
+          </span>
+        )}
       </button>
       <div
         className={`grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out ${
@@ -101,10 +72,35 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
       >
         <div className="min-h-0 overflow-hidden">
           <div className="mt-2 ml-1 border-l border-zinc-200/50 pl-3 italic leading-relaxed whitespace-pre-wrap text-xs text-zinc-500/90 dark:border-zinc-700/40 dark:text-zinc-400/90">
-            {thinking || '(no reasoning recorded)'}
+            {thinking || (isStreaming ? '...' : '(no reasoning recorded)')}
           </div>
         </div>
       </div>
+      <style jsx>{`
+        .thinking-shimmer {
+          background-image: linear-gradient(
+            90deg,
+            rgb(161, 161, 170) 0%,
+            rgb(212, 212, 216) 50%,
+            rgb(161, 161, 170) 100%
+          );
+          background-size: 200% 100%;
+          animation: shimmer-sweep 1.6s ease-in-out infinite;
+        }
+        :global(.dark) .thinking-shimmer {
+          background-image: linear-gradient(
+            90deg,
+            rgb(113, 113, 122) 0%,
+            rgb(228, 228, 231) 50%,
+            rgb(113, 113, 122) 100%
+          );
+          background-size: 200% 100%;
+        }
+        @keyframes shimmer-sweep {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
     </div>
   );
 }
