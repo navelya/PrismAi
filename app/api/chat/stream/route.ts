@@ -364,15 +364,22 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           model,
         });
 
-        if (sessionId && (result.hadAnyOutput || result.clarification) && messages?.length > 0) {
+        if (sessionId && (result.hadAnyOutput || result.clarification || result.plan) && messages?.length > 0) {
           const lastUserMsg = messages[messages.length - 1];
           const dbOps: Promise<any>[] = [];
 
           if (lastUserMsg.role === 'user' || lastUserMsg.type === 'user') {
-            const userMetadata =
-              clarificationAnswer && clarificationAnswer.questionMessageId.length > 0
-                ? { clarification_answer: clarificationAnswer }
-                : null;
+            const userMetadata: Record<string, any> = {};
+            if (clarificationAnswer && clarificationAnswer.questionMessageId.length > 0) {
+              userMetadata.clarification_answer = clarificationAnswer;
+            }
+            if (planAnswer && planAnswer.action === 'feedback' && planAnswer.planMessageId.length > 0) {
+              userMetadata.plan_answer = {
+                planMessageId: planAnswer.planMessageId,
+                action: 'feedback',
+                feedbackText: planAnswer.feedbackText,
+              };
+            }
             dbOps.push(
               Promise.resolve(supabase.from('messages').insert({
                 ...(userMessageId ? { id: userMessageId } : {}),
@@ -380,7 +387,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                 role: 'user',
                 content: lastUserMsg.content,
                 status: 'completed',
-                metadata: userMetadata,
+                metadata: Object.keys(userMetadata).length > 0 ? userMetadata : null,
                 created_at: new Date().toISOString()
               }) as any)
             );
@@ -397,6 +404,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                   thinking: result.finalThinking || null,
                   usage: result.usage || null,
                   clarification: result.clarification || null,
+                  plan: result.plan || null,
                 },
                 status: 'completed',
                 created_at: new Date(Date.now() + 1000).toISOString()
