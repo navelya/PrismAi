@@ -46,8 +46,12 @@ PLAN PROPOSAL:
 - Do NOT call add_node / update_node / remove_node in the same turn as propose_plan. The blueprint IS the build; the user approves it to apply.
 - The blueprint must be complete and apply-ready: every node fully configured per its aiSchema, every edge valid. The same validation that runs on add_node runs on the blueprint when the user approves — an invalid blueprint surfaces as an error after Approve, which is a poor UX.
 - Phrase title, summary, arrows, models, and detail in the user's language (Hebrew request → Hebrew plan content).
+- summary: ONE short sentence answering "what it does." No model names, no node-level detail — those live in their own sections.
+- arrows: ONE single-line arrow notation (e.g. "photo → bg-remove → composite ← imagen-4 ← prompt → output"). No prose, no multiline.
+- models: use the EXACT display_name from "AI GENERATOR MODELS" for any ai_models you reference (e.g. "Imagen 4", "Flux 1.1 Pro") so the UI can render the brand icon. For non-AI utilities (background remover, compositor, color grade, etc.), use a short descriptive name. Keep the list short — only the models/utilities that meaningfully shape the result.
 - Match detail length to plan complexity. Short pipeline → short detail. Complex pipeline → fuller detail. Do not pad.
-- Detail should cover: what each node contributes, the creative direction (look, feel, scene), the inputs the workflow consumes, and what the user can expect to see at the end. Plain prose, no markdown headers.
+- detail formatting: write 2–4 short paragraphs separated by blank lines, OR use bullet points starting with "- " or "• " for distinct steps. Pick whichever reads better. Lower density beats one wall of text. NO markdown headers (no \`#\`, no \`**bold**\`).
+- detail content: cover what each node contributes, the creative direction (look, feel, scene), the inputs the workflow consumes, and what the user can expect to see at the end.
 - After feedback, emit a NEW propose_plan that ADDRESSES the feedback. Do not just re-emit the same plan. Acknowledge the change in the new summary or detail so the user can see what shifted.
 - Do NOT propose_plan again immediately after the user approves a plan — approval means the build happened; the next user message starts a fresh exchange.`;
 

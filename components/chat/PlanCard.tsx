@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { Check, ChevronDown, ChevronRight, AlertCircle, RotateCcw } from 'lucide-react';
+import { useAppStore } from '@/lib/store/app-store';
+import type { AiModel } from '@/lib/nodes/types';
 
 export interface PlanCardProps {
     plan: {
@@ -27,10 +29,37 @@ export interface PlanCardProps {
     onFeedback: (text: string) => void;
 }
 
+function ModelTag({ name, models }: { name: string; models: AiModel[] | undefined }) {
+    const lower = name.toLowerCase();
+    const match = models?.find(m => m.display_name?.toLowerCase() === lower);
+    const logoUrl = match?.providers?.logo_url || null;
+
+    return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-surface-tertiary/40 border border-stroke-subtle/60 text-[10px] text-content-secondary">
+            {logoUrl && (
+                <img
+                    src={logoUrl}
+                    alt=""
+                    className="w-3 h-3 rounded-sm object-contain flex-shrink-0"
+                />
+            )}
+            <span className="truncate max-w-[140px]">{name}</span>
+        </span>
+    );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+    return (
+        <div className="text-[9px] uppercase tracking-widest text-content-tertiary/70 font-bold">
+            {children}
+        </div>
+    );
+}
+
 /**
- * Plan-and-approve card rendered inside the assistant bubble. Shows
- * title, summary, arrow overview, models, expandable detail, and either
- * the approve/feedback buttons or a locked status header.
+ * Plan-and-approve card rendered inside the assistant bubble. Minimal
+ * three-section layout: what / workflow / models, with an expandable
+ * detailed plan and approve/change actions.
  */
 export function PlanCard({
     plan,
@@ -43,6 +72,7 @@ export function PlanCard({
     const [detailOpen, setDetailOpen] = useState(false);
     const [feedbackOpen, setFeedbackOpen] = useState(false);
     const [draft, setDraft] = useState('');
+    const models = useAppStore(state => state.models);
 
     const isLocked = status !== 'pending';
 
@@ -60,58 +90,71 @@ export function PlanCard({
     };
 
     return (
-        <div className="mt-3 rounded-xl border border-stroke-subtle bg-surface-secondary/40 p-3 space-y-2 animate-fade-in">
-            {/* Status header (only shown when locked) */}
+        <div className="mt-2 rounded-lg border border-stroke-subtle/70 bg-surface-secondary/30 p-2.5 animate-fade-in">
+            {/* Status header (only when locked) */}
             {status === 'approved' && (
-                <div className="flex items-center gap-1.5 text-xs font-medium text-accent-primary">
-                    <Check className="w-3.5 h-3.5" />
-                    Approved &amp; built
+                <div className="flex items-center gap-1 text-[10px] font-medium text-accent-primary mb-1">
+                    <Check className="w-3 h-3" />
+                    Approved
                 </div>
             )}
             {status === 'feedback-given' && (
-                <div className="flex items-center gap-1.5 text-xs font-medium text-content-tertiary">
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Revising — see new plan below
+                <div className="flex items-center gap-1 text-[10px] font-medium text-content-tertiary mb-1">
+                    <RotateCcw className="w-3 h-3" />
+                    Revising
                 </div>
             )}
             {status === 'approve-failed' && (
-                <div className="flex items-center gap-1.5 text-xs font-medium text-red-500">
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    Approve failed — try feedback
+                <div className="flex items-center gap-1 text-[10px] font-medium text-red-500 mb-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Approve failed
                 </div>
             )}
 
-            {/* Title */}
-            <div className="font-medium text-sm text-content-primary">{plan.title}</div>
+            {/* Title + minimal divider */}
+            <div className="font-medium text-xs text-content-primary">{plan.title}</div>
+            <div className="h-px bg-stroke-subtle/50 my-1.5" />
 
-            {/* Summary */}
-            <div className="text-sm text-content-secondary whitespace-pre-wrap">{plan.summary}</div>
+            {/* What it does */}
+            <div className="space-y-0.5 mb-2">
+                <SectionLabel>What it does</SectionLabel>
+                <div className="text-[11px] text-content-secondary/90 leading-snug whitespace-pre-wrap">
+                    {plan.summary}
+                </div>
+            </div>
 
-            {/* Arrows */}
+            {/* Overall workflow */}
             {plan.arrows && (
-                <div className="text-xs font-mono text-content-tertiary whitespace-pre-wrap break-words">
-                    {plan.arrows}
+                <div className="space-y-0.5 mb-2">
+                    <SectionLabel>Overall workflow</SectionLabel>
+                    <div className="text-[10px] font-mono text-content-tertiary leading-snug whitespace-pre-wrap break-words">
+                        {plan.arrows}
+                    </div>
                 </div>
             )}
 
-            {/* Models pills */}
+            {/* Models used */}
             {plan.models.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 text-xs text-content-tertiary">
-                    <span className="font-medium">Models:</span>
-                    <span>{plan.models.join(' · ')}</span>
+                <div className="space-y-1 mb-2">
+                    <SectionLabel>Models used</SectionLabel>
+                    <div className="flex flex-wrap gap-1">
+                        {plan.models.map((name, i) => (
+                            <ModelTag key={`${name}-${i}`} name={name} models={models} />
+                        ))}
+                    </div>
                 </div>
             )}
 
             {/* Feedback excerpt (locked feedback-given state) */}
             {status === 'feedback-given' && feedbackText && (
-                <div className="text-xs text-content-secondary italic border-l-2 border-stroke-subtle pl-2">
-                    Your feedback: "{feedbackText}"
+                <div className="mb-2 text-[10px] text-content-secondary/80 italic border-l border-stroke-subtle pl-2">
+                    "{feedbackText}"
                 </div>
             )}
 
             {/* Approve-failed error inline */}
             {status === 'approve-failed' && approveError && (
-                <div className="text-xs text-red-500 border-l-2 border-red-500/40 pl-2">
+                <div className="mb-2 text-[10px] text-red-500/90 border-l border-red-500/40 pl-2">
                     {approveError}
                 </div>
             )}
@@ -120,41 +163,41 @@ export function PlanCard({
             <button
                 type="button"
                 onClick={() => setDetailOpen(o => !o)}
-                className="flex items-center gap-1 text-xs text-content-tertiary hover:text-content-primary transition-colors cursor-pointer"
+                className="flex items-center gap-0.5 text-[10px] text-content-tertiary/80 hover:text-content-primary transition-colors cursor-pointer mb-1"
             >
-                {detailOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                {detailOpen ? 'Hide detailed plan' : 'Detailed plan'}
+                {detailOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                Detailed plan
             </button>
 
             {detailOpen && (
-                <div className="text-sm text-content-secondary whitespace-pre-wrap pl-4 border-l-2 border-stroke-subtle/50">
+                <div className="text-[10px] text-content-secondary/70 leading-relaxed whitespace-pre-wrap pl-2 border-l border-stroke-subtle/40 mb-2">
                     {plan.detail}
                 </div>
             )}
 
             {/* Action buttons (only when pending) */}
             {!isLocked && !feedbackOpen && (
-                <div className="flex gap-2 pt-1">
+                <div className="flex gap-1.5 pt-1">
                     <button
                         type="button"
                         onClick={onApprove}
-                        className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-accent-primary text-white hover:bg-accent-primary/90 transition-colors cursor-pointer"
+                        className="flex-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-accent-primary text-white hover:bg-accent-primary/90 transition-colors cursor-pointer"
                     >
-                        Approve &amp; Build
+                        Approve
                     </button>
                     <button
                         type="button"
                         onClick={() => setFeedbackOpen(true)}
-                        className="px-3 py-2 rounded-lg text-sm bg-surface-tertiary/60 border border-stroke-subtle text-content-primary hover:bg-accent-primary/10 hover:border-accent-primary/30 transition-colors cursor-pointer"
+                        className="px-2.5 py-1 rounded-md text-[11px] bg-surface-tertiary/50 border border-stroke-subtle/70 text-content-secondary hover:bg-accent-primary/10 hover:border-accent-primary/30 hover:text-content-primary transition-colors cursor-pointer"
                     >
-                        Provide feedback
+                        Change
                     </button>
                 </div>
             )}
 
             {/* Feedback textarea (expanded when feedbackOpen + pending) */}
             {!isLocked && feedbackOpen && (
-                <div className="space-y-2 pt-1">
+                <div className="space-y-1.5 pt-1">
                     <textarea
                         value={draft}
                         onChange={e => setDraft(e.target.value)}
@@ -166,21 +209,21 @@ export function PlanCard({
                         }}
                         placeholder="What should change?"
                         autoFocus
-                        rows={3}
-                        className="w-full px-3 py-2 rounded-lg text-sm bg-surface-tertiary/60 border border-stroke-subtle text-content-primary placeholder-content-tertiary focus:outline-none focus:border-accent-primary/50 resize-none"
+                        rows={2}
+                        className="w-full px-2 py-1.5 rounded-md text-[11px] bg-surface-tertiary/50 border border-stroke-subtle/70 text-content-primary placeholder-content-tertiary/70 focus:outline-none focus:border-accent-primary/50 resize-none leading-snug"
                     />
-                    <div className="flex justify-between items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                         <button
                             type="button"
                             onClick={onApprove}
-                            className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-accent-primary text-white hover:bg-accent-primary/90 transition-colors cursor-pointer"
+                            className="flex-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-accent-primary text-white hover:bg-accent-primary/90 transition-colors cursor-pointer"
                         >
-                            Approve &amp; Build
+                            Approve
                         </button>
                         <button
                             type="button"
                             onClick={handleCancelFeedback}
-                            className="px-3 py-2 rounded-lg text-sm text-content-tertiary hover:text-content-primary transition-colors cursor-pointer"
+                            className="px-2 py-1 rounded-md text-[10px] text-content-tertiary hover:text-content-primary transition-colors cursor-pointer"
                         >
                             Cancel
                         </button>
@@ -188,10 +231,10 @@ export function PlanCard({
                             type="button"
                             onClick={handleSendFeedback}
                             disabled={draft.trim().length === 0}
-                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                                 draft.trim().length > 0
                                     ? 'bg-accent-primary/15 border border-accent-primary/40 text-accent-primary hover:bg-accent-primary/25 cursor-pointer'
-                                    : 'bg-surface-tertiary/30 border border-stroke-subtle/50 text-content-tertiary cursor-not-allowed'
+                                    : 'bg-surface-tertiary/30 border border-stroke-subtle/50 text-content-tertiary/70 cursor-not-allowed'
                             }`}
                         >
                             Send
