@@ -113,7 +113,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           model,
         });
 
-        if (sessionId && result.hadAnyOutput && messages?.length > 0) {
+        if (sessionId && (result.hadAnyOutput || result.clarification) && messages?.length > 0) {
           const lastUserMsg = messages[messages.length - 1];
           const dbOps: Promise<any>[] = [];
 

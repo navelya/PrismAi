@@ -129,18 +129,20 @@ export function useChatMessages({
 
         // Resolve clarification answer: explicit override (from a chip click) OR
         // implicit (the most recent assistant message has a pending clarification
-        // and the user is responding via the main chat input).
-        const allChatMessages = useAppStore.getState().chatMessages;
+        // and the user is responding via the main chat input). Use the
+        // session-filtered `messages` slice (top of hook) so we never pair an
+        // outgoing message with an unanswered clarification from a different
+        // session that happens to coexist in the store.
         let resolvedClarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =
             clarificationAnswerOverride;
         if (!resolvedClarificationAnswer) {
-            for (let i = allChatMessages.length - 1; i >= 0; i--) {
-                const m = allChatMessages[i];
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i];
                 if (m.type === 'assistant') {
                     if (m.clarification?.options && !m.clarificationAnswer) {
                         resolvedClarificationAnswer = { questionMessageId: m.id, chosenIndex: null };
                     }
-                    break; // only inspect the most recent assistant
+                    break; // only inspect the most recent assistant in this session
                 }
             }
         }
