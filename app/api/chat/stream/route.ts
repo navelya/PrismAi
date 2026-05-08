@@ -28,7 +28,7 @@ function parseImageAttachments(raw: any): ImageAttachment[] {
 async function handlePlanApprove(opts: {
   supabase: ReturnType<typeof createServiceClient>;
   sessionId: string;
-  planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string };
+  planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string; blueprint?: { nodes?: any[]; edges?: any[] } };
   userMessageId?: string;
   lastUserContent: string;
 }): Promise<Response> {
@@ -41,43 +41,50 @@ async function handlePlanApprove(opts: {
 
       waitUntil((async () => {
         try {
-          // 1. Read the assistant plan row.
-          const { data: planRow, error: planErr } = await supabase
-            .from('messages')
-            .select('id, session_id, metadata')
-            .eq('id', planAnswer.planMessageId)
-            .single();
-          if (planErr || !planRow) {
-            encoder.send({
-              type: 'error',
-              message: 'Plan not found, please retry the request.',
-              recoverable: false,
-            });
-            encoder.send({ type: 'done' });
-            encoder.close();
-            return;
-          }
-          if (planRow.session_id !== sessionId) {
-            encoder.send({
-              type: 'error',
-              message: 'Plan does not belong to this session.',
-              recoverable: false,
-            });
-            encoder.send({ type: 'done' });
-            encoder.close();
-            return;
-          }
-
-          const blueprint = planRow.metadata?.plan?.blueprint;
+          // 1. Resolve the blueprint. Prefer the client-supplied one (works
+          // even when the original plan turn's persistence hasn't committed
+          // yet — closes the race where the user clicks Approve before the
+          // brain's `done` fires). Fall back to a DB read for the post-
+          // reload case (the in-memory store loses blueprint on hydrate).
+          let blueprint: { nodes?: any[]; edges?: any[] } | null =
+            planAnswer.blueprint && typeof planAnswer.blueprint === 'object' ? planAnswer.blueprint : null;
           if (!blueprint) {
-            encoder.send({
-              type: 'error',
-              message: 'Plan has no blueprint to apply.',
-              recoverable: false,
-            });
-            encoder.send({ type: 'done' });
-            encoder.close();
-            return;
+            const { data: planRow, error: planErr } = await supabase
+              .from('messages')
+              .select('id, session_id, metadata')
+              .eq('id', planAnswer.planMessageId)
+              .single();
+            if (planErr || !planRow) {
+              encoder.send({
+                type: 'error',
+                message: 'Plan not found, please retry the request.',
+                recoverable: false,
+              });
+              encoder.send({ type: 'done' });
+              encoder.close();
+              return;
+            }
+            if (planRow.session_id !== sessionId) {
+              encoder.send({
+                type: 'error',
+                message: 'Plan does not belong to this session.',
+                recoverable: false,
+              });
+              encoder.send({ type: 'done' });
+              encoder.close();
+              return;
+            }
+            blueprint = planRow.metadata?.plan?.blueprint ?? null;
+            if (!blueprint) {
+              encoder.send({
+                type: 'error',
+                message: 'Plan has no blueprint to apply.',
+                recoverable: false,
+              });
+              encoder.send({ type: 'done' });
+              encoder.close();
+              return;
+            }
           }
 
           // 2. Idempotency check: was this plan already approved?
@@ -231,7 +238,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
               : null,
         }
       : undefined;
-  const planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string } | undefined =
+  const planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string; blueprint?: { nodes?: any[]; edges?: any[] } } | undefined =
     body?.planAnswer && typeof body.planAnswer === 'object'
       ? {
             planMessageId: String(body.planAnswer.planMessageId ?? ''),
@@ -241,6 +248,16 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                     : 'feedback',
             feedbackText:
                 typeof body.planAnswer.feedbackText === 'string' ? body.planAnswer.feedbackText : undefined,
+            // Optional client-supplied blueprint for the approve path. Lets the
+            // server skip the DB plan-row lookup when the original plan turn's
+            // persistence hasn't committed yet (race: user clicks Approve
+            // before the brain's `done` fires). Validated by dispatchTool the
+            // same as the DB-sourced blueprint, so trusting it isn't a new
+            // attack surface — the user could call add_node directly anyway.
+            blueprint:
+                body.planAnswer.blueprint && typeof body.planAnswer.blueprint === 'object'
+                    ? body.planAnswer.blueprint
+                    : undefined,
         }
       : undefined;
   // Client-supplied UUIDs so the in-memory message IDs match the DB row IDs.
