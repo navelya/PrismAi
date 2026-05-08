@@ -257,7 +257,12 @@ export const Message = React.memo(function Message({
                                 isCanvasMode={isCanvasMode}
                             />
                         </div>
-                    ) : message.type === 'assistant' && !message.result && (
+                    ) : message.type === 'assistant' && !message.result && !message.plan && !message.clarification && (
+                        // Loading dots only when the bubble has nothing else to show.
+                        // A plan card or chip card is visually self-sufficient content
+                        // below this slot, so dots above them would just be noise — and
+                        // would persist forever for plan/clarification turns where the
+                        // model skipped the prose preamble (content stays '' in DB).
                         <div className="flex items-center gap-1 px-1 py-1.5">
                             <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms] dark:bg-zinc-400" />
                             <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:120ms] dark:bg-zinc-400" />
