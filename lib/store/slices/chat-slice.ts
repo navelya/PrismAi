@@ -4,6 +4,7 @@ import { RootState, ChatSlice } from '../types';
 export const createChatSlice: StateCreator<RootState, [], [], ChatSlice> = (set) => ({
     chatMessages: [],
     chatScrollTop: 9999999,
+    selectedChatModel: undefined,
 
     addMessage: (message) =>
         set((state) => ({
@@ -22,4 +23,5 @@ export const createChatSlice: StateCreator<RootState, [], [], ChatSlice> = (set)
 
     clearMessages: () => set({ chatMessages: [] }),
     setChatScrollTop: (pos) => set({ chatScrollTop: pos }),
+    setSelectedChatModel: (m) => set({ selectedChatModel: m }),
 });

@@ -22,6 +22,8 @@ export interface BrainInput {
   registry: RegistryContextInput;
   encoder: StreamEncoder;
   attachedImageUrls?: string[];
+  /** Which Claude model to use. Defaults to 'sonnet' for backwards-compat. */
+  model?: 'haiku' | 'sonnet';
 }
 
 export async function runBrain(input: BrainInput): Promise<BrainResult> {
@@ -76,7 +78,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     !ACTION_VERBS.test(lastUserText);
 
   try {
-    const stream = streamAnthropicTurn({ system, messages: input.turns, tools: TOOLS, disableThinking });
+    const stream = streamAnthropicTurn({ system, messages: input.turns, tools: TOOLS, disableThinking, model: input.model });
 
     for await (const event of stream) {
       if (!input.encoder.isConnected()) break;

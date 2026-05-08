@@ -22,6 +22,7 @@ import { useSession } from '@/lib/hooks/use-session';
 import { useChatRealtime } from '@/lib/hooks/use-chat-realtime';
 import { sessionsApi, uploadApi, userApi } from '@/lib/api/client';
 import { convertImageToWebP } from '@/lib/utils/image-processing';
+import { useSubscription } from '@/lib/billing/use-subscription';
 
 interface Message {
     id: string;
@@ -67,6 +68,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
     const isCanvasMode = useAppStore((state) => state.isCanvasMode);
+    const selectedChatModel = useAppStore((state) => state.selectedChatModel);
+    const setSelectedChatModel = useAppStore((state) => state.setSelectedChatModel);
+    const { subscription } = useSubscription();
+    const isPaid = subscription?.planId !== 'free' && subscription !== null;
 
     const effectiveSessionId = sessionId || storeActiveSessionId;
     const isEmptyState = !effectiveSessionId;
@@ -290,6 +295,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         }
     }, []);
 
+    // Derive effective model: default to 'sonnet' for paid, 'haiku' for free
+    const effectiveModel: 'haiku' | 'sonnet' =
+        selectedChatModel ?? (isPaid ? 'sonnet' : 'haiku');
+
     const chatInputProps = {
         value: input,
         onChange: setInput,
@@ -302,6 +311,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         isCanvasMode,
         attachedImages,
         onRemoveAttachedImage: removeAttachedImage,
+        isPaid,
+        selectedModel: effectiveModel,
+        onModelSelect: setSelectedChatModel,
     };
 
     const [userName, setUserName] = useState<string>(initialUserName || '');

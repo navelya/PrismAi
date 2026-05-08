@@ -84,6 +84,8 @@ export interface ChatSlice {
     clearMessages: () => void;
     chatScrollTop: number;
     setChatScrollTop: (pos: number) => void;
+    selectedChatModel?: 'haiku' | 'sonnet';
+    setSelectedChatModel: (m: 'haiku' | 'sonnet') => void;
 }
 
 export interface ExecutionSlice {

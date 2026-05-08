@@ -77,6 +77,32 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
 
   const supabase = createServiceClient();
 
+  // Resolve the user's plan so we can gate the model choice server-side.
+  let planId = 'free';
+  if (sessionId) {
+    const { data: sessionRow } = await supabase
+      .from('sessions')
+      .select('user_id')
+      .eq('id', sessionId)
+      .single();
+    if (sessionRow?.user_id) {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('plan_id')
+        .eq('user_id', sessionRow.user_id)
+        .single();
+      if (sub?.plan_id) planId = sub.plan_id;
+    }
+  }
+
+  const isPaid = planId !== 'free';
+  const requestedModel =
+    body.selectedModel === 'sonnet' || body.selectedModel === 'haiku'
+      ? (body.selectedModel as 'haiku' | 'sonnet')
+      : undefined;
+  const model: 'haiku' | 'sonnet' =
+    isPaid && requestedModel ? requestedModel : isPaid ? 'sonnet' : 'haiku';
+
   // Cached for 5 min — see lib/chat/registry-cache.ts
   const registry = await getRegistryContext(supabase);
 
@@ -121,6 +147,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           registry,
           encoder,
           attachedImageUrls,
+          model,
         });
 
         if (sessionId && result.hadAnyOutput && messages?.length > 0) {

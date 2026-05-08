@@ -2,16 +2,20 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SystemBlock } from '../prompt/system';
 import type { AnthropicTool } from '../tools/definitions';
 
-const MODEL = 'claude-sonnet-4-6';
+export const MODELS = {
+  haiku: 'claude-haiku-4-5',
+  sonnet: 'claude-sonnet-4-6',
+} as const;
+
 const MAX_TOKENS = 8192;
 const THINKING_BUDGET = 2500;
 
-// Sonnet 4.6 published pricing (USD per Mtok).
+// Per-model pricing (USD per Mtok).
 // Update if Anthropic changes pricing; only used for the usage event so
 // downstream cost UI (sub-project C) doesn't have to recompute.
-const PRICE_INPUT_PER_MTOK = 3;
-const PRICE_OUTPUT_PER_MTOK = 15;
-const PRICE_CACHE_READ_PER_MTOK = 0.3;
+const INPUT_PRICE_PER_MTOK: Record<keyof typeof MODELS, number> = { haiku: 1, sonnet: 3 };
+const OUTPUT_PRICE_PER_MTOK: Record<keyof typeof MODELS, number> = { haiku: 5, sonnet: 15 };
+const CACHE_READ_PRICE_PER_MTOK: Record<keyof typeof MODELS, number> = { haiku: 0.1, sonnet: 0.3 };
 
 export interface ImageAttachment {
   /** base64 payload WITHOUT the "data:image/...;base64," prefix */
@@ -50,6 +54,8 @@ export interface StreamArgs {
    * without the ~700ms thinking floor.
    */
   disableThinking?: boolean;
+  /** Which Claude model to use. Defaults to 'sonnet'. */
+  model?: keyof typeof MODELS;
 }
 
 let client: Anthropic | null = null;
@@ -80,19 +86,20 @@ function toAnthropicMessages(turns: ChatTurn[]): Anthropic.MessageParam[] {
 }
 
 /**
- * Stream a Claude Sonnet 4.6 turn with extended thinking enabled.
+ * Stream a Claude turn (Haiku 4.5 or Sonnet 4.6) with optional extended thinking.
  * Yields normalized ProviderEvents. Caller (brain.ts) maps these into
  * NDJSON StreamEvents.
  */
 export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<ProviderEvent> {
   const c = getClient();
+  const modelKey: keyof typeof MODELS = args.model ?? 'sonnet';
 
   const thinking = args.disableThinking
     ? { type: 'disabled' as const }
     : { type: 'enabled' as const, budget_tokens: THINKING_BUDGET };
 
   const stream = c.messages.stream({
-    model: MODEL,
+    model: MODELS[modelKey],
     max_tokens: MAX_TOKENS,
     thinking,
     system: args.system as any,
@@ -168,9 +175,9 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
   // cache_read_input_tokens is reported separately and billed at 10%.
   // Sum the three terms — do NOT subtract cacheReadTokens from inputTokens.
   const costUsd =
-    (inputTokens * PRICE_INPUT_PER_MTOK) / 1_000_000 +
-    (cacheReadTokens * PRICE_CACHE_READ_PER_MTOK) / 1_000_000 +
-    (outputTokens * PRICE_OUTPUT_PER_MTOK) / 1_000_000;
+    (inputTokens * INPUT_PRICE_PER_MTOK[modelKey]) / 1_000_000 +
+    (cacheReadTokens * CACHE_READ_PRICE_PER_MTOK[modelKey]) / 1_000_000 +
+    (outputTokens * OUTPUT_PRICE_PER_MTOK[modelKey]) / 1_000_000;
 
   yield {
     kind: 'usage',

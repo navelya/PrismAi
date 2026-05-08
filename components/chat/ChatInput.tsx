@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { ModelPicker } from './ModelPicker';
 
 interface ChatInputProps {
     value: string;
@@ -34,6 +35,9 @@ interface ChatInputProps {
     isCanvasMode: boolean;
     attachedImages: string[];
     onRemoveAttachedImage: (index: number) => void;
+    isPaid?: boolean;
+    selectedModel?: 'haiku' | 'sonnet';
+    onModelSelect?: (m: 'haiku' | 'sonnet') => void;
 }
 
 const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
@@ -51,6 +55,9 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             isCanvasMode,
             attachedImages,
             onRemoveAttachedImage,
+            isPaid = false,
+            selectedModel = 'sonnet',
+            onModelSelect,
         },
         ref
     ) {
@@ -227,13 +234,13 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         rows={1}
                         disabled={disabled}
                         className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
-                                     ${isMultiLine || attachedImages.length > 0
+                                     ${isMultiLine || attachedImages.length > 0 || isCanvasMode
                                 ? `relative w-full px-4 py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`
-                                : `absolute ${isCanvasMode ? 'left-10 right-20' : 'left-12 right-24'} top-1/2 -translate-y-1/2 px-2 py-2`
+                                : `absolute left-12 right-24 top-1/2 -translate-y-1/2 px-2 py-2`
                             }`}
                         style={{
                             minHeight:
-                                isMultiLine || attachedImages.length > 0 ? '40px' : '24px',
+                                isMultiLine || attachedImages.length > 0 || isCanvasMode ? '40px' : '24px',
                             maxHeight: isMobile
                                 ? isExpanded
                                     ? '200px'
@@ -245,50 +252,68 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         } as React.CSSProperties}
                     />
 
+                    {/* ── Action row ─────────────────────────────────────────────────
+                         Full-screen (!isCanvasMode):  [ + ] [ ModelPicker ]  ···  [ mic ] [ send ]
+                         Canvas / minimized (isCanvasMode): textarea goes full width,
+                           then this row appears beneath it.
+                    ──────────────────────────────────────────────────────────────── */}
                     <div
                         className={`flex w-full items-center justify-between px-2 pb-2
-                                    ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}
+                                    ${isMultiLine || attachedImages.length > 0 || isCanvasMode ? '' : 'pt-2'}`}
                     >
-                        {/* Left: attachment button */}
-                        <div className="relative z-10">
-                            <Tooltip content="Add attachment" position="top">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
-                                    className={`p-2 rounded-lg transition-colors ${isPlusMenuOpen
-                                        ? 'bg-surface-tertiary text-content-primary'
-                                        : 'bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary'
-                                        }`}
-                                >
-                                    <Plus
-                                        className={`w-5 h-5 transition-transform ${isPlusMenuOpen ? 'rotate-45' : ''}`}
-                                    />
-                                </button>
-                            </Tooltip>
-
-                            {isPlusMenuOpen && (
-                                <div className="absolute bottom-full left-0 mb-2 w-48 bg-surface-primary rounded-xl shadow-xl border border-stroke-subtle overflow-hidden z-50">
+                        {/* Left: attachment button + model picker */}
+                        <div className="flex items-center gap-1">
+                            {/* Attachment (+) button */}
+                            <div className="relative z-10">
+                                <Tooltip content="Add attachment" position="top">
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            onOpenImagePicker();
-                                            setIsPlusMenuOpen(false);
-                                        }}
-                                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-content-primary hover:bg-surface-secondary transition-colors"
+                                        onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                                        className={`p-2 rounded-lg transition-colors ${isPlusMenuOpen
+                                            ? 'bg-surface-tertiary text-content-primary'
+                                            : 'bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary'
+                                            }`}
                                     >
-                                        <ImagePlus className="w-5 h-5 text-accent-primary" />
-                                        <span className="font-medium">Add Images</span>
+                                        <Plus
+                                            className={`w-5 h-5 transition-transform ${isPlusMenuOpen ? 'rotate-45' : ''}`}
+                                        />
                                     </button>
-                                    <div className="border-t border-stroke-subtle">
+                                </Tooltip>
+
+                                {isPlusMenuOpen && (
+                                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-surface-primary rounded-xl shadow-xl border border-stroke-subtle overflow-hidden z-50">
                                         <button
-                                            disabled
-                                            className="w-full flex items-center gap-3 px-4 py-3 text-content-tertiary cursor-not-allowed"
+                                            type="button"
+                                            onClick={() => {
+                                                onOpenImagePicker();
+                                                setIsPlusMenuOpen(false);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 text-left text-content-primary hover:bg-surface-secondary transition-colors"
                                         >
-                                            <Sparkles className="w-5 h-5" />
-                                            <span>Templates</span>
+                                            <ImagePlus className="w-5 h-5 text-accent-primary" />
+                                            <span className="font-medium">Add Images</span>
                                         </button>
+                                        <div className="border-t border-stroke-subtle">
+                                            <button
+                                                disabled
+                                                className="w-full flex items-center gap-3 px-4 py-3 text-content-tertiary cursor-not-allowed"
+                                            >
+                                                <Sparkles className="w-5 h-5" />
+                                                <span>Templates</span>
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
+                            </div>
+
+                            {/* Model picker */}
+                            {onModelSelect && (
+                                <ModelPicker
+                                    selectedModel={selectedModel}
+                                    onSelect={onModelSelect}
+                                    isPaid={isPaid}
+                                    isCanvasMode={isCanvasMode}
+                                />
                             )}
                         </div>
 

@@ -80,6 +80,7 @@ export const useAppStore = create<RootState>()(
                     runFromNodeId: null,
                     runMode: null,
                     liveNodePositions: {},
+                    selectedChatModel: undefined,
                 });
             },
         }),

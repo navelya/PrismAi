@@ -220,7 +220,8 @@ export function useChatMessages({
                     messages: fullHistory,
                     sessionId: activeSessionId,
                     previousWorkflow: useAppStore.getState().currentWorkflow,
-                    attachedImages: imagesToSend
+                    attachedImages: imagesToSend,
+                    selectedModel: useAppStore.getState().selectedChatModel,
                 }),
             });
 
