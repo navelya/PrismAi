@@ -229,13 +229,21 @@ export function useChatMessages({
             timestamp: new Date(),
         });
 
-        addMessage({
-            id: assistantMsgId,
-            type: 'assistant',
-            content: '',
-            status: 'running',
-            timestamp: new Date(),
-        });
+        // Skip the optimistic empty assistant bubble for the approve path —
+        // the server applies the blueprint and emits tool + usage + done with
+        // no `text` events, so the empty bubble would never get filled and
+        // render as a permanent ghost (bouncing dots) below the plan card.
+        // Feedback turns DO produce an assistant turn (the next plan), so we
+        // keep the optimistic bubble for those.
+        if (resolvedPlanAnswer?.action !== 'approve') {
+            addMessage({
+                id: assistantMsgId,
+                type: 'assistant',
+                content: '',
+                status: 'running',
+                timestamp: new Date(),
+            });
+        }
 
         if (resolvedClarificationAnswer) {
             useAppStore.getState().updateMessage(resolvedClarificationAnswer.questionMessageId, {

@@ -20,6 +20,15 @@ interface Message {
     thinkingDurationMs?: number;
     clarification?: { options: string[] };
     clarificationAnswer?: { chosenIndex: number | null; text: string };
+    plan?: {
+        title: string;
+        summary: string;
+        arrows: string;
+        models: string[];
+        detail: string;
+    };
+    planAnswer?: { action: 'approve' | 'feedback'; feedbackText?: string };
+    planApproveError?: string;
 }
 
 interface MessageListProps {
@@ -37,6 +46,8 @@ interface MessageListProps {
         chosenIndex: number | null;
         text: string;
     }) => void;
+    onPlanApprove?: (planMessageId: string) => void;
+    onPlanFeedback?: (planMessageId: string, feedbackText: string) => void;
     scrollContainerRef: React.RefObject<HTMLDivElement>;
     contentRef: React.RefObject<HTMLDivElement>;
     messagesEndRef: React.RefObject<HTMLDivElement>;
@@ -57,6 +68,8 @@ export function MessageList({
     onEdit,
     onRetry,
     onClarificationAnswer,
+    onPlanApprove,
+    onPlanFeedback,
     scrollContainerRef,
     contentRef,
     messagesEndRef,
@@ -108,6 +121,8 @@ export function MessageList({
                                 onEdit={onEdit}
                                 onRetry={onRetry}
                                 onClarificationAnswer={onClarificationAnswer}
+                                onPlanApprove={onPlanApprove}
+                                onPlanFeedback={onPlanFeedback}
                                 undoSnapshotId={undoSnapshotId}
                                 isDisabled={isDisabled}
                                 isEditing={isEditing}

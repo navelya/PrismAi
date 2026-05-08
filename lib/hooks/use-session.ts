@@ -157,6 +157,19 @@ export function useSession() {
                         usage?: any;
                         clarification?: { options: string[] } | null;
                         clarification_answer?: { questionMessageId: string; chosenIndex: number | null } | null;
+                        plan?: {
+                            title: string;
+                            summary: string;
+                            arrows: string;
+                            models: string[];
+                            detail: string;
+                            blueprint?: { nodes?: any[]; edges?: any[] };
+                        } | null;
+                        plan_answer?: {
+                            planMessageId: string;
+                            action: 'approve' | 'feedback';
+                            feedbackText?: string;
+                        } | null;
                     };
 
                     const formatted: any = {
@@ -175,10 +188,33 @@ export function useSession() {
                         formatted.clarification = { options: metadata.clarification.options };
                     }
 
+                    if (msg.role === 'assistant' && metadata.plan) {
+                        formatted.plan = {
+                            title: typeof metadata.plan.title === 'string' ? metadata.plan.title : '',
+                            summary: typeof metadata.plan.summary === 'string' ? metadata.plan.summary : '',
+                            arrows: typeof metadata.plan.arrows === 'string' ? metadata.plan.arrows : '',
+                            models: Array.isArray(metadata.plan.models) ? metadata.plan.models.filter((s: any) => typeof s === 'string') : [],
+                            detail: typeof metadata.plan.detail === 'string' ? metadata.plan.detail : '',
+                        };
+                    }
+
                     // Stash the raw answer payload on the user message; we lift it
                     // onto the prior assistant message in a second pass below.
                     if (msg.role === 'user' && metadata.clarification_answer?.questionMessageId) {
                         formatted.__clarificationAnswerRaw = metadata.clarification_answer;
+                    }
+
+                    if (msg.role === 'user' && metadata.plan_answer?.planMessageId) {
+                        formatted.__planAnswerRaw = metadata.plan_answer;
+                        // ALSO mirror planAnswer on the user message itself so the chatWindow
+                        // filter in route.ts (and the suppression guard in Message.tsx for
+                        // synthetic 'Approved' bubbles) keeps working after reload. The user
+                        // message is the bearer of plan_answer.action in DB metadata; the
+                        // chatWindow filter checks the in-memory shape `m.planAnswer?.action`.
+                        formatted.planAnswer = {
+                            action: metadata.plan_answer.action === 'approve' ? 'approve' : 'feedback',
+                            feedbackText: typeof metadata.plan_answer.feedbackText === 'string' ? metadata.plan_answer.feedbackText : undefined,
+                        };
                     }
 
                     return formatted;
@@ -198,6 +234,22 @@ export function useSession() {
                     };
                 }
                 delete msg.__clarificationAnswerRaw;
+            }
+
+            // Second pass for plan answers: pair each user message's plan_answer onto
+            // its matching assistant plan message as `planAnswer`. The user message's
+            // `content` is the response text (either 'Approved' or the feedback text).
+            for (const msg of formattedMessages) {
+                const raw = msg.__planAnswerRaw;
+                if (!raw) continue;
+                const target = formattedMessages.find((m: any) => m.id === raw.planMessageId);
+                if (target && target.type === 'assistant' && target.plan) {
+                    target.planAnswer = {
+                        action: raw.action === 'approve' ? 'approve' : 'feedback',
+                        feedbackText: typeof raw.feedbackText === 'string' ? raw.feedbackText : undefined,
+                    };
+                }
+                delete msg.__planAnswerRaw;
             }
 
             // Clear existing and add new

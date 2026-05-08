@@ -113,7 +113,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         handleRevert,
         handleStop,
         handleSend: sendMessage,
-        retryLast
+        retryLast,
+        handlePlanApprove,
+        handlePlanFeedback
     } = useChatMessages({
         sessionId: effectiveSessionId || undefined,
         onWorkflowGenerated,
@@ -409,6 +411,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         { questionMessageId: payload.questionMessageId, chosenIndex: payload.chosenIndex }
                     );
                 }}
+                onPlanApprove={handlePlanApprove}
+                onPlanFeedback={handlePlanFeedback}
                 scrollContainerRef={scroll.scrollContainerRef}
                 contentRef={scroll.contentRef}
                 messagesEndRef={scroll.messagesEndRef}
