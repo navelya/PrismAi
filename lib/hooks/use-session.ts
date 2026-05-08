@@ -152,9 +152,14 @@ export function useSession() {
                     // Fall back to `canvas_state` for backwards compat with old messages
                     const messageWorkflow = msg.workflow || msg.canvas_state || undefined;
 
-                    const metadata = (msg.metadata ?? {}) as { thinking?: string | null; usage?: any };
+                    const metadata = (msg.metadata ?? {}) as {
+                        thinking?: string | null;
+                        usage?: any;
+                        clarification?: { options: string[] } | null;
+                        clarification_answer?: { questionMessageId: string; chosenIndex: number | null } | null;
+                    };
 
-                    return {
+                    const formatted: any = {
                         id: msg.id,
                         type: msg.role, // 'user' | 'assistant'
                         content: msg.content || '',
@@ -165,7 +170,35 @@ export function useSession() {
                         thinking: metadata.thinking ?? '',
                         usage: metadata.usage ?? null,
                     };
+
+                    if (msg.role === 'assistant' && metadata.clarification?.options) {
+                        formatted.clarification = { options: metadata.clarification.options };
+                    }
+
+                    // Stash the raw answer payload on the user message; we lift it
+                    // onto the prior assistant message in a second pass below.
+                    if (msg.role === 'user' && metadata.clarification_answer?.questionMessageId) {
+                        formatted.__clarificationAnswerRaw = metadata.clarification_answer;
+                    }
+
+                    return formatted;
                 });
+
+            // Second pass: pair each user message's clarification_answer onto its
+            // matching assistant question message as `clarificationAnswer`. The
+            // user message's `content` is the answer text.
+            for (const msg of formattedMessages) {
+                const raw = msg.__clarificationAnswerRaw;
+                if (!raw) continue;
+                const target = formattedMessages.find((m: any) => m.id === raw.questionMessageId);
+                if (target && target.type === 'assistant' && target.clarification) {
+                    target.clarificationAnswer = {
+                        chosenIndex: typeof raw.chosenIndex === 'number' ? raw.chosenIndex : null,
+                        text: msg.content || '',
+                    };
+                }
+                delete msg.__clarificationAnswerRaw;
+            }
 
             // Clear existing and add new
             store.clearMessages();
