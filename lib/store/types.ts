@@ -30,6 +30,28 @@ export interface Message {
     // (either via chip click or by typing). chosenIndex is null for typed answers.
     // text mirrors the user's reply text; used to render the answered chip card.
     clarificationAnswer?: { chosenIndex: number | null; text: string };
+    // Plan card (assistant turn): set when the brain emits a `plan`
+    // stream event. The full PlanPayload from the propose_plan tool.
+    plan?: {
+        title: string;
+        summary: string;
+        arrows: string;
+        models: string[];
+        detail: string;
+        blueprint: { nodes?: any[]; edges?: any[] };
+    };
+    // Set on the assistant plan message once the user has approved it
+    // or sent feedback. chosenAction === 'approve' renders the locked
+    // approved state; 'feedback' renders the feedback-given state with
+    // the feedback text shown.
+    planAnswer?: {
+        action: 'approve' | 'feedback';
+        feedbackText?: string;
+    };
+    // Transient client-only error from the most-recent approve attempt.
+    // NOT persisted. Reverts to undefined after the user submits feedback
+    // or reloads the page.
+    planApproveError?: string;
 }
 
 // Editor state interface
