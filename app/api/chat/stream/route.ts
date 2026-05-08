@@ -81,6 +81,9 @@ async function handlePlanApprove(opts: {
           }
 
           // 2. Idempotency check: was this plan already approved?
+          // NOTE: not atomic — two simultaneous approves from different tabs can both
+          // pass this check before either inserts the user message. Acceptable for v1;
+          // a DB unique constraint on (session_id, planMessageId) would close the window.
           const { data: priorApprovalRows } = await supabase
             .from('messages')
             .select('id, metadata')
