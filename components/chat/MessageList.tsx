@@ -3,7 +3,7 @@
 import React from 'react';
 import { Bot } from 'lucide-react';
 import { Workflow } from '@/lib/nodes/types';
-import { MemoizedMessage } from './ChatInterface';
+import { Message } from './Message';
 
 interface Message {
     id: string;
@@ -93,7 +93,7 @@ export function MessageList({
                         const isGenerating = isLoading && index === messages.length - 1 && message.type === 'assistant';
 
                         return (
-                            <MemoizedMessage
+                            <Message
                                 key={`${message.type}-${index}`}
                                 message={message}
                                 onRevert={onRevert}
