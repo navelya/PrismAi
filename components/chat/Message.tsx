@@ -46,6 +46,8 @@ const ChatMessageContent = ({
 
     const [isTableModalOpen, setIsTableModalOpen] = useState(false);
 
+    const isStreamingAssistant = isGenerating && message.type === 'assistant' && message.content.length > 0;
+
     return (
         <div
             className={`prose prose-sm max-w-full overflow-hidden dark:prose-invert
@@ -58,6 +60,7 @@ const ChatMessageContent = ({
                       prose-td:border prose-td:border-stroke-subtle prose-td:px-3 prose-td:py-2
                       prose-code:text-content-primary prose-code:before:content-none prose-code:after:content-none
                       ${message.type === 'user' ? 'font-medium prose-p:my-0' : ''}
+                      ${isStreamingAssistant ? 'is-streaming' : ''}
                       ${isCanvasMode
                     ? 'prose-p:text-[13px] prose-p:leading-[1.4] prose-li:text-[13px] prose-ul:text-[13px] prose-ol:text-[13px] prose-strong:text-[13px] prose-headings:text-[14px] prose-table:text-[12px]'
                     : 'prose-p:text-[15px] prose-p:leading-relaxed'}`}
