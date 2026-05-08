@@ -236,3 +236,52 @@ export function dispatchTool(state: ToolHandlerState, name: ToolName, args: any)
     }
   }
 }
+
+/**
+ * Dry-run validation of a propose_plan blueprint. Runs the same checks
+ * runAddNode does (config schema, edge handle validity) WITHOUT mutating
+ * state. Returns { ok: true } if the blueprint would apply cleanly, or
+ * { ok: false, error } with a specific failure reason.
+ *
+ * Why we re-validate here: the brain emits the plan event BEFORE any
+ * apply happens. If the model produces an invalid blueprint, we want to
+ * surface the error immediately so the model self-corrects on the next
+ * turn — instead of letting the user click Approve and then hit a
+ * confusing apply-time failure.
+ *
+ * What we deliberately do NOT validate here: top-level edge endpoints
+ * (whether `source` and `target` resolve to real nodes). Those checks
+ * live inside runAddNode because they require building the temp-id
+ * resolution map as nodes are applied. Approve-time dispatchTool catches
+ * those — the proposing-time validation is a fast-fail for the easy
+ * stuff. This is acceptable because per-node config + per-node edge-
+ * handle checks are the most common model errors.
+ */
+export function validateBlueprint(
+  state: ToolHandlerState,
+  blueprint: { nodes?: any[]; edges?: any[] } | null | undefined,
+): { ok: true } | { ok: false; error: string } {
+  if (!blueprint || (typeof blueprint !== 'object')) {
+    return { ok: false, error: 'Blueprint missing or not an object.' };
+  }
+  const nodes = Array.isArray(blueprint.nodes) ? blueprint.nodes : [];
+  const edges = Array.isArray(blueprint.edges) ? blueprint.edges : [];
+
+  if (nodes.length === 0 && edges.length === 0) {
+    return { ok: false, error: 'Blueprint must contain at least one node or one edge.' };
+  }
+
+  // Same per-node aiSchema check runAddNode runs.
+  for (const node of nodes) {
+    const err = validateNodeConfigAgainstRegistry(node);
+    if (err) return { ok: false, error: err };
+  }
+
+  // Same per-node edge-handle check runAddNode runs.
+  for (const node of nodes) {
+    const err = validateEdgeHandles(node, state.aiModelHandles);
+    if (err) return { ok: false, error: err };
+  }
+
+  return { ok: true };
+}
