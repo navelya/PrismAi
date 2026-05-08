@@ -8,6 +8,7 @@ import type { WorkflowPatch } from '@/lib/workflow/workflow-patch';
  *   [thinking_start] [thinking_delta]* [thinking_end]
  *   [text]*
  *   [tool]*
+ *   [clarification?]
  *   [usage]
  *   [done]
  */
@@ -17,6 +18,7 @@ export type StreamEvent =
   | { type: 'thinking_end' }
   | { type: 'text'; text: string }
   | { type: 'tool'; name: 'add_node' | 'update_node' | 'remove_node'; patch: WorkflowPatch }
+  | { type: 'clarification'; options: string[] }
   | { type: 'usage'; inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number }
   | { type: 'error'; message: string; recoverable: boolean }
   | { type: 'done' };
