@@ -3,7 +3,8 @@ import { createEmptyWorkflow, applyWorkflowPatch, mergeWorkflowPatches, type Wor
 import { buildSystemPrompt } from './prompt/system';
 import type { RegistryContextInput } from './prompt/registry-context';
 import { TOOLS, type ToolName } from './tools/definitions';
-import { dispatchTool, type ToolHandlerState } from './tools/handlers';
+import { dispatchTool, validateBlueprint, type ToolHandlerState } from './tools/handlers';
+import type { PlanPayload } from './streaming/protocol';
 import { streamAnthropicTurn, type ChatTurn } from './provider/anthropic';
 import type { StreamEncoder } from './streaming/encoder';
 
@@ -15,6 +16,7 @@ export interface BrainResult {
   hadAnyOutput: boolean;
   usage: { inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number } | null;
   clarification: { options: string[] } | null;
+  plan: PlanPayload | null;
 }
 
 export interface BrainInput {
@@ -62,6 +64,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let hadAnyOutput = false;
   let usage: BrainResult['usage'] = null;
   let clarification: BrainResult['clarification'] = null;
+  let plan: BrainResult['plan'] = null;
 
   // Trivial-message heuristic: if the user's last turn is short, has no
   // images, and doesn't look like a workflow change, skip extended thinking
@@ -130,6 +133,65 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
             break;
           }
 
+          if (name === 'propose_plan') {
+            const args = (event.args ?? {}) as Record<string, unknown>;
+
+            // Required-prose check: each must be a non-empty string after trim.
+            const requireString = (key: string): string | null => {
+              const v = args[key];
+              if (typeof v !== 'string' || v.trim().length === 0) {
+                return `propose_plan requires non-empty string field "${key}".`;
+              }
+              return null;
+            };
+            for (const key of ['title', 'summary', 'arrows', 'detail']) {
+              const err = requireString(key);
+              if (err) {
+                input.encoder.send({ type: 'error', message: err, recoverable: true });
+                break;
+              }
+            }
+            // models: array of strings (may be empty).
+            const rawModels = args.models;
+            if (!Array.isArray(rawModels) || !rawModels.every(m => typeof m === 'string')) {
+              input.encoder.send({
+                type: 'error',
+                message: 'propose_plan.models must be an array of strings (may be empty).',
+                recoverable: true
+              });
+              break;
+            }
+
+            // Blueprint dry-run validation — same checks dispatchTool('add_node') runs.
+            const blueprint = (args.blueprint ?? null) as { nodes?: any[]; edges?: any[] } | null;
+            const validation = validateBlueprint(state, blueprint);
+            if (!validation.ok) {
+              input.encoder.send({
+                type: 'error',
+                message: `propose_plan blueprint invalid: ${validation.error}`,
+                recoverable: true
+              });
+              break;
+            }
+
+            // First valid plan per turn wins. Subsequent propose_plan calls are ignored.
+            if (!plan) {
+              plan = {
+                title: String(args.title).trim(),
+                summary: String(args.summary).trim(),
+                arrows: String(args.arrows).trim(),
+                models: rawModels as string[],
+                detail: String(args.detail).trim(),
+                blueprint: {
+                  nodes: Array.isArray(blueprint?.nodes) ? blueprint.nodes : [],
+                  edges: Array.isArray(blueprint?.edges) ? blueprint.edges : [],
+                },
+              };
+              input.encoder.send({ type: 'plan', plan });
+            }
+            break;
+          }
+
           if (name !== 'add_node' && name !== 'update_node' && name !== 'remove_node') {
             input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
             break;
@@ -182,5 +244,5 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
 
-  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification };
+  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan };
 }
