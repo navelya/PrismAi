@@ -108,13 +108,16 @@ function validateNodeConfigAgainstRegistry(node: { type: string; data?: { config
 }
 
 export function runAddNode(state: ToolHandlerState, args: any): ToolResult {
-  if (!Array.isArray(args?.nodes) || args.nodes.length === 0) {
-    return { success: false, error: 'add_node requires a non-empty "nodes" array.' };
+  const hasNodes = Array.isArray(args?.nodes) && args.nodes.length > 0;
+  const hasEdges = Array.isArray(args?.edges) && args.edges.length > 0;
+
+  if (!hasNodes && !hasEdges) {
+    return { success: false, error: 'add_node requires at least one node or one edge.' };
   }
 
   // Pre-validate every node against the registry so a bad config gives one
   // clean error instead of corrupting the workflow halfway through.
-  for (const node of args.nodes) {
+  for (const node of (args.nodes || [])) {
     const err = validateNodeConfigAgainstRegistry(node);
     if (err) return { success: false, error: err };
   }
@@ -122,19 +125,64 @@ export function runAddNode(state: ToolHandlerState, args: any): ToolResult {
   // Defense-in-depth: reject edges whose targetHandle doesn't exist on the
   // destination node (static handles + dynamic compositor layer ids +
   // dynamic ai_generator handles per model).
-  for (const node of args.nodes) {
+  for (const node of (args.nodes || [])) {
     const err = validateEdgeHandles(node, state.aiModelHandles);
     if (err) return { success: false, error: err };
   }
 
   const patches: WorkflowPatch[] = [];
-  for (const node of args.nodes) {
+
+  // 1. Apply nodes (legacy per-node inputs[] continues to work via applyAddNodeOp)
+  for (const node of (args.nodes || [])) {
     const result = applyAddNodeOp(state.workflow, node, state.idMap);
     if (!result.success) {
       return { success: false, error: result.error || 'add_node failed.' };
     }
     state.workflow = result.workflow;
     if (result.patch) patches.push(result.patch);
+  }
+
+  // 2. Apply top-level edges. Resolve temp ids; verify both endpoints exist;
+  //    validate targetHandle using validateEdgeHandles for the resolved target node.
+  if (hasEdges) {
+    const newEdges: any[] = [];
+    for (const e of args.edges) {
+      if (!e?.source || !e?.target) {
+        return { success: false, error: 'add_node edge requires both source and target.' };
+      }
+      const resolvedSource = state.idMap.get(e.source) ?? e.source;
+      const resolvedTarget = state.idMap.get(e.target) ?? e.target;
+
+      const sourceNode = state.workflow.nodes.find((n: any) => n.id === resolvedSource);
+      const targetNode = state.workflow.nodes.find((n: any) => n.id === resolvedTarget);
+      if (!sourceNode) return { success: false, error: `add_node edge: source "${e.source}" not found.` };
+      if (!targetNode) return { success: false, error: `add_node edge: target "${e.target}" not found.` };
+
+      // Reuse validateEdgeHandles by giving it a synthetic single-input node.
+      const handleErr = validateEdgeHandles(
+        {
+          id: resolvedTarget,
+          type: (targetNode as any).type,
+          data: (targetNode as any).data,
+          inputs: [{ source: resolvedSource, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }],
+        },
+        state.aiModelHandles,
+      );
+      if (handleErr) return { success: false, error: handleErr };
+
+      newEdges.push({
+        id: crypto.randomUUID(),
+        source: resolvedSource,
+        target: resolvedTarget,
+        sourceHandle: e.sourceHandle || undefined,
+        targetHandle: e.targetHandle || undefined,
+      });
+    }
+    if (newEdges.length > 0) {
+      const edgePatch = { addedEdges: newEdges } as any;
+      state.workflow = applyWorkflowPatch(state.workflow, edgePatch);
+      patches.push(edgePatch);
+    }
   }
 
   const merged = patches.reduce<WorkflowPatch | null>((acc, p) => mergeWorkflowPatches(acc, p), null);
@@ -173,52 +221,11 @@ export function runRemoveNode(state: ToolHandlerState, args: any): ToolResult {
   return { success: true, patch: result.patch ?? undefined };
 }
 
-export function runConnectNodes(state: ToolHandlerState, args: any): ToolResult {
-  if (!args?.source || typeof args.source !== 'string') {
-    return { success: false, error: 'connect_nodes requires a "source" string.' };
-  }
-  if (!args?.target || typeof args.target !== 'string') {
-    return { success: false, error: 'connect_nodes requires a "target" string.' };
-  }
-
-  // Resolve through idMap (temp ids from same turn → canvas UUIDs)
-  const resolvedSource = state.idMap.get(args.source) ?? args.source;
-  const resolvedTarget = state.idMap.get(args.target) ?? args.target;
-
-  const sourceNode = state.workflow.nodes.find((n: any) => n.id === resolvedSource);
-  const targetNode = state.workflow.nodes.find((n: any) => n.id === resolvedTarget);
-
-  if (!sourceNode) return { success: false, error: `connect_nodes: source node "${args.source}" not found.` };
-  if (!targetNode) return { success: false, error: `connect_nodes: target node "${args.target}" not found.` };
-
-  // Validate handle on target. Reuse validateEdgeHandles by giving it
-  // a synthetic node-with-one-input shape.
-  const handleErr = validateEdgeHandles({
-    id: resolvedTarget,
-    type: (targetNode as any).type,
-    data: (targetNode as any).data,
-    inputs: [{ source: resolvedSource, sourceHandle: args.sourceHandle, targetHandle: args.targetHandle }],
-  }, state.aiModelHandles);
-  if (handleErr) return { success: false, error: handleErr };
-
-  const edge = {
-    id: crypto.randomUUID(),
-    source: resolvedSource,
-    target: resolvedTarget,
-    sourceHandle: args.sourceHandle || undefined,
-    targetHandle: args.targetHandle || undefined,
-  };
-  const patch = { addedEdges: [edge] };
-  state.workflow = applyWorkflowPatch(state.workflow, patch as any);
-  return { success: true, patch: patch as any };
-}
-
 export function dispatchTool(state: ToolHandlerState, name: ToolName, args: any): ToolResult {
   switch (name) {
-    case 'add_node':      return runAddNode(state, args);
-    case 'update_node':   return runUpdateNode(state, args);
-    case 'remove_node':   return runRemoveNode(state, args);
-    case 'connect_nodes': return runConnectNodes(state, args);
+    case 'add_node':    return runAddNode(state, args);
+    case 'update_node': return runUpdateNode(state, args);
+    case 'remove_node': return runRemoveNode(state, args);
     default: {
       const _exhaustive: never = name;
       return { success: false, error: `Unknown tool: ${_exhaustive}` };

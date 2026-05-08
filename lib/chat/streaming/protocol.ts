@@ -16,7 +16,7 @@ export type StreamEvent =
   | { type: 'thinking_delta'; text: string }
   | { type: 'thinking_end' }
   | { type: 'text'; text: string }
-  | { type: 'tool'; name: 'add_node' | 'update_node' | 'remove_node' | 'connect_nodes'; patch: WorkflowPatch }
+  | { type: 'tool'; name: 'add_node' | 'update_node' | 'remove_node'; patch: WorkflowPatch }
   | { type: 'usage'; inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number }
   | { type: 'error'; message: string; recoverable: boolean }
   | { type: 'done' };

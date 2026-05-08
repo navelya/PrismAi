@@ -22,18 +22,29 @@ const inputEdgeSchema = {
   required: ['source']
 };
 
+const topLevelEdgeSchema = {
+  type: 'object',
+  properties: {
+    source: { type: 'string', description: 'ID of the source node (temp id from nodes[] or existing canvas UUID).' },
+    target: { type: 'string', description: 'ID of the target node (temp id from nodes[] or existing canvas UUID).' },
+    sourceHandle: { type: 'string' },
+    targetHandle: { type: 'string' }
+  },
+  required: ['source', 'target']
+};
+
 export const TOOLS: AnthropicTool[] = [
   {
     name: 'add_node',
-    description: `Add one OR MORE nodes to the canvas in a single call. Always batch every node for a workflow into ONE call.
-Each node may reference earlier nodes in the same array, OR existing canvas IDs.
-Topological order is mandatory: a node's inputs may only reference IDs that appear earlier in this array or that already exist on the canvas.`,
+    description: `Add one or more nodes AND/OR edges to the canvas in a single call. Always batch every node for a workflow into ONE call.
+Edges can connect any pair of nodes — new ones added here, existing canvas nodes by UUID, or a mix (new→existing, existing→new, existing→existing).
+Either side of an edge can be a temp id used in this same call's nodes[] array, or an existing canvas UUID.
+Topological order is mandatory for nodes: a node's inputs may only reference IDs that appear earlier in this array or that already exist on the canvas.`,
     input_schema: {
       type: 'object',
       properties: {
         nodes: {
           type: 'array',
-          minItems: 1,
           description: 'All nodes to add — include every node for the request here.',
           items: {
             type: 'object',
@@ -57,14 +68,22 @@ Topological order is mandatory: a node's inputs may only reference IDs that appe
               inputs: {
                 type: 'array',
                 items: inputEdgeSchema,
-                default: []
+                default: [],
+                description: 'Legacy per-node edge list (edges INTO this node). Prefer top-level edges[] for new calls.'
               }
             },
             required: ['id', 'type', 'position', 'data']
-          }
+          },
+          default: []
+        },
+        edges: {
+          type: 'array',
+          items: topLevelEdgeSchema,
+          default: [],
+          description: 'Edges to add. Each edge can connect any two nodes — temp ids from nodes[] above, existing canvas UUIDs, or a mix.'
         }
       },
-      required: ['nodes']
+      required: []
     }
   },
   {
@@ -102,24 +121,6 @@ Topological order is mandatory: a node's inputs may only reference IDs that appe
       required: ['id']
     }
   },
-  {
-    name: 'connect_nodes',
-    description: `Add a single edge between two nodes that already exist (either on the canvas or added earlier in the same turn).
-Use this when you need to wire a new node into the existing workflow, or when extending a workflow with a connection that doesn't fit add_node's per-node inputs[] (which only specifies edges INTO the new node being created).
-Examples:
-- After adding a new ai_generator, connect its output to an existing compositor's "layers" handle.
-- Wire a new prompt node's output to an existing video_generation ai_generator's "end_image" handle.`,
-    input_schema: {
-      type: 'object',
-      properties: {
-        source: { type: 'string', description: 'ID of the source node (existing canvas UUID, or a temporary id from earlier in this same turn).' },
-        target: { type: 'string', description: 'ID of the destination node (existing canvas UUID, or a temporary id from earlier in this same turn).' },
-        sourceHandle: { type: 'string', description: 'Handle id on the source node. Optional; defaults to the node\'s primary output.' },
-        targetHandle: { type: 'string', description: 'Handle id on the destination node. Optional but recommended. For ai_generator targets, MUST match one of the model\'s input handle ids from inputs_schema. For compositor targets, MUST be "layers".' }
-      },
-      required: ['source', 'target']
-    }
-  }
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'remove_node' | 'connect_nodes';
+export type ToolName = 'add_node' | 'update_node' | 'remove_node';
