@@ -22,15 +22,22 @@ export interface RegistryContextInput {
 
 /**
  * Extract handle ids from an ai_models.inputs_schema JSONB. The schema
- * is a JSON-Schema-shaped object whose top-level `properties` keys are
- * the rendered handle ids on the ai_generator node. Returns [] if the
+ * shape is `{ handles: [{ api_mapping_key, ... }, ...] }` (see
+ * components/canvas/AIGeneratorNode.tsx, which uses the same path to
+ * render React Flow handles). The `api_mapping_key` of each entry is
+ * the React Flow handle id that edges must target. Returns [] if the
  * schema is missing or malformed.
  */
 function extractInputHandleIds(schema: any): string[] {
   if (!schema || typeof schema !== 'object') return [];
-  const props = schema.properties;
-  if (!props || typeof props !== 'object') return [];
-  return Object.keys(props);
+  const handles = schema.handles;
+  if (!Array.isArray(handles)) return [];
+  const ids: string[] = [];
+  for (const h of handles) {
+    const key = h?.api_mapping_key;
+    if (typeof key === 'string' && key.length > 0) ids.push(key);
+  }
+  return ids;
 }
 
 /**
