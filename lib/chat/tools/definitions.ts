@@ -101,7 +101,25 @@ Topological order is mandatory: a node's inputs may only reference IDs that appe
       },
       required: ['id']
     }
+  },
+  {
+    name: 'connect_nodes',
+    description: `Add a single edge between two nodes that already exist (either on the canvas or added earlier in the same turn).
+Use this when you need to wire a new node into the existing workflow, or when extending a workflow with a connection that doesn't fit add_node's per-node inputs[] (which only specifies edges INTO the new node being created).
+Examples:
+- After adding a new ai_generator, connect its output to an existing compositor's "layers" handle.
+- Wire a new prompt node's output to an existing video_generation ai_generator's "end_image" handle.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', description: 'ID of the source node (existing canvas UUID, or a temporary id from earlier in this same turn).' },
+        target: { type: 'string', description: 'ID of the destination node (existing canvas UUID, or a temporary id from earlier in this same turn).' },
+        sourceHandle: { type: 'string', description: 'Handle id on the source node. Optional; defaults to the node\'s primary output.' },
+        targetHandle: { type: 'string', description: 'Handle id on the destination node. Optional but recommended. For ai_generator targets, MUST match one of the model\'s input handle ids from inputs_schema. For compositor targets, MUST be "layers".' }
+      },
+      required: ['source', 'target']
+    }
   }
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'remove_node';
+export type ToolName = 'add_node' | 'update_node' | 'remove_node' | 'connect_nodes';

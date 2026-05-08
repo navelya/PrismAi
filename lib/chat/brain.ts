@@ -103,7 +103,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
         case 'tool_call': {
           const name = event.name as ToolName;
-          if (name !== 'add_node' && name !== 'update_node' && name !== 'remove_node') {
+          if (name !== 'add_node' && name !== 'update_node' && name !== 'remove_node' && name !== 'connect_nodes') {
             input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
             break;
           }

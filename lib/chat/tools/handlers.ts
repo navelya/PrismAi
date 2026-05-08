@@ -1,5 +1,5 @@
 import { applyAddNodeOp, applyRemoveNodeOp, applyUpdateNodeOp } from '@/lib/workflow/graph-ops';
-import { mergeWorkflowPatches, type WorkflowPatch } from '@/lib/workflow/workflow-patch';
+import { applyWorkflowPatch, mergeWorkflowPatches, type WorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { Workflow } from '@/lib/nodes/types';
 import type { ToolName } from './definitions';
@@ -173,11 +173,52 @@ export function runRemoveNode(state: ToolHandlerState, args: any): ToolResult {
   return { success: true, patch: result.patch ?? undefined };
 }
 
+export function runConnectNodes(state: ToolHandlerState, args: any): ToolResult {
+  if (!args?.source || typeof args.source !== 'string') {
+    return { success: false, error: 'connect_nodes requires a "source" string.' };
+  }
+  if (!args?.target || typeof args.target !== 'string') {
+    return { success: false, error: 'connect_nodes requires a "target" string.' };
+  }
+
+  // Resolve through idMap (temp ids from same turn → canvas UUIDs)
+  const resolvedSource = state.idMap.get(args.source) ?? args.source;
+  const resolvedTarget = state.idMap.get(args.target) ?? args.target;
+
+  const sourceNode = state.workflow.nodes.find((n: any) => n.id === resolvedSource);
+  const targetNode = state.workflow.nodes.find((n: any) => n.id === resolvedTarget);
+
+  if (!sourceNode) return { success: false, error: `connect_nodes: source node "${args.source}" not found.` };
+  if (!targetNode) return { success: false, error: `connect_nodes: target node "${args.target}" not found.` };
+
+  // Validate handle on target. Reuse validateEdgeHandles by giving it
+  // a synthetic node-with-one-input shape.
+  const handleErr = validateEdgeHandles({
+    id: resolvedTarget,
+    type: (targetNode as any).type,
+    data: (targetNode as any).data,
+    inputs: [{ source: resolvedSource, sourceHandle: args.sourceHandle, targetHandle: args.targetHandle }],
+  }, state.aiModelHandles);
+  if (handleErr) return { success: false, error: handleErr };
+
+  const edge = {
+    id: crypto.randomUUID(),
+    source: resolvedSource,
+    target: resolvedTarget,
+    sourceHandle: args.sourceHandle || undefined,
+    targetHandle: args.targetHandle || undefined,
+  };
+  const patch = { addedEdges: [edge] };
+  state.workflow = applyWorkflowPatch(state.workflow, patch as any);
+  return { success: true, patch: patch as any };
+}
+
 export function dispatchTool(state: ToolHandlerState, name: ToolName, args: any): ToolResult {
   switch (name) {
-    case 'add_node':    return runAddNode(state, args);
-    case 'update_node': return runUpdateNode(state, args);
-    case 'remove_node': return runRemoveNode(state, args);
+    case 'add_node':      return runAddNode(state, args);
+    case 'update_node':   return runUpdateNode(state, args);
+    case 'remove_node':   return runRemoveNode(state, args);
+    case 'connect_nodes': return runConnectNodes(state, args);
     default: {
       const _exhaustive: never = name;
       return { success: false, error: `Unknown tool: ${_exhaustive}` };
