@@ -33,6 +33,55 @@ const topLevelEdgeSchema = {
   required: ['source', 'target']
 };
 
+/**
+ * Shared schema fragment for nodes[] and edges[] arrays. Used by both
+ * add_node (the live tool) and propose_plan.blueprint (the structured
+ * payload approved into add_node verbatim). Keeping these in one place
+ * prevents drift between the proposing-time validator and the apply-time
+ * dispatch.
+ */
+const nodesEdgesSchema = {
+  nodes: {
+    type: 'array' as const,
+    description: 'All nodes — same item shape as add_node.nodes[].',
+    items: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Simple temporary node ID (e.g. "n1", "prompt_1").' },
+        type: { type: 'string', enum: NODE_TYPE_ENUM, description: 'Base node type.' },
+        node_type_id: { type: 'string', description: 'Required when type is ai_generator.' },
+        model_id: { type: 'number', description: 'Optional model ID when relevant.' },
+        position: {
+          type: 'object',
+          properties: { x: { type: 'number' }, y: { type: 'number' } },
+          required: ['x', 'y'],
+          description: 'Position hint — auto-calculated, any value is fine.'
+        },
+        data: {
+          type: 'object',
+          properties: { config: { type: 'object', additionalProperties: true } },
+          required: ['config'],
+          description: 'Node config matching the registry aiSchema for this type.'
+        },
+        inputs: {
+          type: 'array',
+          items: inputEdgeSchema,
+          default: [],
+          description: 'Legacy per-node edge list. Prefer top-level edges[].'
+        }
+      },
+      required: ['id', 'type', 'position', 'data']
+    },
+    default: []
+  },
+  edges: {
+    type: 'array' as const,
+    items: topLevelEdgeSchema,
+    default: [],
+    description: 'Edges to add. Source/target may be temp ids or existing canvas UUIDs.'
+  }
+} as const;
+
 export const TOOLS: AnthropicTool[] = [
   {
     name: 'add_node',
@@ -43,45 +92,8 @@ Topological order is mandatory for nodes: a node's inputs may only reference IDs
     input_schema: {
       type: 'object',
       properties: {
-        nodes: {
-          type: 'array',
-          description: 'All nodes to add — include every node for the request here.',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'string', description: 'Simple temporary node ID (e.g. "n1", "prompt_1").' },
-              type: { type: 'string', enum: NODE_TYPE_ENUM, description: 'Base node type.' },
-              node_type_id: { type: 'string', description: 'Required when type is ai_generator.' },
-              model_id: { type: 'number', description: 'Optional model ID when relevant.' },
-              position: {
-                type: 'object',
-                properties: { x: { type: 'number' }, y: { type: 'number' } },
-                required: ['x', 'y'],
-                description: 'Position hint — auto-calculated, any value is fine.'
-              },
-              data: {
-                type: 'object',
-                properties: { config: { type: 'object', additionalProperties: true } },
-                required: ['config'],
-                description: 'Node config matching the registry aiSchema for this type.'
-              },
-              inputs: {
-                type: 'array',
-                items: inputEdgeSchema,
-                default: [],
-                description: 'Legacy per-node edge list (edges INTO this node). Prefer top-level edges[] for new calls.'
-              }
-            },
-            required: ['id', 'type', 'position', 'data']
-          },
-          default: []
-        },
-        edges: {
-          type: 'array',
-          items: topLevelEdgeSchema,
-          default: [],
-          description: 'Edges to add. Each edge can connect any two nodes — temp ids from nodes[] above, existing canvas UUIDs, or a mix.'
-        }
+        nodes: nodesEdgesSchema.nodes,
+        edges: nodesEdgesSchema.edges
       },
       required: []
     }
@@ -147,6 +159,63 @@ Topological order is mandatory for nodes: a node's inputs may only reference IDs
       required: ['options']
     }
   },
+  {
+    name: 'propose_plan',
+    description:
+      'Propose a workflow plan for the user to approve before building. ' +
+      'Use ONLY for genuinely complex requests where guessing wrong would ' +
+      'waste real work — multi-section pipelines, large rewrites, or builds ' +
+      'with multiple model choices that affect creative direction. Do NOT ' +
+      'use for simple single-node updates, trivial changes, or anything where ' +
+      'the right answer is obvious. Do NOT use in the same turn as ' +
+      'ask_clarification — clarify first, plan next turn. Do NOT also call ' +
+      'add_node / update_node / remove_node in the same turn — the blueprint ' +
+      'IS the build; the user approves it to apply.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          maxLength: 60,
+          description: 'Short title naming the workflow.'
+        },
+        summary: {
+          type: 'string',
+          maxLength: 240,
+          description: 'One- or two-sentence "what it does" — plain prose, no list.'
+        },
+        arrows: {
+          type: 'string',
+          maxLength: 240,
+          description: 'Compact arrow-style overview, one line.'
+        },
+        models: {
+          type: 'array',
+          items: { type: 'string', maxLength: 60 },
+          maxItems: 6,
+          description: 'Model names used. Empty array if none.'
+        },
+        detail: {
+          type: 'string',
+          maxLength: 1200,
+          description:
+            'Detailed plan: nodes used, creative direction, scene/look description, ' +
+            'inputs, expected output appearance. Match length to plan complexity. ' +
+            'Plain prose, no markdown headers.'
+        },
+        blueprint: {
+          type: 'object',
+          description: 'Structured workflow patch applied verbatim if user approves. Same shape as add_node input.',
+          properties: {
+            nodes: nodesEdgesSchema.nodes,
+            edges: nodesEdgesSchema.edges
+          },
+          required: []
+        }
+      },
+      required: ['title', 'summary', 'arrows', 'models', 'detail', 'blueprint']
+    }
+  },
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'remove_node' | 'ask_clarification';
+export type ToolName = 'add_node' | 'update_node' | 'remove_node' | 'ask_clarification' | 'propose_plan';
