@@ -301,6 +301,27 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
 
   const chatWindow = (messages || [])
     .filter((m: any) => m.content && m.content.trim().length > 0)
+    // Filter out synthetic 'Approved' user messages — they're DB-only
+    // markers for plan-card state derivation on reload. Sending them to
+    // Anthropic would put two user roles back-to-back (the prior
+    // 'Approved' plus the next real user message), which the API
+    // rejects. Real user feedback messages are NOT filtered — they
+    // carry meaningful content the model needs to see.
+    .filter(
+        (m: any) =>
+            !(
+                (m.role === 'user' || m.type === 'user') &&
+                m.content === 'Approved' &&
+                m.metadata?.plan_answer?.action === 'approve'
+            ) &&
+            // Same exclusion when the message arrives from the client store
+            // shape (planAnswer rather than metadata.plan_answer).
+            !(
+                (m.role === 'user' || m.type === 'user') &&
+                m.content === 'Approved' &&
+                m.planAnswer?.action === 'approve'
+            )
+    )
     .slice(-8);
 
   const images = parseImageAttachments(attachedImages);
