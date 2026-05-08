@@ -121,6 +121,32 @@ Topological order is mandatory for nodes: a node's inputs may only reference IDs
       required: ['id']
     }
   },
+  {
+    name: 'ask_clarification',
+    description:
+      'Ask the user a clarifying question with 2-4 short option chips. ' +
+      'Use ONLY when the request is genuinely ambiguous and guessing wrong ' +
+      'would likely require redoing work. Do not use for trivial defaults — ' +
+      'pick a reasonable one and proceed. The question text goes in your ' +
+      'normal response body; this tool only carries the chip options. Do NOT ' +
+      'call this in the same turn as add_node / update_node / remove_node — ' +
+      'ask first, act on the answer next turn.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        options: {
+          type: 'array',
+          items: { type: 'string', maxLength: 40 },
+          minItems: 2,
+          maxItems: 4,
+          description:
+            'Short chip labels (≤40 chars each). Each must be a fully-formed ' +
+            'answer the user could send as their next message. Mutually exclusive.'
+        }
+      },
+      required: ['options']
+    }
+  },
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'remove_node';
+export type ToolName = 'add_node' | 'update_node' | 'remove_node' | 'ask_clarification';
