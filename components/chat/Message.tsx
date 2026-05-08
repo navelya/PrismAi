@@ -9,6 +9,7 @@ import { TableModal } from '@/components/ui/TableModal';
 import MessageRenderer from './MessageRenderer';
 import { ThinkingPanel } from './ThinkingPanel';
 import { ChipCard } from './ChipCard';
+import { PlanCard } from './PlanCard';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
@@ -28,6 +29,18 @@ interface Message {
     thinkingDurationMs?: number;
     clarification?: { options: string[] };
     clarificationAnswer?: { chosenIndex: number | null; text: string };
+    plan?: {
+        title: string;
+        summary: string;
+        arrows: string;
+        models: string[];
+        detail: string;
+    };
+    planAnswer?: {
+        action: 'approve' | 'feedback';
+        feedbackText?: string;
+    };
+    planApproveError?: string;
 }
 
 const ChatMessageContent = ({
@@ -127,6 +140,8 @@ export const Message = React.memo(function Message({
     isGenerating,
     onRetry,
     onClarificationAnswer,
+    onPlanApprove,
+    onPlanFeedback,
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -143,6 +158,8 @@ export const Message = React.memo(function Message({
         chosenIndex: number | null;
         text: string;
     }) => void;
+    onPlanApprove?: (planMessageId: string) => void;
+    onPlanFeedback?: (planMessageId: string, feedbackText: string) => void;
 }) {
     const [timeString, setTimeString] = React.useState('');
 
@@ -154,6 +171,18 @@ export const Message = React.memo(function Message({
         const interval = setInterval(updateTime, 60000);
         return () => clearInterval(interval);
     }, [message.timestamp]);
+
+    // Suppress synthetic 'Approved' user bubbles (created by the approve
+    // path on the chat-stream route). The locked plan card already shows
+    // "Approved & built", so a literal 'Approved' bubble below would be
+    // redundant noise. The DB row stays for reload-state derivation.
+    if (
+        message.type === 'user' &&
+        message.content === 'Approved' &&
+        message.planAnswer?.action === 'approve'
+    ) {
+        return null;
+    }
 
     const handleRevertClick = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -253,6 +282,35 @@ export const Message = React.memo(function Message({
                                     text: payload.text,
                                 })
                             }
+                        />
+                    )}
+
+                    {message.type === 'assistant' && message.plan && (
+                        <PlanCard
+                            plan={{
+                                title: message.plan.title,
+                                summary: message.plan.summary,
+                                arrows: message.plan.arrows,
+                                models: message.plan.models,
+                                detail: message.plan.detail,
+                            }}
+                            status={
+                                message.planApproveError
+                                    ? 'approve-failed'
+                                    : message.planAnswer?.action === 'approve'
+                                        ? 'approved'
+                                        : message.planAnswer?.action === 'feedback'
+                                            ? 'feedback-given'
+                                            : 'pending'
+                            }
+                            feedbackText={
+                                message.planAnswer?.action === 'feedback'
+                                    ? message.planAnswer.feedbackText
+                                    : undefined
+                            }
+                            approveError={message.planApproveError}
+                            onApprove={() => onPlanApprove?.(message.id)}
+                            onFeedback={(text) => onPlanFeedback?.(message.id, text)}
                         />
                     )}
 
