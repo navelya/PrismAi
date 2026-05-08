@@ -8,6 +8,7 @@ import remarkBreaks from 'remark-breaks';
 import { TableModal } from '@/components/ui/TableModal';
 import MessageRenderer from './MessageRenderer';
 import { ThinkingPanel } from './ThinkingPanel';
+import { ChipCard } from './ChipCard';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
@@ -25,6 +26,8 @@ interface Message {
     thinking?: string;
     isThinking?: boolean;
     thinkingDurationMs?: number;
+    clarification?: { options: string[] };
+    clarificationAnswer?: { chosenIndex: number | null; text: string };
 }
 
 const ChatMessageContent = ({
@@ -129,6 +132,7 @@ export const Message = React.memo(function Message({
     isCanvasMode = false,
     isGenerating,
     onRetry,
+    onClarificationAnswer,
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -140,6 +144,11 @@ export const Message = React.memo(function Message({
     isCanvasMode?: boolean;
     isGenerating?: boolean;
     onRetry?: () => void;
+    onClarificationAnswer?: (payload: {
+        questionMessageId: string;
+        chosenIndex: number | null;
+        text: string;
+    }) => void;
 }) {
     const [timeString, setTimeString] = React.useState('');
 
@@ -237,6 +246,20 @@ export const Message = React.memo(function Message({
                         <div className="mt-2">
                             <MessageRenderer data={message.result} isCanvasMode={isCanvasMode} />
                         </div>
+                    )}
+
+                    {message.type === 'assistant' && message.clarification && (
+                        <ChipCard
+                            options={message.clarification.options}
+                            answer={message.clarificationAnswer}
+                            onAnswer={(payload) =>
+                                onClarificationAnswer?.({
+                                    questionMessageId: message.id,
+                                    chosenIndex: payload.chosenIndex,
+                                    text: payload.text,
+                                })
+                            }
+                        />
                     )}
 
                     {message.type === 'user' && (
