@@ -5,12 +5,32 @@ export interface RegistryContextInput {
     id: number;
     display_name: string;
     node_type_id: string | null;
+    /**
+     * JSONB column from ai_models. The keys at the top of `properties`
+     * are the dynamic input handle ids that the rendered ai_generator
+     * node will expose for this specific model. Edges targeting an
+     * ai_generator MUST use one of these keys as their targetHandle.
+     */
+    inputs_schema?: any;
     providers?: { name: string } | null;
   }>;
   nodeTypes: Array<{
     id: string;
     display_name: string;
   }>;
+}
+
+/**
+ * Extract handle ids from an ai_models.inputs_schema JSONB. The schema
+ * is a JSON-Schema-shaped object whose top-level `properties` keys are
+ * the rendered handle ids on the ai_generator node. Returns [] if the
+ * schema is missing or malformed.
+ */
+function extractInputHandleIds(schema: any): string[] {
+  if (!schema || typeof schema !== 'object') return [];
+  const props = schema.properties;
+  if (!props || typeof props !== 'object') return [];
+  return Object.keys(props);
 }
 
 /**
@@ -128,7 +148,10 @@ export function formatRegistryContext(input: RegistryContextInput): string {
   }
 
   // Group ai_models by node_type_id so the model can pick the right
-  // generator for each capability bucket.
+  // generator for each capability bucket. For each model, surface its
+  // dynamic input handle names from inputs_schema.properties — these
+  // are the targetHandle values valid for edges into an ai_generator
+  // configured with that model_id.
   const modelLines: string[] = [];
   for (const nt of input.nodeTypes) {
     const modelsForType = input.models.filter(m => m.node_type_id === nt.id);
@@ -136,7 +159,11 @@ export function formatRegistryContext(input: RegistryContextInput): string {
     modelLines.push(`  - "${nt.id}" (${nt.display_name}):`);
     for (const m of modelsForType) {
       const provider = m.providers?.name ? ` [${m.providers.name}]` : '';
-      modelLines.push(`      • model_id ${m.id}: ${m.display_name}${provider}`);
+      const handleIds = extractInputHandleIds(m.inputs_schema);
+      const handlesPart = handleIds.length > 0
+        ? `; input handles: ${handleIds.map(h => `"${h}"`).join(', ')}`
+        : '';
+      modelLines.push(`      • model_id ${m.id}: ${m.display_name}${provider}${handlesPart}`);
     }
   }
 

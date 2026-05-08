@@ -78,7 +78,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
 
   const [{ data: modelsData }, { data: nodeTypesData }] = await Promise.all([
     supabase.from('ai_models')
-      .select('id, display_name, node_type_id, providers(name)')
+      .select('id, display_name, node_type_id, inputs_schema, providers(name)')
       .eq('is_active', true)
       .order('display_name') as any,
     supabase.from('node_types')
