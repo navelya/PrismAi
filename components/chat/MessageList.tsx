@@ -18,6 +18,8 @@ interface Message {
     thinking?: string;
     isThinking?: boolean;
     thinkingDurationMs?: number;
+    clarification?: { options: string[] };
+    clarificationAnswer?: { chosenIndex: number | null; text: string };
 }
 
 interface MessageListProps {
@@ -30,6 +32,11 @@ interface MessageListProps {
     onRevert: (id: string, skipConfirmation?: boolean) => void;
     onEdit: (message: Message) => void;
     onRetry: () => void;
+    onClarificationAnswer?: (payload: {
+        questionMessageId: string;
+        chosenIndex: number | null;
+        text: string;
+    }) => void;
     scrollContainerRef: React.RefObject<HTMLDivElement>;
     contentRef: React.RefObject<HTMLDivElement>;
     messagesEndRef: React.RefObject<HTMLDivElement>;
@@ -49,6 +56,7 @@ export function MessageList({
     onRevert,
     onEdit,
     onRetry,
+    onClarificationAnswer,
     scrollContainerRef,
     contentRef,
     messagesEndRef,
@@ -99,6 +107,7 @@ export function MessageList({
                                 onRevert={onRevert}
                                 onEdit={onEdit}
                                 onRetry={onRetry}
+                                onClarificationAnswer={onClarificationAnswer}
                                 undoSnapshotId={undoSnapshotId}
                                 isDisabled={isDisabled}
                                 isEditing={isEditing}

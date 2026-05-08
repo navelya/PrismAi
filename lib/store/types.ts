@@ -23,6 +23,13 @@ export interface Message {
         thinkingTokens: number;
         costUsd: number;
     };
+    // Clarification chip card (assistant turn): set when the brain emits
+    // a `clarification` stream event for this message.
+    clarification?: { options: string[] };
+    // Set on the assistant message once the user has answered the clarification
+    // (either via chip click or by typing). chosenIndex is null for typed answers.
+    // text mirrors the user's reply text; used to render the answered chip card.
+    clarificationAnswer?: { chosenIndex: number | null; text: string };
 }
 
 // Editor state interface

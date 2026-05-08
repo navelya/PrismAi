@@ -8,6 +8,7 @@ import remarkBreaks from 'remark-breaks';
 import { TableModal } from '@/components/ui/TableModal';
 import MessageRenderer from './MessageRenderer';
 import { ThinkingPanel } from './ThinkingPanel';
+import { ChipCard } from './ChipCard';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
@@ -25,6 +26,8 @@ interface Message {
     thinking?: string;
     isThinking?: boolean;
     thinkingDurationMs?: number;
+    clarification?: { options: string[] };
+    clarificationAnswer?: { chosenIndex: number | null; text: string };
 }
 
 const ChatMessageContent = ({
@@ -36,12 +39,14 @@ const ChatMessageContent = ({
     isGenerating: boolean,
     isCanvasMode: boolean
 }) => {
-    const TAIL_LENGTH = 15;
-    const isActuallyStreaming = isGenerating && message.content.length > TAIL_LENGTH;
-    const stableText = isActuallyStreaming ? message.content.slice(0, -TAIL_LENGTH) : message.content;
-    const tailText = isActuallyStreaming ? message.content.slice(-TAIL_LENGTH) : "";
+    // Render the full content unsplit — splitting off a trailing tail span
+    // produces a sibling element after ReactMarkdown's block-level <p>, which
+    // forces the tail onto a new line during streaming.
+    const stableText = message.content;
 
     const [isTableModalOpen, setIsTableModalOpen] = useState(false);
+
+    const isStreamingAssistant = isGenerating && message.type === 'assistant' && message.content.length > 0;
 
     return (
         <div
@@ -55,6 +60,7 @@ const ChatMessageContent = ({
                       prose-td:border prose-td:border-stroke-subtle prose-td:px-3 prose-td:py-2
                       prose-code:text-content-primary prose-code:before:content-none prose-code:after:content-none
                       ${message.type === 'user' ? 'font-medium prose-p:my-0' : ''}
+                      ${isStreamingAssistant ? 'is-streaming' : ''}
                       ${isCanvasMode
                     ? 'prose-p:text-[13px] prose-p:leading-[1.4] prose-li:text-[13px] prose-ul:text-[13px] prose-ol:text-[13px] prose-strong:text-[13px] prose-headings:text-[14px] prose-table:text-[12px]'
                     : 'prose-p:text-[15px] prose-p:leading-relaxed'}`}
@@ -105,15 +111,6 @@ const ChatMessageContent = ({
                     </ReactMarkdown>
                 </div>
             </TableModal>
-            {isActuallyStreaming && (
-                <span className="inline-block">
-                    {tailText.split('').map((char, index) => (
-                        <span key={index} style={{ opacity: (TAIL_LENGTH - index) / TAIL_LENGTH }}>
-                            {char}
-                        </span>
-                    ))}
-                </span>
-            )}
         </div>
     );
 };
@@ -129,6 +126,7 @@ export const Message = React.memo(function Message({
     isCanvasMode = false,
     isGenerating,
     onRetry,
+    onClarificationAnswer,
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -140,6 +138,11 @@ export const Message = React.memo(function Message({
     isCanvasMode?: boolean;
     isGenerating?: boolean;
     onRetry?: () => void;
+    onClarificationAnswer?: (payload: {
+        questionMessageId: string;
+        chosenIndex: number | null;
+        text: string;
+    }) => void;
 }) {
     const [timeString, setTimeString] = React.useState('');
 
@@ -237,6 +240,20 @@ export const Message = React.memo(function Message({
                         <div className="mt-2">
                             <MessageRenderer data={message.result} isCanvasMode={isCanvasMode} />
                         </div>
+                    )}
+
+                    {message.type === 'assistant' && message.clarification && (
+                        <ChipCard
+                            options={message.clarification.options}
+                            answer={message.clarificationAnswer}
+                            onAnswer={(payload) =>
+                                onClarificationAnswer?.({
+                                    questionMessageId: message.id,
+                                    chosenIndex: payload.chosenIndex,
+                                    text: payload.text,
+                                })
+                            }
+                        />
                     )}
 
                     {message.type === 'user' && (

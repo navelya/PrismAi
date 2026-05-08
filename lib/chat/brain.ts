@@ -14,6 +14,7 @@ export interface BrainResult {
   accumulatedPatch: WorkflowPatch | null;
   hadAnyOutput: boolean;
   usage: { inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number } | null;
+  clarification: { options: string[] } | null;
 }
 
 export interface BrainInput {
@@ -60,6 +61,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let accumulatedPatch: WorkflowPatch | null = null;
   let hadAnyOutput = false;
   let usage: BrainResult['usage'] = null;
+  let clarification: BrainResult['clarification'] = null;
 
   // Trivial-message heuristic: if the user's last turn is short, has no
   // images, and doesn't look like a workflow change, skip extended thinking
@@ -105,6 +107,29 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
         case 'tool_call': {
           const name = event.name as ToolName;
+
+          if (name === 'ask_clarification') {
+            // Validate options: must be an array of 2-4 strings (clip to 4 if more).
+            const raw = Array.isArray(event.args?.options) ? event.args.options : [];
+            const options = raw
+              .filter((o: unknown): o is string => typeof o === 'string' && o.trim().length > 0)
+              .slice(0, 4);
+            if (options.length < 2) {
+              input.encoder.send({
+                type: 'error',
+                message: 'ask_clarification needs 2-4 string options.',
+                recoverable: true
+              });
+              break;
+            }
+            // First valid clarification wins; ignore any additional ones in this turn.
+            if (!clarification) {
+              clarification = { options };
+              input.encoder.send({ type: 'clarification', options });
+            }
+            break;
+          }
+
           if (name !== 'add_node' && name !== 'update_node' && name !== 'remove_node') {
             input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
             break;
@@ -157,5 +182,5 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
 
-  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage };
+  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification };
 }

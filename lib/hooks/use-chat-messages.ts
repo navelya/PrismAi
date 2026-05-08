@@ -122,9 +122,30 @@ export function useChatMessages({
         attachedBlobs: Blob[],
         attachedImages: string[],
         clearAttachments: () => void,
-        setInput: (val: string) => void
+        setInput: (val: string) => void,
+        clarificationAnswerOverride?: { questionMessageId: string; chosenIndex: number | null }
     ) => {
         if (!trimmedInput && attachedImages.length === 0) return;
+
+        // Resolve clarification answer: explicit override (from a chip click) OR
+        // implicit (the most recent assistant message has a pending clarification
+        // and the user is responding via the main chat input). Use the
+        // session-filtered `messages` slice (top of hook) so we never pair an
+        // outgoing message with an unanswered clarification from a different
+        // session that happens to coexist in the store.
+        let resolvedClarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =
+            clarificationAnswerOverride;
+        if (!resolvedClarificationAnswer) {
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i];
+                if (m.type === 'assistant') {
+                    if (m.clarification?.options && !m.clarificationAnswer) {
+                        resolvedClarificationAnswer = { questionMessageId: m.id, chosenIndex: null };
+                    }
+                    break; // only inspect the most recent assistant in this session
+                }
+            }
+        }
 
         // 📸 Capture history snapshot BEFORE any optimistic updates or clearing
         const historySnapshot = useAppStore.getState().chatMessages;
@@ -171,9 +192,12 @@ export function useChatMessages({
             });
         }
 
-        // 👑 Immediate UI update with guaranteed activeSessionId in store
-        const userMsgId = `user-${Date.now()}`;
-        const assistantMsgId = `assistant-${Date.now()}`;
+        // 👑 Immediate UI update with guaranteed activeSessionId in store.
+        // Use real UUIDs (not "assistant-<timestamp>") so the in-memory ID
+        // matches the DB row's id after persistence — required for the
+        // clarification-answer pairing to survive a page refresh.
+        const userMsgId = crypto.randomUUID();
+        const assistantMsgId = crypto.randomUUID();
 
         addMessage({
             id: userMsgId,
@@ -190,6 +214,15 @@ export function useChatMessages({
             status: 'running',
             timestamp: new Date(),
         });
+
+        if (resolvedClarificationAnswer) {
+            useAppStore.getState().updateMessage(resolvedClarificationAnswer.questionMessageId, {
+                clarificationAnswer: {
+                    chosenIndex: resolvedClarificationAnswer.chosenIndex,
+                    text: trimmedInput,
+                },
+            });
+        }
 
         setIsLoading(true);
         setStatusMessage('Prism is thinking...');
@@ -222,6 +255,9 @@ export function useChatMessages({
                     previousWorkflow: useAppStore.getState().currentWorkflow,
                     attachedImages: imagesToSend,
                     selectedModel: useAppStore.getState().selectedChatModel,
+                    clarificationAnswer: resolvedClarificationAnswer,
+                    userMessageId: userMsgId,
+                    assistantMessageId: assistantMsgId,
                 }),
             });
 
@@ -320,6 +356,11 @@ export function useChatMessages({
                             thinkingTokens: parsed.thinkingTokens,
                             costUsd: parsed.costUsd,
                         },
+                    });
+                }
+                else if (parsed.type === 'clarification') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        clarification: { options: Array.isArray(parsed.options) ? parsed.options : [] },
                     });
                 }
                 else if (parsed.type === 'tool' && ['add_node', 'update_node', 'remove_node', 'mutate_workflow'].includes(parsed.name)) {

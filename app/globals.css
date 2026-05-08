@@ -161,6 +161,28 @@
     }
   }
 
+  /* Slim inline caret at the end of the last paragraph while a chat message
+     is still streaming. Pseudo-element lives inside the <p>, so it stays on
+     the same line as the trailing text. */
+  .is-streaming :where(p):last-child::after,
+  .is-streaming :where(li):last-child::after {
+    content: '';
+    display: inline-block;
+    width: 0.1em;
+    height: 1.05em;
+    background: currentColor;
+    margin-left: 0.12em;
+    vertical-align: -0.12em;
+    opacity: 0.55;
+    border-radius: 1px;
+    animation: streaming-cursor-blink 1s steps(2, end) infinite;
+  }
+  @keyframes streaming-cursor-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
   .animate-infinite-scroll {
     animation: infinite-scroll 80s linear infinite;
   }

@@ -399,6 +399,16 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 onRevert={handleRevert}
                 onEdit={handleEdit}
                 onRetry={retryLast}
+                onClarificationAnswer={(payload) => {
+                    sendMessage(
+                        payload.text,
+                        [],
+                        [],
+                        () => {},
+                        () => {},
+                        { questionMessageId: payload.questionMessageId, chosenIndex: payload.chosenIndex }
+                    );
+                }}
                 scrollContainerRef={scroll.scrollContainerRef}
                 contentRef={scroll.contentRef}
                 messagesEndRef={scroll.messagesEndRef}
