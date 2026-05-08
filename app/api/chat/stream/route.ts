@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions';
 import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/lib/chat';
 import { getRegistryContext } from '@/lib/chat/registry-cache';
 import { uploadBase64ToStorage } from '@/lib/utils/image-processing';
+import { dispatchTool, type ToolHandlerState } from '@/lib/chat/tools/handlers';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
@@ -24,6 +25,196 @@ function parseImageAttachments(raw: any): ImageAttachment[] {
   return out;
 }
 
+async function handlePlanApprove(opts: {
+  supabase: ReturnType<typeof createServiceClient>;
+  sessionId: string;
+  planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string };
+  userMessageId?: string;
+  lastUserContent: string;
+}): Promise<Response> {
+  const { supabase, sessionId, planAnswer, userMessageId, lastUserContent } = opts;
+  const t0 = Date.now();
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new StreamEncoder(controller);
+
+      waitUntil((async () => {
+        try {
+          // 1. Read the assistant plan row.
+          const { data: planRow, error: planErr } = await supabase
+            .from('messages')
+            .select('id, session_id, metadata')
+            .eq('id', planAnswer.planMessageId)
+            .single();
+          if (planErr || !planRow) {
+            encoder.send({
+              type: 'error',
+              message: 'Plan not found, please retry the request.',
+              recoverable: false,
+            });
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
+          }
+          if (planRow.session_id !== sessionId) {
+            encoder.send({
+              type: 'error',
+              message: 'Plan does not belong to this session.',
+              recoverable: false,
+            });
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
+          }
+
+          const blueprint = planRow.metadata?.plan?.blueprint;
+          if (!blueprint) {
+            encoder.send({
+              type: 'error',
+              message: 'Plan has no blueprint to apply.',
+              recoverable: false,
+            });
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
+          }
+
+          // 2. Idempotency check: was this plan already approved?
+          const { data: priorApprovalRows } = await supabase
+            .from('messages')
+            .select('id, metadata')
+            .eq('session_id', sessionId)
+            .eq('role', 'user');
+          const alreadyApproved = (priorApprovalRows || []).some(
+            (r: any) =>
+              r?.metadata?.plan_answer?.planMessageId === planAnswer.planMessageId &&
+              r?.metadata?.plan_answer?.action === 'approve'
+          );
+          if (alreadyApproved) {
+            // Plan was already applied; client is showing approved state already.
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
+          }
+
+          // 3. Load current canvas_state.
+          const { data: sessionRow } = await supabase
+            .from('sessions')
+            .select('canvas_state')
+            .eq('id', sessionId)
+            .single();
+          const baseWorkflow =
+            sessionRow?.canvas_state &&
+            Array.isArray(sessionRow.canvas_state.nodes) &&
+            Array.isArray(sessionRow.canvas_state.edges)
+              ? sessionRow.canvas_state
+              : { nodes: [], edges: [] };
+
+          // 4. Build aiModelHandles from a fresh registry lookup.
+          const registry = await getRegistryContext(supabase);
+          const aiModelHandles = new Map<number, string[]>();
+          for (const m of registry.models) {
+            const schema = (m as any).inputs_schema;
+            if (!schema || !Array.isArray(schema.handles)) continue;
+            const ids: string[] = [];
+            for (const h of schema.handles) {
+              const key = h?.api_mapping_key;
+              if (typeof key === 'string' && key.length > 0) ids.push(key);
+            }
+            if (ids.length > 0) aiModelHandles.set(m.id, ids);
+          }
+
+          const state: ToolHandlerState = {
+            workflow: baseWorkflow as any,
+            idMap: new Map(),
+            aiModelHandles,
+          };
+
+          // 5. Apply via dispatchTool('add_node', blueprint).
+          const result = dispatchTool(state, 'add_node', blueprint);
+          if (!result.success) {
+            encoder.send({
+              type: 'error',
+              message: result.error || 'Plan apply failed.',
+              recoverable: true,
+            });
+            encoder.send({ type: 'done' });
+            encoder.close();
+            return;
+          }
+
+          // 6. Persist user message + canvas_state.
+          const dbOps: Promise<any>[] = [];
+          dbOps.push(
+            Promise.resolve(supabase.from('messages').insert({
+              ...(userMessageId ? { id: userMessageId } : {}),
+              session_id: sessionId,
+              role: 'user',
+              content: lastUserContent || 'Approved',
+              status: 'completed',
+              metadata: {
+                plan_answer: {
+                  planMessageId: planAnswer.planMessageId,
+                  action: 'approve',
+                },
+              },
+              created_at: new Date().toISOString(),
+            }) as any)
+          );
+          if (result.patch) {
+            dbOps.push(
+              Promise.resolve(supabase.from('sessions').update({
+                canvas_state: { nodes: state.workflow.nodes, edges: state.workflow.edges },
+                updated_at: new Date().toISOString(),
+              }).eq('id', sessionId) as any)
+            );
+          }
+          await Promise.all(dbOps);
+
+          // 7. Emit tool + usage(zero) + done.
+          if (result.patch) {
+            encoder.send({ type: 'tool', name: 'add_node', patch: result.patch });
+          }
+          encoder.send({
+            type: 'usage',
+            inputTokens: 0,
+            outputTokens: 0,
+            thinkingTokens: 0,
+            costUsd: 0,
+          });
+          encoder.send({ type: 'done' });
+          encoder.close();
+
+          console.log('[chat] plan_approve', {
+            sessionId,
+            planMessageId: planAnswer.planMessageId,
+            blueprintNodeCount: Array.isArray(blueprint?.nodes) ? blueprint.nodes.length : 0,
+            latencyMs: Date.now() - t0,
+            status: 'ok',
+          });
+        } catch (err: any) {
+          encoder.send({
+            type: 'error',
+            message: err?.message || 'plan_approve failed unexpectedly',
+            recoverable: false,
+          });
+          encoder.send({ type: 'done' });
+          encoder.close();
+          console.error('[chat] plan_approve error', err);
+        }
+      })());
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+    },
+  });
+}
+
 async function handleWithNewBrain(req: Request): Promise<Response> {
   const body = await req.json();
   const { messages, sessionId, previousWorkflow, attachedImages } = body ?? {};
@@ -35,6 +226,18 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
             typeof body.clarificationAnswer.chosenIndex === 'number'
               ? body.clarificationAnswer.chosenIndex
               : null,
+        }
+      : undefined;
+  const planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string } | undefined =
+    body?.planAnswer && typeof body.planAnswer === 'object'
+      ? {
+            planMessageId: String(body.planAnswer.planMessageId ?? ''),
+            action:
+                body.planAnswer.action === 'approve' || body.planAnswer.action === 'feedback'
+                    ? body.planAnswer.action
+                    : 'feedback',
+            feedbackText:
+                typeof body.planAnswer.feedbackText === 'string' ? body.planAnswer.feedbackText : undefined,
         }
       : undefined;
   // Client-supplied UUIDs so the in-memory message IDs match the DB row IDs.
@@ -49,6 +252,20 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
       : undefined;
 
   const supabase = createServiceClient();
+
+  // Approve-branch: short-circuit before ALL the brain plumbing. Skips
+  // runBrain entirely; applies the stored blueprint via dispatchTool;
+  // persists; emits tool + usage(zero) + done.
+  if (planAnswer?.action === 'approve' && planAnswer.planMessageId.length > 0 && sessionId) {
+    return await handlePlanApprove({
+      supabase,
+      sessionId,
+      planAnswer,
+      userMessageId,
+      lastUserContent:
+        messages?.length > 0 ? String(messages[messages.length - 1]?.content ?? 'Approved') : 'Approved',
+    });
+  }
 
   // Resolve the user's plan so we can gate the model choice server-side.
   let planId = 'free';
