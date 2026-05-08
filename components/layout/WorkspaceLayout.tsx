@@ -377,7 +377,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 {isCanvasMode && (
                     <motion.div
                         key="tool-rail"
-                        className="absolute top-1/2 -translate-y-1/2 z-[60] pointer-events-auto"
+                        className="absolute top-1/2 -translate-y-1/2 z-[1] pointer-events-auto"
                         animate={{ left: railLeft, opacity: 1, x: 0 }}
                         initial={{ opacity: 0, x: -16 }}
                         exit={{ opacity: 0, x: -16 }}
