@@ -33,5 +33,11 @@ export function formatWorkflowContext(workflow: Workflow | null | undefined): st
     return `- ${type}${labelPart} (id: ${id})${arrowPart}`;
   });
 
-  return `CURRENT CANVAS: ${nodes.length} node${nodes.length === 1 ? '' : 's'}\n${lines.join('\n')}`;
+  return `CURRENT CANVAS — ${nodes.length} existing node${nodes.length === 1 ? '' : 's'} already on the canvas.
+These nodes ALREADY EXIST. Do NOT re-add them. When the user asks to extend
+or modify this workflow, only emit add_node for NEW nodes, and reference
+the existing ids below as the "source" in new nodes' inputs[] to wire them
+together. To change config of an existing node, use update_node with that id.
+
+${lines.join('\n')}`;
 }

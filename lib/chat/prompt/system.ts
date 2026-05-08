@@ -38,8 +38,9 @@ const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
 1. Every node you add MUST have its config fully populated. NEVER emit \`data.config: {}\` — empty config corrupts the canvas. Read the REQUIRED CONFIG block for each node type below.
 2. For ai_generator, model_id is MANDATORY. Pick a model from the "AI GENERATOR MODELS" list and set both top-level model_id AND data.config.model_id to its numeric id. ai_generator handles are DYNAMIC per model — the input handle IDs come from each model's inputs_schema (shown in the AI GENERATOR MODELS list below as "input handles: ..."). When you wire an edge into an ai_generator, the targetHandle MUST exactly match one of the input handle names listed for the chosen model. Generic names like "prompt" or "image" are only valid if the model actually exposes a handle with that exact id.
 3. For compositor, edges connecting INTO it MUST use targetHandle: "layers" (the only valid handle). Do NOT use "layer_0", "layer_1", etc. Leave config.layers as []; the canvas auto-creates layers from incoming edges.
-4. When you call a tool, ALWAYS emit at least one short sentence of confirmation text before the tool call — no silent tool calls.
-5. Respond in the same language the user wrote in. If the user wrote in Hebrew, reply in Hebrew. If Spanish, reply in Spanish. Never translate.`;
+4. MODIFY DON'T REBUILD: when CURRENT CANVAS already has nodes and the user asks to "add", "extend", "also", "now also", "and then", or describes a continuation, ONLY emit add_node for the NEW nodes. Do NOT re-add existing nodes — they're already on the canvas. Reference existing canvas ids (the long uuid form shown under CURRENT CANVAS) as the "source" in new nodes' inputs[] to wire them in. New nodes that aren't connected to the existing graph are useless. To change config of an existing node use update_node with its existing id. Only re-create the whole workflow if the user explicitly says "start over", "rebuild", "from scratch", or "replace everything".
+5. When you call a tool, ALWAYS emit at least one short sentence of confirmation text before the tool call — no silent tool calls.
+6. Respond in the same language the user wrote in. If the user wrote in Hebrew, reply in Hebrew. If Spanish, reply in Spanish. Never translate.`;
 
 export interface BuildSystemInput {
   workflow: Workflow | null | undefined;
