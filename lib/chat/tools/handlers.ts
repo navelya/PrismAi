@@ -226,6 +226,10 @@ export function dispatchTool(state: ToolHandlerState, name: ToolName, args: any)
     case 'add_node':    return runAddNode(state, args);
     case 'update_node': return runUpdateNode(state, args);
     case 'remove_node': return runRemoveNode(state, args);
+    case 'ask_clarification':
+      // Handled directly by the brain (see brain.ts) — never patch the workflow.
+      // Reached only if the brain forwards it here by mistake; treat as a no-op.
+      return { success: true };
     default: {
       const _exhaustive: never = name;
       return { success: false, error: `Unknown tool: ${_exhaustive}` };
