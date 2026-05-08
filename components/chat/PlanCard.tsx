@@ -35,7 +35,7 @@ function ModelTag({ name, models }: { name: string; models: AiModel[] | undefine
     const logoUrl = match?.providers?.logo_url || null;
 
     return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-surface-tertiary/40 border border-stroke-subtle/60 text-[10px] text-content-secondary">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-surface-tertiary/40 border border-stroke-subtle/60 text-[10px] text-content-primary/90">
             {logoUrl && (
                 <img
                     src={logoUrl}
@@ -50,7 +50,7 @@ function ModelTag({ name, models }: { name: string; models: AiModel[] | undefine
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
     return (
-        <div className="text-[9px] uppercase tracking-widest text-content-tertiary/70 font-bold">
+        <div className="text-[9px] uppercase tracking-widest text-content-primary/90 font-bold">
             {children}
         </div>
     );
@@ -118,7 +118,7 @@ export function PlanCard({
             {/* What it does */}
             <div className="space-y-0.5 mb-2">
                 <SectionLabel>What it does</SectionLabel>
-                <div className="text-[11px] text-content-secondary/90 leading-snug whitespace-pre-wrap">
+                <div className="text-[11px] text-content-secondary leading-snug whitespace-pre-wrap">
                     {plan.summary}
                 </div>
             </div>
@@ -127,7 +127,7 @@ export function PlanCard({
             {plan.arrows && (
                 <div className="space-y-0.5 mb-2">
                     <SectionLabel>Overall workflow</SectionLabel>
-                    <div className="text-[10px] font-mono text-content-tertiary leading-snug whitespace-pre-wrap break-words">
+                    <div className="text-[10px] font-mono text-content-secondary leading-snug whitespace-pre-wrap break-words">
                         {plan.arrows}
                     </div>
                 </div>

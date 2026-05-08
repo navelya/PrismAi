@@ -71,7 +71,7 @@ export function ThinkingPanel({ thinking, isStreaming, durationMs }: ThinkingPan
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="mt-2 ml-1 border-l border-zinc-200/50 pl-3 italic leading-relaxed whitespace-pre-wrap text-xs text-zinc-500/90 dark:border-zinc-700/40 dark:text-zinc-400/90">
+          <div className="mt-2 ml-1 border-l border-zinc-200/30 pl-3 italic leading-7 whitespace-pre-wrap text-xs text-zinc-500 dark:border-zinc-700/25 dark:text-zinc-300/85">
             {thinking || (isStreaming ? '...' : '(no reasoning recorded)')}
           </div>
         </div>
