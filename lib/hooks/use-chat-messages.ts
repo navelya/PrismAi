@@ -192,9 +192,12 @@ export function useChatMessages({
             });
         }
 
-        // 👑 Immediate UI update with guaranteed activeSessionId in store
-        const userMsgId = `user-${Date.now()}`;
-        const assistantMsgId = `assistant-${Date.now()}`;
+        // 👑 Immediate UI update with guaranteed activeSessionId in store.
+        // Use real UUIDs (not "assistant-<timestamp>") so the in-memory ID
+        // matches the DB row's id after persistence — required for the
+        // clarification-answer pairing to survive a page refresh.
+        const userMsgId = crypto.randomUUID();
+        const assistantMsgId = crypto.randomUUID();
 
         addMessage({
             id: userMsgId,
@@ -253,6 +256,8 @@ export function useChatMessages({
                     attachedImages: imagesToSend,
                     selectedModel: useAppStore.getState().selectedChatModel,
                     clarificationAnswer: resolvedClarificationAnswer,
+                    userMessageId: userMsgId,
+                    assistantMessageId: assistantMsgId,
                 }),
             });
 

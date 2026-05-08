@@ -37,6 +37,16 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
               : null,
         }
       : undefined;
+  // Client-supplied UUIDs so the in-memory message IDs match the DB row IDs.
+  // Required for clarification-answer pairing to survive a page refresh.
+  const userMessageId: string | undefined =
+    typeof body?.userMessageId === 'string' && body.userMessageId.length > 0
+      ? body.userMessageId
+      : undefined;
+  const assistantMessageId: string | undefined =
+    typeof body?.assistantMessageId === 'string' && body.assistantMessageId.length > 0
+      ? body.assistantMessageId
+      : undefined;
 
   const supabase = createServiceClient();
 
@@ -124,6 +134,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                 : null;
             dbOps.push(
               Promise.resolve(supabase.from('messages').insert({
+                ...(userMessageId ? { id: userMessageId } : {}),
                 session_id: sessionId,
                 role: 'user',
                 content: lastUserMsg.content,
@@ -137,6 +148,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           if (result.finalText) {
             dbOps.push(
               Promise.resolve(supabase.from('messages').insert({
+                ...(assistantMessageId ? { id: assistantMessageId } : {}),
                 session_id: sessionId,
                 role: 'assistant',
                 content: result.finalText,
