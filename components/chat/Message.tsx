@@ -39,10 +39,10 @@ const ChatMessageContent = ({
     isGenerating: boolean,
     isCanvasMode: boolean
 }) => {
-    const TAIL_LENGTH = 15;
-    const isActuallyStreaming = isGenerating && message.content.length > TAIL_LENGTH;
-    const stableText = isActuallyStreaming ? message.content.slice(0, -TAIL_LENGTH) : message.content;
-    const tailText = isActuallyStreaming ? message.content.slice(-TAIL_LENGTH) : "";
+    // Render the full content unsplit — splitting off a trailing tail span
+    // produces a sibling element after ReactMarkdown's block-level <p>, which
+    // forces the tail onto a new line during streaming.
+    const stableText = message.content;
 
     const [isTableModalOpen, setIsTableModalOpen] = useState(false);
 
@@ -108,15 +108,6 @@ const ChatMessageContent = ({
                     </ReactMarkdown>
                 </div>
             </TableModal>
-            {isActuallyStreaming && (
-                <span className="inline-block">
-                    {tailText.split('').map((char, index) => (
-                        <span key={index} style={{ opacity: (TAIL_LENGTH - index) / TAIL_LENGTH }}>
-                            {char}
-                        </span>
-                    ))}
-                </span>
-            )}
         </div>
     );
 };

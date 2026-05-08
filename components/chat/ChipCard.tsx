@@ -97,23 +97,30 @@ export function ChipCard({ options, answer, onAnswer }: ChipCardProps) {
                     className="flex-1 bg-transparent focus:outline-none text-sm placeholder-content-tertiary disabled:cursor-not-allowed"
                 />
                 {!isAnswered && (
-                    <button
-                        type="button"
-                        onClick={handleSkip}
-                        className="flex-shrink-0 px-2 py-0.5 rounded-md text-xs font-medium text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary/80 transition-colors"
-                    >
-                        Skip
-                    </button>
-                )}
-                {!isAnswered && draft.trim().length > 0 && (
-                    <button
-                        type="button"
-                        onClick={handleSubmitTyped}
-                        className="flex-shrink-0 p-1 rounded-md text-accent-primary hover:bg-accent-primary/10 transition-colors"
-                        aria-label="Submit answer"
-                    >
-                        <ArrowRight className="w-4 h-4" />
-                    </button>
+                    <>
+                        {/* Arrow always rendered to reserve layout space — invisible until there's draft text */}
+                        <button
+                            type="button"
+                            onClick={handleSubmitTyped}
+                            disabled={draft.trim().length === 0}
+                            aria-label="Submit answer"
+                            aria-hidden={draft.trim().length === 0}
+                            className={`flex-shrink-0 p-1 rounded-md text-accent-primary transition-colors ${
+                                draft.trim().length > 0
+                                    ? 'hover:bg-accent-primary/10'
+                                    : 'invisible pointer-events-none'
+                            }`}
+                        >
+                            <ArrowRight className="w-4 h-4" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSkip}
+                            className="flex-shrink-0 px-2 py-0.5 rounded-md text-xs font-medium text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary/80 transition-colors"
+                        >
+                            Skip
+                        </button>
+                    </>
                 )}
                 {typedFilled && <Check className="w-4 h-4 text-accent-primary flex-shrink-0" />}
             </div>
