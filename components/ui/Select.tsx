@@ -10,8 +10,14 @@ export interface SelectOption {
     display_name: string;
     /** Optional left-side icon URL (e.g. provider logo). */
     icon_url?: string | null;
+    /** Optional left-side icon React node — alternative to icon_url. */
+    icon?: React.ReactNode;
+    /** Optional secondary line shown under display_name in the dropdown list (not in the trigger). */
+    subtitle?: string;
     /** Optional right-side content (e.g. cost badge). Plain string or any node. */
     meta?: React.ReactNode;
+    /** Disabled options can't be selected; their label dims and the cursor turns not-allowed. */
+    disabled?: boolean;
 }
 
 interface SelectProps {
@@ -26,16 +32,23 @@ interface SelectProps {
     placeholder?: string;
     required?: boolean;
     variant?: 'default' | 'minimal';
+    /**
+     * Custom trigger element. When provided, replaces the built-in trigger entirely
+     * (label/error chrome is also skipped). Must be a single React element that
+     * accepts forwarded refs/props (typically a `<button>`). The dropdown still
+     * portals to body and matches the trigger width, so set width via the trigger.
+     */
+    triggerNode?: React.ReactElement;
 }
 
-function OptionIcon({ url, size }: { url?: string | null; size: number }) {
-    if (!url) return null;
+function OptionIcon({ icon, url, size }: { icon?: React.ReactNode; url?: string | null; size: number }) {
+    if (!icon && !url) return null;
     return (
         <span
             className="shrink-0 inline-flex items-center justify-center rounded-md overflow-hidden bg-white/5 border border-white/10"
             style={{ width: size, height: size }}
         >
-            <img src={url} alt="" className="w-full h-full object-contain p-[2px]" />
+            {icon ? icon : <img src={url!} alt="" className="w-full h-full object-contain p-[2px]" />}
         </span>
     );
 }
@@ -52,11 +65,91 @@ export function Select({
     placeholder = 'Select option...',
     required = false,
     variant = 'default',
+    triggerNode,
 }: SelectProps) {
     const isMinimal = variant === 'minimal';
     const selected = options.find((o) => o.id === value);
     const triggerIconSize = isMinimal ? 16 : 20;
     const itemIconSize = isMinimal ? 16 : 20;
+
+    const content = (
+        <RadixSelect.Portal>
+            <RadixSelect.Content
+                className={cn(
+                    'popover-animate z-[100001] overflow-hidden',
+                    triggerNode
+                        ? 'min-w-[14rem]'
+                        : 'w-[var(--radix-select-trigger-width)] min-w-[12rem]',
+                    'bg-surface-primary/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl ring-1 ring-white/5'
+                )}
+                position="popper"
+                sideOffset={8}
+                collisionPadding={16}
+            >
+                <RadixSelect.Viewport className="p-1.5 space-y-0.5 max-h-[280px]">
+                    {options.length === 0 ? (
+                        <div className="px-3 py-3 text-xs text-content-tertiary italic">
+                            No options available
+                        </div>
+                    ) : (
+                        options.map((opt) => (
+                            <RadixSelect.Item
+                                key={opt.id}
+                                value={opt.id}
+                                disabled={opt.disabled}
+                                className={cn(
+                                    'relative w-full px-2 py-1.5 text-left rounded-lg cursor-pointer',
+                                    'flex items-center gap-2 outline-none select-none transition-colors',
+                                    'text-content-primary/80',
+                                    'data-[highlighted]:bg-white/5 data-[highlighted]:text-content-primary',
+                                    'data-[state=checked]:text-content-primary data-[state=checked]:font-semibold',
+                                    'data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed data-[disabled]:hover:bg-transparent',
+                                    isMinimal ? 'text-xs' : 'text-sm'
+                                )}
+                            >
+                                <OptionIcon icon={opt.icon} url={opt.icon_url} size={itemIconSize} />
+                                <div className="flex-1 min-w-0">
+                                    <RadixSelect.ItemText asChild>
+                                        <span className="block truncate leading-tight">{opt.display_name}</span>
+                                    </RadixSelect.ItemText>
+                                    {opt.subtitle && (
+                                        <span className="block truncate text-[10px] font-normal text-content-tertiary leading-tight mt-0.5">
+                                            {opt.subtitle}
+                                        </span>
+                                    )}
+                                </div>
+                                {opt.meta && (
+                                    <span className="shrink-0 text-content-tertiary">{opt.meta}</span>
+                                )}
+                                {/* Reserve a fixed-width slot for the check so meta columns align across rows. */}
+                                <span className="shrink-0 w-3.5 h-3.5 flex items-center justify-center">
+                                    <RadixSelect.ItemIndicator>
+                                        <Check className="w-3.5 h-3.5 text-accent-primary" strokeWidth={3} />
+                                    </RadixSelect.ItemIndicator>
+                                </span>
+                            </RadixSelect.Item>
+                        ))
+                    )}
+                </RadixSelect.Viewport>
+            </RadixSelect.Content>
+        </RadixSelect.Portal>
+    );
+
+    // Custom-trigger mode: caller owns the button styling; we skip the wrapper/label/error chrome.
+    if (triggerNode) {
+        return (
+            <RadixSelect.Root
+                value={value || ''}
+                onValueChange={(val) => onChange({ target: { value: val, name } })}
+                disabled={disabled}
+            >
+                <RadixSelect.Trigger asChild aria-label={label}>
+                    {triggerNode}
+                </RadixSelect.Trigger>
+                {content}
+            </RadixSelect.Root>
+        );
+    }
 
     return (
         <div className={cn("space-y-2 flex-1", isMinimal && "space-y-1")}>
@@ -86,7 +179,7 @@ export function Select({
                 >
                     {selected ? (
                         <>
-                            <OptionIcon url={selected.icon_url} size={triggerIconSize} />
+                            <OptionIcon icon={selected.icon} url={selected.icon_url} size={triggerIconSize} />
                             <span className="flex-1 text-left truncate font-semibold">{selected.display_name}</span>
                             {selected.meta && (
                                 <span className="shrink-0 text-content-tertiary">{selected.meta}</span>
@@ -103,54 +196,7 @@ export function Select({
                     </RadixSelect.Icon>
                 </RadixSelect.Trigger>
 
-                <RadixSelect.Portal>
-                    <RadixSelect.Content
-                        className={cn(
-                            'popover-animate z-[100001] w-[var(--radix-select-trigger-width)] min-w-[12rem] overflow-hidden',
-                            'bg-surface-primary/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl ring-1 ring-white/5'
-                        )}
-                        position="popper"
-                        sideOffset={8}
-                        collisionPadding={16}
-                    >
-                        <RadixSelect.Viewport className="p-1.5 space-y-0.5 max-h-[280px]">
-                            {options.length === 0 ? (
-                                <div className="px-3 py-3 text-xs text-content-tertiary italic">
-                                    No options available
-                                </div>
-                            ) : (
-                                options.map((opt) => (
-                                    <RadixSelect.Item
-                                        key={opt.id}
-                                        value={opt.id}
-                                        className={cn(
-                                            'relative w-full px-2 py-1.5 text-left rounded-lg cursor-pointer',
-                                            'flex items-center gap-2 outline-none select-none transition-colors',
-                                            'text-content-primary/80',
-                                            'data-[highlighted]:bg-white/5 data-[highlighted]:text-content-primary',
-                                            'data-[state=checked]:text-content-primary data-[state=checked]:font-semibold',
-                                            isMinimal ? 'text-xs' : 'text-sm'
-                                        )}
-                                    >
-                                        <OptionIcon url={opt.icon_url} size={itemIconSize} />
-                                        <RadixSelect.ItemText asChild>
-                                            <span className="flex-1 truncate">{opt.display_name}</span>
-                                        </RadixSelect.ItemText>
-                                        {opt.meta && (
-                                            <span className="shrink-0 text-content-tertiary">{opt.meta}</span>
-                                        )}
-                                        {/* Reserve a fixed-width slot for the check so meta columns align across rows. */}
-                                        <span className="shrink-0 w-3.5 h-3.5 flex items-center justify-center">
-                                            <RadixSelect.ItemIndicator>
-                                                <Check className="w-3.5 h-3.5 text-accent-primary" strokeWidth={3} />
-                                            </RadixSelect.ItemIndicator>
-                                        </span>
-                                    </RadixSelect.Item>
-                                ))
-                            )}
-                        </RadixSelect.Viewport>
-                    </RadixSelect.Content>
-                </RadixSelect.Portal>
+                {content}
             </RadixSelect.Root>
 
             {error && <p className="text-[10px] text-red-500 pl-1 font-medium">{error}</p>}

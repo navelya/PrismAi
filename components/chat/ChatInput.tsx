@@ -21,6 +21,40 @@ import {
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { ModelPicker } from './ModelPicker';
+import { Select, type SelectOption } from '@/components/ui/Select';
+
+const PlusTriggerButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+    function PlusTriggerButton(props, ref) {
+        const { className, children, ...rest } = props;
+        return (
+            <button
+                ref={ref}
+                type="button"
+                aria-label="Add attachment"
+                {...rest}
+                className={`p-2 rounded-lg transition-colors bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary data-[state=open]:bg-surface-tertiary data-[state=open]:text-content-primary outline-none [&[data-state=open]>svg]:rotate-45 ${className ?? ''}`}
+            >
+                <Plus className="w-5 h-5 transition-transform" />
+                {children}
+            </button>
+        );
+    }
+);
+
+const PLUS_MENU_OPTIONS: SelectOption[] = [
+    {
+        id: 'add-images',
+        display_name: 'Add images',
+        icon: <ImagePlus className="w-3.5 h-3.5 text-accent-primary" />,
+    },
+    {
+        id: 'templates',
+        display_name: 'Templates',
+        subtitle: 'Coming soon',
+        icon: <Sparkles className="w-3.5 h-3.5 text-content-tertiary" />,
+        disabled: true,
+    },
+];
 
 interface ChatInputProps {
     value: string;
@@ -65,7 +99,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
 
         const [isExpanded, setIsExpanded] = useState(false);
         const [isMultiLine, setIsMultiLine] = useState(false);
-        const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
 
         // Internal refs for the ghost element (single-line width probe) and the
         // forwarded textarea.  We need a local ref for effects; if the parent
@@ -263,47 +296,19 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     >
                         {/* Left: attachment button + model picker */}
                         <div className="flex items-center gap-1">
-                            {/* Attachment (+) button */}
+                            {/* Attachment (+) menu — Radix Select with custom trigger */}
                             <div className="relative z-10">
                                 <Tooltip content="Add attachment" position="top">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
-                                        className={`p-2 rounded-lg transition-colors ${isPlusMenuOpen
-                                            ? 'bg-surface-tertiary text-content-primary'
-                                            : 'bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary'
-                                            }`}
-                                    >
-                                        <Plus
-                                            className={`w-5 h-5 transition-transform ${isPlusMenuOpen ? 'rotate-45' : ''}`}
-                                        />
-                                    </button>
+                                    <Select
+                                        variant="minimal"
+                                        options={PLUS_MENU_OPTIONS}
+                                        value=""
+                                        onChange={(e) => {
+                                            if (e.target.value === 'add-images') onOpenImagePicker();
+                                        }}
+                                        triggerNode={<PlusTriggerButton />}
+                                    />
                                 </Tooltip>
-
-                                {isPlusMenuOpen && (
-                                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-surface-primary rounded-xl shadow-xl border border-stroke-subtle overflow-hidden z-50">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                onOpenImagePicker();
-                                                setIsPlusMenuOpen(false);
-                                            }}
-                                            className="w-full flex items-center gap-3 px-4 py-3 text-left text-content-primary hover:bg-surface-secondary transition-colors"
-                                        >
-                                            <ImagePlus className="w-5 h-5 text-accent-primary" />
-                                            <span className="font-medium">Add Images</span>
-                                        </button>
-                                        <div className="border-t border-stroke-subtle">
-                                            <button
-                                                disabled
-                                                className="w-full flex items-center gap-3 px-4 py-3 text-content-tertiary cursor-not-allowed"
-                                            >
-                                                <Sparkles className="w-5 h-5" />
-                                                <span>Templates</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
 
                             {/* Model picker */}
