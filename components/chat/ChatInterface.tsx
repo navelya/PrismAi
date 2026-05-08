@@ -2,12 +2,16 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Sparkles, X, ImagePlus, Pen, MessageCircleMore, Camera, Megaphone, HelpCircle, Workflow as WorkflowIcon } from 'lucide-react';
+import { X, ImagePlus, Pen } from 'lucide-react';
 import { MessageList } from './MessageList';
 import ChatInput from './ChatInput';
+import { ChatEmptyState } from './ChatEmptyState';
+import { WorkflowEmptyState, ChatSkeletons } from './ChatHelpers';
+
+// Re-export helpers that may be consumed by other modules
+export { ExecutionUserFeedback, ChatSkeletons } from './ChatHelpers';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Skeleton } from '@/components/ui/Skeleton';
 import { Toast } from '@/components/ui/Toast';
 
 import { useIsMobile } from '@/lib/hooks/use-mobile';
@@ -562,150 +566,28 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         getUserName();
     }, []);
 
-    if (isEmptyState && !isMobile) {
+    if (isEmptyState) {
         return (
-            <div
-                className="relative flex flex-col h-full bg-surface-primary"
+            <ChatEmptyState
+                userName={userName}
+                isMobile={isMobile}
+                isDragOver={isDragOver}
                 onDragOver={handleChatDragOver}
                 onDragLeave={handleChatDragLeave}
                 onDrop={handleChatDrop}
-            >
-                <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => {
-                        handleImageFiles(e.target.files);
-                        if (imageInputRef.current) imageInputRef.current.value = '';
-                    }}
-                    className="hidden"
-                />
-
-                {isDragOver && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/90 backdrop-blur-sm">
-                        <div className="text-center">
-                            <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                                <ImagePlus className="w-10 h-10 text-white" />
-                            </div>
-                            <h2 className="text-xl font-semibold text-content-primary">Add images</h2>
-                            <p className="text-content-secondary mt-1">Drop files here to add to your message</p>
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex-1 flex items-center justify-center p-6">
-                    <div className="w-full max-w-2xl text-center">
-                        <div className="flex items-center justify-center gap-3 mb-2">
-                            {/* <div className="w-10 h-10 rounded-xl bg-gradient-premium flex items-center justify-center shadow-md shadow-accent-primary/20">
-                                <Sparkles className="w-5 h-5 text-content-inverted" />
-                            </div> */}
-                            <h1 className="text-2xl font-bold text-content-primary">
-                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prisfol'}
-                            </h1>
-                        </div>
-                        <p className="text-content-secondary mb-8">
-                            Tell me what you'd like to do with images, and I'll create an automation workflow for you.
-                        </p>
-
-                        <ChatInput ref={textareaRef} {...chatInputProps} />
-
-                        <div className="mt-8 flex flex-wrap justify-center gap-2">
-                            <button
-                                onClick={createNewSession}
-                                className="px-4 py-2 text-sm bg-accent-primary hover:bg-accent-hover text-white flex items-center gap-2
-                                           rounded-full transition-colors font-medium shadow-md shadow-accent-primary/20"
-                            >
-                                <Pen className="w-4 h-4" />
-                                Start Empty Canvas
-                            </button>
-                            {['Find 10 cat images', 'Remove backgrounds', 'Upscale my photos'].map((prompt) => (
-                                <button
-                                    key={prompt}
-                                    onClick={() => setInput(prompt)}
-                                    className="px-4 py-2 text-sm bg-surface-secondary hover:bg-accent-primary/5 text-content-secondary hover:text-accent-primary 
-                                               rounded-full transition-colors border border-stroke-subtle hover:border-accent-primary/30"
-                                >
-                                    {prompt}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    if (isEmptyState && isMobile) {
-        return (
-            <div
-                className="relative flex flex-col h-full bg-surface-primary"
-                onDragOver={handleChatDragOver}
-                onDragLeave={handleChatDragLeave}
-                onDrop={handleChatDrop}
-            >
-                <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => {
-                        handleImageFiles(e.target.files);
-                        if (imageInputRef.current) imageInputRef.current.value = '';
-                    }}
-                    className="hidden"
-                />
-
-                {isDragOver && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/90 backdrop-blur-sm">
-                        <div className="text-center">
-                            <div className="w-16 h-16 mx-auto mb-3 rounded-xl bg-gradient-premium flex items-center justify-center">
-                                <ImagePlus className="w-8 h-8 text-white" />
-                            </div>
-                            <h2 className="text-lg font-semibold text-content-primary">Add images</h2>
-                            <p className="text-content-secondary text-sm mt-1">Drop files here</p>
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex-1 flex items-center justify-center p-6">
-                    <div className="text-center">
-                        <div className="flex items-center justify-center gap-2 mb-2">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-premium flex items-center justify-center shadow-md">
-                                <Sparkles className="w-4 h-4 text-white" />
-                            </div>
-                            <h1 className="text-xl font-bold text-content-primary">
-                                {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prisfol'}
-                            </h1>
-                        </div>
-                        <p className="text-content-secondary text-sm">
-                            Tell me what you'd like to do with images, or start from scratch.
-                        </p>
-
-                        <div className="mt-6 flex justify-center">
-                            <button
-                                onClick={createNewSession}
-                                className="px-5 py-2.5 text-sm bg-accent-primary hover:bg-accent-hover text-white flex items-center gap-2
-                                           rounded-full transition-colors font-medium shadow-md shadow-accent-primary/20"
-                            >
-                                <Pen className="w-4 h-4" />
-                                Start Empty Canvas
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="sticky bottom-0 border-t border-stroke-subtle p-4 bg-surface-primary/80 backdrop-blur-sm">
-                    <ChatInput ref={textareaRef} {...chatInputProps} />
-                </div>
-                {evictionToast && (
-                    <Toast
-                        message={evictionToastMessage}
-                        duration={4000}
-                        onClose={dismissEvictionToast}
-                    />
-                )}
-            </div>
+                imageInputRef={imageInputRef}
+                onImageInputChange={(e) => {
+                    handleImageFiles(e.target.files);
+                    if (imageInputRef.current) imageInputRef.current.value = '';
+                }}
+                chatInputProps={chatInputProps}
+                textareaRef={textareaRef}
+                onCreateNewSession={createNewSession}
+                onSuggestionClick={(prompt) => setInput(prompt)}
+                evictionToast={evictionToast}
+                evictionToastMessage={evictionToastMessage}
+                onDismissEvictionToast={dismissEvictionToast}
+            />
         );
     }
 
@@ -801,92 +683,3 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     );
 }
 
-export function ExecutionUserFeedback({ serverStatus }: { serverStatus?: string | null }) {
-    const [dots, setDots] = useState('');
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setDots(prev => prev.length >= 3 ? '' : prev + '.');
-        }, 500);
-        return () => clearInterval(interval);
-    }, []);
-
-    const statusText = serverStatus || 'Creating workflow';
-
-    return (
-        <span className="text-sm min-w-[120px]">
-            {statusText}{dots}
-        </span>
-    );
-}
-
-function WorkflowEmptyState({
-    userName,
-    isCanvasMode,
-    onSuggestionClick,
-}: {
-    userName?: string;
-    isCanvasMode: boolean;
-    onSuggestionClick: (prompt: string) => void;
-}) {
-    const firstName = userName?.trim().split(' ')[0]?.replace(/^./, c => c.toUpperCase()) || '';
-
-    const suggestions = [
-        { icon: Camera, text: 'Create a product shot workflow' },
-        { icon: Megaphone, text: 'Generate ad creatives for my brand' },
-        { icon: WorkflowIcon, text: 'Help me pick the right model for my project' },
-        { icon: HelpCircle, text: 'What can I build with Prisfol?' },
-    ];
-
-    return (
-        <div className="flex-1 w-full flex flex-col chat-text-fade-in">
-            <div className="flex-1 flex flex-col items-center justify-center text-center">
-                <div className={`flex items-center justify-center gap-2.5 ${isCanvasMode ? 'mb-2' : 'mb-3'}`}>
-                    <div className={`${isCanvasMode ? 'w-7 h-7' : 'w-9 h-9'} rounded-2xl bg-accent-primary/10 flex items-center justify-center`}>
-                        <MessageCircleMore className={`${isCanvasMode ? 'w-4 h-4' : 'w-[18px] h-[18px]'} text-accent-primary`} strokeWidth={2.2} />
-                    </div>
-                    <h1 className={`${isCanvasMode ? 'text-xl' : 'text-3xl'} font-semibold text-content-primary tracking-tight`}>
-                        Hey{firstName ? ` ${firstName}` : ''}
-                    </h1>
-                </div>
-                <p className={`text-content-secondary leading-relaxed ${isCanvasMode ? 'text-xs max-w-[260px]' : 'text-sm max-w-md'}`}>
-                    I help you build workflows and get advice on your creative projects. Ask me anything.
-                </p>
-            </div>
-
-            <div className={`flex flex-col gap-2 w-full mx-auto ${isCanvasMode ? 'max-w-[300px]' : 'max-w-md'}`}>
-                {suggestions.map(({ icon: Icon, text }) => (
-                    <button
-                        key={text}
-                        type="button"
-                        onClick={() => onSuggestionClick(text)}
-                        className={`group flex items-center gap-2.5 ${isCanvasMode ? 'px-3 py-2 text-xs' : 'px-4 py-2.5 text-sm'}
-                                    rounded-xl bg-surface-secondary hover:bg-surface-tertiary
-                                    border border-stroke-subtle hover:border-accent-primary/40
-                                    text-content-secondary hover:text-content-primary
-                                    transition-colors text-left`}
-                    >
-                        <Icon className={`${isCanvasMode ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-content-tertiary group-hover:text-accent-primary transition-colors flex-shrink-0`} strokeWidth={2} />
-                        <span className="truncate">{text}</span>
-                    </button>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-export function ChatSkeletons({ isCanvasMode }: { isCanvasMode: boolean }) {
-    return (
-        <div className="space-y-8 animate-in fade-in duration-700">
-            {[1, 2, 3].map((i) => (
-                <div key={i} className={`flex ${isCanvasMode ? 'gap-2.5' : 'gap-4'} ${i === 2 ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <Skeleton className={`${isCanvasMode ? 'w-6 h-6' : 'w-9 h-9'} rounded-xl flex-shrink-0 mt-1`} />
-                    <div className={`space-y-3 flex-1 ${i === 2 ? 'max-w-[70%]' : 'max-w-[85%]'} flex flex-col ${i === 2 ? 'items-end' : 'items-start'}`}>
-                        <Skeleton className={`h-3 ${i === 2 ? 'w-20' : 'w-32'} rounded-full opacity-40`} />
-                        <Skeleton className={`h-24 w-full rounded-2xl border border-white/5`} />
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
