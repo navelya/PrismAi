@@ -52,10 +52,18 @@ export function formatRegistryContext(input: RegistryContextInput): string {
   const nodeDocs: string[] = [];
 
   for (const [type, def] of Object.entries(sharedRegistry)) {
-    const inputs = def.handles?.inputs?.map((h: any) => {
-      const t = Array.isArray(h.expectedType) ? h.expectedType.join('|') : h.expectedType || 'any';
-      return `"${h.id}" (${t})`;
-    }).join(', ') || 'none';
+    // The static registry's ai_generator inputs (trigger/prompt/image)
+    // are LEGACY fallbacks — the rendered ai_generator pulls handles
+    // from each model's inputs_schema.handles. Showing the static list
+    // alongside the per-model list creates conflicting signals, so we
+    // suppress the static line for ai_generator and point to the
+    // per-model section below.
+    const inputs = type === 'ai_generator'
+      ? '(dynamic per model — see "AI GENERATOR MODELS" section below for the actual handle ids of the chosen model_id)'
+      : (def.handles?.inputs?.map((h: any) => {
+          const t = Array.isArray(h.expectedType) ? h.expectedType.join('|') : h.expectedType || 'any';
+          return `"${h.id}" (${t})`;
+        }).join(', ') || 'none');
 
     const outputs = def.handles?.outputs?.map((h: any) => {
       return `"${h.id}" (${h.dataType || 'any'})`;
