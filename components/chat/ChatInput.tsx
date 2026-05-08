@@ -1,0 +1,355 @@
+'use client';
+
+import React, {
+    useState,
+    useRef,
+    useEffect,
+    useLayoutEffect,
+    useCallback,
+    forwardRef,
+} from 'react';
+import {
+    Send,
+    Mic,
+    MicOff,
+    Square,
+    Plus,
+    X,
+    ImagePlus,
+    Sparkles,
+} from 'lucide-react';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { useIsMobile } from '@/lib/hooks/use-mobile';
+
+interface ChatInputProps {
+    value: string;
+    onChange: (v: string) => void;
+    disabled?: boolean;
+    onSend: () => void;
+    onStop: () => void;
+    isLoading: boolean;
+    onOpenImagePicker: () => void;
+    onToggleVoice: () => void;
+    isVoiceActive: boolean;
+    isCanvasMode: boolean;
+    attachedImages: string[];
+    onRemoveAttachedImage: (index: number) => void;
+}
+
+const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
+    function ChatInput(
+        {
+            value,
+            onChange,
+            disabled,
+            onSend,
+            onStop,
+            isLoading,
+            onOpenImagePicker,
+            onToggleVoice,
+            isVoiceActive,
+            isCanvasMode,
+            attachedImages,
+            onRemoveAttachedImage,
+        },
+        ref
+    ) {
+        const isMobile = useIsMobile();
+
+        const [isExpanded, setIsExpanded] = useState(false);
+        const [isMultiLine, setIsMultiLine] = useState(false);
+        const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+
+        // Internal refs for the ghost element (single-line width probe) and the
+        // forwarded textarea.  We need a local ref for effects; if the parent
+        // passes a callback ref we create a local one and keep them in sync.
+        const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
+        const textareaRef =
+            (ref as React.RefObject<HTMLTextAreaElement>) ?? internalTextareaRef;
+        const ghostRef = useRef<HTMLDivElement>(null);
+
+        // ── height management ──────────────────────────────────────────────
+        const adjustTextareaHeight = useCallback(() => {
+            const textarea = textareaRef.current;
+            const ghost = ghostRef.current;
+            if (!textarea) return;
+
+            const currentInput = textarea.value;
+            const hasNewlines = currentInput.includes('\n');
+
+            if (!isMultiLine && !hasNewlines) {
+                if (textarea.scrollHeight > 40) {
+                    setIsMultiLine(true);
+                }
+            } else {
+                textarea.style.height = 'auto';
+                const contentHeight = textarea.scrollHeight;
+
+                if (!hasNewlines && contentHeight < 60 && ghost) {
+                    ghost.textContent = currentInput;
+                    const singleLineAvailableWidth = textarea.clientWidth - 144;
+                    ghost.style.width = `${singleLineAvailableWidth}px`;
+
+                    if (ghost.scrollHeight < 50) {
+                        setIsMultiLine(false);
+                    }
+                } else if (!hasNewlines && contentHeight < 60) {
+                    setIsMultiLine(false);
+                } else {
+                    setIsMultiLine(hasNewlines || contentHeight > 40);
+                    const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
+                    const newHeight = Math.min(contentHeight, maxHeight);
+                    textarea.style.height = `${newHeight}px`;
+                }
+            }
+        }, [isMultiLine, isMobile, isExpanded, textareaRef]);
+
+        // Sync height whenever value changes (including when cleared)
+        useEffect(() => {
+            adjustTextareaHeight();
+        }, [value, adjustTextareaHeight]);
+
+        // Sync height on textarea resize
+        useEffect(() => {
+            const textarea = textareaRef.current;
+            if (!textarea) return;
+            const ro = new ResizeObserver(() => {
+                adjustTextareaHeight();
+            });
+            ro.observe(textarea);
+            return () => ro.disconnect();
+        }, [adjustTextareaHeight, textareaRef]);
+
+        // Enforce max-height on isMultiLine toggle
+        useLayoutEffect(() => {
+            const textarea = textareaRef.current;
+            if (textarea && isMultiLine) {
+                textarea.style.height = 'auto';
+                const newHeight = textarea.scrollHeight;
+                const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
+                textarea.style.height = `${Math.min(newHeight, maxHeight)}px`;
+            }
+        }, [isMultiLine, isMobile, isExpanded, textareaRef]);
+
+        const showExpandButton =
+            isMobile &&
+            !isExpanded &&
+            textareaRef.current !== null &&
+            (textareaRef.current?.scrollHeight ?? 0) > 72;
+
+        return (
+            <form
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    onSend();
+                }}
+                className="relative w-full max-w-3xl mx-auto"
+            >
+                {showExpandButton && (
+                    <button
+                        type="button"
+                        onClick={() => setIsExpanded(true)}
+                        className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 text-xs
+                                   bg-surface-tertiary hover:bg-surface-elevated text-content-secondary rounded-t-lg
+                                   border border-b-0 border-stroke-subtle transition-colors z-10"
+                    >
+                        Expand ↑
+                    </button>
+                )}
+
+                <div
+                    className={`relative flex flex-col rounded-2xl border bg-surface-secondary/30 backdrop-blur-xl
+                               focus-within:ring-2 focus-within:ring-accent-primary/20 focus-within:border-accent-primary/50 focus-within:bg-bg-primary/50
+                               transition-all duration-300 group/input
+                               ${isVoiceActive
+                            ? 'border-accent-error ring-2 ring-accent-error/20'
+                            : 'border-accent-primary/10'
+                        }`}
+                >
+                    {attachedImages.length > 0 && (
+                        <div
+                            className={`flex gap-2 px-3 pt-3 pb-1 overflow-x-auto ${isCanvasMode ? 'px-2 pt-2' : 'px-3 pt-3'}`}
+                        >
+                            {attachedImages.map((img, index) => (
+                                <div
+                                    key={index}
+                                    className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden group/img bg-surface-tertiary border border-stroke-subtle"
+                                >
+                                    <img
+                                        src={img}
+                                        alt={`Attached ${index + 1}`}
+                                        className="w-full h-full object-cover"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => onRemoveAttachedImage(index)}
+                                        className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 rounded-full flex items-center justify-center
+                                                   opacity-0 group-hover/img:opacity-100 hover:bg-accent-error transition-all"
+                                    >
+                                        <X className="w-3 h-3 text-white" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Ghost div for single-line width probe */}
+                    <div
+                        ref={ghostRef}
+                        className="absolute top-0 left-0 -z-50 invisible whitespace-pre-wrap break-words pointer-events-none"
+                        style={{
+                            fontFamily: 'inherit',
+                            fontSize: 'inherit',
+                            lineHeight: '1.5rem',
+                            padding: '8px 8px',
+                            minHeight: '0px',
+                        }}
+                        aria-hidden="true"
+                    />
+
+                    <textarea
+                        ref={textareaRef}
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                onSend();
+                            }
+                        }}
+                        placeholder={
+                            isVoiceActive
+                                ? 'Listening...'
+                                : isCanvasMode
+                                    ? 'Edit canvas'
+                                    : 'Message Prism...'
+                        }
+                        rows={1}
+                        disabled={disabled}
+                        className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
+                                     ${isMultiLine || attachedImages.length > 0
+                                ? `relative w-full px-4 py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`
+                                : `absolute ${isCanvasMode ? 'left-10 right-20' : 'left-12 right-24'} top-1/2 -translate-y-1/2 px-2 py-2`
+                            }`}
+                        style={{
+                            minHeight:
+                                isMultiLine || attachedImages.length > 0 ? '40px' : '24px',
+                            maxHeight: isMobile
+                                ? isExpanded
+                                    ? '200px'
+                                    : '72px'
+                                : '200px',
+                            overflowY: isMultiLine ? 'auto' : 'hidden',
+                            scrollbarWidth: 'none',
+                            msOverflowStyle: 'none',
+                        } as React.CSSProperties}
+                    />
+
+                    <div
+                        className={`flex w-full items-center justify-between px-2 pb-2
+                                    ${isMultiLine || attachedImages.length > 0 ? '' : 'pt-2'}`}
+                    >
+                        {/* Left: attachment button */}
+                        <div className="relative z-10">
+                            <Tooltip content="Add attachment" position="top">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                                    className={`p-2 rounded-lg transition-colors ${isPlusMenuOpen
+                                        ? 'bg-surface-tertiary text-content-primary'
+                                        : 'bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary'
+                                        }`}
+                                >
+                                    <Plus
+                                        className={`w-5 h-5 transition-transform ${isPlusMenuOpen ? 'rotate-45' : ''}`}
+                                    />
+                                </button>
+                            </Tooltip>
+
+                            {isPlusMenuOpen && (
+                                <div className="absolute bottom-full left-0 mb-2 w-48 bg-surface-primary rounded-xl shadow-xl border border-stroke-subtle overflow-hidden z-50">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            onOpenImagePicker();
+                                            setIsPlusMenuOpen(false);
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-content-primary hover:bg-surface-secondary transition-colors"
+                                    >
+                                        <ImagePlus className="w-5 h-5 text-accent-primary" />
+                                        <span className="font-medium">Add Images</span>
+                                    </button>
+                                    <div className="border-t border-stroke-subtle">
+                                        <button
+                                            disabled
+                                            className="w-full flex items-center gap-3 px-4 py-3 text-content-tertiary cursor-not-allowed"
+                                        >
+                                            <Sparkles className="w-5 h-5" />
+                                            <span>Templates</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Right: voice + send/stop */}
+                        <div className="flex items-center gap-1 z-10">
+                            {!isLoading && (
+                                <Tooltip
+                                    content={isVoiceActive ? 'Stop listening' : 'Voice input'}
+                                    position="top"
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={onToggleVoice}
+                                        className={`p-2 rounded-lg transition-all duration-200
+                                            ${isVoiceActive
+                                                ? 'bg-accent-error text-white animate-pulse'
+                                                : 'bg-surface-secondary text-content-tertiary hover:bg-surface-tertiary hover:text-content-secondary'
+                                            }`}
+                                    >
+                                        {isVoiceActive ? (
+                                            <MicOff className="w-4 h-4" />
+                                        ) : (
+                                            <Mic className="w-4 h-4" />
+                                        )}
+                                    </button>
+                                </Tooltip>
+                            )}
+
+                            {isLoading ? (
+                                <Tooltip content="Stop" position="top">
+                                    <button
+                                        type="button"
+                                        onClick={onStop}
+                                        className="p-2 rounded-lg bg-surface-secondary hover:bg-accent-error/10 border border-stroke-subtle hover:border-accent-error/30 transition-all duration-200 group"
+                                    >
+                                        <Square className="w-4 h-4 text-content-tertiary group-hover:text-accent-error fill-current transition-colors" />
+                                    </button>
+                                </Tooltip>
+                            ) : (
+                                <Tooltip content="Send message" position="top">
+                                    <button
+                                        type="submit"
+                                        disabled={!value.trim() && attachedImages.length === 0}
+                                        className={`p-2 rounded-lg transition-all duration-300
+                                            ${value.trim() || attachedImages.length > 0
+                                                ? 'bg-accent-primary hover:bg-accent-hover text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                                                : 'bg-surface-tertiary text-content-tertiary cursor-not-allowed'
+                                            }`}
+                                    >
+                                        <Send
+                                            className={`${isCanvasMode ? 'w-3.5 h-3.5' : 'w-4 h-4'}`}
+                                        />
+                                    </button>
+                                </Tooltip>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </form>
+        );
+    }
+);
+
+export default ChatInput;
