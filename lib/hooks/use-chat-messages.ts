@@ -123,7 +123,8 @@ export function useChatMessages({
         attachedImages: string[],
         clearAttachments: () => void,
         setInput: (val: string) => void,
-        clarificationAnswerOverride?: { questionMessageId: string; chosenIndex: number | null }
+        clarificationAnswerOverride?: { questionMessageId: string; chosenIndex: number | null },
+        planAnswerOverride?: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string }
     ) => {
         if (!trimmedInput && attachedImages.length === 0) return;
 
@@ -141,6 +142,27 @@ export function useChatMessages({
                 if (m.type === 'assistant') {
                     if (m.clarification?.options && !m.clarificationAnswer) {
                         resolvedClarificationAnswer = { questionMessageId: m.id, chosenIndex: null };
+                    }
+                    break; // only inspect the most recent assistant in this session
+                }
+            }
+        }
+
+        // Resolve plan answer: explicit override (from approve / feedback button) OR
+        // implicit (the most recent assistant message has a pending plan and the
+        // user is responding via the main chat input — treated as feedback).
+        let resolvedPlanAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string } | undefined =
+            planAnswerOverride;
+        if (!resolvedPlanAnswer) {
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i];
+                if (m.type === 'assistant') {
+                    if (m.plan && !m.planAnswer) {
+                        resolvedPlanAnswer = {
+                            planMessageId: m.id,
+                            action: 'feedback',
+                            feedbackText: trimmedInput,
+                        };
                     }
                     break; // only inspect the most recent assistant in this session
                 }
@@ -224,6 +246,24 @@ export function useChatMessages({
             });
         }
 
+        if (resolvedPlanAnswer) {
+            useAppStore.getState().updateMessage(resolvedPlanAnswer.planMessageId, {
+                planAnswer: {
+                    action: resolvedPlanAnswer.action,
+                    feedbackText: resolvedPlanAnswer.action === 'feedback' ? resolvedPlanAnswer.feedbackText : undefined,
+                },
+                planApproveError: undefined, // clear any prior approve-failed state
+            });
+            // Mirror planAnswer onto the synthetic user message so the
+            // 'Approved' bubble is suppressed by Message.tsx's render guard
+            // (the suppression check lives in Task 10).
+            if (resolvedPlanAnswer.action === 'approve') {
+                useAppStore.getState().updateMessage(userMsgId, {
+                    planAnswer: { action: 'approve' },
+                });
+            }
+        }
+
         setIsLoading(true);
         setStatusMessage('Prism is thinking...');
 
@@ -256,6 +296,7 @@ export function useChatMessages({
                     attachedImages: imagesToSend,
                     selectedModel: useAppStore.getState().selectedChatModel,
                     clarificationAnswer: resolvedClarificationAnswer,
+                    planAnswer: resolvedPlanAnswer,
                     userMessageId: userMsgId,
                     assistantMessageId: assistantMsgId,
                 }),
@@ -363,6 +404,24 @@ export function useChatMessages({
                         clarification: { options: Array.isArray(parsed.options) ? parsed.options : [] },
                     });
                 }
+                else if (parsed.type === 'plan') {
+                    const p = parsed.plan;
+                    if (p && typeof p === 'object') {
+                        useAppStore.getState().updateMessage(assistantMsgId, {
+                            plan: {
+                                title: typeof p.title === 'string' ? p.title : '',
+                                summary: typeof p.summary === 'string' ? p.summary : '',
+                                arrows: typeof p.arrows === 'string' ? p.arrows : '',
+                                models: Array.isArray(p.models) ? p.models.filter((s: any) => typeof s === 'string') : [],
+                                detail: typeof p.detail === 'string' ? p.detail : '',
+                                blueprint: {
+                                    nodes: Array.isArray(p.blueprint?.nodes) ? p.blueprint.nodes : [],
+                                    edges: Array.isArray(p.blueprint?.edges) ? p.blueprint.edges : [],
+                                },
+                            },
+                        });
+                    }
+                }
                 else if (parsed.type === 'tool' && ['add_node', 'update_node', 'remove_node', 'mutate_workflow'].includes(parsed.name)) {
                     if (parsed.message) {
                         networkText += (networkText ? '\n\n' : '') + parsed.message;
@@ -420,9 +479,19 @@ export function useChatMessages({
                     }
                 }
                 else if (parsed.type === 'error') {
-                    // Accept either new-brain `message` field or legacy `content` field
                     const errorText = parsed.message ?? parsed.content ?? 'Unknown error';
-                    networkText += (networkText ? '\n\n' : '') + `⚠️ ${errorText}`;
+                    // Special-case: if this turn is an approve attempt, route the error
+                    // to the plan card's planApproveError instead of the message body so
+                    // the user sees it in context (and the optimistic approved state
+                    // reverts to pending).
+                    if (resolvedPlanAnswer?.action === 'approve') {
+                        useAppStore.getState().updateMessage(resolvedPlanAnswer.planMessageId, {
+                            planAnswer: undefined, // revert optimistic approved transition
+                            planApproveError: errorText,
+                        });
+                    } else {
+                        networkText += (networkText ? '\n\n' : '') + `⚠️ ${errorText}`;
+                    }
                 }
                 else if (parsed.type === 'done') {
                     // Mark message as completed when the stream signals done
@@ -486,6 +555,23 @@ export function useChatMessages({
         handleSend(lastUserMsg.content, [], lastUserMsg.images || [], () => { }, () => { });
     };
 
+    /** Called when the user clicks Approve & Build on a plan card. */
+    const handlePlanApprove = (planMessageId: string) => {
+        handleSend('Approved', [], [], () => {}, () => {}, undefined, {
+            planMessageId,
+            action: 'approve',
+        });
+    };
+
+    /** Called when the user submits feedback inside a plan card. */
+    const handlePlanFeedback = (planMessageId: string, feedbackText: string) => {
+        handleSend(feedbackText, [], [], () => {}, () => {}, undefined, {
+            planMessageId,
+            action: 'feedback',
+            feedbackText,
+        });
+    };
+
     return {
         editingMessageId,
         setEditingMessageId,
@@ -493,6 +579,8 @@ export function useChatMessages({
         handleRevert,
         handleStop,
         handleSend,
-        retryLast
+        retryLast,
+        handlePlanApprove,
+        handlePlanFeedback,
     };
 }
