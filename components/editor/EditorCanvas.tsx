@@ -121,6 +121,11 @@ const EditorCanvasInner = ({
         if (!isDraggingRef.current) {
             setLocalNodes(propNodes);
         }
+        // TEMP DIAGNOSTIC: log every time propNodes changes so we can see
+        // whether the new group ever reaches EditorCanvas as a prop.
+        const groupsInProp = propNodes.filter((n: any) => n.type === 'group_container');
+        console.log('[Group][propSync] propNodes length:', propNodes.length,
+            'group_container nodes in propNodes:', groupsInProp.length, groupsInProp);
     }, [propNodes]);
 
     const { resolvedTheme } = useTheme();
