@@ -1,8 +1,8 @@
 import { NodeServerDef } from './types';
 import { mediaInputSharedDef } from '../plugins/media_input/definition';
 import { mediaInputExecutor } from '../plugins/media_input/executor.server';
-import { promptSharedDef } from '../plugins/prompt';
-import { promptExecutor } from '../plugins/prompt/executor';
+import { promptSharedDef } from '../plugins/prompt/definition';
+import { promptExecutor } from '../plugins/prompt/executor.server';
 import { compositorSharedDef } from '../plugins/compositor/definition';
 import { compositorExecutor } from '../plugins/compositor/executor.server';
 import { blurSharedDef } from '../plugins/blur/definition';

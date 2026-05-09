@@ -1,5 +1,5 @@
 import { NodeSharedDef } from './types';
-import { promptSharedDef } from '../plugins/prompt';
+import { promptSharedDef } from '../plugins/prompt/definition';
 import { mediaInputSharedDef } from '../plugins/media_input/definition';
 import { compositorSharedDef } from '../plugins/compositor/definition';
 import { blurSharedDef } from '../plugins/blur/definition';

@@ -1,7 +1,7 @@
 import { NodeClientDef } from './types';
 import { mediaInputClientDef } from '../plugins/media_input';
 import { compositorClientDef } from '../plugins/compositor';
-import { promptClientDef } from '../plugins/prompt/component';
+import { promptClientDef } from '../plugins/prompt';
 import { blurClientDef } from '../plugins/blur';
 import AIGeneratorNode from '@/components/canvas/AIGeneratorNode';
 import AIGeneratorProperties from '@/components/canvas/AIGeneratorProperties';
