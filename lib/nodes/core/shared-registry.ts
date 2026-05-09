@@ -1,7 +1,7 @@
 import { NodeSharedDef } from './types';
 import { promptSharedDef } from '../plugins/prompt';
 import { mediaInputSharedDef } from '../plugins/media_input';
-import { compositorSharedDef } from '../plugins/compositor';
+import { compositorSharedDef } from '../plugins/compositor/definition';
 import { blurSharedDef } from '../plugins/blur/definition';
 
 // The global shared registry mapping definition types
