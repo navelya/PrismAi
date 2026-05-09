@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NodeProps, NodeToolbar, Position } from 'reactflow';
 import { useAppStore } from '@/lib/store/app-store';
 import { GROUP_RESIZE_HANDLE_SIZE } from '@/lib/nodes/group-constants';
@@ -55,6 +55,20 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     useEffect(() => {
         if (isEditingTitle) inputRef.current?.select();
     }, [isEditingTitle]);
+
+    // Auto-size the title input to its content. We render an off-screen span
+    // with the SAME font styling as the input, then read its offsetWidth and
+    // mirror it onto the input. useLayoutEffect runs synchronously before
+    // paint so the user never sees a stale width while typing.
+    const measureRef = useRef<HTMLSpanElement>(null);
+    const [inputWidth, setInputWidth] = useState(40);
+    useLayoutEffect(() => {
+        if (!isEditingTitle) return;
+        if (measureRef.current) {
+            // +6px buffer leaves room for the caret on the trailing edge.
+            setInputWidth(Math.max(20, measureRef.current.offsetWidth + 6));
+        }
+    }, [titleDraft, isEditingTitle]);
 
     // Pointer-driven resize. We capture the pointer on mousedown, then the
     // active-direction state and starting geometry are read from refs (NOT
@@ -122,17 +136,38 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     onMouseDown={(e) => e.stopPropagation()}
                 >
                     {isEditingTitle ? (
-                        <input
-                            ref={inputRef}
-                            value={titleDraft}
-                            onChange={(e) => setTitleDraft(e.target.value)}
-                            onBlur={commitTitle}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') commitTitle();
-                                else if (e.key === 'Escape') cancelTitle();
-                            }}
-                            className="bg-transparent text-content-primary text-xs font-medium px-1 outline-none focus:ring-0 nopan nodrag w-32"
-                        />
+                        <>
+                            <input
+                                ref={inputRef}
+                                value={titleDraft}
+                                onChange={(e) => setTitleDraft(e.target.value)}
+                                onBlur={commitTitle}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') commitTitle();
+                                    else if (e.key === 'Escape') cancelTitle();
+                                }}
+                                style={{ width: inputWidth }}
+                                className="bg-transparent text-content-primary text-xs font-medium px-1 outline-none focus:ring-0 nopan nodrag"
+                            />
+                            {/* Off-screen mirror used solely for width measurement.
+                                whitespace:pre preserves leading/trailing spaces so the
+                                width tracks exactly what's visible. */}
+                            <span
+                                ref={measureRef}
+                                aria-hidden
+                                className="text-xs font-medium px-1"
+                                style={{
+                                    position: 'absolute',
+                                    visibility: 'hidden',
+                                    whiteSpace: 'pre',
+                                    pointerEvents: 'none',
+                                    left: -9999,
+                                    top: -9999,
+                                }}
+                            >
+                                {titleDraft || ' '}
+                            </span>
+                        </>
                     ) : (
                         <button
                             type="button"
