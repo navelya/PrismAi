@@ -673,10 +673,25 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             ...updatedNodes,
         ];
 
+        console.log('[groupNodes] BEFORE set: workflow.nodes.length=',
+            currentWorkflow.nodes.length, 'reorderedNodes.length=', reorderedNodes.length);
+
         set({
             currentWorkflow: { ...currentWorkflow, nodes: reorderedNodes },
             isWorkflowDirty: true,
         });
+
+        const after = get().currentWorkflow;
+        console.log('[groupNodes] AFTER set: workflow.nodes.length=', after?.nodes.length,
+            'has new group:', !!after?.nodes.find((n) => n.id === groupId));
+
+        // Defer one tick + read again — if something else is overwriting our
+        // state, this will show a different number than the synchronous read.
+        setTimeout(() => {
+            const later = get().currentWorkflow;
+            console.log('[groupNodes][next-tick] workflow.nodes.length=', later?.nodes.length,
+                'has new group:', !!later?.nodes.find((n: WorkflowNode) => n.id === groupId));
+        }, 0);
 
         return groupId;
     },
