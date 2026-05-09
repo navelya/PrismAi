@@ -1,12 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { NodeProps } from 'reactflow';
+import { NodeProps, NodeToolbar, Position } from 'reactflow';
 import { useAppStore } from '@/lib/store/app-store';
-import {
-    GROUP_TITLE_BAR_HEIGHT,
-    GROUP_RESIZE_HANDLE_SIZE,
-} from '@/lib/nodes/group-constants';
+import { GROUP_RESIZE_HANDLE_SIZE } from '@/lib/nodes/group-constants';
 
 interface GroupNodeData {
     label: string;
@@ -108,76 +105,85 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     }, []);
 
     return (
-        <div
-            className={
-                "group relative rounded-2xl bg-bg-primary/60 transition-colors " +
-                (isHoverTarget
-                    ? "border-2 border-accent-primary"
-                    : "border border-stroke-subtle/60")
-            }
-            style={{
-                width,
-                height,
-                // The "group" Tailwind utility class above lets handles use
-                // group-hover:opacity-100 to fade in on hover.
-            }}
-            data-group-id={id}
-            data-group-selected={selected ? 'true' : 'false'}
-        >
-            {/* Title (top-right). Single click selects the group via RF's normal
-                selection handler; second click on the title turns into an input. */}
-            <div
-                className="absolute top-0 right-0 flex items-center pr-3 pointer-events-auto"
-                style={{ height: GROUP_TITLE_BAR_HEIGHT }}
-                onMouseDown={(e) => e.stopPropagation()}
+        <>
+            {/* Title bubble — floats above the top-left of the group.
+                NodeToolbar is rendered in a portal at constant screen-size,
+                so the bubble does NOT scale with the canvas zoom (matching
+                the multi-select toolbar's behavior). Click to edit. */}
+            <NodeToolbar
+                isVisible={true}
+                nodeId={id}
+                position={Position.Top}
+                align="start"
             >
-                {isEditingTitle ? (
-                    <input
-                        ref={inputRef}
-                        value={titleDraft}
-                        onChange={(e) => setTitleDraft(e.target.value)}
-                        onBlur={commitTitle}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitTitle();
-                            else if (e.key === 'Escape') cancelTitle();
-                        }}
-                        className="bg-transparent border-b border-stroke-subtle text-content-primary text-sm px-1 py-0.5 outline-none focus:border-accent-primary nopan nodrag"
-                    />
-                ) : (
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            // Only enter rename mode on a second click — this stops
-                            // the very first click from immediately stealing focus
-                            // before the user even sees that the group is selected.
-                            if (selected) {
+                <div
+                    className="nopan nowheel flex items-center px-2 py-1 rounded-md bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle shadow-lg"
+                    style={{ pointerEvents: 'auto' }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    {isEditingTitle ? (
+                        <input
+                            ref={inputRef}
+                            value={titleDraft}
+                            onChange={(e) => setTitleDraft(e.target.value)}
+                            onBlur={commitTitle}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitTitle();
+                                else if (e.key === 'Escape') cancelTitle();
+                            }}
+                            className="bg-transparent text-content-primary text-xs font-medium px-1 outline-none focus:ring-0 nopan nodrag w-32"
+                        />
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={(e) => {
                                 e.stopPropagation();
                                 setIsEditingTitle(true);
-                            }
-                        }}
-                        className="text-content-primary text-sm font-medium px-1 py-0.5 rounded hover:bg-white/5 cursor-text"
-                    >
-                        {data.label || 'Group'}
-                    </button>
-                )}
-            </div>
+                            }}
+                            className="text-content-primary text-xs font-medium px-1 cursor-text"
+                        >
+                            {data.label || 'Group'}
+                        </button>
+                    )}
+                </div>
+            </NodeToolbar>
 
-            {/* Resize handles — visible on hover or when the group is selected.
-                Always rendered so they participate in pointer hit-testing; their
-                opacity is what changes. */}
-            {HANDLES.map((h) => (
-                <div
-                    key={h.dir}
-                    onPointerDown={(e) => onResizePointerDown(e, h.dir)}
-                    onPointerMove={onResizePointerMove}
-                    onPointerUp={onResizePointerUp}
-                    className={
-                        "absolute z-20 nopan nodrag transition-opacity " +
-                        (selected ? "opacity-100" : "opacity-0 group-hover:opacity-100")
-                    }
-                    style={{ ...h.style, cursor: h.cursor }}
-                />
-            ))}
-        </div>
+            <div
+                className={
+                    "group relative rounded-2xl transition-colors " +
+                    (isHoverTarget
+                        ? "border-2 border-accent-primary"
+                        : "border border-stroke-subtle/60")
+                }
+                style={{
+                    width,
+                    height,
+                    // Translucent gray fill — independent of theme tokens so the
+                    // tint is visible on both dark and light canvas backgrounds.
+                    background: 'rgba(127, 127, 127, 0.10)',
+                    // The "group" Tailwind utility class above lets handles use
+                    // group-hover:opacity-100 to fade in on hover.
+                }}
+                data-group-id={id}
+                data-group-selected={selected ? 'true' : 'false'}
+            >
+                {/* Resize handles — visible on hover or when the group is selected.
+                    Always rendered so they participate in pointer hit-testing; their
+                    opacity is what changes. */}
+                {HANDLES.map((h) => (
+                    <div
+                        key={h.dir}
+                        onPointerDown={(e) => onResizePointerDown(e, h.dir)}
+                        onPointerMove={onResizePointerMove}
+                        onPointerUp={onResizePointerUp}
+                        className={
+                            "absolute z-20 nopan nodrag transition-opacity " +
+                            (selected ? "opacity-100" : "opacity-0 group-hover:opacity-100")
+                        }
+                        style={{ ...h.style, cursor: h.cursor }}
+                    />
+                ))}
+            </div>
+        </>
     );
 }

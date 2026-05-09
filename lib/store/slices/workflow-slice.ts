@@ -8,7 +8,6 @@ import { deriveEnvelopeFromConfig } from '@/lib/hooks/use-resolved-node-value';
 import { CompositorConfig, CompositorLayer, calculateInitialTransform } from '../../nodes/types';
 import {
     GROUP_PADDING,
-    GROUP_TITLE_BAR_HEIGHT,
     GROUP_DEFAULT_LABEL,
 } from '../../nodes/group-constants';
 
@@ -595,10 +594,13 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
         );
 
+        // The title now lives in a floating NodeToolbar bubble above the
+        // container (constant screen-size, outside the node body), so we no
+        // longer reserve a title-bar strip inside the group.
         const groupX = bbox.minX - GROUP_PADDING;
-        const groupY = bbox.minY - GROUP_PADDING - GROUP_TITLE_BAR_HEIGHT;
+        const groupY = bbox.minY - GROUP_PADDING;
         const groupW = (bbox.maxX - bbox.minX) + GROUP_PADDING * 2;
-        const groupH = (bbox.maxY - bbox.minY) + GROUP_PADDING * 2 + GROUP_TITLE_BAR_HEIGHT;
+        const groupH = (bbox.maxY - bbox.minY) + GROUP_PADDING * 2;
 
         const groupId = `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -794,7 +796,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const minHeight = children.reduce((acc, c) => {
             const h = c.measured?.height ?? c.height ?? 100;
             return Math.max(acc, c.position.y + h + GROUP_PADDING);
-        }, GROUP_PADDING * 2 + GROUP_TITLE_BAR_HEIGHT);
+        }, GROUP_PADDING * 2);
 
         const clampedW = Math.max(width, minWidth);
         const clampedH = Math.max(height, minHeight);
