@@ -24,7 +24,7 @@ import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
 import { CanvasToolbar } from './canvas/CanvasToolbar';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Trash2, Copy } from 'lucide-react';
+import { Trash2, Copy, Group as GroupIcon } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
@@ -203,6 +203,33 @@ const EditorCanvasInner = ({
         if (selectedNodeIds.length === 0) return;
         onDelete(selectedNodeIds);
     }, [reactFlowInstance, localNodes, onDelete]);
+
+    // Group button is shown only when 2+ nodes are selected AND none are already
+    // in a group. Mixed selections (some grouped, some not) would be ambiguous —
+    // the user must ungroup first.
+    const canGroupSelection = useMemo(() => {
+        if (selectedNodeIds.length < 2) return false;
+        const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
+        const selectedNodes = rfNodes.filter((n: any) => selectedNodeIds.includes(n.id));
+        if (selectedNodes.length < 2) return false;
+        // No selected node may already have a parentNode, AND none may BE a group
+        // (no nesting per spec).
+        return selectedNodes.every((n: any) => !n.parentNode && n.type !== 'group');
+    }, [reactFlowInstance, localNodes, selectedNodeIds]);
+
+    const groupNodes = useAppStore((state) => state.groupNodes);
+
+    const handleGroupSelected = useCallback(() => {
+        if (!canGroupSelection) return;
+        const newGroupId = groupNodes(selectedNodeIds);
+        if (newGroupId && reactFlowInstance) {
+            // Move selection from the children to the new group itself, so the
+            // single-select toolbar / property panel act on the group next.
+            reactFlowInstance.setNodes((nds: any[]) =>
+                nds.map((n) => ({ ...n, selected: n.id === newGroupId })),
+            );
+        }
+    }, [canGroupSelection, groupNodes, selectedNodeIds, reactFlowInstance]);
 
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const wrapperRectRef = useRef<{ left: number; top: number } | null>(null);
@@ -552,6 +579,17 @@ const EditorCanvasInner = ({
                             style={{ pointerEvents: 'auto', zIndex: 50 }}
                             onMouseDown={(e) => e.stopPropagation()}
                         >
+                            {canGroupSelection && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleGroupSelected(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                    title="Group selected"
+                                >
+                                    <GroupIcon className="w-3 h-3 pointer-events-none" />
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
