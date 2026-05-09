@@ -20,7 +20,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson, NodeConfig } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { dispatchNode } from '@/lib/workflow/dispatch-v2';
-import { isEphemeralNode } from '@/lib/workflow/handlers';
+import { isEphemeralNode } from '@/lib/nodes/core/server-registry';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
 import { getAiArrayInputKeys } from '@/lib/workflow/orchestrator';
 import { getAuthenticatedUser } from '@/lib/api/auth';
