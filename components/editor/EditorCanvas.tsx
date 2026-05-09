@@ -286,6 +286,27 @@ const EditorCanvasInner = ({
                 nds.map((n) => ({ ...n, selected: n.id === newGroupId })),
             );
         }
+
+        // Re-check RF state after the next render — the synchronous logs above
+        // run before propNodes has propagated through the parent → EditorCanvas
+        // sync chain, so RF's internal store still shows the pre-group state
+        // at that moment. setTimeout(0) lets the render cycle complete.
+        if (newGroupId) {
+            setTimeout(() => {
+                const rfNodes = reactFlowInstance?.getNodes() ?? [];
+                const rfGroup = reactFlowInstance?.getNode(newGroupId);
+                console.log('[Group][next-tick] RF node count:', rfNodes.length,
+                    'RF has new group:', !!rfGroup);
+                console.log('[Group][next-tick] RF group node:', rfGroup);
+                // Look for any group_container nodes in RF's internal store.
+                const groupsInRF = rfNodes.filter((n: any) => n.type === 'group_container');
+                console.log('[Group][next-tick] all group_container nodes in RF:', groupsInRF);
+                // Also look for the DOM element.
+                const domEl = document.querySelector(`[data-id="${newGroupId}"]`);
+                console.log('[Group][next-tick] DOM element for new group:', domEl,
+                    domEl ? `boundingRect=${JSON.stringify((domEl as HTMLElement).getBoundingClientRect())}` : '');
+            }, 100);
+        }
     }, [canGroupSelection, groupNodes, selectedNodeIds, reactFlowInstance]);
 
     const ungroupNode = useAppStore((state) => state.ungroupNode);
