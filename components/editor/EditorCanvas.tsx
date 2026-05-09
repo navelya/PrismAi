@@ -121,33 +121,7 @@ const EditorCanvasInner = ({
         if (!isDraggingRef.current) {
             setLocalNodes(propNodes);
         }
-        // TEMP DIAGNOSTIC: log every time propNodes changes so we can see
-        // whether the new group ever reaches EditorCanvas as a prop.
-        const groupsInProp = propNodes.filter((n: any) => n.type === 'group_container');
-        console.log('[Group][propSync] propNodes length:', propNodes.length,
-            'group_container nodes in propNodes:', groupsInProp.length, groupsInProp);
     }, [propNodes]);
-
-    // TEMP DIAGNOSTIC — subscribe directly to the store and log every
-    // currentWorkflow change with a stack trace so we can identify which
-    // call site is rewinding the state right after groupNodes runs.
-    useEffect(() => {
-        const unsub = useAppStore.subscribe((state, prev) => {
-            if (state.currentWorkflow !== prev.currentWorkflow) {
-                const newLen = state.currentWorkflow?.nodes.length ?? 0;
-                const oldLen = prev.currentWorkflow?.nodes.length ?? 0;
-                if (newLen !== oldLen) {
-                    // Print the stack as a single string so it's always visible
-                    // (console.trace produces a collapsed group in some DevTools).
-                    const stack = (new Error()).stack || '(no stack)';
-                    console.log(
-                        `[storeSub] currentWorkflow.nodes ${oldLen} -> ${newLen}\n${stack}`,
-                    );
-                }
-            }
-        });
-        return unsub;
-    }, []);
 
     const { resolvedTheme } = useTheme();
 
@@ -285,55 +259,13 @@ const EditorCanvasInner = ({
     const groupNodes = useAppStore((state) => state.groupNodes);
 
     const handleGroupSelected = useCallback(() => {
-        // TEMP DIAGNOSTIC — remove once grouping is verified working in the browser.
-        console.log('[Group] click → canGroupSelection:', canGroupSelection,
-            'selectedNodeIds:', selectedNodeIds);
         if (!canGroupSelection) return;
-        const newGroupId = groupNodes(selectedNodeIds);
-        console.log('[Group] groupNodes returned:', newGroupId);
-
-        // Dump the post-group state so we can see where the new group lives,
-        // what dimensions it has, and whether children got parentNode.
-        if (newGroupId) {
-            const wf = useAppStore.getState().currentWorkflow;
-            const newGroup = wf?.nodes.find((n) => n.id === newGroupId);
-            const newChildren = wf?.nodes.filter((n: any) => n.parentNode === newGroupId);
-            console.log('[Group] new group node:', newGroup);
-            console.log('[Group] children of new group:', newChildren);
-            console.log('[Group] React Flow internal node count:',
-                reactFlowInstance?.getNodes().length,
-                'workflow node count:', wf?.nodes.length);
-            const rfGroup = reactFlowInstance?.getNode(newGroupId);
-            console.log('[Group] React Flow internal node for new group:', rfGroup);
-        }
-
-        if (newGroupId && reactFlowInstance) {
-            reactFlowInstance.setNodes((nds: any[]) =>
-                nds.map((n) => ({ ...n, selected: n.id === newGroupId })),
-            );
-        }
-
-        // Re-check RF state after the next render — the synchronous logs above
-        // run before propNodes has propagated through the parent → EditorCanvas
-        // sync chain, so RF's internal store still shows the pre-group state
-        // at that moment. setTimeout(0) lets the render cycle complete.
-        if (newGroupId) {
-            setTimeout(() => {
-                const rfNodes = reactFlowInstance?.getNodes() ?? [];
-                const rfGroup = reactFlowInstance?.getNode(newGroupId);
-                console.log('[Group][next-tick] RF node count:', rfNodes.length,
-                    'RF has new group:', !!rfGroup);
-                console.log('[Group][next-tick] RF group node:', rfGroup);
-                // Look for any group_container nodes in RF's internal store.
-                const groupsInRF = rfNodes.filter((n: any) => n.type === 'group_container');
-                console.log('[Group][next-tick] all group_container nodes in RF:', groupsInRF);
-                // Also look for the DOM element.
-                const domEl = document.querySelector(`[data-id="${newGroupId}"]`);
-                console.log('[Group][next-tick] DOM element for new group:', domEl,
-                    domEl ? `boundingRect=${JSON.stringify((domEl as HTMLElement).getBoundingClientRect())}` : '');
-            }, 100);
-        }
-    }, [canGroupSelection, groupNodes, selectedNodeIds, reactFlowInstance]);
+        // Selection of the new group is set inside the slice (selected: true on
+        // the group, false on children). Do NOT call reactFlowInstance.setNodes
+        // here — RF's internal store doesn't yet contain the new group, so any
+        // setNodes diff would emit a reset that wipes the group via onNodesChange.
+        groupNodes(selectedNodeIds);
+    }, [canGroupSelection, groupNodes, selectedNodeIds]);
 
     const ungroupNode = useAppStore((state) => state.ungroupNode);
 
