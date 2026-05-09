@@ -151,36 +151,62 @@ const EditorCanvasInner = ({
     );
 
     const handleDuplicateSelected = useCallback(() => {
-        // Read selection from RF's internal store rather than localNodes — the
-        // toolbar lives in a portal and clicks can land in a frame where
-        // localNodes hasn't fully synced selection state with RF yet.
         const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
-        const selectedNodes = rfNodes.filter((n: any) => n.selected);
-        if (!onDuplicate || selectedNodes.length === 0) return;
+        const directlySelected = rfNodes.filter((n: any) => n.selected);
+        if (!onDuplicate || directlySelected.length === 0) return;
 
+        // If any selected node is a group, fold its children into the duplication
+        // set so the group + its contents move as one bundle.
+        const expandedSet = new Map<string, any>();
+        directlySelected.forEach((n: any) => expandedSet.set(n.id, n));
+        for (const sel of directlySelected) {
+            if (sel.type === 'group') {
+                const children = rfNodes.filter((n: any) => n.parentNode === sel.id);
+                children.forEach((c: any) => expandedSet.set(c.id, c));
+            }
+        }
+        const selectedNodes = Array.from(expandedSet.values());
         const selectedNodeIdSet = new Set(selectedNodes.map((n: any) => n.id));
+
         // Filter the raw edges (not memoizedEdges, which carry runtime style fields).
         const selectedEdges = (edges || []).filter((e: any) =>
             selectedNodeIdSet.has(e.source) && selectedNodeIdSet.has(e.target)
         );
 
-        // Clone with fresh ids and remap edge endpoints. Without this, we'd be
-        // adding nodes/edges whose ids already exist in the workflow — which
-        // fails silently in applyNodeChanges and corrupts the graph.
+        // Clone with fresh ids, remap edge endpoints, and remap parentNode refs
+        // so duplicated children point at the duplicated group, not the original.
         const idMap = new Map<string, string>();
         const stamp = Date.now();
         const newNodes = selectedNodes.map((n: any, i: number) => {
-            const newId = `node_${stamp}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+            const newId = (n.type === 'group' ? 'group_' : 'node_')
+                + `${stamp}_${i}_${Math.random().toString(36).slice(2, 8)}`;
             idMap.set(n.id, newId);
-            // Strip RF-internal fields so the duplicate enters as a clean node.
             const { width: _w, height: _h, positionAbsolute: _pa, dragging: _dr, ...rest } = n as any;
+            // For non-group nodes, original copy logic offsets by +40,+40. For
+            // group children, we keep the relative position (since their parent
+            // is also being duplicated and itself shifts by +40,+40).
+            const offset = n.parentNode ? { x: 0, y: 0 } : { x: 40, y: 40 };
             return {
                 ...JSON.parse(JSON.stringify(rest)),
                 id: newId,
-                position: { x: (n.position?.x || 0) + 40, y: (n.position?.y || 0) + 40 },
+                position: {
+                    x: (n.position?.x || 0) + offset.x,
+                    y: (n.position?.y || 0) + offset.y,
+                },
                 selected: false,
             };
         });
+
+        // Second pass: remap parentNode on duplicated children to point at the
+        // duplicated parent. Drop parentNode if its target wasn't duplicated
+        // (defensive — shouldn't happen given the expandedSet logic above).
+        for (const n of newNodes) {
+            if (n.parentNode) {
+                const remapped = idMap.get(n.parentNode);
+                if (remapped) n.parentNode = remapped;
+                else delete n.parentNode;
+            }
+        }
 
         const newEdges = selectedEdges.map((e: any, i: number) => {
             const cloned = JSON.parse(JSON.stringify(e));
