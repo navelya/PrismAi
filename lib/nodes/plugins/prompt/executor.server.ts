@@ -1,22 +1,23 @@
-import { NodeExecutionResult, PromptConfig, NodeExecutor, NodeConfig } from '../../types';
+import { NodeExecutionResult, ExecutionContext, PromptConfig } from '../../types';
 
-export const promptExecutor: NodeExecutor = async (
-    config: NodeConfig
+/**
+ * Prompt server executor.
+ *
+ * Behavior preserved from the previous lib/workflow/handlers.ts handlePrompt —
+ * checks four config-key locations because historically the prompt text has
+ * lived under any of these keys.
+ */
+export const promptExecutor = async (
+    config: PromptConfig & { prompt?: string; config?: { text?: string; prompt?: string } },
+    _inputs: Record<string, any>,
+    _context: ExecutionContext,
 ): Promise<NodeExecutionResult> => {
-    // Explicitly cast to the correct config type
-    const promptConfig = config as PromptConfig;
-    const { text } = promptConfig;
+    const text =
+        (config as any)?.prompt ||
+        (config as any)?.text ||
+        (config as any)?.config?.text ||
+        (config as any)?.config?.prompt ||
+        '';
 
-    try {
-        return {
-            success: true,
-            data: { text: text || '' },
-        };
-    } catch (error: any) {
-        return {
-            success: false,
-            data: null,
-            error: error.message || 'Prompt execution failed',
-        };
-    }
+    return { success: true, data: [String(text)] };
 };

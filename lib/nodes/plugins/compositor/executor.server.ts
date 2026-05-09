@@ -1,219 +1,109 @@
+import sharp from 'sharp';
 import { ExecutionContext, NodeExecutionResult, CompositorConfig, ImageObject } from '../../types';
 import { createServiceClient } from '@/lib/supabase/service';
 
 /**
- * Compositor Executor
- * Handles image composition both in-browser (Canvas API) and on-server (Sharp library).
- * This ensures the workflow is background-robust.
+ * Compositor server executor.
+ *
+ * Behavior preserved from the previous lib/workflow/handlers.ts handleCompositor:
+ *   - Reads each layer's source URL from inputs[layer.sourceHandleId] (NOT an array index)
+ *   - Layers processed in parallel via Promise.all
+ *   - Skips invisible layers and layers with no input mapped
+ *   - Per-layer fetch + resize/rotate/flip pipeline
+ *   - Output format from config.outputFormat (png/jpg/jpeg/webp), default png
+ *   - Uploads result to workflow-ephemeral-tmp (NOT chat-assets — that was the dead plugin executor path)
  */
 export const compositorExecutor = async (
     config: CompositorConfig,
-    input: any,
-    context: ExecutionContext
+    inputs: Record<string, any>,
+    context: ExecutionContext,
 ): Promise<NodeExecutionResult> => {
     try {
-        const {
-            canvasWidth = 1080,
-            canvasHeight = 1080,
-            backgroundColor = '#00000000',
-            layers = [],
-            outputFormat = 'png',
-            outputQuality = 1.0,
-        } = config;
+        const width = Math.round(config?.canvasWidth || 1080);
+        const height = Math.round(config?.canvasHeight || 1080);
+        const layers = (config?.layers || []) as any[];
+        const outputFormat = (config?.outputFormat || 'png') as string;
+        const outputQuality = config?.outputQuality ?? 1.0;
 
-        if (layers.length === 0) {
-            return {
-                success: false,
-                data: null,
-                error: 'No layers configured. Add at least one layer to the Compositor.',
-            };
-        }
+        console.log(`[CompositorExecutor] Canvas ${width}x${height}, ${layers.length} layers`);
 
-        const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+        let baseCanvas = sharp({
+            create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+        });
 
-        if (isBrowser) {
-            // --- BROWSER EXECUTION (Live Preview / Fast Local Run) ---
-            const canvas = document.createElement('canvas');
-            canvas.width = canvasWidth;
-            canvas.height = canvasHeight;
-            const ctx = canvas.getContext('2d');
-
-            if (!ctx) {
-                return { success: false, data: null, error: 'Failed to create canvas context.' };
-            }
-
-            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-            const loadImage = (src: string): Promise<HTMLImageElement> => {
-                return new Promise((resolve, reject) => {
-                    const img = new Image();
-                    img.crossOrigin = 'anonymous';
-                    img.onload = () => resolve(img);
-                    img.onerror = reject;
-                    img.src = src;
-                });
-            };
-
-            for (const layer of layers) {
-                if (!layer.visible) continue;
-
-                const handleInputs = input as Record<string, ImageObject[] | ImageObject>;
-                const sourceData = handleInputs[layer.sourceHandleId];
-                if (!sourceData) continue;
-
-                const sourceArray = Array.isArray(sourceData) ? sourceData : [sourceData];
-                const imageData = sourceArray[layer.selectedIndex] || sourceArray[0];
-                if (!imageData?.url) continue;
-
+        const layerResults = await Promise.all(
+            layers.map(async (layer: any) => {
+                if (!layer.visible) return null;
+                const imageUrl = inputs[layer.sourceHandleId];
+                if (!imageUrl || typeof imageUrl !== 'string') return null;
                 try {
-                    const img = await loadImage(imageData.url);
-
-                    ctx.save();
-                    const { x, y, width, height, rotation, opacity, flipX, flipY } = layer.transform;
-
-                    ctx.globalAlpha = opacity;
-                    ctx.translate(x + width / 2, y + height / 2);
-                    ctx.rotate((rotation * Math.PI) / 180);
-
-                    if (flipX || flipY) {
-                        ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
-                    }
-
-                    ctx.drawImage(
-                        img,
-                        layer.transform.crop?.x || 0,
-                        layer.transform.crop?.y || 0,
-                        layer.transform.crop?.width || img.width,
-                        layer.transform.crop?.height || img.height,
-                        -width / 2,
-                        -height / 2,
-                        width,
-                        height
-                    );
-
-                    ctx.restore();
-                } catch (imgError) {
-                    console.error(`❌ Failed to load image for layer ${layer.name}:`, imgError);
-                }
-            }
-
-            const mimeType = `image/${outputFormat}` as any;
-            const dataUrl = canvas.toDataURL(mimeType, outputQuality);
-
-            return {
-                success: true,
-                data: [{
-                    url: dataUrl,
-                    resolution: { width: canvasWidth, height: canvasHeight },
-                    metadata: {
-                        format: outputFormat,
-                        source: 'Compositor',
-                        processedBy: 'BrowserCanvas',
-                    },
-                }],
-            };
-        } else {
-            // --- SERVER EXECUTION (Background Run via Sharp) ---
-            const sharp = (await import('sharp')).default;
-            
-            // Create base transparent canvas
-            let canvas = sharp({
-                create: {
-                    width: canvasWidth,
-                    height: canvasHeight,
-                    channels: 4,
-                    background: backgroundColor || { r: 0, g: 0, b: 0, alpha: 0 }
-                }
-            });
-
-            const compositeLayers: any[] = [];
-
-            for (const layer of layers) {
-                if (!layer.visible) continue;
-
-                const handleInputs = input as Record<string, ImageObject[] | ImageObject>;
-                const sourceData = handleInputs[layer.sourceHandleId];
-                if (!sourceData) continue;
-
-                const sourceArray = Array.isArray(sourceData) ? sourceData : [sourceData];
-                const imageData = sourceArray[layer.selectedIndex] || sourceArray[0];
-                if (!imageData?.url) continue;
-
-                try {
-                    // Fetch image from S3/External
-                    const response = await fetch(imageData.url);
+                    const response = await fetch(imageUrl);
                     if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-                    const buffer = Buffer.from(await response.arrayBuffer());
+                    const inputBuffer = Buffer.from(await response.arrayBuffer());
+                    const tf = layer.transform || {};
+                    const targetW = Math.max(1, Math.round(tf.width || width));
+                    const targetH = Math.max(1, Math.round(tf.height || height));
+                    const rotation = tf.rotation || 0;
 
-                    let layerSharp = sharp(buffer);
-
-                    // Apply Transforms
-                    const { width, height, rotation, flipX, flipY } = layer.transform;
-
-                    // 1. Resize
-                    layerSharp = layerSharp.resize(Math.round(width), Math.round(height), { fit: 'fill' });
-
-                    // 2. Rotate
+                    let imgSharp = sharp(inputBuffer).resize(targetW, targetH, { fit: 'fill' });
+                    if (tf.flipX) imgSharp = imgSharp.flop();
+                    if (tf.flipY) imgSharp = imgSharp.flip();
                     if (rotation !== 0) {
-                        layerSharp = layerSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+                        imgSharp = imgSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
                     }
 
-                    // 3. Flip
-                    if (flipX) layerSharp = layerSharp.flop();
-                    if (flipY) layerSharp = layerSharp.flip();
-
-                    // Prepare for composite
-                    const layerBuffer = await layerSharp.toBuffer();
-                    
-                    compositeLayers.push({
-                        input: layerBuffer,
-                        left: Math.round(layer.transform.x),
-                        top: Math.round(layer.transform.y),
-                        blend: 'over'
-                    });
-
+                    const processedBuffer = await imgSharp.toBuffer();
+                    return {
+                        input: processedBuffer,
+                        left: Math.round(tf.x || 0),
+                        top: Math.round(tf.y || 0),
+                    };
                 } catch (err) {
-                    console.error(`[Compositor:Server] Layer ${layer.name} failed:`, err);
+                    console.error(`[CompositorExecutor] Layer ${layer.name} failed:`, err);
+                    return null;
                 }
-            }
+            }),
+        );
 
-            const finalBuffer = await canvas.composite(compositeLayers).toFormat(outputFormat as any).toBuffer();
+        const overlays = layerResults.filter(
+            (o): o is { input: Buffer; left: number; top: number } => o !== null,
+        );
+        if (overlays.length > 0) baseCanvas = baseCanvas.composite(overlays);
 
-            // Persist to S3 (Since we are on the server, we MUST provide a URL)
-            const supabase = createServiceClient();
-            const fileName = `${context.userId}/${context.sessionId}/compositor_${context.nodeId}_${Date.now()}.${outputFormat}`;
-            
-            const { error: uploadError } = await supabase.storage
-                .from('chat-assets')
-                .upload(fileName, finalBuffer, {
-                    contentType: `image/${outputFormat}`,
-                    upsert: true
-                });
-
-            if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('chat-assets')
-                .getPublicUrl(fileName);
-
-            return {
-                success: true,
-                data: [{
-                    url: publicUrl,
-                    resolution: { width: canvasWidth, height: canvasHeight },
-                    metadata: {
-                        format: outputFormat,
-                        source: 'Compositor',
-                        processedBy: 'ServerSharp',
-                    },
-                }],
-            };
+        let finalBuffer: Buffer;
+        let contentType: string;
+        if (outputFormat === 'jpg' || outputFormat === 'jpeg') {
+            finalBuffer = await baseCanvas.jpeg({ quality: Math.round(outputQuality * 100) }).toBuffer();
+            contentType = 'image/jpeg';
+        } else if (outputFormat === 'webp') {
+            finalBuffer = await baseCanvas.webp({ quality: Math.round(outputQuality * 100) }).toBuffer();
+            contentType = 'image/webp';
+        } else {
+            finalBuffer = await baseCanvas.png().toBuffer();
+            contentType = 'image/png';
         }
-    } catch (error) {
-        return {
-            success: false,
-            data: null,
-            error: error instanceof Error ? error.message : 'Failed to composite images',
+
+        const supabase = createServiceClient();
+        const ext = outputFormat === 'jpg' ? 'jpg' : outputFormat === 'jpeg' ? 'jpeg' : outputFormat === 'webp' ? 'webp' : 'png';
+        const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('workflow-ephemeral-tmp')
+            .upload(filename, finalBuffer, { contentType, cacheControl: '3600' });
+        if (uploadError) {
+            return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
+        }
+
+        const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
+
+        const result: ImageObject = {
+            url: urlData.publicUrl,
+            resolution: { width, height },
+            metadata: { format: outputFormat, source: 'Compositor', processedBy: 'ServerSharp' },
         };
+
+        return { success: true, data: [result] };
+    } catch (err) {
+        return { success: false, data: null, error: err instanceof Error ? err.message : 'Compositor failed' };
     }
 };
