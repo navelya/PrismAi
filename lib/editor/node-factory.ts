@@ -38,7 +38,7 @@ export function createNodeFromType(
         blur: {
             radius: 5,
         },
-        group: {
+        group_container: {
             width: 400,
             height: 300,
         },

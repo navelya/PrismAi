@@ -160,7 +160,7 @@ const EditorCanvasInner = ({
         const expandedSet = new Map<string, any>();
         directlySelected.forEach((n: any) => expandedSet.set(n.id, n));
         for (const sel of directlySelected) {
-            if (sel.type === 'group') {
+            if (sel.type === 'group_container') {
                 const children = rfNodes.filter((n: any) => n.parentNode === sel.id);
                 children.forEach((c: any) => expandedSet.set(c.id, c));
             }
@@ -178,7 +178,7 @@ const EditorCanvasInner = ({
         const idMap = new Map<string, string>();
         const stamp = Date.now();
         const newNodes = selectedNodes.map((n: any, i: number) => {
-            const newId = (n.type === 'group' ? 'group_' : 'node_')
+            const newId = (n.type === 'group_container' ? 'group_' : 'node_')
                 + `${stamp}_${i}_${Math.random().toString(36).slice(2, 8)}`;
             idMap.set(n.id, newId);
             const { width: _w, height: _h, positionAbsolute: _pa, dragging: _dr, ...rest } = n as any;
@@ -233,7 +233,7 @@ const EditorCanvasInner = ({
         const idsToDelete = new Set<string>();
         directlySelected.forEach((n: any) => idsToDelete.add(n.id));
         for (const sel of directlySelected) {
-            if (sel.type === 'group') {
+            if (sel.type === 'group_container') {
                 rfNodes
                     .filter((n: any) => n.parentNode === sel.id)
                     .forEach((c: any) => idsToDelete.add(c.id));
@@ -253,7 +253,7 @@ const EditorCanvasInner = ({
         if (selectedNodes.length < 2) return false;
         // No selected node may already have a parentNode, AND none may BE a group
         // (no nesting per spec).
-        return selectedNodes.every((n: any) => !n.parentNode && n.type !== 'group');
+        return selectedNodes.every((n: any) => !n.parentNode && n.type !== 'group_container');
     }, [reactFlowInstance, localNodes, selectedNodeIds]);
 
     const groupNodes = useAppStore((state) => state.groupNodes);
@@ -277,7 +277,7 @@ const EditorCanvasInner = ({
         if (selectedNodeIds.length !== 1) return null;
         const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
         const sel = rfNodes.find((n: any) => n.id === selectedNodeIds[0]);
-        return sel && sel.type === 'group' ? sel.id : null;
+        return sel && sel.type === 'group_container' ? sel.id : null;
     }, [reactFlowInstance, localNodes, selectedNodeIds]);
 
     const handleUngroup = useCallback(() => {
@@ -385,7 +385,7 @@ const EditorCanvasInner = ({
             setDragHoverGroupId(null);
             return;
         }
-        if (node.type === 'group') {
+        if (node.type === 'group_container') {
             setDragHoverGroupId(null);
             return;
         }
@@ -404,7 +404,7 @@ const EditorCanvasInner = ({
         // "Touching" per spec — any overlap counts.
         let hoverId: string | null = null;
         for (const g of allNodes) {
-            if (g.type !== 'group') continue;
+            if (g.type !== 'group_container') continue;
             const cfg = (g.data?.config as any) || {};
             const gRect = {
                 left: g.position.x,
@@ -442,7 +442,7 @@ const EditorCanvasInner = ({
         // route through handleSelectionDragStop (which does not currently
         // attach into groups — explicitly out of scope: drag-in is single-node).
         const hoveredGroupId = useAppStore.getState().dragHoverGroupId;
-        if (hoveredGroupId && !(node as any).parentNode && node.type !== 'group') {
+        if (hoveredGroupId && !(node as any).parentNode && node.type !== 'group_container') {
             setNodeParent(node.id, hoveredGroupId);
         }
         setDragHoverGroupId(null);
@@ -452,7 +452,7 @@ const EditorCanvasInner = ({
         for (const dragged of nodes as any[]) {
             if (!dragged.parentNode) continue;
             const parent = allNodes.find((n: any) => n.id === dragged.parentNode);
-            if (!parent || parent.type !== 'group') continue;
+            if (!parent || parent.type !== 'group_container') continue;
             const childW = dragged.width ?? dragged.measured?.width ?? 200;
             const childH = dragged.height ?? dragged.measured?.height ?? 100;
             const childCenterX = dragged.position.x + childW / 2;
@@ -501,7 +501,7 @@ const EditorCanvasInner = ({
         for (const dragged of nodes as any[]) {
             if (!dragged.parentNode) continue;
             const parent = allNodes.find((n: any) => n.id === dragged.parentNode);
-            if (!parent || parent.type !== 'group') continue;
+            if (!parent || parent.type !== 'group_container') continue;
             const childW = dragged.width ?? dragged.measured?.width ?? 200;
             const childH = dragged.height ?? dragged.measured?.height ?? 100;
             const childCenterX = dragged.position.x + childW / 2;

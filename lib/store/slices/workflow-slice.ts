@@ -607,7 +607,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
         const groupNode: WorkflowNode = {
             id: groupId,
-            type: 'group' as any,
+            type: 'group_container',
             position: { x: groupX, y: groupY },
             data: {
                 label: GROUP_DEFAULT_LABEL,
@@ -650,7 +650,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;
 
-        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group');
+        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group_container');
         if (!group) return;
 
         get().takeSnapshot();
@@ -683,7 +683,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
         const node = currentWorkflow.nodes.find((n) => n.id === nodeId);
         if (!node) return;
-        if (node.type === 'group') return; // never parent a group to anything
+        if (node.type === 'group_container') return; // never parent a group to anything
 
         // Same parent — no-op (don't snapshot for nothing).
         if ((node.parentNode || null) === (parentId || null)) return;
@@ -700,7 +700,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const newParent = parentId
             ? currentWorkflow.nodes.find((n) => n.id === parentId)
             : null;
-        if (parentId && (!newParent || newParent.type !== 'group')) return;
+        if (parentId && (!newParent || newParent.type !== 'group_container')) return;
 
         // Compute the node's new position (relative to new parent if any).
         const newX = absoluteX - (newParent?.position.x ?? 0);
@@ -750,8 +750,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         }
 
         // Re-order so any parent appears before its children.
-        const groups = updatedNodes.filter((n) => n.type === 'group');
-        const others = updatedNodes.filter((n) => n.type !== 'group');
+        const groups = updatedNodes.filter((n) => n.type === 'group_container');
+        const others = updatedNodes.filter((n) => n.type !== 'group_container');
         const reordered = [...groups, ...others];
 
         set({
@@ -764,7 +764,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;
 
-        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group');
+        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group_container');
         if (!group) return;
 
         // Clamp to children bbox + padding so user can't shrink past content.
@@ -808,7 +808,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;
 
-        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group');
+        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group_container');
         if (!group) return;
         if ((group.data?.label || '') === label) return;
 

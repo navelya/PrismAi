@@ -18,7 +18,7 @@ const concreteNodeTypes: Record<string, React.ComponentType<any>> = {
     ...baseNodeTypes,
     ai_generator: AIGeneratorNode,
     legacy: FallbackNode,
-    group: GroupNode,
+    group_container: GroupNode,
 };
 
 // Dynamic AI-generator node type ids come from the DB (ai_models.node_type_id)

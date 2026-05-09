@@ -140,7 +140,7 @@ export function applyWorkflowPatch(
     // Build the post-patch group id set so we can drop any edge that
     // touches a group. Groups are non-executable — edges to/from them
     // would either crash dispatch or silently do nothing.
-    const groupIds = new Set(nodes.filter((n) => n.type === 'group').map((n) => n.id));
+    const groupIds = new Set(nodes.filter((n) => n.type === 'group_container').map((n) => n.id));
 
     if (patch.addedEdges?.length) {
         const safeEdges = patch.addedEdges.filter((e) => {

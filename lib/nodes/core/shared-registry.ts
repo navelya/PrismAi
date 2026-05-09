@@ -72,8 +72,8 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
             control_values: {}
         }
     } as any,
-    group: {
-        type: 'group',
+    group_container: {
+        type: 'group_container',
         family: 'organization',
         category: 'organization',
         meta: {

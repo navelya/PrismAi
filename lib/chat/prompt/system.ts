@@ -56,8 +56,8 @@ PLAN PROPOSAL:
 - Do NOT propose_plan again immediately after the user approves a plan — approval means the build happened; the next user message starts a fresh exchange.`;
 
 const GROUPING = `GROUPING:
-- You may organize related nodes into a visual group by emitting a node with type 'group'. Use it to communicate structure when a workflow has clearly distinct sections (e.g. "input prep", "generation", "post-processing").
-- Group node shape: { id: 'group_1', type: 'group', position: { x, y }, data: { label: '<title>', config: { width, height } } }
+- You may organize related nodes into a visual group by emitting a node with type 'group_container'. Use it to communicate structure when a workflow has clearly distinct sections (e.g. "input prep", "generation", "post-processing").
+- Group node shape: { id: 'group_1', type: 'group_container', position: { x, y }, data: { label: '<title>', config: { width, height } } }
 - To put a node into the group, set its parentNode field to the group's id in the SAME tool call that creates both. Children's positions are relative to the group's origin.
 - A group has no input/output handles. NEVER add an edge whose source or target is a group node — such edges will be dropped silently and the user will see the group disconnected from the workflow.
 - Groups never execute. Do not propose a group as a way to run nodes in parallel or to "wrap" execution.
