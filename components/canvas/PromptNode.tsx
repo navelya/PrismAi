@@ -4,7 +4,7 @@ import React, { memo, useRef, useEffect, useState, useCallback } from 'react';
 import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import BaseNode from '@/components/canvas/BaseNode';
+import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 
 interface PromptNodeData {
     label: string;

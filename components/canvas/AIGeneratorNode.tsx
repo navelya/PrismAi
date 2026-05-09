@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import BaseNode from '@/components/canvas/BaseNode';
+import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';

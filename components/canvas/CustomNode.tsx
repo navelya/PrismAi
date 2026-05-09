@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import BaseNode from './BaseNode';
+import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { LayoutGrid, Square, Check, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';

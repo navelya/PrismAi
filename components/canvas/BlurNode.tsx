@@ -5,7 +5,7 @@ import { NodeProps } from 'reactflow';
 import { motion } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
-import BaseNode from '@/components/canvas/BaseNode';
+import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import BlurryImage from '@/components/ui/BlurryImage';
 import { BlurConfig } from '@/lib/nodes/plugins/blur/types';
 import ImageLightbox from '@/components/ui/ImageLightbox';

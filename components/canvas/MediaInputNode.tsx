@@ -4,7 +4,7 @@ import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
 import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import BaseNode from './BaseNode';
+import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import { LayoutGrid, Square, Check, Upload, Plus, X, Play } from 'lucide-react';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { NodeStatus } from '@/lib/nodes/types';
-import { NodeHeader } from './NodeHeader';
+import { NodeHeader } from '@/components/canvas/NodeHeader';
 import { motion } from 'framer-motion';
 
 // Stable framer-motion prop references.

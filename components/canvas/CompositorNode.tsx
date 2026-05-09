@@ -7,7 +7,7 @@ import { Plus, Edit3 } from 'lucide-react';
 import { Stage, Layer, Group } from 'react-konva';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
-import BaseNode from './BaseNode';
+import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import { CompositorConfig, CompositorLayer, calculateInitialTransform } from '@/lib/nodes/types';
 import CompositorEditorModal from '@/components/compositor/CompositorEditorModal';
 import ImageLightbox from '@/components/ui/ImageLightbox';
