@@ -19,7 +19,7 @@ import { Select } from '@/components/ui/Select';
 import { ToolbarButton } from '@/components/editor/canvas/CanvasToolbar';
 import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform } from '@/lib/nodes/types';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
-import { CompositorLayerNodes, RenderableLayer } from './CompositorRenderer';
+import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 
 const VIEWPORT_PADDING = 1000;
 

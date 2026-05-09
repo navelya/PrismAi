@@ -1,6 +1,6 @@
 import { NodeServerDef } from './types';
-import { mediaInputSharedDef } from '../plugins/media_input';
-import { mediaInputExecutor } from '../plugins/media_input/executor';
+import { mediaInputSharedDef } from '../plugins/media_input/definition';
+import { mediaInputExecutor } from '../plugins/media_input/executor.server';
 import { promptSharedDef } from '../plugins/prompt';
 import { promptExecutor } from '../plugins/prompt/executor';
 import { compositorSharedDef } from '../plugins/compositor/definition';

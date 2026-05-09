@@ -1,5 +1,5 @@
 import { NodeClientDef } from './types';
-import { mediaInputClientDef } from '../plugins/media_input/component';
+import { mediaInputClientDef } from '../plugins/media_input';
 import { compositorClientDef } from '../plugins/compositor';
 import { promptClientDef } from '../plugins/prompt/component';
 import { blurClientDef } from '../plugins/blur';
