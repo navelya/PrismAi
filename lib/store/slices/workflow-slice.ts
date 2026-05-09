@@ -614,20 +614,19 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                 label: GROUP_DEFAULT_LABEL,
                 config: { width: groupW, height: groupH } as any,
             },
-            // RF needs explicit width/height on the node itself for parent-child
-            // layout: child positions are computed against this rect. Without it
-            // children can render at the wrong absolute spot and the group's own
-            // hit area collapses to zero.
-            width: groupW,
-            height: groupH,
             // We deliberately do NOT set a negative zIndex — that places the
             // node behind the RF pane background, which makes it invisible.
             // Children render above the parent automatically when parentNode
             // is set, so 0 (default) is correct.
             zIndex: 0,
-            // Mirror dimensions into RF's `style` field too — some RF render
-            // paths read style.width/height for dimensioning before measurement.
-            ...( { style: { width: groupW, height: groupH } } as any ),
+            // We deliberately do NOT set top-level width/height or style.width/
+            // height on the node. The wrapper shrink-wraps to the GroupNode
+            // component's inner div (which uses data.config.width/height), and
+            // RF's ResizeObserver keeps measured dimensions in sync. Setting
+            // explicit dimensions here would freeze the wrapper at its initial
+            // size — every resize/drag-in expand would change data.config but
+            // not the wrapper, leaving RF's hit area and NodeToolbar position
+            // stuck at the original size.
         };
 
         // Convert each child's absolute position to be relative to the group's

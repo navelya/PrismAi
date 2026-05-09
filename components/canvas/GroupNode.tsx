@@ -185,10 +185,15 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
 
             <div
                 className={
+                    // Border state precedence: drag-IN target highlight > selection
+                    // highlight > hover highlight > default. Hover-into-group during
+                    // a drag (isHoverTarget) wins because it's a transient action.
                     "group relative rounded-2xl transition-colors " +
                     (isHoverTarget
                         ? "border-2 border-accent-primary"
-                        : "border border-stroke-subtle/60")
+                        : selected
+                            ? "border-2 border-accent-primary"
+                            : "border border-stroke-subtle/60 hover:border-content-secondary")
                 }
                 style={{
                     width,
