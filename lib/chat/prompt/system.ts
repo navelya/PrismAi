@@ -55,6 +55,15 @@ PLAN PROPOSAL:
 - After feedback, emit a NEW propose_plan that ADDRESSES the feedback. Do not just re-emit the same plan. Acknowledge the change in the new summary or detail so the user can see what shifted.
 - Do NOT propose_plan again immediately after the user approves a plan — approval means the build happened; the next user message starts a fresh exchange.`;
 
+const GROUPING = `GROUPING:
+- You may organize related nodes into a visual group by emitting a node with type 'group'. Use it to communicate structure when a workflow has clearly distinct sections (e.g. "input prep", "generation", "post-processing").
+- Group node shape: { id: 'group_1', type: 'group', position: { x, y }, data: { label: '<title>', config: { width, height } } }
+- To put a node into the group, set its parentNode field to the group's id in the SAME tool call that creates both. Children's positions are relative to the group's origin.
+- A group has no input/output handles. NEVER add an edge whose source or target is a group node — such edges will be dropped silently and the user will see the group disconnected from the workflow.
+- Groups never execute. Do not propose a group as a way to run nodes in parallel or to "wrap" execution.
+- Default size when uncertain: width 400, height 300. The UI auto-expands a group when nodes are dropped into it.
+- Do not group a single node. Only use groups when the user is asking for organization/visual structure or when 3+ related nodes belong together.`;
+
 const RESPONSE_FORMAT = `RESPONSE FORMAT:
 - Plain prose. Markdown for emphasis only.
 - Mention cost or tokens only if the user asked.
@@ -99,6 +108,7 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
     CRITICAL_RULES,
     formatRegistryContext(input.registry),
     TOOL_RULES,
+    GROUPING,
     RESPONSE_FORMAT,
     FEWSHOT_EXAMPLES,
   ].join('\n\n');
