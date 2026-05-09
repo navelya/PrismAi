@@ -123,6 +123,8 @@ export const useAppStore = create<RootState>()(
                     'isMenuLoading',
                     // Ephemeral typing draft for the node label — must not persist.
                     'nodeLabelDraft',
+                    // Ephemeral hover signal during drag-into-group — must not persist.
+                    'dragHoverGroupId',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {

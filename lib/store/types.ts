@@ -209,6 +209,10 @@ export interface UISlice {
     menuFlat: any[];
     isMenuLoading: boolean;
     fetchMenuData: (force?: boolean) => Promise<void>;
+
+    /** ID of the group currently being hovered over by a dragged node, or null. Ephemeral — never persisted. */
+    dragHoverGroupId: string | null;
+    setDragHoverGroupId: (id: string | null) => void;
 }
 
 export interface LivePositionSlice {

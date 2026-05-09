@@ -25,6 +25,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     menuTree: [],
     menuFlat: [],
     isMenuLoading: false,
+    dragHoverGroupId: null,
 
     setEditorState: (newState) =>
         set((state) => ({
@@ -108,6 +109,8 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
 
     triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode }),
     clearRunFromNode: () => set({ runFromNodeId: null, runMode: null }),
+
+    setDragHoverGroupId: (id) => set({ dragHoverGroupId: id }),
 
     fetchMenuData: async (force = false) => {
         if (!force && get().menuTree.length > 0) return;

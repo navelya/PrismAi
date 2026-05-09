@@ -32,6 +32,8 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
 
     const renameGroup = useAppStore((s) => s.renameGroup);
     const resizeGroup = useAppStore((s) => s.resizeGroup);
+    const hoveredGroupId = useAppStore((s) => s.dragHoverGroupId);
+    const isHoverTarget = hoveredGroupId === id;
 
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(data.label || '');
@@ -107,7 +109,12 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
 
     return (
         <div
-            className="group relative rounded-2xl bg-bg-primary/60 border border-stroke-subtle/60 transition-colors"
+            className={
+                "group relative rounded-2xl bg-bg-primary/60 transition-colors " +
+                (isHoverTarget
+                    ? "border-2 border-accent-primary"
+                    : "border border-stroke-subtle/60")
+            }
             style={{
                 width,
                 height,

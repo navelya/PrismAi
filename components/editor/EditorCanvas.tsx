@@ -319,6 +319,54 @@ const EditorCanvasInner = ({
     }, []);
 
     const setNodeParent = useAppStore((state) => state.setNodeParent);
+    const setDragHoverGroupId = useAppStore((state) => state.setDragHoverGroupId);
+
+    const handleNodeDrag: NodeDragHandler = useCallback((_event, node, _nodes) => {
+        // Only consider drag-IN for nodes that are NOT already inside a group.
+        // (A node already in a group can be dragged out — Task 6 handles that.)
+        if ((node as any).parentNode) {
+            setDragHoverGroupId(null);
+            return;
+        }
+        if (node.type === 'group') {
+            setDragHoverGroupId(null);
+            return;
+        }
+
+        const allNodes = reactFlowInstance?.getNodes() ?? [];
+        const childW = node.width ?? (node as any).measured?.width ?? 200;
+        const childH = node.height ?? (node as any).measured?.height ?? 100;
+        const childRect = {
+            left: node.position.x,
+            top: node.position.y,
+            right: node.position.x + childW,
+            bottom: node.position.y + childH,
+        };
+
+        // Find the first group whose rect overlaps the dragged node's rect.
+        // "Touching" per spec — any overlap counts.
+        let hoverId: string | null = null;
+        for (const g of allNodes) {
+            if (g.type !== 'group') continue;
+            const cfg = (g.data?.config as any) || {};
+            const gRect = {
+                left: g.position.x,
+                top: g.position.y,
+                right: g.position.x + (cfg.width || 0),
+                bottom: g.position.y + (cfg.height || 0),
+            };
+            const overlaps =
+                childRect.right >= gRect.left &&
+                childRect.left <= gRect.right &&
+                childRect.bottom >= gRect.top &&
+                childRect.top <= gRect.bottom;
+            if (overlaps) {
+                hoverId = g.id;
+                break;
+            }
+        }
+        setDragHoverGroupId(hoverId);
+    }, [reactFlowInstance, setDragHoverGroupId]);
 
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = false;
@@ -332,10 +380,17 @@ const EditorCanvasInner = ({
             updatePositions(positionsMap);
         }
 
-        // ── DRAG-OUT detection ────────────────────────────────────────────────
-        // For every dragged node that has a parentNode, check whether its CENTER
-        // is now outside the parent's rect. If so, detach it (slice converts the
-        // position to absolute and leaves the group's size unchanged per spec).
+        // ── DRAG-IN: attach the dragged node to the hovered group, if any. ─────
+        // Only the primary `node` arg is the one being dragged. Selection drags
+        // route through handleSelectionDragStop (which does not currently
+        // attach into groups — explicitly out of scope: drag-in is single-node).
+        const hoveredGroupId = useAppStore.getState().dragHoverGroupId;
+        if (hoveredGroupId && !(node as any).parentNode && node.type !== 'group') {
+            setNodeParent(node.id, hoveredGroupId);
+        }
+        setDragHoverGroupId(null);
+
+        // ── DRAG-OUT: detect parented children whose center has left the rect. ─
         const allNodes = reactFlowInstance?.getNodes() ?? [];
         for (const dragged of nodes as any[]) {
             if (!dragged.parentNode) continue;
@@ -360,7 +415,7 @@ const EditorCanvasInner = ({
 
         touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
-    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, reactFlowInstance, setNodeParent]);
+    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, reactFlowInstance, setNodeParent, setDragHoverGroupId]);
 
     // After a marquee selection, React Flow renders a `.react-flow__nodesselection-rect`
     // overlay with `pointer-events: all` — grabbing anywhere inside it (even on a
@@ -574,6 +629,7 @@ const EditorCanvasInner = ({
                 onConnectEnd={handleConnectEnd}
                 onNodeClick={onNodeClick}
                 onNodeDragStart={handleNodeDragStart}
+                onNodeDrag={handleNodeDrag}
                 onNodeDragStop={handleNodeDragStop}
                 onSelectionDragStart={handleSelectionDragStart}
                 onSelectionDragStop={handleSelectionDragStop}
