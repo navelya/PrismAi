@@ -138,10 +138,6 @@ Unchanged — clicking an edge between two grouped children selects/deletes the 
 
 Group create / ungroup / drag-in / drag-out / resize / rename each call `takeSnapshot()` before mutating ([workflow-slice.ts:63](lib/store/slices/workflow-slice.ts#L63)). Snapshots are reference-snapshots, so cost matches any other edit.
 
-### Pasting a node onto a group
-
-Paste lands at cursor position; if the cursor is over a group, the pasted node becomes a child of that group (set `parentNode`, expand group). If not, normal paste.
-
 ### Workflow save / load
 
 Pure data — no schema migration needed. `parentNode` and the new `'group'` type ride through the existing JSON column.
