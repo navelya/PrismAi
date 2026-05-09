@@ -1,5 +1,6 @@
 import sharp from 'sharp';
-import { ExecutionContext, NodeExecutionResult, CompositorConfig, ImageObject } from '../../types';
+import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types';
+import { CompositorConfig } from './definition';
 import { createServiceClient } from '@/lib/supabase/service';
 
 /**

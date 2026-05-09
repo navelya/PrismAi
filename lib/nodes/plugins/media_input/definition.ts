@@ -1,5 +1,13 @@
 import { NodeSharedDef } from '../../core/types';
-import { MediaInputConfig } from '../../types';
+
+/**
+ * Media Input Node Configuration
+ * Stores manually uploaded images as base64 data URLs
+ */
+export interface MediaInputConfig {
+    /** Array of base64 data URLs (legacy) or storage objects for uploaded images */
+    images: Array<{ url: string; path: string } | string>;
+}
 
 export const mediaInputSharedDef: NodeSharedDef<MediaInputConfig> = {
     type: 'media_input',

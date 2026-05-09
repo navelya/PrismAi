@@ -8,14 +8,13 @@ import { Stage, Layer, Group } from 'react-konva';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
-import { CompositorConfig, CompositorLayer, calculateInitialTransform } from '@/lib/nodes/types';
+import { CompositorConfig, CompositorLayer, calculateInitialTransform, compositorSharedDef } from './definition';
 import CompositorEditorModal from './ui/EditorModal';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './ui/Renderer';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { NodeClientDef } from '../../core/types';
-import { compositorSharedDef } from './definition';
 import { compositorClientExecutor } from './executor.client';
 
 const defaultConfig: CompositorConfig = {

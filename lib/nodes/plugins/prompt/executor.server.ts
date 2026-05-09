@@ -1,4 +1,5 @@
-import { NodeExecutionResult, ExecutionContext, PromptConfig } from '../../types';
+import { NodeExecutionResult, ExecutionContext } from '../../types';
+import { PromptConfig } from './definition';
 
 /**
  * Prompt server executor.

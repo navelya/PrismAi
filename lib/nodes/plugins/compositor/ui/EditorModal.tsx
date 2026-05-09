@@ -17,7 +17,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Select } from '@/components/ui/Select';
 import { ToolbarButton } from '@/components/editor/canvas/CanvasToolbar';
-import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform } from '@/lib/nodes/types';
+import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform } from '../definition';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 

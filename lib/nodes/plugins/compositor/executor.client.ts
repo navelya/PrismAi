@@ -1,5 +1,6 @@
 import { ClientExecutor } from '../../core/types';
-import { CompositorConfig, ImageObject } from '../../types';
+import { CompositorConfig } from './definition';
+import { ImageObject } from '../../types';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 const loadImage = (src: string): Promise<HTMLImageElement> =>

@@ -1,4 +1,4 @@
-import { WorkflowNode, NodeType, NodeConfig } from '../nodes/types';
+import { WorkflowNode, NodeType } from '../nodes/types';
 import { generateNodeId } from '../utils';
 
 /**
@@ -15,7 +15,7 @@ export function createNodeFromType(
     const id = generateNodeId();
 
     // Default configurations for each node type
-    const defaultConfigs: Record<NodeType, NodeConfig> = {
+    const defaultConfigs: Record<NodeType, Record<string, any>> = {
         media_input: {
             images: [],
         },

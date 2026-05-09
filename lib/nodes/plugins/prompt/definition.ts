@@ -1,5 +1,12 @@
 import { NodeSharedDef } from '../../core/types';
-import { PromptConfig } from '../../types';
+
+/**
+ * Prompt Node Configuration
+ * Provides a string output to be used as a prompt or search term
+ */
+export interface PromptConfig {
+    text: string;
+}
 
 export const promptSharedDef: NodeSharedDef<PromptConfig> = {
     type: 'prompt',
