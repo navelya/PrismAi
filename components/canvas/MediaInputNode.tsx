@@ -181,6 +181,8 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             onDrop={handleDrop}
             renderInputs={false}
             hideStatus={true}
+            width=""
+            style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
         >
             <div
                 className={cn(

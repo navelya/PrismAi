@@ -201,8 +201,10 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     // Translucent gray fill — independent of theme tokens so the
                     // tint is visible on both dark and light canvas backgrounds.
                     background: 'rgba(127, 127, 127, 0.10)',
-                    // The "group" Tailwind utility class above lets handles use
-                    // group-hover:opacity-100 to fade in on hover.
+                    // Let pointer events pass through the body so edges (wires)
+                    // routed inside the group remain clickable. Interactive bits
+                    // (resize handles, title bubble) opt back in below.
+                    pointerEvents: 'none',
                 }}
                 data-group-id={id}
                 data-group-selected={selected ? 'true' : 'false'}
@@ -220,7 +222,7 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                             "absolute z-20 nopan nodrag transition-opacity " +
                             (selected ? "opacity-100" : "opacity-0 group-hover:opacity-100")
                         }
-                        style={{ ...h.style, cursor: h.cursor }}
+                        style={{ ...h.style, cursor: h.cursor, pointerEvents: 'auto' }}
                     />
                 ))}
             </div>

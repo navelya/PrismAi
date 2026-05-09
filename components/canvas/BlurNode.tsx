@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/components/canvas/BaseNode';
+import BlurryImage from '@/components/ui/BlurryImage';
 import { BlurConfig } from '@/lib/nodes/plugins/blur/types';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { useAppStore } from '@/lib/store/app-store';
@@ -13,7 +14,6 @@ import { ImageObject } from '@/lib/nodes/types';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
-import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 
 interface BlurNodeData {
     label: string;
@@ -110,7 +110,6 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         });
     }, [id, config, updateNodeConfig]);
 
-    const nodeWidth = 320;
     const MAX_VISUAL_BLUR = 20; // 100% slider = 20px blur
 
     // Derived blur style based on type
@@ -137,7 +136,8 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             dragging={dragging}
             isNew={(data as any).isNew}
             hideStatus={true}
-            width={nodeWidth}
+            width=""
+            style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
         >
             <motion.div
                 layout={!isDragging ? "size" : false}
@@ -148,39 +148,29 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             >
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
 
-                <div className="relative w-full flex items-center justify-center">
-                    {imageUrl ? (
-                        <div className="relative w-full h-full overflow-hidden cursor-zoom-in group/preview">
-                            <img
-                                src={toThumbnailUrl(imageUrl, { width: 768 }) ?? imageUrl}
-                                onError={(e) => {
-                                    // Fall back to the original URL if the
-                                    // Supabase image-transform endpoint is
-                                    // unreachable (e.g. transformations not
-                                    // enabled on the project).
-                                    const t = e.currentTarget;
-                                    if (imageUrl && t.src !== imageUrl) t.src = imageUrl;
-                                }}
-                                alt="Blur preview"
-                                className={cn(
-                                    "w-full h-auto block object-contain transition-transform duration-700 group-hover/preview:scale-[1.05]",
-                                    !isDragging && "transition-all duration-300"
-                                )}
-                                style={{
-                                    filter: blurStyle,
-                                    transform: `scale(1.1)`
-                                }}
-                                onClick={() => setLightboxOpen(true)}
-                            />
-                        </div>
-                    ) : (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500">
-                            <div className="text-xs font-medium px-4 text-center">
+                {imageUrl ? (
+                    <div
+                        className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
+                        onClick={() => setLightboxOpen(true)}
+                        style={{ filter: blurStyle }}
+                    >
+                        <BlurryImage
+                            src={imageUrl}
+                            fallbackSrc={imageUrl}
+                            alt="Blur preview"
+                            className={cn(
+                                "relative z-10",
+                                !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                            )}
+                        />
+                    </div>
+                ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500">
+                        <div className="text-xs font-medium px-4 text-center">
 
-                            </div>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </motion.div>
 
             {/* Blur Controls */}

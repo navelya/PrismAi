@@ -196,7 +196,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 
     const dataTypes = useAppStore((state) => state.dataTypes);
     const inferredType = output !== undefined && output !== null ? inferResultTypeFromValue(output) : null;
-    
+
     let activeType = previewType;
     if (inferredType === 'text' || previewType === 'prompt' || dataTypes.some(dt => dt.id === 'text' && dt.id === previewType)) {
         activeType = 'text';
@@ -204,18 +204,19 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         activeType = inferredType;
     }
 
-    // Determine dimensions based entirely on activeType
-    let nodeWidth = 320;
-    let textMinHeightClass = "min-h-[140px]";
-    
-    if (activeType === 'text') {
-        nodeWidth = 320; // Slightly wider for text readability
-        textMinHeightClass = "min-h-[140px]";
-    } else if (activeType === 'video') {
-        nodeWidth = 360;
-    } else if (activeType === 'audio') {
-        nodeWidth = 280;
-    }
+    // Sizing model:
+    //   text / audio → fixed width (no intrinsic-width content to drive layout)
+    //   image / video / other media → node sizes to the image's natural width,
+    //   clamped between min and max. The image already grows the height via
+    //   `h-auto`, so this is the symmetric horizontal version.
+    const isFixedWidth = activeType === 'text' || activeType === 'audio';
+    const fixedWidth = activeType === 'audio' ? 280 : 320;
+    const mediaStyle: React.CSSProperties = {
+        width: 'max-content',
+        minWidth: 320,
+        maxWidth: 420,
+    };
+    const textMinHeightClass = "min-h-[140px]";
 
     return (
         <BaseNode
@@ -227,7 +228,8 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             dragging={dragging}
             customInputs={customInputs}
             customOutputs={customOutputs}
-            width={nodeWidth}
+            width={isFixedWidth ? fixedWidth : ""}
+            style={isFixedWidth ? undefined : mediaStyle}
             isNew={(data as any).isNew}
         >
             <motion.div
@@ -380,20 +382,19 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
     const urls = items
         .map((o: any) => (typeof o === 'string' ? o : o?.url))
         .filter((value: any) => typeof value === 'string' && (value.startsWith('http') || value.startsWith('data:')));
-    
+
     const extractedText = extractTextValues(output);
     const textContent = extractedText.length > 0 ? extractedText.join('') : null;
 
     const videoRef = React.useRef<HTMLVideoElement>(null);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-    const MAX_HEIGHT = 800;
     const setNodeOutput = useAppStore((state) => state.setNodeOutput);
     const dataTypes = useAppStore((state) => state.dataTypes);
     const inferredType = output !== undefined && output !== null ? inferResultTypeFromValue(output) : null;
-    const isTextType = 
-        type === 'text' || 
-        type === 'prompt' || 
-        dataTypes.some(dt => dt.id === 'text' && dt.id === type) || 
+    const isTextType =
+        type === 'text' ||
+        type === 'prompt' ||
+        dataTypes.some(dt => dt.id === 'text' && dt.id === type) ||
         inferredType === 'text' ||
         (urls.length === 0 && textContent !== null);
 
@@ -529,10 +530,9 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                         loop
                         playsInline
                         className={cn(
-                            "w-full h-auto block object-contain",
+                            "block object-contain max-w-[420px] max-h-[420px]",
                             !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                         )}
-                        style={{ maxHeight: MAX_HEIGHT }}
                     />
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center">
                         <Play className="w-10 h-10 text-white fill-current" />
@@ -557,7 +557,6 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                         "relative z-10",
                         !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                     )}
-                    style={{ maxHeight: MAX_HEIGHT }}
                 />
             </div>
         );

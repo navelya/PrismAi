@@ -71,7 +71,12 @@ export default function BlurryImage({
                         if (fallbackSrc && !didFallback) setDidFallback(true);
                     }}
                     className={cn(
-                        "w-full h-auto block object-contain",
+                        // Render at intrinsic size capped at 420 in either
+                        // dimension; the browser auto-preserves aspect ratio
+                        // when both max-width and max-height apply, so the
+                        // image scales to fit within a 420×420 box without
+                        // cropping or distortion.
+                        "block object-contain max-w-[420px] max-h-[420px]",
                         className
                     )}
                     {...props}
