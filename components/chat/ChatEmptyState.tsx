@@ -18,6 +18,7 @@ interface ChatInputProps {
     isCanvasMode: boolean;
     attachedImages: string[];
     onRemoveAttachedImage: (index: number) => void;
+    hasMessages?: boolean;
 }
 
 interface ChatEmptyStateProps {
@@ -98,7 +99,7 @@ export function ChatEmptyState({
                             Tell me what you'd like to do with images, and I'll create an automation workflow for you.
                         </p>
 
-                        <ChatInput ref={textareaRef} {...chatInputProps} />
+                        <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={false} />
 
                         <div className="mt-8 flex flex-wrap justify-center gap-2">
                             <button
@@ -183,7 +184,7 @@ export function ChatEmptyState({
             </div>
 
             <div className="sticky bottom-0 border-t border-stroke-subtle p-4 bg-surface-primary/80 backdrop-blur-sm">
-                <ChatInput ref={textareaRef} {...chatInputProps} />
+                <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={false} />
             </div>
             {evictionToast && (
                 <Toast

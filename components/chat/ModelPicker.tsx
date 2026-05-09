@@ -9,6 +9,16 @@ interface ModelPickerProps {
   selectedModel: 'haiku' | 'sonnet';
   onSelect: (m: 'haiku' | 'sonnet') => void;
   isPaid: boolean;
+  /** Controlled open state. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /**
+   * Forwarded to the underlying Select. The parent uses this to detect when
+   * the user clicks the *other* dropdown's trigger and seamlessly switch.
+   */
+  onPointerDownOutside?: (event: CustomEvent<{ originalEvent: PointerEvent }>) => void;
+  /** Ref to the trigger button so the parent can identify it in outside-click events. */
+  triggerRef?: React.Ref<HTMLButtonElement>;
 }
 
 const TriggerButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
@@ -29,7 +39,15 @@ const TriggerButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttrib
   }
 );
 
-export function ModelPicker({ selectedModel, onSelect, isPaid }: ModelPickerProps) {
+export function ModelPicker({
+  selectedModel,
+  onSelect,
+  isPaid,
+  open,
+  onOpenChange,
+  onPointerDownOutside,
+  triggerRef,
+}: ModelPickerProps) {
   const router = useRouter();
 
   const options: SelectOption[] = isPaid
@@ -79,7 +97,10 @@ export function ModelPicker({ selectedModel, onSelect, isPaid }: ModelPickerProp
       options={options}
       value={value}
       onChange={handleChange}
-      triggerNode={<TriggerButton />}
+      open={open}
+      onOpenChange={onOpenChange}
+      onPointerDownOutside={onPointerDownOutside}
+      triggerNode={<TriggerButton ref={triggerRef} />}
     />
   );
 }

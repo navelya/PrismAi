@@ -316,6 +316,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         isPaid,
         selectedModel: effectiveModel,
         onModelSelect: setSelectedChatModel,
+        hasMessages: messages.length > 0,
     };
 
     const [userName, setUserName] = useState<string>(initialUserName || '');
@@ -451,7 +452,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         </button>
                     </div>
                 )}
-                <ChatInput ref={textareaRef} {...chatInputProps} />
+                <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={messages.length > 0} />
             </div>
             {evictionToast && (
                 <Toast

@@ -23,6 +23,21 @@ import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { ModelPicker } from './ModelPicker';
 import { Select, type SelectOption } from '@/components/ui/Select';
 
+const PLUS_MENU_OPTIONS: SelectOption[] = [
+    {
+        id: 'add-images',
+        display_name: 'Add images',
+        icon: <ImagePlus className="w-3.5 h-3.5 text-accent-primary" />,
+    },
+    {
+        id: 'templates',
+        display_name: 'Templates',
+        subtitle: 'Coming soon',
+        icon: <Sparkles className="w-3.5 h-3.5 text-content-tertiary" />,
+        disabled: true,
+    },
+];
+
 const PlusTriggerButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
     function PlusTriggerButton(props, ref) {
         const { className, children, ...rest } = props;
@@ -41,21 +56,6 @@ const PlusTriggerButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAt
     }
 );
 
-const PLUS_MENU_OPTIONS: SelectOption[] = [
-    {
-        id: 'add-images',
-        display_name: 'Add images',
-        icon: <ImagePlus className="w-3.5 h-3.5 text-accent-primary" />,
-    },
-    {
-        id: 'templates',
-        display_name: 'Templates',
-        subtitle: 'Coming soon',
-        icon: <Sparkles className="w-3.5 h-3.5 text-content-tertiary" />,
-        disabled: true,
-    },
-];
-
 interface ChatInputProps {
     value: string;
     onChange: (v: string) => void;
@@ -72,6 +72,7 @@ interface ChatInputProps {
     isPaid?: boolean;
     selectedModel?: 'haiku' | 'sonnet';
     onModelSelect?: (m: 'haiku' | 'sonnet') => void;
+    hasMessages?: boolean;
 }
 
 const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
@@ -92,6 +93,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             isPaid = false,
             selectedModel = 'sonnet',
             onModelSelect,
+            hasMessages = false,
         },
         ref
     ) {
@@ -99,6 +101,43 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
 
         const [isExpanded, setIsExpanded] = useState(false);
         const [isMultiLine, setIsMultiLine] = useState(false);
+        // Single source of truth for which footer dropdown is open. Opening one
+        // automatically closes the other so they can't both be visible.
+        const [openMenu, setOpenMenu] = useState<'none' | 'plus' | 'model'>('none');
+        const plusTriggerRef = useRef<HTMLButtonElement>(null);
+        const modelTriggerRef = useRef<HTMLButtonElement>(null);
+
+        /**
+         * Radix Select disables pointer events on the page while open, so a
+         * click on the *other* dropdown's trigger never fires the trigger's
+         * click handler. We bridge the two by inspecting the outside-pointer-down
+         * target: if it landed on the sibling trigger, switch which menu is
+         * open in the same interaction.
+         *
+         * Functional setState ensures we don't fight with Radix's own
+         * onOpenChange(false) firing right after — we only collapse to 'none'
+         * if the menu is still showing the dropdown that just dismissed.
+         */
+        const handlePlusOutside = (e: CustomEvent<{ originalEvent: PointerEvent }>) => {
+            const target = e.detail?.originalEvent?.target as Node | null | undefined;
+            if (target && modelTriggerRef.current?.contains(target)) {
+                setOpenMenu('model');
+            }
+        };
+        const handleModelOutside = (e: CustomEvent<{ originalEvent: PointerEvent }>) => {
+            const target = e.detail?.originalEvent?.target as Node | null | undefined;
+            if (target && plusTriggerRef.current?.contains(target)) {
+                setOpenMenu('plus');
+            }
+        };
+        const handlePlusOpenChange = (o: boolean) => {
+            if (o) setOpenMenu('plus');
+            else setOpenMenu(prev => (prev === 'plus' ? 'none' : prev));
+        };
+        const handleModelOpenChange = (o: boolean) => {
+            if (o) setOpenMenu('model');
+            else setOpenMenu(prev => (prev === 'model' ? 'none' : prev));
+        };
 
         // Internal refs for the ghost element (single-line width probe) and the
         // forwarded textarea.  We need a local ref for effects; if the parent
@@ -260,16 +299,16 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         placeholder={
                             isVoiceActive
                                 ? 'Listening...'
-                                : isCanvasMode
-                                    ? 'Edit canvas'
-                                    : 'Message Prism...'
+                                : hasMessages
+                                    ? 'Edit'
+                                    : 'Describe what you want to do'
                         }
                         rows={1}
                         disabled={disabled}
                         className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
                                      ${isMultiLine || attachedImages.length > 0 || isCanvasMode
                                 ? `relative w-full px-4 py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`
-                                : `absolute left-12 right-24 top-1/2 -translate-y-1/2 px-2 py-2`
+                                : `absolute left-24 right-24 top-1/2 -translate-y-1/2 px-2 py-2`
                             }`}
                         style={{
                             minHeight:
@@ -296,27 +335,32 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     >
                         {/* Left: attachment button + model picker */}
                         <div className="flex items-center gap-1">
-                            {/* Attachment (+) menu — Radix Select with custom trigger */}
+                            {/* Attachment (+) menu — shared Select dropdown */}
                             <div className="relative z-10">
-                                <Tooltip content="Add attachment" position="top">
-                                    <Select
-                                        variant="minimal"
-                                        options={PLUS_MENU_OPTIONS}
-                                        value=""
-                                        onChange={(e) => {
-                                            if (e.target.value === 'add-images') onOpenImagePicker();
-                                        }}
-                                        triggerNode={<PlusTriggerButton />}
-                                    />
-                                </Tooltip>
+                                <Select
+                                    variant="minimal"
+                                    options={PLUS_MENU_OPTIONS}
+                                    value=""
+                                    onChange={(e) => {
+                                        if (e.target.value === 'add-images') onOpenImagePicker();
+                                    }}
+                                    open={openMenu === 'plus'}
+                                    onOpenChange={handlePlusOpenChange}
+                                    onPointerDownOutside={handlePlusOutside}
+                                    triggerNode={<PlusTriggerButton ref={plusTriggerRef} />}
+                                />
                             </div>
 
-                            {/* Model picker */}
+                            {/* Model picker — same Select dropdown, controlled */}
                             {onModelSelect && (
                                 <ModelPicker
                                     selectedModel={selectedModel}
                                     onSelect={onModelSelect}
                                     isPaid={isPaid}
+                                    open={openMenu === 'model'}
+                                    onOpenChange={handleModelOpenChange}
+                                    onPointerDownOutside={handleModelOutside}
+                                    triggerRef={modelTriggerRef}
                                 />
                             )}
                         </div>

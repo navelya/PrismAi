@@ -57,7 +57,7 @@ export function WorkflowEmptyState({
                 </p>
             </div>
 
-            <div className={`flex flex-col gap-2 w-full mx-auto ${isCanvasMode ? 'max-w-[300px]' : 'max-w-md'}`}>
+            <div className={`flex flex-wrap justify-center gap-2 w-full mx-auto ${isCanvasMode ? 'max-w-[320px]' : 'max-w-2xl'}`}>
                 {suggestions.map(({ icon: Icon, text }) => (
                     <button
                         key={text}
@@ -67,10 +67,10 @@ export function WorkflowEmptyState({
                                     rounded-xl bg-surface-secondary hover:bg-surface-tertiary
                                     border border-stroke-subtle hover:border-accent-primary/40
                                     text-content-secondary hover:text-content-primary
-                                    transition-colors text-left`}
+                                    transition-colors w-fit`}
                     >
                         <Icon className={`${isCanvasMode ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-content-tertiary group-hover:text-accent-primary transition-colors flex-shrink-0`} strokeWidth={2} />
-                        <span className="truncate">{text}</span>
+                        <span className="whitespace-nowrap">{text}</span>
                     </button>
                 ))}
             </div>

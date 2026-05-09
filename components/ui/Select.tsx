@@ -39,6 +39,17 @@ interface SelectProps {
      * portals to body and matches the trigger width, so set width via the trigger.
      */
     triggerNode?: React.ReactElement;
+    /** Optional controlled open state. */
+    open?: boolean;
+    /** Called when open state should change. Required when `open` is provided. */
+    onOpenChange?: (open: boolean) => void;
+    /**
+     * Forwarded to RadixSelect.Content. Lets a parent inspect outside-pointer-down
+     * events (e.g. to detect a click on a sibling dropdown trigger and switch
+     * which menu is open in a single interaction — Radix Select otherwise
+     * disables pointer events on the rest of the page while open).
+     */
+    onPointerDownOutside?: (event: CustomEvent<{ originalEvent: PointerEvent }>) => void;
 }
 
 function OptionIcon({ icon, url, size }: { icon?: React.ReactNode; url?: string | null; size: number }) {
@@ -66,6 +77,9 @@ export function Select({
     required = false,
     variant = 'default',
     triggerNode,
+    open,
+    onOpenChange,
+    onPointerDownOutside,
 }: SelectProps) {
     const isMinimal = variant === 'minimal';
     const selected = options.find((o) => o.id === value);
@@ -85,6 +99,7 @@ export function Select({
                 position="popper"
                 sideOffset={8}
                 collisionPadding={16}
+                onPointerDownOutside={onPointerDownOutside as any}
             >
                 <RadixSelect.Viewport className="p-1.5 space-y-0.5 max-h-[280px]">
                     {options.length === 0 ? (
@@ -142,6 +157,8 @@ export function Select({
                 value={value || ''}
                 onValueChange={(val) => onChange({ target: { value: val, name } })}
                 disabled={disabled}
+                open={open}
+                onOpenChange={onOpenChange}
             >
                 <RadixSelect.Trigger asChild aria-label={label}>
                     {triggerNode}
@@ -167,6 +184,8 @@ export function Select({
                 value={value || ''}
                 onValueChange={(val) => onChange({ target: { value: val, name } })}
                 disabled={disabled}
+                open={open}
+                onOpenChange={onOpenChange}
             >
                 <RadixSelect.Trigger
                     aria-label={label}
