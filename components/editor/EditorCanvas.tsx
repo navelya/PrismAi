@@ -137,10 +137,12 @@ const EditorCanvasInner = ({
                 const newLen = state.currentWorkflow?.nodes.length ?? 0;
                 const oldLen = prev.currentWorkflow?.nodes.length ?? 0;
                 if (newLen !== oldLen) {
+                    // Print the stack as a single string so it's always visible
+                    // (console.trace produces a collapsed group in some DevTools).
+                    const stack = (new Error()).stack || '(no stack)';
                     console.log(
-                        `[storeSub] currentWorkflow.nodes ${oldLen} -> ${newLen}`,
+                        `[storeSub] currentWorkflow.nodes ${oldLen} -> ${newLen}\n${stack}`,
                     );
-                    console.trace('[storeSub] stack');
                 }
             }
         });
