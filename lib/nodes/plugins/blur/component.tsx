@@ -15,8 +15,8 @@ import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { NodeClientDef } from '../../core/types';
-import { blurSharedDef } from './index';
-import { blurClientExecutor } from './client-blur';
+import { blurSharedDef } from './definition';
+import { blurClientExecutor } from './executor.client';
 
 interface BlurNodeData {
     label: string;

@@ -7,7 +7,7 @@
 
 import sharp from 'sharp';
 import { mediaInputExecutor } from '../nodes/plugins/media_input/executor';
-import { blurExecutor } from '../nodes/plugins/blur/executor';
+import { blurExecutor } from '../nodes/plugins/blur/executor.server';
 
 export type HandlerFunction = (
   properties: Record<string, any>,

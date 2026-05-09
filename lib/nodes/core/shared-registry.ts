@@ -2,7 +2,7 @@ import { NodeSharedDef } from './types';
 import { promptSharedDef } from '../plugins/prompt';
 import { mediaInputSharedDef } from '../plugins/media_input';
 import { compositorSharedDef } from '../plugins/compositor';
-import { blurSharedDef } from '../plugins/blur';
+import { blurSharedDef } from '../plugins/blur/definition';
 
 // The global shared registry mapping definition types
 // This is safe to import { promptSharedDef } from '../plugins/prompt';

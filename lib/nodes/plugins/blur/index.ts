@@ -1,40 +1,8 @@
-import { NodeSharedDef } from '../../core/types';
-import { BlurConfig } from './types';
-
-export const blurSharedDef: NodeSharedDef<BlurConfig> = {
-    type: 'blur',
-    family: 'utility',
-    category: 'utility',
-    meta: {
-        label: 'Blur',
-        description: 'Apply Gaussian blur to an image',
-        color: '#3b82f6',
-        icon: 'Droplets',
-        ephemeral: true,
-    },
-    handles: {
-        inputs: [
-            { id: 'image', label: 'Image', expectedType: 'image' }
-        ],
-        outputs: [
-            { id: 'image_out', label: '', dataType: 'image' }
-        ],
-    },
-    defaultConfig: {
-        radius: 5,
-    },
-    aiSchema: {
-        type: 'object',
-        properties: {
-            radius: {
-                type: 'number',
-                description: 'Blur radius in pixels (0-50)',
-                minimum: 0,
-                maximum: 50,
-                default: 5
-            }
-        }
-    }
-};
-
-export * from './types';
+// Public surface of the blur plugin.
+// IMPORTANT: this barrel must NOT export executor.server.ts.
+// executor.server.ts imports `sharp`, which is server-only and would leak
+// into the client bundle if surfaced here. Server code imports from
+// './executor.server' explicitly via the server-registry barrel.
+export { blurSharedDef, type BlurConfig } from './definition';
+export { blurClientDef, default as BlurNode } from './component';
+export { blurClientExecutor } from './executor.client';

@@ -5,8 +5,8 @@ import { promptSharedDef } from '../plugins/prompt';
 import { promptExecutor } from '../plugins/prompt/executor';
 import { compositorSharedDef } from '../plugins/compositor';
 import { compositorExecutor } from '../plugins/compositor/executor';
-import { blurSharedDef } from '../plugins/blur';
-import { blurExecutor } from '../plugins/blur/executor';
+import { blurSharedDef } from '../plugins/blur/definition';
+import { blurExecutor } from '../plugins/blur/executor.server';
 import { aiGeneratorExecutor } from './ai-generator-executor';
 
 // The server-side registry mapping definition types
