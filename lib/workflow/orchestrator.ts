@@ -152,7 +152,16 @@ async function buildInputsFromParents(
   parentResultsByNode: Map<string, { status: string; result_type: any; result_data: any }>
 ): Promise<Record<string, any>> {
   const supabase = createServiceClient();
-  const inputs: Record<string, any> = {};
+
+  // Seed with preseeded inputs from generative ancestors that aren't part of
+  // this execution. The start route stuffs these into graph_json so non-root
+  // nodes (which the dispatch loop's direct preseed pass-through skips) still
+  // receive their outside-the-set parent values. Live parent results below
+  // overlay preseed on key collision, so a re-running parent always wins.
+  const preseedForNode = graph.preseedInputs?.[nodeId];
+  const inputs: Record<string, any> = preseedForNode && typeof preseedForNode === 'object'
+    ? { ...preseedForNode }
+    : {};
 
   const incomingEdges = (graph.edges || []).filter(e => e.target === nodeId);
   const targetNode = graph.nodes.find((n) => n.id === nodeId);

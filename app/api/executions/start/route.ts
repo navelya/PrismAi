@@ -241,12 +241,31 @@ export async function POST(request: NextRequest) {
     //      We store a mini-graph (only the target set) so the orchestrator
     //      never looks outside the intended scope.
     // ─────────────────────────────────────────────────────────────────────────
+    // Persist preseeded inputs alongside the graph so the orchestrator can
+    // deliver outside-the-set generative-ancestor values to NON-root nodes
+    // during the chain reaction. Without this, a node like
+    //   [GenA] ──▶ [Target T]
+    //   [Eph B] ──▶ [Target T]
+    // run in solo mode loses GenA's value: T is non-root (B is in-set), so
+    // the dispatch loop's preseed delivery is skipped, and the orchestrator's
+    // own input building queries node_results scoped to THIS execution_id —
+    // GenA has no row there. Stashing preseeds in graph_json crosses both the
+    // in-process dispatch chain and the Replicate webhook boundary cleanly.
+    const preseedInputsObj: Record<string, Record<string, any>> = {};
+    for (const [nodeId, inputs] of preseedInputs.entries()) {
+      preseedInputsObj[nodeId] = inputs;
+    }
+
     const { data: execution, error: createError } = await supabase
       .from('executions')
       .insert({
         session_id,
         status: 'pending',
-        graph_json: { nodes: nodesToExecute, edges: edgesToInclude },
+        graph_json: {
+          nodes: nodesToExecute,
+          edges: edgesToInclude,
+          preseedInputs: preseedInputsObj,
+        },
       })
       .select()
       .single();

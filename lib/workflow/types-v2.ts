@@ -28,6 +28,11 @@ export interface EdgeConfig {
 export interface GraphJson {
   nodes: NodeConfig[];
   edges: EdgeConfig[];
+  // Inputs precomputed by the start route for nodes whose parents include
+  // generative ancestors outside the execution set. The orchestrator merges
+  // these into the inputs map at dispatch time so non-root nodes still
+  // receive ancestor values across the in-process and webhook boundaries.
+  preseedInputs?: Record<string, Record<string, any>>;
 }
 
 export interface NodeState {

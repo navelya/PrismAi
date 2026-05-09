@@ -33,6 +33,7 @@ import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import {
     PendingConnection,
     getNodeHandleType,
+    typesAreCompatible,
 } from '@/lib/editor/handle-compatibility';
 
 // Stable references for <ReactFlow> object props — see
@@ -639,8 +640,20 @@ const EditorCanvasInner = ({
 
     const handleIsValidConnection = useCallback((connection: Connection) => {
         if (connection.source === connection.target) return false;
-        return true;
-    }, []);
+        if (!reactFlowInstance) return true;
+
+        const sourceNode = reactFlowInstance.getNode(connection.source!);
+        const targetNode = reactFlowInstance.getNode(connection.target!);
+        if (!sourceNode || !targetNode) return true;
+
+        const src = getNodeHandleType(sourceNode as any, connection.sourceHandle, 'source', models, sharedRegistry);
+        const tgt = getNodeHandleType(targetNode as any, connection.targetHandle, 'target', models, sharedRegistry);
+        // Fail open when either side can't be resolved (unknown plugin, missing
+        // model row) — better to allow a connection we can't classify than to
+        // silently block legitimate ones.
+        if (!src || !tgt) return true;
+        return typesAreCompatible(src.type, tgt.type);
+    }, [reactFlowInstance, models]);
 
     const handlePaneClick = useCallback(() => {
         // Ignore the trailing pane click that React Flow fires immediately after
