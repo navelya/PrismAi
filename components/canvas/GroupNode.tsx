@@ -109,15 +109,17 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
 
     return (
         <div
-            className={
-                "group relative rounded-2xl bg-bg-primary/60 transition-colors " +
-                (isHoverTarget
-                    ? "border-2 border-accent-primary"
-                    : "border border-stroke-subtle/60")
-            }
+            className="group relative rounded-2xl transition-colors"
             style={{
                 width,
                 height,
+                // TEMP DIAGNOSTIC: bright red 4px border + visible fill so we
+                // can verify the group renders. Replace with theme styling
+                // (bg-bg-primary/60 + border-stroke-subtle/60) once visible.
+                background: 'rgba(255, 0, 0, 0.15)',
+                border: isHoverTarget
+                    ? '4px solid rgb(0, 200, 255)'
+                    : '4px solid red',
                 // The "group" Tailwind utility class above lets handles use
                 // group-hover:opacity-100 to fade in on hover.
             }}

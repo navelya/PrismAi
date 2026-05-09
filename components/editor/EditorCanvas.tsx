@@ -265,9 +265,23 @@ const EditorCanvasInner = ({
         if (!canGroupSelection) return;
         const newGroupId = groupNodes(selectedNodeIds);
         console.log('[Group] groupNodes returned:', newGroupId);
+
+        // Dump the post-group state so we can see where the new group lives,
+        // what dimensions it has, and whether children got parentNode.
+        if (newGroupId) {
+            const wf = useAppStore.getState().currentWorkflow;
+            const newGroup = wf?.nodes.find((n) => n.id === newGroupId);
+            const newChildren = wf?.nodes.filter((n: any) => n.parentNode === newGroupId);
+            console.log('[Group] new group node:', newGroup);
+            console.log('[Group] children of new group:', newChildren);
+            console.log('[Group] React Flow internal node count:',
+                reactFlowInstance?.getNodes().length,
+                'workflow node count:', wf?.nodes.length);
+            const rfGroup = reactFlowInstance?.getNode(newGroupId);
+            console.log('[Group] React Flow internal node for new group:', rfGroup);
+        }
+
         if (newGroupId && reactFlowInstance) {
-            // Move selection from the children to the new group itself, so the
-            // single-select toolbar / property panel act on the group next.
             reactFlowInstance.setNodes((nds: any[]) =>
                 nds.map((n) => ({ ...n, selected: n.id === newGroupId })),
             );
