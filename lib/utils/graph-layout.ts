@@ -24,6 +24,13 @@ const ELK_OPTIONS = {
 /**
  * Main auto-layout function.
  * Uses 'measured' dimensions from the UI to prevent overlaps.
+ *
+ * Group handling: a group container is laid out as a single super-node.
+ * Its children are EXCLUDED from the ELK input (their positions are
+ * parent-relative and follow the group automatically), and edges that
+ * touch a grouped child are remapped so their endpoint is the parent
+ * group instead. Edges between siblings of the same group collapse to
+ * self-loops and are dropped.
  */
 export async function autoLayoutNodesAsync(
     nodes: any[],
@@ -31,20 +38,49 @@ export async function autoLayoutNodesAsync(
 ): Promise<Map<string, { x: number; y: number }>> {
     if (nodes.length === 0) return new Map();
 
-    const elkNodes: ElkNode[] = nodes.map((node) => ({
+    // Build a child → parent-group map (only when the parent actually exists).
+    const groupIds = new Set(
+        nodes.filter((n: any) => n.type === 'group_container').map((n: any) => n.id),
+    );
+    const parentByChild = new Map<string, string>();
+    nodes.forEach((n: any) => {
+        if (n.parentNode && groupIds.has(n.parentNode)) {
+            parentByChild.set(n.id, n.parentNode);
+        }
+    });
+
+    // ELK lays out groups + ungrouped nodes; grouped children are skipped.
+    const layoutNodes = nodes.filter((n: any) => !parentByChild.has(n.id));
+
+    const elkNodes: ElkNode[] = layoutNodes.map((node) => ({
         id: node.id,
         width: node.measured?.width ?? node.width ?? 250,
         height: node.measured?.height ?? node.height ?? 150,
-        properties: { 'portConstraints': 'FREE' }
+        properties: { 'portConstraints': 'FREE' },
     }));
 
-    // ELK throws "Referenced shape does not exist" if any edge points at a node id
-    // that isn't in the children set — for example, an edge left dangling after a
-    // delete, or a duplicated edge that still references the original endpoint.
-    // Drop those edges instead of letting the whole layout fall back to a grid.
-    const nodeIds = new Set(nodes.map((n: any) => n.id));
+    const layoutNodeIds = new Set(layoutNodes.map((n: any) => n.id));
+
+    // Remap edge endpoints: any endpoint that points at a grouped child
+    // becomes its parent group, so ELK sees the topology at the group level.
+    // Then drop dangling edges, self-loops (intra-group edges), and dedupe
+    // by (source, target) so two edges from the same group to the same
+    // outside target don't double-influence layout.
+    const remappedSeen = new Set<string>();
     const elkEdges: ElkEdge[] = edges
-        .filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+        .map(edge => ({
+            ...edge,
+            source: parentByChild.get(edge.source) ?? edge.source,
+            target: parentByChild.get(edge.target) ?? edge.target,
+        }))
+        .filter(edge => layoutNodeIds.has(edge.source) && layoutNodeIds.has(edge.target))
+        .filter(edge => edge.source !== edge.target)
+        .filter(edge => {
+            const key = `${edge.source}->${edge.target}`;
+            if (remappedSeen.has(key)) return false;
+            remappedSeen.add(key);
+            return true;
+        })
         .map(edge => ({
             id: edge.id,
             sources: [edge.source],
@@ -54,9 +90,7 @@ export async function autoLayoutNodesAsync(
     const dropped = edges.length - elkEdges.length;
     if (dropped > 0) {
         // eslint-disable-next-line no-console
-        console.warn(`[autoLayout] dropped ${dropped} dangling edge(s) (source/target node missing):`,
-            edges.filter(e => !nodeIds.has(e.source) || !nodeIds.has(e.target))
-        );
+        console.warn(`[autoLayout] ${dropped} edge(s) dropped or merged (dangling, intra-group, or duplicate after group remap)`);
     }
 
     const graph: any = {
