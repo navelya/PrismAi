@@ -318,6 +318,8 @@ const EditorCanvasInner = ({
         });
     }, []);
 
+    const setNodeParent = useAppStore((state) => state.setNodeParent);
+
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = false;
         setIsDragging(false);
@@ -330,6 +332,27 @@ const EditorCanvasInner = ({
             updatePositions(positionsMap);
         }
 
+        // ── DRAG-OUT detection ────────────────────────────────────────────────
+        // For every dragged node that has a parentNode, check whether its CENTER
+        // is now outside the parent's rect. If so, detach it (slice converts the
+        // position to absolute and leaves the group's size unchanged per spec).
+        const allNodes = reactFlowInstance?.getNodes() ?? [];
+        for (const dragged of nodes as any[]) {
+            if (!dragged.parentNode) continue;
+            const parent = allNodes.find((n: any) => n.id === dragged.parentNode);
+            if (!parent || parent.type !== 'group') continue;
+            const childW = dragged.width ?? dragged.measured?.width ?? 200;
+            const childH = dragged.height ?? dragged.measured?.height ?? 100;
+            const childCenterX = dragged.position.x + childW / 2;
+            const childCenterY = dragged.position.y + childH / 2;
+            const cfg = (parent.data?.config as any) || {};
+            const insideX = childCenterX >= 0 && childCenterX <= (cfg.width || 0);
+            const insideY = childCenterY >= 0 && childCenterY <= (cfg.height || 0);
+            if (!insideX || !insideY) {
+                setNodeParent(dragged.id, null);
+            }
+        }
+
         // Commit the local zIndex pop applied in handleWrapperMouseDown so it
         // survives the next prop sync. Doing it here keeps the global store
         // write away from the moment of grab.
@@ -337,7 +360,7 @@ const EditorCanvasInner = ({
 
         touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
-    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions]);
+    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, reactFlowInstance, setNodeParent]);
 
     // After a marquee selection, React Flow renders a `.react-flow__nodesselection-rect`
     // overlay with `pointer-events: all` — grabbing anywhere inside it (even on a
@@ -360,8 +383,27 @@ const EditorCanvasInner = ({
             updatePositions(positionsMap);
         }
 
+        // Same drag-OUT detection as handleNodeDragStop. Multi-drag is just a
+        // batched version of single-node drag.
+        const allNodes = reactFlowInstance?.getNodes() ?? [];
+        for (const dragged of nodes as any[]) {
+            if (!dragged.parentNode) continue;
+            const parent = allNodes.find((n: any) => n.id === dragged.parentNode);
+            if (!parent || parent.type !== 'group') continue;
+            const childW = dragged.width ?? dragged.measured?.width ?? 200;
+            const childH = dragged.height ?? dragged.measured?.height ?? 100;
+            const childCenterX = dragged.position.x + childW / 2;
+            const childCenterY = dragged.position.y + childH / 2;
+            const cfg = (parent.data?.config as any) || {};
+            const insideX = childCenterX >= 0 && childCenterX <= (cfg.width || 0);
+            const insideY = childCenterY >= 0 && childCenterY <= (cfg.height || 0);
+            if (!insideX || !insideY) {
+                setNodeParent(dragged.id, null);
+            }
+        }
+
         touchInteraction();
-    }, [setIsDragging, touchInteraction, updatePositions]);
+    }, [setIsDragging, touchInteraction, updatePositions, reactFlowInstance, setNodeParent]);
 
     const handleEdgesChange = useCallback((changes: any) => {
         touchInteraction();
