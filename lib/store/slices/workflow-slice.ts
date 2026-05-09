@@ -6,6 +6,12 @@ import { RootState, WorkflowSlice } from '../types';
 import { generateEdgeId } from '@/lib/utils';
 import { deriveEnvelopeFromConfig } from '@/lib/hooks/use-resolved-node-value';
 import { CompositorConfig, CompositorLayer, calculateInitialTransform } from '../../nodes/types';
+import {
+    GROUP_PADDING,
+    GROUP_TITLE_BAR_HEIGHT,
+    GROUP_DEFAULT_LABEL,
+    GROUP_Z_INDEX,
+} from '../../nodes/group-constants';
 
 /**
  * Build a default CompositorLayer for an edge that just landed on a compositor.
@@ -550,7 +556,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const nodes = currentWorkflow.nodes;
         const maxZ = Math.max(0, ...nodes.map(n => n.zIndex || 0));
         const node = nodes.find(n => n.id === nodeId);
-        
+
         if (!node || (node.zIndex === maxZ && maxZ > 0)) return;
 
         set({
@@ -558,6 +564,265 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                 ...currentWorkflow,
                 nodes: nodes.map(n => n.id === nodeId ? { ...n, zIndex: maxZ + 1 } : n)
             }
+        });
+    },
+
+    groupNodes: (childIds) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow || childIds.length < 2) return null;
+
+        const childSet = new Set(childIds);
+        const children = currentWorkflow.nodes.filter((n) => childSet.has(n.id));
+        if (children.length < 2) return null;
+
+        // Refuse if any child is already in a group — toolbar should hide the
+        // button in this case, but defend in depth.
+        if (children.some((c) => c.parentNode)) return null;
+
+        // Compute bounding box of children (in absolute flow coordinates).
+        // We use measured.width/height when available, falling back to width/height,
+        // and finally a 200x100 default if RF hasn't measured the node yet.
+        const bbox = children.reduce(
+            (acc, n) => {
+                const w = n.measured?.width ?? n.width ?? 200;
+                const h = n.measured?.height ?? n.height ?? 100;
+                return {
+                    minX: Math.min(acc.minX, n.position.x),
+                    minY: Math.min(acc.minY, n.position.y),
+                    maxX: Math.max(acc.maxX, n.position.x + w),
+                    maxY: Math.max(acc.maxY, n.position.y + h),
+                };
+            },
+            { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
+        );
+
+        const groupX = bbox.minX - GROUP_PADDING;
+        const groupY = bbox.minY - GROUP_PADDING - GROUP_TITLE_BAR_HEIGHT;
+        const groupW = (bbox.maxX - bbox.minX) + GROUP_PADDING * 2;
+        const groupH = (bbox.maxY - bbox.minY) + GROUP_PADDING * 2 + GROUP_TITLE_BAR_HEIGHT;
+
+        const groupId = `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        get().takeSnapshot();
+
+        const groupNode: WorkflowNode = {
+            id: groupId,
+            type: 'group' as any,
+            position: { x: groupX, y: groupY },
+            data: {
+                label: GROUP_DEFAULT_LABEL,
+                config: { width: groupW, height: groupH } as any,
+            },
+            zIndex: GROUP_Z_INDEX,
+        };
+
+        // Convert each child's absolute position to be relative to the group's
+        // origin. React Flow positions parented children relative to their parent.
+        const updatedNodes: WorkflowNode[] = currentWorkflow.nodes.map((n) => {
+            if (!childSet.has(n.id)) return n;
+            return {
+                ...n,
+                parentNode: groupId,
+                position: {
+                    x: n.position.x - groupX,
+                    y: n.position.y - groupY,
+                },
+            };
+        });
+
+        // Group must come BEFORE its children in the array — React Flow requires
+        // a parent to appear earlier than any of its children. Otherwise
+        // childen flicker at the wrong position on first render.
+        const reorderedNodes = [
+            groupNode,
+            ...updatedNodes,
+        ];
+
+        set({
+            currentWorkflow: { ...currentWorkflow, nodes: reorderedNodes },
+            isWorkflowDirty: true,
+        });
+
+        return groupId;
+    },
+
+    ungroupNode: (groupId) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow) return;
+
+        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group');
+        if (!group) return;
+
+        get().takeSnapshot();
+
+        // Convert children's positions back to absolute and clear parentNode.
+        // Then remove the group node entirely.
+        const updatedNodes = currentWorkflow.nodes
+            .filter((n) => n.id !== groupId)
+            .map((n) => {
+                if (n.parentNode !== groupId) return n;
+                const { parentNode: _p, extent: _e, ...rest } = n;
+                return {
+                    ...rest,
+                    position: {
+                        x: n.position.x + group.position.x,
+                        y: n.position.y + group.position.y,
+                    },
+                };
+            });
+
+        set({
+            currentWorkflow: { ...currentWorkflow, nodes: updatedNodes },
+            isWorkflowDirty: true,
+        });
+    },
+
+    setNodeParent: (nodeId, parentId) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow) return;
+
+        const node = currentWorkflow.nodes.find((n) => n.id === nodeId);
+        if (!node) return;
+        if (node.type === 'group') return; // never parent a group to anything
+
+        // Same parent — no-op (don't snapshot for nothing).
+        if ((node.parentNode || null) === (parentId || null)) return;
+
+        get().takeSnapshot();
+
+        // Compute the node's absolute position from its current state.
+        const oldParent = node.parentNode
+            ? currentWorkflow.nodes.find((n) => n.id === node.parentNode)
+            : null;
+        const absoluteX = node.position.x + (oldParent?.position.x ?? 0);
+        const absoluteY = node.position.y + (oldParent?.position.y ?? 0);
+
+        const newParent = parentId
+            ? currentWorkflow.nodes.find((n) => n.id === parentId)
+            : null;
+        if (parentId && (!newParent || newParent.type !== 'group')) return;
+
+        // Compute the node's new position (relative to new parent if any).
+        const newX = absoluteX - (newParent?.position.x ?? 0);
+        const newY = absoluteY - (newParent?.position.y ?? 0);
+
+        let updatedNodes = currentWorkflow.nodes.map((n) => {
+            if (n.id !== nodeId) return n;
+            if (parentId) {
+                return {
+                    ...n,
+                    parentNode: parentId,
+                    position: { x: newX, y: newY },
+                };
+            }
+            const { parentNode: _p, extent: _e, ...rest } = n;
+            return {
+                ...rest,
+                position: { x: newX, y: newY },
+            };
+        });
+
+        // If we attached to a group, expand the group to fit the new child.
+        // (When detaching, we intentionally do NOT shrink the old group — per spec.)
+        if (parentId && newParent) {
+            const childW = node.measured?.width ?? node.width ?? 200;
+            const childH = node.measured?.height ?? node.height ?? 100;
+            const childRight = newX + childW;
+            const childBottom = newY + childH;
+            const cfg = (newParent.data?.config as any) || {};
+            const requiredW = childRight + GROUP_PADDING;
+            const requiredH = childBottom + GROUP_PADDING;
+            const newW = Math.max(cfg.width || 0, requiredW);
+            const newH = Math.max(cfg.height || 0, requiredH);
+            if (newW !== cfg.width || newH !== cfg.height) {
+                updatedNodes = updatedNodes.map((n) =>
+                    n.id === parentId
+                        ? {
+                              ...n,
+                              data: {
+                                  ...n.data,
+                                  config: { ...cfg, width: newW, height: newH },
+                              },
+                          }
+                        : n
+                );
+            }
+        }
+
+        // Re-order so any parent appears before its children.
+        const groups = updatedNodes.filter((n) => n.type === 'group');
+        const others = updatedNodes.filter((n) => n.type !== 'group');
+        const reordered = [...groups, ...others];
+
+        set({
+            currentWorkflow: { ...currentWorkflow, nodes: reordered },
+            isWorkflowDirty: true,
+        });
+    },
+
+    resizeGroup: (groupId, width, height) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow) return;
+
+        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group');
+        if (!group) return;
+
+        // Clamp to children bbox + padding so user can't shrink past content.
+        const children = currentWorkflow.nodes.filter((n) => n.parentNode === groupId);
+        const minWidth = children.reduce((acc, c) => {
+            const w = c.measured?.width ?? c.width ?? 200;
+            return Math.max(acc, c.position.x + w + GROUP_PADDING);
+        }, GROUP_PADDING * 2);
+        const minHeight = children.reduce((acc, c) => {
+            const h = c.measured?.height ?? c.height ?? 100;
+            return Math.max(acc, c.position.y + h + GROUP_PADDING);
+        }, GROUP_PADDING * 2 + GROUP_TITLE_BAR_HEIGHT);
+
+        const clampedW = Math.max(width, minWidth);
+        const clampedH = Math.max(height, minHeight);
+
+        const cfg = (group.data?.config as any) || {};
+        if (cfg.width === clampedW && cfg.height === clampedH) return;
+
+        get().takeSnapshot();
+
+        const updatedNodes = currentWorkflow.nodes.map((n) =>
+            n.id === groupId
+                ? {
+                      ...n,
+                      data: {
+                          ...n.data,
+                          config: { ...cfg, width: clampedW, height: clampedH },
+                      },
+                  }
+                : n
+        );
+
+        set({
+            currentWorkflow: { ...currentWorkflow, nodes: updatedNodes },
+            isWorkflowDirty: true,
+        });
+    },
+
+    renameGroup: (groupId, label) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow) return;
+
+        const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group');
+        if (!group) return;
+        if ((group.data?.label || '') === label) return;
+
+        get().takeSnapshot();
+
+        const updatedNodes = currentWorkflow.nodes.map((n) =>
+            n.id === groupId
+                ? { ...n, data: { ...n.data, label } }
+                : n
+        );
+
+        set({
+            currentWorkflow: { ...currentWorkflow, nodes: updatedNodes },
+            isWorkflowDirty: true,
         });
     },
 });

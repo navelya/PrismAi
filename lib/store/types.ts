@@ -104,6 +104,39 @@ export interface WorkflowSlice {
     reseedSourceNodeOutputs: () => void;
     isWorkflowDirty: boolean;
     setWorkflowDirty: (isDirty: boolean) => void;
+
+    // Grouping
+    /**
+     * Create a new group node containing the given child node ids.
+     * Computes a bounding box around children, adds GROUP_PADDING + title bar room,
+     * places the group with zIndex -1, sets parentNode on each child, converts
+     * each child's position to be relative to the new group's origin.
+     * Returns the new group's id.
+     */
+    groupNodes: (childIds: string[]) => string | null;
+    /**
+     * Dissolve a group: clear parentNode on all its children, convert each
+     * child's position back to absolute (group.position + child.position),
+     * remove the group node itself.
+     */
+    ungroupNode: (groupId: string) => void;
+    /**
+     * Move a single node into or out of a group.
+     * - parentId = string: attaches; child position is converted from absolute
+     *   to relative to the group's origin; group is expanded to fit the child.
+     * - parentId = null: detaches; child position is converted from relative
+     *   to absolute. Group keeps its current size (no shrink).
+     */
+    setNodeParent: (nodeId: string, parentId: string | null) => void;
+    /**
+     * Resize a group container. Clamps width/height so the group never shrinks
+     * past the bounding box of current children + GROUP_PADDING.
+     */
+    resizeGroup: (groupId: string, width: number, height: number) => void;
+    /**
+     * Rename a group's title (stored in data.label).
+     */
+    renameGroup: (groupId: string, label: string) => void;
 }
 
 export interface ChatSlice {
