@@ -10,7 +10,6 @@ import {
     GROUP_PADDING,
     GROUP_TITLE_BAR_HEIGHT,
     GROUP_DEFAULT_LABEL,
-    GROUP_Z_INDEX,
 } from '../../nodes/group-constants';
 
 /**
@@ -569,15 +568,38 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
     groupNodes: (childIds) => {
         const { currentWorkflow } = get();
-        if (!currentWorkflow || childIds.length < 2) return null;
+        if (!currentWorkflow) {
+            console.warn('[groupNodes] aborted: no currentWorkflow');
+            return null;
+        }
+        if (childIds.length < 2) {
+            console.warn('[groupNodes] aborted: childIds.length < 2', childIds);
+            return null;
+        }
 
         const childSet = new Set(childIds);
         const children = currentWorkflow.nodes.filter((n) => childSet.has(n.id));
-        if (children.length < 2) return null;
+        if (children.length < 2) {
+            console.warn(
+                '[groupNodes] aborted: only',
+                children.length,
+                'of',
+                childIds.length,
+                'IDs matched workflow nodes. childIds:',
+                childIds,
+                'workflow node ids:',
+                currentWorkflow.nodes.map((n) => n.id),
+            );
+            return null;
+        }
 
         // Refuse if any child is already in a group — toolbar should hide the
         // button in this case, but defend in depth.
-        if (children.some((c) => c.parentNode)) return null;
+        if (children.some((c) => c.parentNode)) {
+            console.warn('[groupNodes] aborted: at least one child already has parentNode',
+                children.filter((c) => c.parentNode).map((c) => ({ id: c.id, parent: c.parentNode })));
+            return null;
+        }
 
         // Compute bounding box of children (in absolute flow coordinates).
         // We use measured.width/height when available, falling back to width/height,
@@ -613,7 +635,20 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                 label: GROUP_DEFAULT_LABEL,
                 config: { width: groupW, height: groupH } as any,
             },
-            zIndex: GROUP_Z_INDEX,
+            // RF needs explicit width/height on the node itself for parent-child
+            // layout: child positions are computed against this rect. Without it
+            // children can render at the wrong absolute spot and the group's own
+            // hit area collapses to zero.
+            width: groupW,
+            height: groupH,
+            // We deliberately do NOT set a negative zIndex — that places the
+            // node behind the RF pane background, which makes it invisible.
+            // Children render above the parent automatically when parentNode
+            // is set, so 0 (default) is correct.
+            zIndex: 0,
+            // Mirror dimensions into RF's `style` field too — some RF render
+            // paths read style.width/height for dimensioning before measurement.
+            ...( { style: { width: groupW, height: groupH } } as any ),
         };
 
         // Convert each child's absolute position to be relative to the group's

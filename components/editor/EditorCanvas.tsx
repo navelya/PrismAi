@@ -259,8 +259,12 @@ const EditorCanvasInner = ({
     const groupNodes = useAppStore((state) => state.groupNodes);
 
     const handleGroupSelected = useCallback(() => {
+        // TEMP DIAGNOSTIC — remove once grouping is verified working in the browser.
+        console.log('[Group] click → canGroupSelection:', canGroupSelection,
+            'selectedNodeIds:', selectedNodeIds);
         if (!canGroupSelection) return;
         const newGroupId = groupNodes(selectedNodeIds);
+        console.log('[Group] groupNodes returned:', newGroupId);
         if (newGroupId && reactFlowInstance) {
             // Move selection from the children to the new group itself, so the
             // single-select toolbar / property panel act on the group next.
