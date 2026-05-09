@@ -128,6 +128,25 @@ const EditorCanvasInner = ({
             'group_container nodes in propNodes:', groupsInProp.length, groupsInProp);
     }, [propNodes]);
 
+    // TEMP DIAGNOSTIC — subscribe directly to the store and log every
+    // currentWorkflow change with a stack trace so we can identify which
+    // call site is rewinding the state right after groupNodes runs.
+    useEffect(() => {
+        const unsub = useAppStore.subscribe((state, prev) => {
+            if (state.currentWorkflow !== prev.currentWorkflow) {
+                const newLen = state.currentWorkflow?.nodes.length ?? 0;
+                const oldLen = prev.currentWorkflow?.nodes.length ?? 0;
+                if (newLen !== oldLen) {
+                    console.log(
+                        `[storeSub] currentWorkflow.nodes ${oldLen} -> ${newLen}`,
+                    );
+                    console.trace('[storeSub] stack');
+                }
+            }
+        });
+        return unsub;
+    }, []);
+
     const { resolvedTheme } = useTheme();
 
     const edgeStyle = useMemo(() => ({
