@@ -7,7 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import BlurryImage from '@/components/ui/BlurryImage';
-import { BlurConfig } from './types';
+import { BlurConfig } from './definition';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { useAppStore } from '@/lib/store/app-store';
 import { ImageObject } from '@/lib/nodes/types';

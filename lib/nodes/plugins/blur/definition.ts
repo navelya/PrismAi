@@ -1,5 +1,10 @@
 import { NodeSharedDef } from '../../core/types';
-import { BlurConfig } from './types';
+
+// BlurConfig is defined below — this plugin's config TS lives with the shared def.
+export interface BlurConfig {
+    radius: number;           // Blur radius in pixels (0-50)
+    edgeMode?: 'clamp' | 'wrap' | 'mirror';  // Edge handling (future)
+}
 
 export const blurSharedDef: NodeSharedDef<BlurConfig> = {
     type: 'blur',
@@ -36,5 +41,3 @@ export const blurSharedDef: NodeSharedDef<BlurConfig> = {
         }
     }
 };
-
-export * from './types';

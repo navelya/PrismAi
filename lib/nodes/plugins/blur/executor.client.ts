@@ -1,7 +1,7 @@
 import { ImageObject } from '../../types';
 import { ClientExecutor } from '../../core/types';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
-import { BlurConfig } from './types';
+import { BlurConfig } from './definition';
 
 /**
  * Browser-only Blur Executor

@@ -1,5 +1,5 @@
 import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types';
-import { BlurConfig } from './types';
+import { BlurConfig } from './definition';
 
 /**
  * Blur Executor
