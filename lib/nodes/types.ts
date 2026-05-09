@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'media_input' | 'compositor' | 'prompt' | 'ai_generator' | 'blur';
+export type NodeType = 'media_input' | 'compositor' | 'prompt' | 'ai_generator' | 'blur' | 'group';
 
 export interface InputHandle {
     name: string;
@@ -251,13 +251,25 @@ export interface BlurConfig {
     edgeMode?: 'clamp' | 'wrap' | 'mirror';
 }
 
+/**
+ * Group Node Configuration
+ * Visual container that wraps related nodes. Non-executable — has no handles
+ * and is skipped by the workflow engine. Children reference the group via
+ * the WorkflowNode.parentNode field.
+ */
+export interface GroupConfig {
+    width: number;   // px in flow coordinates
+    height: number;  // px in flow coordinates
+}
+
 export type NodeConfig =
     | AIGenerateImageConfig
     | MediaInputConfig
     | CompositorConfig
     | PromptConfig
     | AIGeneratorConfig
-    | BlurConfig;
+    | BlurConfig
+    | GroupConfig;
 
 /**
  * Node definition for workflow
@@ -286,6 +298,10 @@ export interface WorkflowNode {
         width?: number;
         height?: number;
     };
+    /** ID of the group this node belongs to (omitted when ungrouped) */
+    parentNode?: string;
+    /** Intentionally NOT set on grouped children — must be omitted so they can be dragged OUT of the group. */
+    extent?: 'parent';
 }
 
 /**

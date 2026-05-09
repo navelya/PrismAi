@@ -38,6 +38,10 @@ export function createNodeFromType(
         blur: {
             radius: 5,
         },
+        group: {
+            width: 400,
+            height: 300,
+        },
     };
 
     // Merge caller-supplied initialConfig over the defaults

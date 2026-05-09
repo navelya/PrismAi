@@ -4,6 +4,8 @@ export interface WorkflowNodeUpdate {
     id: string;
     data?: Record<string, any>;
     position?: { x: number; y: number };
+    /** Set to a group id to attach this node to a group, or null to detach. Omit to leave unchanged. */
+    parentNode?: string | null;
 }
 
 export interface WorkflowNodeInputRef {
@@ -104,7 +106,7 @@ export function applyWorkflowPatch(
             const update = updateMap.get(node.id);
             if (!update) return node;
 
-            return {
+            const next: WorkflowNode = {
                 ...node,
                 ...(update.position ? { position: update.position } : {}),
                 data: {
@@ -116,6 +118,18 @@ export function applyWorkflowPatch(
                     }
                 }
             };
+
+            // parentNode: explicit string sets membership, explicit null clears it,
+            // undefined leaves it unchanged. We must omit the key when clearing,
+            // not set it to undefined, otherwise React Flow still treats the node
+            // as having an undefined parent and child layout breaks.
+            if (update.parentNode === null) {
+                delete (next as any).parentNode;
+            } else if (typeof update.parentNode === 'string') {
+                next.parentNode = update.parentNode;
+            }
+
+            return next;
         });
     }
 
@@ -123,8 +137,20 @@ export function applyWorkflowPatch(
         nodes = dedupeById([...nodes, ...patch.addedNodes]);
     }
 
+    // Build the post-patch group id set so we can drop any edge that
+    // touches a group. Groups are non-executable — edges to/from them
+    // would either crash dispatch or silently do nothing.
+    const groupIds = new Set(nodes.filter((n) => n.type === 'group').map((n) => n.id));
+
     if (patch.addedEdges?.length) {
-        edges = dedupeById([...edges, ...patch.addedEdges]);
+        const safeEdges = patch.addedEdges.filter((e) => {
+            if (groupIds.has(e.source) || groupIds.has(e.target)) {
+                console.warn(`[applyWorkflowPatch] Dropping edge ${e.id}: connects to a group node (groups are non-executable).`);
+                return false;
+            }
+            return true;
+        });
+        edges = dedupeById([...edges, ...safeEdges]);
     }
 
     return {
