@@ -742,30 +742,78 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             };
         });
 
-        // If we attached to a group, expand the group to fit the new child.
+        // If we attached to a group, expand the group to fit the new child on
+        // any side it overflows. Right/bottom expansion just grows the rect.
+        // Left/top expansion ALSO requires shifting the group's origin and
+        // shifting every existing child's relative position by the same delta
+        // so the children stay anchored to their absolute positions.
         // (When detaching, we intentionally do NOT shrink the old group — per spec.)
         if (parentId && newParent) {
             const childW = node.measured?.width ?? node.width ?? 200;
             const childH = node.measured?.height ?? node.height ?? 100;
-            const childRight = newX + childW;
-            const childBottom = newY + childH;
             const cfg = (newParent.data?.config as any) || {};
-            const requiredW = childRight + GROUP_PADDING;
-            const requiredH = childBottom + GROUP_PADDING;
-            const newW = Math.max(cfg.width || 0, requiredW);
-            const newH = Math.max(cfg.height || 0, requiredH);
-            if (newW !== cfg.width || newH !== cfg.height) {
-                updatedNodes = updatedNodes.map((n) =>
-                    n.id === parentId
-                        ? {
-                              ...n,
-                              data: {
-                                  ...n.data,
-                                  config: { ...cfg, width: newW, height: newH },
-                              },
-                          }
-                        : n
-                );
+
+            let groupX = newParent.position.x;
+            let groupY = newParent.position.y;
+            let newW = cfg.width || 0;
+            let newH = cfg.height || 0;
+            // Amount to shift ALL children (including the just-attached one)
+            // when the group's origin moves left/up.
+            let childShiftX = 0;
+            let childShiftY = 0;
+
+            // Right / bottom expansion
+            if (newX + childW + GROUP_PADDING > newW) {
+                newW = newX + childW + GROUP_PADDING;
+            }
+            if (newY + childH + GROUP_PADDING > newH) {
+                newH = newY + childH + GROUP_PADDING;
+            }
+
+            // Left / top expansion: move group origin and grow rect.
+            if (newX < GROUP_PADDING) {
+                const expand = GROUP_PADDING - newX;
+                groupX -= expand;
+                newW += expand;
+                childShiftX = expand;
+            }
+            if (newY < GROUP_PADDING) {
+                const expand = GROUP_PADDING - newY;
+                groupY -= expand;
+                newH += expand;
+                childShiftY = expand;
+            }
+
+            const groupShifted =
+                groupX !== newParent.position.x || groupY !== newParent.position.y;
+            const sizeChanged = newW !== cfg.width || newH !== cfg.height;
+
+            if (groupShifted || sizeChanged) {
+                updatedNodes = updatedNodes.map((n) => {
+                    if (n.id === parentId) {
+                        return {
+                            ...n,
+                            position: { x: groupX, y: groupY },
+                            data: {
+                                ...n.data,
+                                config: { ...cfg, width: newW, height: newH },
+                            },
+                        };
+                    }
+                    // Shift every child of this group (including the one we
+                    // just attached) so their absolute positions stay put when
+                    // the group origin moves.
+                    if ((childShiftX !== 0 || childShiftY !== 0) && n.parentNode === parentId) {
+                        return {
+                            ...n,
+                            position: {
+                                x: n.position.x + childShiftX,
+                                y: n.position.y + childShiftY,
+                            },
+                        };
+                    }
+                    return n;
+                });
             }
         }
 

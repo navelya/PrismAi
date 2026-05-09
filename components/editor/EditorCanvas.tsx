@@ -335,16 +335,38 @@ const EditorCanvasInner = ({
     }, [undo, redo, canUndo, canRedo]);
 
     const handleNodesChange = useCallback((changes: NodeChange[]) => {
+        // Selection redirection: a node inside a group must never appear
+        // selected — its parent group is selected instead. Both click and
+        // marquee paths flow through this handler, so transforming the
+        // 'select' changes here covers every selection source uniformly.
+        const lookupNodes = reactFlowInstance?.getNodes() ?? localNodes;
+        const groupsToSelect = new Set<string>();
+        const transformed: NodeChange[] = [];
+        for (const change of changes) {
+            if (change.type === 'select') {
+                const target = lookupNodes.find((n: any) => n.id === (change as any).id);
+                if (target?.parentNode && (change as any).selected) {
+                    // Drop the child select; queue a parent-group select instead.
+                    groupsToSelect.add(target.parentNode);
+                    continue;
+                }
+            }
+            transformed.push(change);
+        }
+        for (const groupId of groupsToSelect) {
+            transformed.push({ type: 'select', id: groupId, selected: true } as NodeChange);
+        }
+
         // Update local state immediately for zero-lag UI
-        setLocalNodes((nds) => applyNodeChanges(changes, nds));
+        setLocalNodes((nds) => applyNodeChanges(transformed, nds));
 
         // Only propagate non-position changes to the global store immediately.
         // Position changes are batched and sent onDragStop.
-        const structuralChanges = changes.filter(c => c.type !== 'position');
+        const structuralChanges = transformed.filter(c => c.type !== 'position');
         if (structuralChanges.length > 0) {
             onNodesChange(structuralChanges);
         }
-    }, [onNodesChange]);
+    }, [onNodesChange, reactFlowInstance, localNodes]);
 
     const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = true;
