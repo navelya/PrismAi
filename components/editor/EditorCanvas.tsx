@@ -24,7 +24,7 @@ import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
 import { CanvasToolbar } from './canvas/CanvasToolbar';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Trash2, Copy, Group as GroupIcon } from 'lucide-react';
+import { Trash2, Copy, Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
@@ -269,6 +269,24 @@ const EditorCanvasInner = ({
             );
         }
     }, [canGroupSelection, groupNodes, selectedNodeIds, reactFlowInstance]);
+
+    const ungroupNode = useAppStore((state) => state.ungroupNode);
+
+    // True when exactly one node is selected AND it's a group.
+    const singleSelectedGroupId = useMemo(() => {
+        if (selectedNodeIds.length !== 1) return null;
+        const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
+        const sel = rfNodes.find((n: any) => n.id === selectedNodeIds[0]);
+        return sel && sel.type === 'group' ? sel.id : null;
+    }, [reactFlowInstance, localNodes, selectedNodeIds]);
+
+    const handleUngroup = useCallback(() => {
+        if (!singleSelectedGroupId) return;
+        ungroupNode(singleSelectedGroupId);
+    }, [singleSelectedGroupId, ungroupNode]);
+
+    // Reuse handleDeleteSelected — it already folds group children into the
+    // delete set when a group is in the selection (Task 9).
 
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const wrapperRectRef = useRef<{ left: number; top: number } | null>(null);
@@ -748,6 +766,50 @@ const EditorCanvasInner = ({
                         </div>
                     </NodeToolbar>
                 )}
+
+                {singleSelectedGroupId && (
+                    <NodeToolbar
+                        isVisible={true}
+                        nodeId={singleSelectedGroupId}
+                        position={Position.Top}
+                        align="end"
+                    >
+                        <div
+                            className="nopan nowheel flex items-center gap-0.5 p-0.5 rounded-md bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle shadow-lg"
+                            style={{ pointerEvents: 'auto', zIndex: 50 }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                        >
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleUngroup(); }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                title="Ungroup"
+                            >
+                                <UngroupIcon className="w-3 h-3 pointer-events-none" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                title="Duplicate group"
+                            >
+                                <Copy className="w-3 h-3 pointer-events-none" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
+                                title="Delete group + contents"
+                            >
+                                <Trash2 className="w-3 h-3 pointer-events-none" />
+                            </button>
+                        </div>
+                    </NodeToolbar>
+                )}
+
                 <CanvasToolbar
                     undo={undo}
                     redo={redo}
