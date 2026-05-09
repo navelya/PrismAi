@@ -1,6 +1,6 @@
 import React from 'react';
 import { clientRegistry, FallbackNode } from '@/lib/nodes/core/client-registry';
-import AIGeneratorNode from '@/components/canvas/AIGeneratorNode';
+import AIGeneratorNode from '@/lib/nodes/plugins/ai_generator/component';
 import GroupNode from '@/components/editor/GroupNode';
 
 // 🛡️ STABILITY FIX: Create the base node types in a separate utility module.

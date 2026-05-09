@@ -3,21 +3,14 @@ import { mediaInputClientDef } from '../plugins/media_input';
 import { compositorClientDef } from '../plugins/compositor';
 import { promptClientDef } from '../plugins/prompt';
 import { blurClientDef } from '../plugins/blur';
-import AIGeneratorNode from '@/components/canvas/AIGeneratorNode';
-import AIGeneratorProperties from '@/components/canvas/AIGeneratorProperties';
+import { aiGeneratorClientDef, AIGeneratorNode } from '../plugins/ai_generator';
 
-// The client-side registry mapping definition types
-// Only import this in Browser/React components
 export const clientRegistry: Record<string, NodeClientDef> = {
     prompt: promptClientDef,
     media_input: mediaInputClientDef,
     compositor: compositorClientDef,
     blur: blurClientDef,
-    ai_generator: {
-        component: AIGeneratorNode,
-        propertyPanel: AIGeneratorProperties,
-    } as any,
+    ai_generator: aiGeneratorClientDef,
 };
 
 export const FallbackNode = AIGeneratorNode;
-

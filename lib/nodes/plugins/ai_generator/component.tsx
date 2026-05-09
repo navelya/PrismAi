@@ -598,3 +598,13 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
 }
 
 export default memo(AIGeneratorNode);
+
+import { NodeClientDef } from '../../core/types';
+import { aiGeneratorSharedDef } from './definition';
+import AIGeneratorPropertiesImport from './properties';
+
+export const aiGeneratorClientDef: NodeClientDef = {
+    ...aiGeneratorSharedDef,
+    component: memo((props: any) => <AIGeneratorNode {...props} type="ai_generator" />),
+    propertyPanel: AIGeneratorPropertiesImport,
+} as any;

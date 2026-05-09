@@ -117,7 +117,7 @@ async function dispatchEphemeralNode(
   }
 }
 
-import { aiGeneratorExecutor } from '../nodes/core/ai-generator-executor';
+import { aiGeneratorExecutor } from '../nodes/plugins/ai_generator/executor.server';
 
 /**
  * Dispatch a node to Replicate API using the battle-tested executor

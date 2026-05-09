@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Textarea } from '@/components/ui/Textarea';
 import { Switch } from '@/components/ui/Switch';
 import { parseReplicateSchema, formatDisplayName } from '@/lib/utils/schema-parser';
-import AIGeneratorProperties from '@/components/canvas/AIGeneratorProperties';
+import AIGeneratorProperties from '@/lib/nodes/plugins/ai_generator/properties';
 import { Control } from '@/lib/nodes/types';
 
 // =============================================================================
