@@ -1,200 +1,158 @@
 /**
- * Workflow Engine v2 - Ephemeral Node Executor
- * Core logic for executing non-AI transformation nodes
+ * Workflow Engine v2 — Ephemeral Node Executor (post-refactor).
+ *
+ * Executes ephemeral nodes by calling serverRegistry[type].executor directly.
+ * Each plugin's server executor is responsible for uploading any binary
+ * outputs it produces. This wrapper only handles graph loading, input
+ * gathering, and writing the final node_results row.
  */
-
 import { createServiceClient } from '@/lib/supabase/service';
-import { EPHEMERAL_HANDLERS } from './handlers';
-import { GraphJson, NodeState, NodeConfig } from './types-v2';
-import { NodeResultType, getPrimaryInputValue, inferResultTypeFromValue, normalizeNodeResultType, toResultDataForType } from './result-format';
+import { serverRegistry } from '@/lib/nodes/core/server-registry';
+import { GraphJson, NodeState } from './types-v2';
+import {
+  NodeResultType,
+  getPrimaryInputValue,
+  inferResultTypeFromValue,
+  normalizeNodeResultType,
+  toResultDataForType,
+} from './result-format';
+import type { ExecutionContext, NodeExecutionResult } from '@/lib/nodes/types';
 
-/**
- * Execute an ephemeral node directly on the server
- */
 export async function executeEphemeralNode(
-  executionId: string, 
+  executionId: string,
   nodeId: string,
   sessionId?: string,
-  providedInputs?: Record<string, any>
+  providedInputs?: Record<string, any>,
 ): Promise<{ success: boolean; result_type?: NodeResultType; result_data?: any[]; error?: string }> {
-  
   console.log(`[EphemeralExecutor] Processing node ${nodeId} in execution ${executionId} (Session: ${sessionId})`);
-  
+
   const supabase = createServiceClient();
   let currentSessionId = sessionId;
-  
+
   try {
-    // 1. Fetch current execution state
     const { data: execution, error: fetchError } = await supabase
-      .from('executions')
-      .select('*')
-      .eq('id', executionId)
-      .single();
-    
-    if (fetchError || !execution) {
-      throw new Error(`Execution ${executionId} not found`);
-    }
-    
+      .from('executions').select('*').eq('id', executionId).single();
+    if (fetchError || !execution) throw new Error(`Execution ${executionId} not found`);
+
     if (!currentSessionId) currentSessionId = execution.session_id;
-    
-    // V3: Graph is now in executions.graph_json (if added) or fetched from sessions
-    // For now, we assume graph_json is added or we fallback to session
+
     let graph: GraphJson = execution.graph_json;
-    
     if (!graph) {
       const { data: session } = await supabase
-        .from('sessions')
-        .select('canvas_state')
-        .eq('id', execution.session_id)
-        .single();
+        .from('sessions').select('canvas_state').eq('id', execution.session_id).single();
       graph = session?.canvas_state;
     }
-
-    if (!graph) {
-      throw new Error(`Graph not found for execution ${executionId}`);
-    }
+    if (!graph) throw new Error(`Graph not found for execution ${executionId}`);
 
     let inputs = providedInputs;
-    
     if (!inputs) {
-      // V3: Get node states from node_results table (Fallback)
       const { data: results } = await supabase
-        .from('node_results')
-        .select('*')
-        .eq('execution_id', executionId);
-      
+        .from('node_results').select('*').eq('execution_id', executionId);
       const nodeStates: Record<string, any> = {};
-      (results || []).forEach(r => {
+      (results || []).forEach((r: any) => {
         nodeStates[r.node_id] = {
           status: r.status,
           result_type: r.result_type,
           result_data: r.result_data,
-          error: r.error
+          error: r.error,
         };
       });
-      
-      // 4. Build inputs from upstream nodes
       inputs = buildNodeInputs(nodeId, graph, nodeStates);
     }
-    
-    // 2. Find the node configuration (moved down here)
-    const node = graph.nodes.find(n => n.id === nodeId);
-    if (!node) {
-      throw new Error(`Node ${nodeId} not found in graph`);
+
+    const node = graph.nodes.find((n) => n.id === nodeId);
+    if (!node) throw new Error(`Node ${nodeId} not found in graph`);
+
+    const def = serverRegistry[node.type];
+    if (!def) throw new Error(`No server registry entry for node type: ${node.type}`);
+
+    // The plugin executor sees the same shape it used to — `node.data` is the
+    // node's full data envelope (containing `config`, `label`, etc.). Plugins
+    // historically read either `properties.config` or `properties` directly,
+    // so we pass `node.data` as the first arg, matching the previous
+    // EPHEMERAL_HANDLERS convention.
+    const config = (node.data as any)?.config ?? node.data ?? {};
+    const ctx: ExecutionContext = {
+      workflowId: (graph as any).id || '',
+      executionId,
+      sessionId: currentSessionId,
+      userId: execution.user_id,
+      nodeId,
+      data: {},
+    };
+
+    console.log(`[EphemeralExecutor] Executing ${node.type} with inputs:`, Object.keys(inputs || {}));
+
+    const result: NodeExecutionResult = await def.executor(config, inputs || {}, ctx);
+
+    if (!result?.success) {
+      throw new Error(result?.error || 'Executor returned failure');
     }
-    
-    // 3. Get handler for this node type
-    const handler = EPHEMERAL_HANDLERS[node.type];
-    if (!handler) {
-      throw new Error(`No handler found for node type: ${node.type}`);
-    }
-    
-    console.log(`[EphemeralExecutor] Executing ${node.type} handler with inputs:`, Object.keys(inputs || {}));
-    
-    // 5. Execute handler logic
-    const output = await handler(node.data || {}, inputs);
-    
-    // 6. Handle output (Upload if buffer, store directly if string)
-    const isBuffer = Buffer.isBuffer(output);
-    const isString = typeof output === 'string';
-    
+
+    // Infer result_type and result_data from the executor's `data` payload.
     let resultType: NodeResultType = 'json';
     let resultData: any[] = [];
-    
-    if (isBuffer) {
-      console.log(`[EphemeralExecutor] Uploading buffer output (${output.length} bytes)`);
-      
-      const filename = `${executionId}/${nodeId}/${Date.now()}.png`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .upload(filename, output, {
-          contentType: 'image/png',
-          cacheControl: '3600',
-        });
-      
-      if (uploadError) {
-        throw new Error(`Storage upload failed: ${uploadError.message}`);
+
+    if (Array.isArray(result.data)) {
+      // Conventional plugin shape: array of items (ImageObject[], string[], etc.).
+      const first = result.data[0];
+      if (first && typeof first === 'object' && typeof (first as any).url === 'string') {
+        resultType = 'image';
+        resultData = result.data.map((d: any) => d.url);
+      } else if (typeof first === 'string') {
+        resultType = 'text';
+        resultData = result.data;
+      } else {
+        resultType = inferResultTypeFromValue(result.data);
+        resultData = toResultDataForType(resultType, result.data);
       }
-      
-      const { data: urlData } = supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .getPublicUrl(filename);
-      
-      resultType = 'image';
-      resultData = [urlData.publicUrl];
-      
-    } else if (isString) {
+    } else if (typeof result.data === 'string') {
       resultType = 'text';
-      resultData = [output];
-      console.log(`[EphemeralExecutor] Text output stored`);
-    } else if (output !== null && output !== undefined) {
-      resultType = inferResultTypeFromValue(output);
-      resultData = toResultDataForType(resultType, output);
-      console.log(`[EphemeralExecutor] Structured ${typeof output} output stored as ${resultType}`);
+      resultData = [result.data];
+    } else if (result.data !== null && result.data !== undefined) {
+      resultType = inferResultTypeFromValue(result.data);
+      resultData = toResultDataForType(resultType, result.data);
     }
-    
-    // 7. Update node state to completed in node_results
-    const { error: updateError } = await supabase
-      .from('node_results')
-      .upsert({
+
+    const { error: updateError } = await supabase.from('node_results').upsert({
+      execution_id: executionId,
+      node_id: nodeId,
+      session_id: currentSessionId,
+      status: 'completed',
+      result_type: resultType,
+      result_data: resultData,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'execution_id,node_id' });
+
+    if (updateError) throw new Error(`Failed to update node state: ${updateError.message}`);
+
+    console.log(`[EphemeralExecutor] Node ${nodeId} completed`);
+    return { success: true, result_type: resultType, result_data: resultData };
+  } catch (error) {
+    console.error(`[EphemeralExecutor] Error in node ${nodeId}:`, error);
+    try {
+      await supabase.from('node_results').upsert({
         execution_id: executionId,
         node_id: nodeId,
         session_id: currentSessionId,
-        status: 'completed',
-        result_type: resultType,
-        result_data: resultData,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Execution failed',
         updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'execution_id,node_id'
-      });
-    
-    if (updateError) {
-      throw new Error(`Failed to update node state: ${updateError.message}`);
-    }
-    
-    console.log(`[EphemeralExecutor] Node ${nodeId} completed successfully`);
-    
-    return { success: true, result_type: resultType, result_data: resultData };
-    
-  } catch (error) {
-    console.error(`[EphemeralExecutor] ❌ Error in node ${nodeId}:`, error);
-    
-    // Mark as failed in DB
-    try {
-      await supabase
-        .from('node_results')
-        .upsert({
-          execution_id: executionId,
-          node_id: nodeId,
-          session_id: currentSessionId,
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Execution failed',
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'execution_id,node_id'
-        });
+      }, { onConflict: 'execution_id,node_id' });
     } catch (dbErr) {
-       console.error('[EphemeralExecutor] Could not update failed status:', dbErr);
+      console.error('[EphemeralExecutor] Could not update failed status:', dbErr);
     }
-    
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Internal server error' 
-    };
+    return { success: false, error: error instanceof Error ? error.message : 'Internal server error' };
   }
 }
 
-/**
- * Build inputs helper
- */
 function buildNodeInputs(
   nodeId: string,
   graph: GraphJson,
-  nodeStates: Record<string, NodeState>
+  nodeStates: Record<string, NodeState>,
 ): Record<string, any> {
   const inputs: Record<string, any> = {};
-  const incomingEdges = (graph.edges || []).filter(edge => edge.target === nodeId);
-  
+  const incomingEdges = (graph.edges || []).filter((edge) => edge.target === nodeId);
   for (const edge of incomingEdges) {
     const sourceNodeState = nodeStates[edge.source];
     if (sourceNodeState?.status === 'completed') {
@@ -202,12 +160,12 @@ function buildNodeInputs(
       if (sourceNodeState.result_type && sourceNodeState.result_data) {
         inputs[inputKey] = getPrimaryInputValue(
           normalizeNodeResultType(sourceNodeState.result_type),
-          sourceNodeState.result_data
+          sourceNodeState.result_data,
         );
-      } else if (sourceNodeState.result_url) {
-        inputs[inputKey] = sourceNodeState.result_url;
+      } else if ((sourceNodeState as any).result_url) {
+        inputs[inputKey] = (sourceNodeState as any).result_url;
       } else {
-        inputs[inputKey] = sourceNodeState.output;
+        inputs[inputKey] = (sourceNodeState as any).output;
       }
     }
   }

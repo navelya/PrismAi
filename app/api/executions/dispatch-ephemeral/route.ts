@@ -10,7 +10,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { EPHEMERAL_HANDLERS } from '@/lib/workflow/handlers';
+import { serverRegistry } from '@/lib/nodes/core/server-registry';
+import type { ExecutionContext, NodeExecutionResult } from '@/lib/nodes/types';
 import { GraphJson, NodeState } from '@/lib/workflow/types-v2';
 import {
   NodeResultType,
@@ -82,79 +83,62 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Get handler for this node type
-    const handler = EPHEMERAL_HANDLERS[node.type];
-    if (!handler) {
-      console.error(`[API/Dispatch-Ephemeral] No handler found for node type: ${node.type}`);
+    // Get registry entry for this node type
+    const def = serverRegistry[node.type];
+    if (!def) {
+      console.error(`[API/Dispatch-Ephemeral] No registry entry for node type: ${node.type}`);
       return NextResponse.json(
-        { error: `No handler for node type: ${node.type}` },
+        { error: `No registry entry for node type: ${node.type}` },
         { status: 400 }
       );
     }
-    
+
     // Build inputs from upstream nodes
     const inputs = await buildNodeInputs(node_id, graph, nodeStates, supabase);
-    
-    console.log(`[API/Dispatch-Ephemeral] Executing handler for ${node.type}`);
-    
-    // Execute handler
-    const output = await handler(node.data || {}, inputs);
-    
+
+    console.log(`[API/Dispatch-Ephemeral] Executing ${node.type} via serverRegistry`);
+
+    // Execute via serverRegistry
+    const config = (node.data as any)?.config ?? node.data ?? {};
+    const ctx: ExecutionContext = {
+      workflowId: (graph as any).id || '',
+      executionId: execution_id,
+      sessionId: execution.session_id,
+      userId: execution.user_id,
+      nodeId: node_id,
+      data: {},
+    };
+    const result: NodeExecutionResult = await def.executor(config, inputs || {}, ctx);
+    if (!result?.success) {
+      throw new Error(result?.error || 'Executor returned failure');
+    }
+    const output = result.data; // remainder reads `output` to derive result_type/result_data
+
     // Determine output type
-    const isBuffer = Buffer.isBuffer(output);
-    const isString = typeof output === 'string';
-    
     let resultType: NodeResultType = 'json';
     let resultData: any[] = [];
-    
-    if (isBuffer) {
-      // Upload to ephemeral storage
-      console.log(`[API/Dispatch-Ephemeral] Uploading ${output.length} bytes to ephemeral storage`);
-      
-      const filename = `${execution_id}/${node_id}/${Date.now()}.png`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .upload(filename, output, {
-          contentType: 'image/png',
-          cacheControl: '3600',
-        });
-      
-      if (uploadError) {
-        console.error('[API/Dispatch-Ephemeral] Upload failed:', uploadError);
-        throw new Error(`Upload failed: ${uploadError.message}`);
+
+    if (Array.isArray(output)) {
+      const first = output[0];
+      if (first && typeof first === 'object' && typeof (first as any).url === 'string') {
+        resultType = 'image';
+        resultData = output.map((d: any) => d.url);
+      } else if (typeof first === 'string') {
+        resultType = 'text';
+        resultData = output;
+      } else {
+        resultType = inferResultTypeFromValue(output);
+        resultData = toResultDataForType(resultType, output);
       }
-      
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .getPublicUrl(filename);
-      
-      resultType = 'image';
-      resultData = [urlData.publicUrl];
-      console.log(`[API/Dispatch-Ephemeral] Uploaded to: ${resultData[0]}`);
-      
-    } else if (isString) {
-      // For text outputs (like prompt node), store directly
+    } else if (typeof output === 'string') {
       resultType = 'text';
       resultData = [output];
-      console.log(`[API/Dispatch-Ephemeral] Text output: "${output.substring(0, 50)}..."`);
     } else if (output !== null && output !== undefined) {
       resultType = inferResultTypeFromValue(output);
       resultData = toResultDataForType(resultType, output);
     }
     
     // Update node state to completed
-    const updatedNodeStates = {
-      ...nodeStates,
-      [node_id]: {
-        ...nodeStates[node_id],
-        status: 'completed',
-        result_type: resultType,
-        result_data: resultData,
-        completed_at: new Date().toISOString(),
-      },
-    };
-    
     await supabase
       .from('node_results')
       .upsert({
@@ -174,11 +158,10 @@ export async function POST(request: NextRequest) {
       p_execution_id: execution_id,
       p_node_id: node_id,
       p_event_type: 'completed',
-      p_payload: { 
+      p_payload: {
         result_type: resultType,
         result_data: resultData,
-        handler: node.type,
-        output_type: isBuffer ? 'buffer' : 'string',
+        node_type: node.type,
       },
     });
     
