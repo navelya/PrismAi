@@ -225,9 +225,22 @@ const EditorCanvasInner = ({
     const handleDeleteSelected = useCallback(() => {
         if (!onDelete) return;
         const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
-        const selectedNodeIds = rfNodes.filter((n: any) => n.selected).map((n: any) => n.id);
-        if (selectedNodeIds.length === 0) return;
-        onDelete(selectedNodeIds);
+        const directlySelected = rfNodes.filter((n: any) => n.selected);
+        if (directlySelected.length === 0) return;
+
+        // Fold each selected group's children into the delete set so groups
+        // delete as a single bundle.
+        const idsToDelete = new Set<string>();
+        directlySelected.forEach((n: any) => idsToDelete.add(n.id));
+        for (const sel of directlySelected) {
+            if (sel.type === 'group') {
+                rfNodes
+                    .filter((n: any) => n.parentNode === sel.id)
+                    .forEach((c: any) => idsToDelete.add(c.id));
+            }
+        }
+
+        onDelete(Array.from(idsToDelete));
     }, [reactFlowInstance, localNodes, onDelete]);
 
     // Group button is shown only when 2+ nodes are selected AND none are already
