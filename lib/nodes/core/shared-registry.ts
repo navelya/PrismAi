@@ -72,4 +72,24 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
             control_values: {}
         }
     } as any,
+    group: {
+        type: 'group',
+        family: 'organization',
+        category: 'organization',
+        meta: {
+            label: 'Group',
+            color: 'rgb(var(--stroke-subtle))',
+            icon: 'Group',
+        },
+        // Groups have no handles — they are visual containers, not executable nodes.
+        handles: {
+            inputs: [],
+            outputs: [],
+        },
+        defaultConfig: {
+            width: 400,
+            height: 300,
+        },
+        nonExecutable: true,
+    } as any,
 };

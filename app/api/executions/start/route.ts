@@ -85,6 +85,11 @@ export async function POST(request: NextRequest) {
     const allNodes = Array.from(uniqueNodesMap.values());
     const allEdges = graph_json.edges || [];
 
+    // Group nodes are visual organization only — they have no handles, no
+    // executor, and must never be dispatched. Strip them from the executable
+    // node set before any downstream logic runs.
+    const executableNodes = allNodes.filter((n: NodeConfig) => n.type !== 'group');
+
     const supabase = createServiceClient();
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -107,10 +112,10 @@ export async function POST(request: NextRequest) {
     if (!targetNodeId || mode === 'all') {
       // ── ALL mode: run every node in the graph ──────────────────────────────
       // Why: "Run All" means fresh execution of the complete pipeline.
-      nodesToExecute = [...allNodes];
+      nodesToExecute = [...executableNodes];
     } else {
       // ── SOLO and CHAIN mode ────────────────────────────────────────────────
-      const targetNode = allNodes.find(n => n.id === targetNodeId);
+      const targetNode = executableNodes.find(n => n.id === targetNodeId);
       if (!targetNode) {
         return NextResponse.json({ error: 'Target node not found in graph' }, { status: 404 });
       }
@@ -131,9 +136,9 @@ export async function POST(request: NextRequest) {
         const parentEdges = allEdges.filter(e => e.target === currentId);
         
         for (const edge of parentEdges) {
-          const parentNode = allNodes.find(n => n.id === edge.source);
+          const parentNode = executableNodes.find(n => n.id === edge.source);
           if (!parentNode || executionSet.has(edge.source) || generativeAncestorIds.has(edge.source)) {
-            continue; // already classified, skip
+            continue; // already classified, or it's a group (non-executable)
           }
 
           if (isEphemeralNode(parentNode.type)) {
@@ -167,7 +172,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      nodesToExecute = allNodes.filter(n => executionSet.has(n.id));
+      nodesToExecute = executableNodes.filter(n => executionSet.has(n.id));
       edgesToInclude = allEdges.filter(e => executionSet.has(e.source) && executionSet.has(e.target));
       
       // ── Fetch DB results for generative ancestors ─────────────────────────

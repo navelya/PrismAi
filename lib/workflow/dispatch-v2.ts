@@ -30,7 +30,15 @@ export async function dispatchNode(
   
   try {
     const nodeType = nodeConfig.type;
-    
+
+    // Groups are non-executable visual containers. If anything ever asks for
+    // their dispatch (orchestrator misfire, AI-generated bad patch, etc.) we
+    // log and bail safely instead of marking the execution failed.
+    if (nodeType === 'group') {
+      console.log(`[Dispatch] Skipping group node ${nodeId} (groups are non-executable).`);
+      return { success: true, data: null };
+    }
+
     if (isEphemeralNode(nodeType)) {
       return await dispatchEphemeralNode(executionId, nodeId, nodeConfig, inputs, currentBaseUrl, sessionId);
     }
