@@ -6,6 +6,7 @@ import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { GROUP_RESIZE_HANDLE_SIZE } from '@/lib/nodes/group-constants';
+import { GroupHeaderToolbar } from './GroupHeaderToolbar';
 
 interface GroupNodeData {
     label: string;
@@ -59,6 +60,20 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     const resizeGroup = useAppStore((s) => s.resizeGroup);
     const hoveredGroupId = useAppStore((s) => s.dragHoverGroupId);
     const isHoverTarget = hoveredGroupId === id;
+    const updateNodeConfig = useAppStore((s) => s.updateNodeConfig);
+    const ungroupNode = useAppStore((s) => s.ungroupNode);
+
+    const handleIconChange = useCallback((icon: string) => {
+        updateNodeConfig(id, { ...data.config, icon });
+    }, [id, data.config, updateNodeConfig]);
+
+    const handleColorChange = useCallback((color: 'neutral' | 'indigo' | 'emerald' | 'rose' | 'amber' | 'sky') => {
+        updateNodeConfig(id, { ...data.config, color });
+    }, [id, data.config, updateNodeConfig]);
+
+    const handleUngroup = useCallback(() => {
+        ungroupNode(id);
+    }, [id, ungroupNode]);
 
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(data.label || '');
@@ -209,6 +224,13 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                             {data.label || 'Group'}
                         </button>
                     )}
+                    <GroupHeaderToolbar
+                        currentIcon={iconName}
+                        currentColor={colorToken as any}
+                        onIconChange={handleIconChange}
+                        onColorChange={handleColorChange}
+                        onUngroup={handleUngroup}
+                    />
                 </div>
             </NodeToolbar>
 
