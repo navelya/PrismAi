@@ -1,11 +1,28 @@
 import type { WorkflowPatch } from '@/lib/workflow/workflow-patch';
 
+export interface TaskGroup {
+  label: string;        // ≤40 chars
+  icon: string;         // Lucide PascalCase name; falls back to 'Folder' if unknown
+  color?: 'neutral' | 'indigo' | 'emerald' | 'rose' | 'amber' | 'sky';
+}
+
+export interface TaskBlueprint {
+  id: string;           // model-supplied, scoped to this plan (e.g. 'scene_1')
+  title: string;        // ≤60 chars
+  summary: string;      // ≤140 chars
+  group?: TaskGroup;    // optional — present when this task is a logical section
+  nodes: any[];         // same item shape as add_node.nodes[]
+  edges: any[];         // same item shape as add_node.edges[]
+}
+
 /**
  * Wire-format shape of a workflow plan proposed by the model. Mirrors
  * the `propose_plan` tool's input schema one-to-one.
  *
  * blueprint mirrors the existing `add_node` tool input — when the user
  * approves, the route applies it via dispatchTool('add_node', blueprint).
+ * tasks is an ordered array of TaskBlueprint items executed sequentially
+ * on plan approval. Exactly one of blueprint or tasks must be present.
  */
 export interface PlanPayload {
   title: string;
@@ -13,10 +30,9 @@ export interface PlanPayload {
   arrows: string;
   models: string[];
   detail: string;
-  blueprint: {
-    nodes?: any[];  // shape matches add_node.nodes[] item — kept loose here
-    edges?: any[];  // shape matches add_node.edges[] item — kept loose here
-  };
+  // Exactly one of:
+  blueprint?: { nodes?: any[]; edges?: any[] };
+  tasks?: TaskBlueprint[];
 }
 
 /**
@@ -28,8 +44,14 @@ export interface PlanPayload {
  *   [text]*
  *   [tool]*
  *   [clarification?]
- *   [plan?]            ← B-2; never coexists with [tool] or [clarification]
- *                        in same turn (prompt-enforced, not protocol-enforced)
+ *   [plan?]            ← never coexists with [tool] or [clarification]
+ *
+ * Plan-approve branch (sequential tasks):
+ *   for each task i:
+ *     [task_start]
+ *     [tool]
+ *     [task_complete]
+ *   [tasks_complete]
  *   [usage]
  *   [done]
  */
@@ -41,6 +63,9 @@ export type StreamEvent =
   | { type: 'tool'; name: 'add_node' | 'update_node' | 'remove_node'; patch: WorkflowPatch }
   | { type: 'clarification'; options: string[] }
   | { type: 'plan'; plan: PlanPayload }
+  | { type: 'task_start'; taskId: string; index: number; total: number }
+  | { type: 'task_complete'; taskId: string; index: number; total: number }
+  | { type: 'tasks_complete'; total: number }
   | { type: 'usage'; inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number }
   | { type: 'error'; message: string; recoverable: boolean }
   | { type: 'done' };
