@@ -39,6 +39,17 @@ export interface Message {
         models: string[];
         detail: string;
         blueprint: { nodes?: any[]; edges?: any[] };
+        tasks?: import('@/lib/chat/streaming/protocol').TaskBlueprint[];
+    };
+    // Live task-execution progress, updated via stream events (task_start /
+    // task_complete / tasks_complete) and via Supabase Realtime when the server
+    // persists metadata.taskProgress to the messages row.
+    taskProgress?: {
+        status: 'running' | 'done' | 'failed';
+        currentIndex: number;
+        total: number;
+        failedTaskId?: string | null;
+        errorMessage?: string;
     };
     // Set on the assistant plan message once the user has approved it
     // or sent feedback. chosenAction === 'approve' renders the locked
