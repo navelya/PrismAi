@@ -41,6 +41,47 @@ function extractInputHandleIds(schema: any): string[] {
 }
 
 /**
+ * Extract controls (config keys) from an ai_models.inputs_schema JSONB.
+ * The schema shape is `{ controls: [{ api_mapping_key, type, default_value, options?, min?, max?, ... }, ...] }`.
+ * These are the keys the AI sets inside data.config when emitting an
+ * ai_generator node — separate from input handles (which are edge targets).
+ *
+ * Returns a short one-line summary per control for the system prompt:
+ *   `"duration_seconds" (number 1-30, default 5)`
+ *   `"aspect_ratio" (one of: "16:9", "9:16", "1:1", default "16:9")`
+ *   `"negative_prompt" (string, default "")`
+ *
+ * Returns [] if the schema is missing or malformed.
+ */
+function extractControls(schema: any): Array<{ key: string; summary: string }> {
+  if (!schema || typeof schema !== 'object') return [];
+  const controls = schema.controls;
+  if (!Array.isArray(controls)) return [];
+  const out: Array<{ key: string; summary: string }> = [];
+  for (const c of controls) {
+    const key = c?.api_mapping_key;
+    if (typeof key !== 'string' || key.length === 0) continue;
+    const type = typeof c?.type === 'string' ? c.type : 'value';
+    const parts: string[] = [type];
+    if (Array.isArray(c?.options) && c.options.length > 0) {
+      const opts = c.options.slice(0, 8).map((o: any) => JSON.stringify(o)).join(', ');
+      parts.push(`one of: ${opts}${c.options.length > 8 ? ', …' : ''}`);
+    } else if (typeof c?.min === 'number' && typeof c?.max === 'number') {
+      parts.push(`${c.min}–${c.max}`);
+    } else if (typeof c?.min === 'number') {
+      parts.push(`≥ ${c.min}`);
+    } else if (typeof c?.max === 'number') {
+      parts.push(`≤ ${c.max}`);
+    }
+    if (c?.default_value !== undefined) {
+      parts.push(`default ${JSON.stringify(c.default_value)}`);
+    }
+    out.push({ key, summary: `"${key}" (${parts.join(', ')})` });
+  }
+  return out;
+}
+
+/**
  * Formats the static node registry + live ai_models catalog as text for
  * the system prompt. Output is ~60-80 lines for the current registry.
  *
@@ -83,8 +124,9 @@ export function formatRegistryContext(input: RegistryContextInput): string {
     // --- REQUIRED CONFIG block (plain English, unmissable) ---
     if (type === 'ai_generator') {
       block += `\n\nREQUIRED CONFIG for ai_generator:`;
-      block += `\n- \`model_id\` (number): REQUIRED. Pick from "AI GENERATOR MODELS" list above. Set both at the top level (model_id field) AND inside data.config.model_id.`;
+      block += `\n- \`model_id\` (number): REQUIRED. Pick from "AI GENERATOR MODELS" list below. Set both at the top level (model_id field) AND inside data.config.model_id.`;
       block += `\n- \`node_type_id\` (string): REQUIRED. Must match the type bucket the chosen model belongs to.`;
+      block += `\n- Optional config keys: the chosen model's "config keys" line in the AI GENERATOR MODELS section lists every key you can set inside data.config (length, resolution, aspect_ratio, negative_prompt, etc.). Use the EXACT api_mapping_key shown. Skip keys you don't need — defaults are shown.`;
       block += `\n- Without model_id, this node cannot run.`;
     } else if (type === 'compositor') {
       // Override the misleading aiSchema docs. The canvas reads edges that
@@ -175,10 +217,14 @@ export function formatRegistryContext(input: RegistryContextInput): string {
     for (const m of modelsForType) {
       const provider = m.providers?.name ? ` [${m.providers.name}]` : '';
       const handleIds = extractInputHandleIds(m.inputs_schema);
+      const controls = extractControls(m.inputs_schema);
       const handlesPart = handleIds.length > 0
         ? `; input handles: ${handleIds.map(h => `"${h}"`).join(', ')}`
         : '';
       modelLines.push(`      • model_id ${m.id}: ${m.display_name}${provider}${handlesPart}`);
+      if (controls.length > 0) {
+        modelLines.push(`          config keys (set inside data.config): ${controls.map(c => c.summary).join('; ')}`);
+      }
     }
   }
 

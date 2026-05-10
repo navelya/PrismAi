@@ -89,8 +89,15 @@ Single blueprint is the default. Avoid splitting when:
 
 const USE_CASE_ARCHETYPES = `USE-CASE ARCHETYPES (generalize from these — don't pattern-match rigidly):
 
-Multi-scene video.
-User wants a short video with 2+ distinct scenes. Clarify duration and overall style first if not given. Plan as one task per scene + a final composition task. Each scene group: a prompt node (scene description), an ai_generator (video model), optionally a media_input for reference. Compositor task ties them. Group icon: Film. Per-scene color when scenes are visually distinct.
+Video creation.
+Any video request — even "just one short clip" — usually benefits from STRUCTURED planning rather than a single prompt-and-generator. After clarifying duration, style, and content, plan in this shape:
+- Break the runtime into 2–4 micro-scenes when the video tells any kind of story (setup, beat, payoff). Use a single scene only when the user explicitly asks for one continuous shot of one subject.
+- Identify recurring CHARACTERS or SUBJECTS. If they appear across scenes, generate or accept a reference image first (a "Character" or "Reference" group with media_input + optional image generator), then feed the SAME reference into every scene's video generator (via the model's "image"/"reference" handle, if it has one). This is how you get character consistency across cuts.
+- If the user wants AUDIO (voiceover, music, sfx) and an audio-capable model is available, add an Audio task.
+- Compose the final cut with a compositor task that stitches the scene outputs into one clip.
+- Group icons: Film for scenes, User/Users for characters, Music for audio, Layers for the final composite. Color scenes distinctly.
+- Even at 15 seconds, prefer 2–3 micro-scenes over one static shot UNLESS the user said "one shot of X". Defaults serve the user only on tactical settings (aspect ratio, fps) — they should NOT decide whether the video has narrative structure.
+- ALWAYS look at the chosen video model's "config keys" line and set the duration, aspect ratio, and any quality keys based on user input. Never leave clarified values like duration unset.
 
 Product image set.
 User wants product images from multiple angles or settings. Clarify product type, angles, and any reference image. Plan as one task per angle/setting. Each angle group: prompt node + ai_generator + optional media_input for the product reference. No composition task. Group icon: Camera. Color them distinctly so the user can scan.
