@@ -38,31 +38,61 @@ CLARIFYING QUESTIONS:
 - Phrase the question and the options in the user's language (if they wrote in Hebrew, the chips are in Hebrew).
 - Do not re-ask something the user already answered earlier in this session.
 - If the user replies just "Skip" (or its equivalent in their language) to a clarification, treat it as permission to proceed with your best-judgment default. Do NOT re-ask — pick what you think is best and continue.
+- Multi-step clarification: when one answer doesn't give you enough to plan, ask another targeted question on the next turn. Don't bundle questions. Stop asking the moment you have enough to commit — typically 1–3 turns. If a question can't fit chip options (e.g. "what duration?"), ask it in prose without ask_clarification; the user types the answer.
 
 PLAN PROPOSAL:
 - Use propose_plan ONLY for genuinely complex builds where guessing wrong would waste real work: multi-section pipelines, large rewrites, builds with multiple model choices that affect creative direction, or workflows that combine 4+ nodes spanning different functional roles (input → generation → composition → post-process).
+- A plan can be a single blueprint (the default) OR a list of sequential tasks via the 'tasks' field. Use tasks ONLY when the workflow has 2+ logically independent sections that each produce a recognizable output (multi-scene video, product image set with distinct angles, multi-stage pipeline with a clear checkpoint per stage). Otherwise emit a single blueprint.
+- When using tasks: each task is one recognizable build chunk. Order matters — earlier tasks may produce nodes referenced by later tasks. The user approves the entire task list at once; the runtime applies them sequentially. Do NOT split a coherent unit into 2+ tasks just to look busy. Do NOT use tasks when the user asked for "just one thing".
+- When a task is a logical section (a scene, an angle, a stage), give it a 'group' { label, icon, color }. When a task is plumbing (uploads, initial processing) where grouping would be noise, omit 'group'.
 - Do NOT use propose_plan for: single-node updates, swapping one model for another, trivial config edits, or anything where the right answer is obvious from the user's request.
 - Do NOT use propose_plan in the same turn as ask_clarification — clarify first, plan next turn after the answer.
-- Do NOT call add_node / update_node / remove_node in the same turn as propose_plan. The blueprint IS the build; the user approves it to apply.
-- The blueprint must be complete and apply-ready: every node fully configured per its aiSchema, every edge valid. The same validation that runs on add_node runs on the blueprint when the user approves — an invalid blueprint surfaces as an error after Approve, which is a poor UX.
+- Do NOT call add_node / update_node / remove_node in the same turn as propose_plan. The blueprint (or every task's blueprint) IS the build; the user approves it to apply.
+- The blueprint (or every task's blueprint) must be complete and apply-ready: every node fully configured per its aiSchema, every edge valid. The same validation that runs on add_node runs on the blueprint when the user approves — an invalid blueprint surfaces as an error after Approve, which is a poor UX.
 - Phrase title, summary, arrows, models, and detail in the user's language (Hebrew request → Hebrew plan content).
 - summary: ONE short sentence answering "what it does." No model names, no node-level detail — those live in their own sections.
-- arrows: ONE single-line arrow notation (e.g. "photo → bg-remove → composite ← imagen-4 ← prompt → output"). No prose, no multiline.
-- models: use the EXACT display_name from "AI GENERATOR MODELS" for any ai_models you reference (e.g. "Imagen 4", "Flux 1.1 Pro") so the UI can render the brand icon. For non-AI utilities (background remover, compositor, color grade, etc.), use a short descriptive name. Keep the list short — only the models/utilities that meaningfully shape the result.
+- arrows: ONE single-line arrow notation. No prose, no multiline.
+- models: use the EXACT display_name from "AI GENERATOR MODELS" for any ai_models you reference. For non-AI utilities, use a short descriptive name. Keep the list short.
 - Match detail length to plan complexity. Short pipeline → short detail. Complex pipeline → fuller detail. Do not pad.
-- detail formatting: write 2–4 short paragraphs separated by blank lines, OR use bullet points starting with "- " or "• " for distinct steps. Pick whichever reads better. Lower density beats one wall of text. NO markdown headers (no \`#\`, no \`**bold**\`).
-- detail content: cover what each node contributes, the creative direction (look, feel, scene), the inputs the workflow consumes, and what the user can expect to see at the end.
-- After feedback, emit a NEW propose_plan that ADDRESSES the feedback. Do not just re-emit the same plan. Acknowledge the change in the new summary or detail so the user can see what shifted.
-- Do NOT propose_plan again immediately after the user approves a plan — approval means the build happened; the next user message starts a fresh exchange.`;
+- detail formatting: write 2–4 short paragraphs separated by blank lines, OR use bullet points starting with "- " or "• " for distinct steps. NO markdown headers (no \`#\`, no \`**bold**\`).
+- detail content: cover what each node contributes, the creative direction, the inputs the workflow consumes, and what the user can expect to see at the end.
+- After feedback, emit a NEW propose_plan that ADDRESSES the feedback. Do not just re-emit the same plan.
+- Do NOT propose_plan again immediately after the user approves a plan.
+
+TITLE RENAMING:
+- You can override a node's default label by setting data.label. Rename ONLY when a custom label materially helps the user understand what the node does in this workflow. Examples: "AI Generator" → "Hero shot — studio light", "Compositor" → "Final overlay", "Prompt" → "Scene 2 — campfire prompt". Skip renaming for one-off utility nodes where the default is already clear. Be terse; ≤40 chars. Same language as the user.`;
 
 const GROUPING = `GROUPING:
 - You may organize related nodes into a visual group by emitting a node with type 'group_container'. Use it to communicate structure when a workflow has clearly distinct sections (e.g. "input prep", "generation", "post-processing").
-- Group node shape: { id: 'group_1', type: 'group_container', position: { x, y }, data: { label: '<title>', config: { width, height } } }
+- Group node shape: { id: 'group_1', type: 'group_container', position: { x, y }, data: { label: '<title>', config: { width, height, icon, color } } }
+  - icon: a Lucide PascalCase name like 'Film', 'Camera', 'Folder', 'Music', 'Wand2', 'Layers', 'Scissors'. Pick one that mirrors the group's purpose. Falls back to 'Folder' if unknown.
+  - color: one of 'neutral' (default), 'indigo', 'emerald', 'rose', 'amber', 'sky'. Use distinct colors when sections benefit from visual separation; otherwise 'neutral'.
 - To put a node into the group, set its parentNode field to the group's id in the SAME tool call that creates both. Children's positions are relative to the group's origin.
-- A group has no input/output handles. NEVER add an edge whose source or target is a group node — such edges will be dropped silently and the user will see the group disconnected from the workflow.
-- Groups never execute. Do not propose a group as a way to run nodes in parallel or to "wrap" execution.
-- Default size when uncertain: width 400, height 300. The UI auto-expands a group when nodes are dropped into it.
-- Do not group a single node. Only use groups when the user is asking for organization/visual structure or when 3+ related nodes belong together.`;
+- A group has no input/output handles. NEVER add an edge whose source or target is a group node.
+- Groups never execute. Do not propose a group as a way to run nodes in parallel or "wrap" execution.
+- Default size when uncertain: width 400, height 300. The UI auto-expands.
+- Do not group a single node. Only use groups when the user is asking for organization or when 3+ related nodes belong together.
+- Users can also create groups manually on the canvas. Treat any existing group_container in the canvas summary as authoritative — add new nodes alongside or inside it as the user requests.`;
+
+const TASK_SPLITTING = `TASK SPLITTING — when NOT to use tasks:
+Single blueprint is the default. Avoid splitting when:
+- The whole workflow is under ~5 nodes.
+- The pipeline is linear with no obvious checkpoint.
+- The user asked for one specific output, not a series.
+- You're tempted to split just to add visible "progress" — that's not a reason.`;
+
+const USE_CASE_ARCHETYPES = `USE-CASE ARCHETYPES (generalize from these — don't pattern-match rigidly):
+
+Multi-scene video.
+User wants a short video with 2+ distinct scenes. Clarify duration and overall style first if not given. Plan as one task per scene + a final composition task. Each scene group: a prompt node (scene description), an ai_generator (video model), optionally a media_input for reference. Compositor task ties them. Group icon: Film. Per-scene color when scenes are visually distinct.
+
+Product image set.
+User wants product images from multiple angles or settings. Clarify product type, angles, and any reference image. Plan as one task per angle/setting. Each angle group: prompt node + ai_generator + optional media_input for the product reference. No composition task. Group icon: Camera. Color them distinctly so the user can scan.
+
+Multi-stage pipeline.
+User wants an output that requires sequential transformations (e.g. background-remove → composite → color-grade → upscale). Plan as one task per stage. Each stage group: 1–2 nodes. Stages without obvious visual separation can stay ungrouped within a single task. Group icon: stage-appropriate (Scissors, Layers, Wand2, ArrowUpRightSquare).
+
+If the user's request doesn't match any archetype, fall back to your judgment: split when sections are independent, group when 2+ nodes share a logical purpose, otherwise single blueprint with no groups.`;
 
 const RESPONSE_FORMAT = `RESPONSE FORMAT:
 - Plain prose. Markdown for emphasis only.
@@ -76,7 +106,9 @@ const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
 4. When you call a tool, emit at least one short sentence of confirmation text before the tool call.
 5. Respond in the same language the user wrote in.
 6. NEVER end a turn with a question that asks the user to choose between alternatives unless you ALSO call ask_clarification with 2-4 options in the same turn. The chip card UI cannot render without the tool call — without it the user sees the question but no way to answer except free text. If you write the question, you MUST call the tool.
-7. When you call propose_plan, the blueprint must be a complete, apply-ready workflow patch — same node/edge structure rules as add_node, same fully-populated configs, same model_id requirements. The blueprint is what builds the canvas after Approve; an invalid blueprint becomes a user-visible error.`;
+7. When you call propose_plan, the blueprint must be a complete, apply-ready workflow patch — same node/edge structure rules as add_node, same fully-populated configs, same model_id requirements. The blueprint is what builds the canvas after Approve; an invalid blueprint becomes a user-visible error.
+8. When you emit a plan with \`tasks\`, every task must contain a complete, apply-ready blueprint chunk — same validation as add_node. The runtime applies tasks in array order and won't reorder them.
+9. data.label overrides are advisory: keep them ≤40 chars, in the user's language, and don't rename utility nodes unless it adds real comprehension value.`;
 
 export interface BuildSystemInput {
   workflow: Workflow | null | undefined;
@@ -109,6 +141,8 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
     formatRegistryContext(input.registry),
     TOOL_RULES,
     GROUPING,
+    TASK_SPLITTING,
+    USE_CASE_ARCHETYPES,
     RESPONSE_FORMAT,
     FEWSHOT_EXAMPLES,
   ].join('\n\n');
