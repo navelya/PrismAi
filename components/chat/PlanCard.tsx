@@ -93,7 +93,7 @@ function PlanTaskList({ tasks }: { tasks: TaskBlueprint[] }) {
                                         <span className="truncate max-w-[140px]">{t.group.label}</span>
                                     </span>
                                 )}
-                                <span className="font-medium text-content-primary truncate">{t.title}</span>
+                                <span className="font-medium text-content-primary">{t.title}</span>
                             </div>
                             <p className="text-xs text-content-secondary leading-snug">{t.summary}</p>
                         </div>
