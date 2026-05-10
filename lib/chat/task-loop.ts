@@ -16,10 +16,11 @@ export function sleep(ms: number): Promise<void> {
  * is deterministic and lives server-side — the model declares "these nodes go
  * in a group called X with icon Y" and we materialize the container.
  *
- * Returns the original arrays unchanged when task.group is absent.
+ * Returns the original arrays unchanged when task.group is absent or
+ * task.nodes is empty (degenerate — bbox math would NaN).
  */
 export function synthesizeTaskBlueprint(task: TaskBlueprint): { nodes: any[]; edges: any[] } {
-  if (!task.group) {
+  if (!task.group || task.nodes.length === 0) {
     return { nodes: task.nodes, edges: task.edges };
   }
 
