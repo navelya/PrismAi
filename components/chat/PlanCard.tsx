@@ -120,9 +120,29 @@ export function PlanCard({
     const [detailOpen, setDetailOpen] = useState(false);
     const [feedbackOpen, setFeedbackOpen] = useState(false);
     const [draft, setDraft] = useState('');
+    const [expanded, setExpanded] = useState(false);
     const models = useAppStore(state => state.models);
 
     const isLocked = status !== 'pending';
+
+    // Collapsed approved state — show a compact one-line summary
+    if (status === 'approved' && !expanded) {
+        const taskCount = plan.tasks?.length ?? 0;
+        const summary = taskCount > 0
+            ? `Approved · Building ${taskCount} task${taskCount === 1 ? '' : 's'}`
+            : 'Approved';
+        return (
+            <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg border border-stroke-subtle/40 bg-surface-elevated/40 hover:bg-surface-elevated text-xs text-content-secondary transition-colors mt-2"
+            >
+                <Check size={12} className="text-emerald-500 shrink-0" />
+                <span className="truncate">{summary}</span>
+                <span className="ml-auto text-content-tertiary">▾</span>
+            </button>
+        );
+    }
 
     const handleSendFeedback = () => {
         const trimmed = draft.trim();
@@ -138,7 +158,18 @@ export function PlanCard({
     };
 
     return (
-        <div className="mt-2 rounded-lg border border-stroke-subtle/70 bg-surface-secondary/30 p-2.5 animate-fade-in">
+        <div className="relative mt-2 rounded-lg border border-stroke-subtle/70 bg-surface-secondary/30 p-2.5 animate-fade-in">
+            {/* Collapse affordance when expanded after approval */}
+            {status === 'approved' && (
+                <button
+                    type="button"
+                    onClick={() => setExpanded(false)}
+                    className="absolute top-2 right-2 text-xs text-content-tertiary hover:text-content-secondary transition-colors"
+                    title="Collapse"
+                >
+                    ▴
+                </button>
+            )}
             {/* Status header (only when locked) */}
             {status === 'approved' && (
                 <div className="flex items-center gap-1 text-[10px] font-medium text-accent-primary mb-1">
