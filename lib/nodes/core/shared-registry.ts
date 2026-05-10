@@ -22,7 +22,6 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
             color: 'rgb(var(--stroke-subtle))',
             icon: 'Group',
         },
-        // Groups have no handles — they are visual containers, not executable nodes.
         handles: {
             inputs: [],
             outputs: [],
@@ -30,6 +29,18 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
         defaultConfig: {
             width: 400,
             height: 300,
+            icon: 'Folder',
+            color: 'neutral',
+        },
+        aiSchema: {
+            type: 'object',
+            properties: {
+                label:  { type: 'string', maxLength: 40 },
+                icon:   { type: 'string', description: 'Lucide PascalCase name (Folder, Film, Camera, Music, Wand2, ...). Falls back to Folder if unknown.' },
+                color:  { type: 'string', enum: ['neutral','indigo','emerald','rose','amber','sky'], default: 'neutral' },
+                width:  { type: 'number', default: 400 },
+                height: { type: 'number', default: 300 },
+            },
         },
         nonExecutable: true,
     } as any,
