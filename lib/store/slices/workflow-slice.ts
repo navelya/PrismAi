@@ -724,8 +724,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         // Bounding box from absolute positions.
         const bbox = selected.reduce(
             (acc, n) => {
-                const w = n.measured?.width ?? (n.width as number | undefined) ?? 240;
-                const h = n.measured?.height ?? (n.height as number | undefined) ?? 120;
+                const w = n.measured?.width ?? n.width ?? 200;
+                const h = n.measured?.height ?? n.height ?? 100;
                 return {
                     minX: Math.min(acc.minX, n.position.x),
                     minY: Math.min(acc.minY, n.position.y),
@@ -736,14 +736,10 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
         );
 
-        const PAD_X = 24;
-        const PAD_Y_TOP = 56; // header
-        const PAD_Y_BOT = 24;
-
-        const groupX = bbox.minX - PAD_X;
-        const groupY = bbox.minY - PAD_Y_TOP;
-        const groupW = (bbox.maxX - bbox.minX) + PAD_X * 2;
-        const groupH = (bbox.maxY - bbox.minY) + PAD_Y_TOP + PAD_Y_BOT;
+        const groupX = bbox.minX - GROUP_PADDING;
+        const groupY = bbox.minY - GROUP_PADDING;
+        const groupW = (bbox.maxX - bbox.minX) + GROUP_PADDING * 2;
+        const groupH = (bbox.maxY - bbox.minY) + GROUP_PADDING * 2;
 
         const groupId = `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
