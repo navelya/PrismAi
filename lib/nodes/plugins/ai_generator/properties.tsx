@@ -6,7 +6,7 @@ import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Switch } from '@/components/ui/Switch';
-import { AspectRatioPicker } from '@/components/ui/AspectRatioPicker';
+import { AspectRatioPicker, isCustomAspectFormat } from '@/components/ui/AspectRatioPicker';
 import { cn } from '@/lib/utils';
 import { formatDisplayName } from '@/lib/utils/schema-parser';
 
@@ -63,6 +63,8 @@ interface AIGeneratorPropertiesProps {
         node_type_id?: string;
         model_id?: number;
         control_values?: Record<string, any>;
+        /** Non-control UI state (not sent to executor). */
+        ui_state?: Record<string, any>;
     };
     onUpdate: (config: any) => void;
     editMode?: boolean;
@@ -119,6 +121,34 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const totalCost = selectedModel
         ? Number(computeAiNodeCost(config.control_values, selectedModel).toFixed(2))
         : 0;
+
+    // Aspect-ratio link: when an aspect_ratio control exists and is NOT in custom
+    // mode, hide sibling width/height controls — picking a preset means letting the
+    // model choose the dimensions.
+    const aspectControl = controls.find(c => c.component === 'aspect_ratio');
+    const aspectValue = aspectControl
+        ? String(config.control_values?.[aspectControl.api_mapping_key] ?? aspectControl.default_value ?? '')
+        : '';
+    const aspectCustomFlag = config.ui_state?.aspect_ratio_custom === true;
+    const aspectIsCustom = aspectCustomFlag || (!!aspectControl && isCustomAspectFormat(aspectValue));
+
+    const setAspectCustom = (next: boolean) => {
+        onUpdate({
+            ...config,
+            ui_state: {
+                ...(config.ui_state || {}),
+                aspect_ratio_custom: next,
+            },
+        });
+    };
+
+    const dimensionKeys = new Set(['width', 'height']);
+    const visibleControls = controls.filter(ctrl => {
+        if (aspectControl && !aspectIsCustom && dimensionKeys.has(ctrl.api_mapping_key.toLowerCase())) {
+            return false;
+        }
+        return true;
+    });
 
     return (
         <div className="flex-1 flex flex-col min-h-0 animate-in fade-in duration-300 overflow-hidden">
@@ -207,7 +237,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                         </p>
 
                         <div className="space-y-2.5">
-                            {controls
+                            {visibleControls
                                 .filter(ctrl => editMode || ctrl.is_visible)
                                 .map(ctrl => (
                                     <div key={ctrl.api_mapping_key} className="relative group/field">
@@ -230,6 +260,8 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                                                 control={ctrl}
                                                 value={config.control_values?.[ctrl.api_mapping_key]}
                                                 onChange={handleControlChange}
+                                                aspectIsCustom={aspectIsCustom}
+                                                onAspectCustomChange={setAspectCustom}
                                             />
                                         </div>
                                     </div>
@@ -273,10 +305,14 @@ function ControlRenderer({
     control,
     value,
     onChange,
+    aspectIsCustom,
+    onAspectCustomChange,
 }: {
     control: Control;
     value: any;
     onChange: (key: string, val: any) => void;
+    aspectIsCustom?: boolean;
+    onAspectCustomChange?: (custom: boolean) => void;
 }) {
     const label = control.label || formatDisplayName(control.api_mapping_key);
 
@@ -306,6 +342,8 @@ function ControlRenderer({
                     options={control.options}
                     onChange={val => onChange(control.api_mapping_key, val)}
                     variant="minimal"
+                    isCustom={aspectIsCustom}
+                    onCustomChange={onAspectCustomChange}
                 />
             );
         case 'select':

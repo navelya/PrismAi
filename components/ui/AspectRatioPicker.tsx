@@ -11,6 +11,15 @@ interface AspectRatioPickerProps {
     options?: string[];
     onChange: (value: string) => void;
     variant?: 'default' | 'minimal';
+    /** Optional controlled custom-mode flag. Lets the parent drive the toggle so it
+     *  can use the same signal (e.g. to hide linked width/height controls). */
+    isCustom?: boolean;
+    onCustomChange?: (isCustom: boolean) => void;
+}
+
+/** Exported so the property panel can use the same detection rule. */
+export function isCustomAspectFormat(value: string): boolean {
+    return isCustomFormat(value);
 }
 
 interface PresetMeta {
@@ -77,10 +86,17 @@ export function AspectRatioPicker({
     value,
     options,
     onChange,
-    variant = 'default'
+    variant = 'default',
+    isCustom,
+    onCustomChange,
 }: AspectRatioPickerProps) {
     const [open, setOpen] = useState(false);
-    const [customMode, setCustomMode] = useState(() => isCustomFormat(value));
+    const [internalCustomMode, setInternalCustomMode] = useState(() => isCustomFormat(value));
+    const customMode = isCustom !== undefined ? isCustom : internalCustomMode;
+    const setCustomMode = (next: boolean) => {
+        if (onCustomChange) onCustomChange(next);
+        if (isCustom === undefined) setInternalCustomMode(next);
+    };
     const [customW, setCustomW] = useState<string>('16');
     const [customH, setCustomH] = useState<string>('9');
     const containerRef = useRef<HTMLDivElement>(null);
@@ -101,9 +117,10 @@ export function AspectRatioPicker({
             setCustomW(String(w));
             setCustomH(String(h));
             setCustomMode(true);
-        } else if (PRESETS.some(p => p.value === value) && !customMode) {
-            // Value matches a preset and we weren't in custom mode — keep preset selection.
         }
+        // value matching a preset doesn't auto-clear customMode — the parent
+        // (or the preset-button click) is the only source for clearing it,
+        // because a custom W:H may legitimately equal a preset string.
     }, [value]);
 
     useEffect(() => {
@@ -119,7 +136,7 @@ export function AspectRatioPicker({
 
     const currentMeta = !showCustom ? getMeta(value) : null;
     const triggerLabel = showCustom
-        ? `${customW}:${customH} Custom`
+        ? 'Custom'
         : currentMeta
             ? `${currentMeta.label}${currentMeta.descriptor ? ' ' + currentMeta.descriptor : ''}`
             : (value || 'Select…');
