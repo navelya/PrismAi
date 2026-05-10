@@ -13,6 +13,7 @@ import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
 import { toThumbnailUrl } from '@/lib/utils/supabase-image';
+import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
 
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
@@ -329,30 +330,39 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                         <MoreHorizontal className="w-4 h-4 text-white/20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     </div>
 
-                    <button
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            triggerRunFromNode(id, 'solo');
-                        }}
-                        className={cn(
-                            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg",
-                            "bg-accent-primary/10 text-accent-primary border border-accent-primary/20 hover:bg-accent-primary hover:text-white hover:scale-[1.02] active:scale-[0.98]",
-                            status === 'running' && "opacity-50 pointer-events-none"
-                        )}
-                    >
-                        <div className="flex items-center gap-1.5 border-r border-accent-primary/20 pr-1.5 mr-0.5">
-                            <Play className={cn("w-3 h-3", status !== 'running' && "fill-current")} />
-                            <span>{status === 'running' ? 'Running' : 'Run'}</span>
-                        </div>
-                        {selectedModel.credit_cost > 0 && (
-                            <div className="flex items-center gap-1 pl-0.5">
-                                <span className="opacity-80">{selectedModel.credit_cost}</span>
-                                <Coins className="w-3 h-3 opacity-60" />
-                            </div>
-                        )}
-                    </button>
+                    {(() => {
+                        const dynamicCost = computeAiNodeCost(data.config?.control_values, selectedModel);
+                        const showCost = dynamicCost > 0;
+                        return (
+                            <button
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    triggerRunFromNode(id, 'solo');
+                                }}
+                                className={cn(
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg",
+                                    "bg-accent-primary/10 text-accent-primary border border-accent-primary/20 hover:bg-accent-primary hover:text-white hover:scale-[1.02] active:scale-[0.98]",
+                                    status === 'running' && "opacity-50 pointer-events-none"
+                                )}
+                            >
+                                <div className={cn(
+                                    "flex items-center gap-1.5",
+                                    showCost && "border-r border-accent-primary/20 pr-1.5 mr-0.5"
+                                )}>
+                                    <Play className={cn("w-3 h-3", status !== 'running' && "fill-current")} />
+                                    <span>{status === 'running' ? 'Running' : 'Run'}</span>
+                                </div>
+                                {showCost && (
+                                    <div className="flex items-center gap-1 pl-0.5">
+                                        <span className="opacity-80">{formatCredits(dynamicCost)}</span>
+                                        <Coins className="w-3 h-3 opacity-60" />
+                                    </div>
+                                )}
+                            </button>
+                        );
+                    })()}
                 </div>
             )}
 

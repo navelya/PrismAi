@@ -202,9 +202,11 @@ export function parseReplicateSchema(schema: any) {
             component = 'text_input';
             defaultValue = defaultValue ?? '';
         }
-        // Rule B2: Enum (Select)
+        // Rule B2: Enum (Select). Aspect-ratio enums get the dedicated visual
+        // picker; Replicate uses string values like "16:9" and "match_input_image"
+        // either way, so the wire payload is identical.
         else if (prop.enum) {
-            component = 'select';
+            component = /aspect[_\s-]?ratio|^aspect$/i.test(key) ? 'aspect_ratio' : 'select';
             defaultValue = defaultValue ?? prop.enum[0];
         }
         // Rule B3: Boolean

@@ -6,6 +6,7 @@ import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Switch } from '@/components/ui/Switch';
+import { AspectRatioPicker } from '@/components/ui/AspectRatioPicker';
 import { cn } from '@/lib/utils';
 import { formatDisplayName } from '@/lib/utils/schema-parser';
 
@@ -297,8 +298,17 @@ function ControlRenderer({
                     />
                 </div>
             );
-        case 'select':
         case 'aspect_ratio':
+            return (
+                <AspectRatioPicker
+                    label={label}
+                    value={String(value ?? control.default_value ?? '')}
+                    options={control.options}
+                    onChange={val => onChange(control.api_mapping_key, val)}
+                    variant="minimal"
+                />
+            );
+        case 'select':
         case 'resolution':
         case 'format':
             return (

@@ -46,6 +46,7 @@ import { cn } from '@/lib/utils';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { ModelForm } from '@/components/admin/ModelForm';
 import { ContextMenuBuilder } from '@/components/admin/ContextMenuBuilder';
+import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
 
 // =============================================================================
 // SECTION NAVIGATION CONFIG
@@ -876,7 +877,20 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                                         {provider.name}
                                                                     </span>
                                                                 )}
-                                                                <span className="px-2 py-0.5 bg-accent-primary/5 border border-accent-primary/20 rounded-lg text-accent-primary text-[8px] font-black uppercase tracking-widest">{model.credit_cost} Credits</span>
+                                                                <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-lg text-content-tertiary text-[8px] font-black uppercase tracking-widest" title="Base credit cost">
+                                                                    Base {formatCredits(model.credit_cost)}
+                                                                </span>
+                                                                {(() => {
+                                                                    const calculated = computeAiNodeCost(undefined, model);
+                                                                    return (
+                                                                        <span
+                                                                            className="px-2 py-0.5 bg-accent-primary/10 border border-accent-primary/30 rounded-lg text-accent-primary text-[8px] font-black uppercase tracking-widest inline-flex items-center gap-1"
+                                                                            title="Total cost using control default values (base + cost modifiers + per-unit costs)"
+                                                                        >
+                                                                            {formatCredits(calculated)} Tokens
+                                                                        </span>
+                                                                    );
+                                                                })()}
                                                             </div>
                                                         </div>
                                                     </div>

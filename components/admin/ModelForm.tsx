@@ -627,6 +627,7 @@ export function ModelForm({
                                         { id: 'number_input', display_name: 'Number Input' },
                                         { id: 'checkbox', display_name: 'Checkbox' },
                                         { id: 'select', display_name: 'Select' },
+                                        { id: 'aspect_ratio', display_name: 'Aspect Ratio' },
                                         { id: 'prompt_textarea', display_name: 'Prompt' },
                                         { id: 'negative_prompt', display_name: 'Negative Prompt' },
                                         { id: 'reverse', display_name: 'Reverse Switch' },
@@ -654,19 +655,76 @@ export function ModelForm({
                                     </div>
                                 )}
 
-                                {isNumericControl(ctrl) && !isBooleanControl(ctrl) && (
-                                    <NumberInput
-                                        label="Default Value"
-                                        min={ctrl.min}
-                                        max={ctrl.max}
-                                        step={ctrl.step ?? (normalizedControlType(ctrl) === 'integer' ? 1 : 0.01)}
-                                        value={Number.isFinite(Number(ctrl.default_value)) ? Number(ctrl.default_value) : (ctrl.min ?? 0)}
-                                        onChange={e => {
-                                            const val = Number(e.target.value);
-                                            setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? val : (ctrl.min ?? 0) });
-                                        }}
-                                    />
-                                )}
+                                {isNumericControl(ctrl) && !isBooleanControl(ctrl) && (() => {
+                                    const step = ctrl.step ?? (normalizedControlType(ctrl) === 'integer' ? 1 : 0.01);
+                                    const fallback = ctrl.min ?? 0;
+                                    const current = Number.isFinite(Number(ctrl.default_value)) ? Number(ctrl.default_value) : fallback;
+                                    const isRanged = (ctrl.component === 'slider' || ctrl.component === 'threshold')
+                                        && typeof ctrl.min === 'number'
+                                        && typeof ctrl.max === 'number';
+
+                                    if (!isRanged) {
+                                        return (
+                                            <NumberInput
+                                                label="Default Value"
+                                                min={ctrl.min}
+                                                max={ctrl.max}
+                                                step={step}
+                                                value={current}
+                                                onChange={e => {
+                                                    const val = Number(e.target.value);
+                                                    setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? val : fallback });
+                                                }}
+                                            />
+                                        );
+                                    }
+
+                                    const min = ctrl.min as number;
+                                    const max = ctrl.max as number;
+                                    const clamp = (v: number) => Math.min(max, Math.max(min, v));
+                                    const display = clamp(current);
+
+                                    return (
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 opacity-80 block">
+                                                Default Value
+                                            </label>
+                                            <div className="flex items-center gap-4">
+                                                <div className="flex-1 space-y-1.5">
+                                                    <input
+                                                        type="range"
+                                                        min={min}
+                                                        max={max}
+                                                        step={step}
+                                                        value={display}
+                                                        onChange={e => {
+                                                            const val = parseFloat(e.target.value);
+                                                            setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? clamp(val) : min });
+                                                        }}
+                                                        className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
+                                                    />
+                                                    <div className="flex justify-between text-[9px] font-mono text-content-tertiary/50 px-0.5 tabular-nums">
+                                                        <span>{min}</span>
+                                                        <span>{max}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="w-28 shrink-0">
+                                                    <NumberInput
+                                                        min={min}
+                                                        max={max}
+                                                        step={step}
+                                                        value={display}
+                                                        onChange={e => {
+                                                            const raw = Number(e.target.value);
+                                                            if (!Number.isFinite(raw)) return;
+                                                            setControlPatch(ctrl.id, { default_value: clamp(raw) });
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {isSelectControl(ctrl) && !isBooleanControl(ctrl) && !isNumericControl(ctrl) && (
                                     Array.isArray(ctrl.options) && ctrl.options.length > 0 ? (
