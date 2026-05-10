@@ -8,7 +8,7 @@ const COLOR_TOKENS = ['neutral', 'indigo', 'emerald', 'rose', 'amber', 'sky'] as
 type ColorToken = typeof COLOR_TOKENS[number];
 
 const COLOR_SWATCH_BG: Record<ColorToken, string> = {
-    neutral: 'bg-stroke-subtle',
+    neutral: 'bg-neutral-400',
     indigo:  'bg-indigo-500',
     emerald: 'bg-emerald-500',
     rose:    'bg-rose-500',
@@ -102,6 +102,7 @@ export function GroupHeaderToolbar({
                                     type="button"
                                     onClick={() => onIconChange(name)}
                                     title={name}
+                                    aria-label={name}
                                     className={
                                         'flex items-center justify-center h-7 w-7 rounded transition-colors ' +
                                         (active
@@ -117,8 +118,8 @@ export function GroupHeaderToolbar({
                     <button
                         type="button"
                         onClick={() => {
-                            onUngroup();
                             setOpen(false);
+                            onUngroup();
                         }}
                         className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-surface-subtle text-content-primary"
                     >
