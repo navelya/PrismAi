@@ -226,7 +226,7 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     )}
                     <GroupHeaderToolbar
                         currentIcon={iconName}
-                        currentColor={colorToken as any}
+                        currentColor={colorToken}
                         onIconChange={handleIconChange}
                         onColorChange={handleColorChange}
                         onUngroup={handleUngroup}
