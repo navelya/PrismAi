@@ -2,15 +2,37 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { NodeProps, NodeToolbar, Position } from 'reactflow';
+import * as LucideIcons from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { GROUP_RESIZE_HANDLE_SIZE } from '@/lib/nodes/group-constants';
 
 interface GroupNodeData {
     label: string;
-    config: { width: number; height: number };
+    config: {
+        width: number;
+        height: number;
+        icon?: string;
+        color?: 'neutral' | 'indigo' | 'emerald' | 'rose' | 'amber' | 'sky';
+    };
+}
+
+function resolveIcon(name: string | undefined): LucideIcon {
+    if (!name) return LucideIcons.Folder;
+    const Candidate = (LucideIcons as any)[name];
+    return (Candidate && typeof Candidate === 'object') ? Candidate as LucideIcon : LucideIcons.Folder;
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+const GROUP_COLOR_CLASSES: Record<string, { ring: string; bgRgba: string; borderRgba: string }> = {
+    neutral: { ring: 'rgb(127, 127, 127)', bgRgba: 'rgba(127, 127, 127, 0.10)', borderRgba: 'rgba(127, 127, 127, 0.375)' },
+    indigo:  { ring: 'rgb(99, 102, 241)',  bgRgba: 'rgba(99, 102, 241, 0.10)',  borderRgba: 'rgba(99, 102, 241, 0.375)' },
+    emerald: { ring: 'rgb(16, 185, 129)',  bgRgba: 'rgba(16, 185, 129, 0.10)',  borderRgba: 'rgba(16, 185, 129, 0.375)' },
+    rose:    { ring: 'rgb(244, 63, 94)',   bgRgba: 'rgba(244, 63, 94, 0.10)',   borderRgba: 'rgba(244, 63, 94, 0.375)' },
+    amber:   { ring: 'rgb(245, 158, 11)',  bgRgba: 'rgba(245, 158, 11, 0.10)',  borderRgba: 'rgba(245, 158, 11, 0.375)' },
+    sky:     { ring: 'rgb(14, 165, 233)',  bgRgba: 'rgba(14, 165, 233, 0.10)',  borderRgba: 'rgba(14, 165, 233, 0.375)' },
+};
 
 const HANDLES: Array<{ dir: ResizeDir; cursor: string; style: React.CSSProperties }> = [
     { dir: 'n',  cursor: 'ns-resize', style: { top: -GROUP_RESIZE_HANDLE_SIZE / 2, left: GROUP_RESIZE_HANDLE_SIZE, right: GROUP_RESIZE_HANDLE_SIZE, height: GROUP_RESIZE_HANDLE_SIZE } },
@@ -26,6 +48,8 @@ const HANDLES: Array<{ dir: ResizeDir; cursor: string; style: React.CSSPropertie
 export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeData>) {
     const width = data.config?.width ?? 400;
     const height = data.config?.height ?? 300;
+    const iconName = data.config?.icon ?? 'Folder';
+    const colorToken = data.config?.color ?? 'neutral';
 
     const renameGroup = useAppStore((s) => s.renameGroup);
     const resizeGroup = useAppStore((s) => s.resizeGroup);
@@ -135,6 +159,10 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     style={{ pointerEvents: 'auto' }}
                     onMouseDown={(e) => e.stopPropagation()}
                 >
+                    {(() => {
+                        const Icon = resolveIcon(iconName);
+                        return <Icon size={12} className="mr-1.5 text-content-secondary shrink-0" />;
+                    })()}
                     {isEditingTitle ? (
                         <>
                             <input
@@ -193,14 +221,15 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                         ? "border-2 border-accent-primary"
                         : selected
                             ? "border-2 border-accent-primary"
-                            : "border border-stroke-subtle/60 hover:border-content-secondary")
+                            : "border")
                 }
                 style={{
                     width,
                     height,
-                    // Translucent gray fill — independent of theme tokens so the
-                    // tint is visible on both dark and light canvas backgrounds.
-                    background: 'rgba(127, 127, 127, 0.10)',
+                    // Translucent color fill — driven by the group's color token.
+                    background: GROUP_COLOR_CLASSES[colorToken]?.bgRgba ?? GROUP_COLOR_CLASSES.neutral.bgRgba,
+                    // Tinted border when not selected/hover-target.
+                    borderColor: (isHoverTarget || selected) ? undefined : GROUP_COLOR_CLASSES[colorToken]?.borderRgba,
                     // Let pointer events pass through the body so edges (wires)
                     // routed inside the group remain clickable. Interactive bits
                     // (resize handles, title bubble) opt back in below.
