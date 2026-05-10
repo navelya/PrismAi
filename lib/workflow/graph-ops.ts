@@ -80,11 +80,27 @@ export function applyAddNodeOp(workflow: Workflow, op: AddNodeOp, idMap: Map<str
     const resolvedNodeId = crypto.randomUUID();
     idMap.set(op.id, resolvedNodeId);
 
+    // parentNode arrives as a temp id from synthesizeTaskBlueprint (e.g. "group_opening").
+    // Resolve through idMap so children point at the parent's actual UUID — without this
+    // React Flow throws "Parent node X not found" because the parent was UUID-rewritten
+    // when its own op was applied earlier in the batch.
+    let resolvedParent: string | undefined;
+    if (op.parentNode) {
+        const mapped = resolveNodeId(op.parentNode, idMap);
+        if (!ensureNodeExists(workflow, mapped) && !idMap.has(op.parentNode)) {
+            return {
+                success: false,
+                error: `Topological order violation: parent node "${op.parentNode}" for "${op.id}" does not exist yet. Group/parent nodes must appear before their children in the same call.`
+            };
+        }
+        resolvedParent = mapped;
+    }
+
     const node: WorkflowNode = {
         id: resolvedNodeId,
         type: op.type as any,
         position: op.position,
-        ...(op.parentNode ? { parentNode: op.parentNode } : {}),
+        ...(resolvedParent ? { parentNode: resolvedParent } : {}),
         data: {
             label: op.data?.label && op.data.label.length > 0 ? op.data.label : defaultLabel(op.type),
             config: {
