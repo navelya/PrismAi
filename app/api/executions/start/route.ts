@@ -20,7 +20,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson, NodeConfig } from '@/lib/workflow/types-v2';
 import { transformWorkflowV1ToV2 } from '@/lib/workflow/node-type-mapper';
 import { dispatchNode } from '@/lib/workflow/dispatch-v2';
-import { isEphemeralNode } from '@/lib/workflow/handlers';
+import { isEphemeralNode } from '@/lib/nodes/core/server-registry';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
 import { getAiArrayInputKeys } from '@/lib/workflow/orchestrator';
 import { getAuthenticatedUser } from '@/lib/api/auth';
@@ -221,6 +221,15 @@ export async function POST(request: NextRequest) {
               const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
               const result = arrayInputKeys.has(inputKey) ? parentResult.resultData : parentResult.primary;
               nodeInputs[inputKey] = result;
+              // Compositor layers store `layer.sourceHandleId = edge.id` because
+              // every layer edge shares the same static `layers` target handle,
+              // so per-edge id is the only way to disambiguate which upstream
+              // value belongs to which layer. Single-input nodes are unaffected
+              // (they read by handle name). Always use the non-array primary
+              // here because layer lookups are single-value.
+              if (edge.id && parentResult.primary !== undefined && parentResult.primary !== null) {
+                nodeInputs[edge.id] = parentResult.primary;
+              }
               const preview = typeof result === 'string' ? result.substring(0, 60) : JSON.stringify(result).substring(0, 60);
               console.log(`[Execution/Start] Pre-seeding input for node ${node.id}: ${inputKey} = ${preview}...`);
             } else {

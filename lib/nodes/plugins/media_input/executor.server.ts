@@ -1,4 +1,5 @@
-import { ExecutionContext, NodeExecutionResult, MediaInputConfig, ImageObject } from '../../types';
+import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types';
+import { MediaInputConfig } from './definition';
 
 export const mediaInputExecutor = async (
     config: MediaInputConfig,

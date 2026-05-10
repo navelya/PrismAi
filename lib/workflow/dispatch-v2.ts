@@ -6,7 +6,7 @@
 import { replicate } from '@/lib/ai/replicate-client';
 import { createServiceClient } from '@/lib/supabase/service';
 import { NodeConfig, NodeState } from './types-v2';
-import { isEphemeralNode } from './handlers';
+import { isEphemeralNode } from '@/lib/nodes/core/server-registry';
 import { executeEphemeralNode } from './ephemeral-executor';
 import { inferResultTypeFromValue, toResultDataForType } from './result-format';
 
@@ -117,7 +117,7 @@ async function dispatchEphemeralNode(
   }
 }
 
-import { aiGeneratorExecutor } from '../nodes/core/ai-generator-executor';
+import { aiGeneratorExecutor } from '../nodes/plugins/ai_generator/executor.server';
 
 /**
  * Dispatch a node to Replicate API using the battle-tested executor

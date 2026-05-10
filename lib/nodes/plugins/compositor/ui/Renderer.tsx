@@ -19,7 +19,7 @@
 import React, { memo, useEffect, useMemo, useRef } from 'react';
 import { Image as KonvaImage, Text as KonvaText } from 'react-konva';
 import useImage from 'use-image';
-import { CompositorLayer, LayerTransform } from '@/lib/nodes/types';
+import { CompositorLayer, LayerTransform } from '../definition';
 
 /**
  * What the shared renderer needs to draw one layer:

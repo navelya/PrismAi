@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { NodeExecutor, NodeExecutionResult, ExecutionContext } from '../types';
+import { NodeExecutor, NodeExecutionResult, ExecutionContext } from '../../types';
 import { replicate, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
 import { isOutputEnvelope } from '@/lib/workflow/result-format';
 

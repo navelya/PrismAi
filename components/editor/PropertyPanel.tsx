@@ -4,16 +4,15 @@ import React from 'react';
 import * as Icons from 'lucide-react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { NodeConfig } from '@/lib/nodes/types';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 
 interface PropertyPanelProps {
     nodeId: string;
     nodeType: string;
-    config: NodeConfig;
+    config: Record<string, any>;
     label: string;
     icon?: string;
-    onUpdate: (config: NodeConfig) => void;
+    onUpdate: (config: Record<string, any>) => void;
     onClose: () => void;
 }
 

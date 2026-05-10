@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { NodeStatus } from '@/lib/nodes/types';
-import { NodeHeader } from './NodeHeader';
+import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
 import { motion } from 'framer-motion';
 
 // Stable framer-motion prop references.
@@ -152,28 +152,40 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
     const handleDuplicate = (e: React.MouseEvent) => {
         e.stopPropagation();
-        const currentNode = getNode(id);
+        // Read from Zustand (the source of truth), not from React Flow's internal
+        // store — RF's getNode() can return a node whose zIndex/position has been
+        // mutated by drag interactions, and addNodes() goes through a sync round-
+        // trip that strips zIndex on some platforms. Going directly to onNodesChange
+        // gives us deterministic placement.
+        const wf = useAppStore.getState().currentWorkflow;
+        const sourceNode = wf?.nodes.find((n) => n.id === id);
+        if (!wf || !sourceNode) return;
 
-        if (currentNode) {
-            const nodes = getNodes();
-            const maxZ = Math.max(0, ...nodes.map(n => n.zIndex || 0));
+        const maxZ = Math.max(0, ...wf.nodes.map((n) => n.zIndex || 0));
+        const offset = 40;
 
-            const newNode = {
-                ...JSON.parse(JSON.stringify(currentNode)),
-                id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                zIndex: maxZ + 1,
-                position: {
-                    x: currentNode.position.x + 50,
-                    y: currentNode.position.y + 50,
-                },
-                selected: false,
-                data: {
-                    ...currentNode.data,
-                    label: `${currentNode.data.label || displayLabel} (Copy)`,
-                }
-            };
-            addNodes(newNode);
-        }
+        const newNode: any = {
+            id: `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: sourceNode.type,
+            position: {
+                x: sourceNode.position.x + offset,
+                y: sourceNode.position.y + offset,
+            },
+            zIndex: maxZ + 1,
+            selected: false,
+            // Deep-clone data so config edits on the duplicate don't mutate the source.
+            data: {
+                ...JSON.parse(JSON.stringify(sourceNode.data || {})),
+                label: `${sourceNode.data?.label || displayLabel} (Copy)`,
+            },
+            // Preserve grouping membership if the source is inside a group.
+            ...((sourceNode as any).parentNode ? { parentNode: (sourceNode as any).parentNode } : {}),
+            ...((sourceNode as any).extent ? { extent: (sourceNode as any).extent } : {}),
+            ...(sourceNode.width ? { width: sourceNode.width } : {}),
+            ...(sourceNode.height ? { height: sourceNode.height } : {}),
+        };
+
+        useAppStore.getState().onNodesChange([{ type: 'add', item: newNode } as any]);
     };
 
 

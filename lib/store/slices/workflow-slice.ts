@@ -5,7 +5,7 @@ import { Workflow, WorkflowNode } from '../../nodes/types';
 import { RootState, WorkflowSlice } from '../types';
 import { generateEdgeId } from '@/lib/utils';
 import { deriveEnvelopeFromConfig } from '@/lib/hooks/use-resolved-node-value';
-import { CompositorConfig, CompositorLayer, calculateInitialTransform } from '../../nodes/types';
+import { CompositorConfig, CompositorLayer, calculateInitialTransform } from '../../nodes/plugins/compositor/definition';
 import {
     GROUP_PADDING,
     GROUP_DEFAULT_LABEL,

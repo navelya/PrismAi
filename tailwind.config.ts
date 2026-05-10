@@ -5,6 +5,12 @@ const config: Config = {
         "./pages/**/*.{js,ts,jsx,tsx,mdx}",
         "./components/**/*.{js,ts,jsx,tsx,mdx}",
         "./app/**/*.{js,ts,jsx,tsx,mdx}",
+        // Plugin node components and shared canvas primitives live under lib/nodes/.
+        // They emit JSX with Tailwind utility classes; without this path Tailwind
+        // strips the classes used only by these files (custom node heights,
+        // toolbar positioning, handle colors, max-h + overflow on the prompt
+        // textarea, etc.).
+        "./lib/nodes/**/*.{js,ts,jsx,tsx,mdx}",
     ],
     theme: {
         extend: {

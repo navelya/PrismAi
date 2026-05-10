@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
-import BaseNode from '@/components/canvas/BaseNode';
+import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
@@ -598,3 +598,13 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
 }
 
 export default memo(AIGeneratorNode);
+
+import { NodeClientDef } from '../../core/types';
+import { aiGeneratorSharedDef } from './definition';
+import AIGeneratorPropertiesImport from './properties';
+
+export const aiGeneratorClientDef: NodeClientDef = {
+    ...aiGeneratorSharedDef,
+    component: memo((props: any) => <AIGeneratorNode {...props} type="ai_generator" />),
+    propertyPanel: AIGeneratorPropertiesImport,
+} as any;
