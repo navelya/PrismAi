@@ -163,6 +163,10 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
             const hasTasks = Array.isArray(args.tasks) && (args.tasks as any[]).length > 0;
             const hasBlueprint = !!args.blueprint && typeof args.blueprint === 'object';
 
+            const blueprintObj: { nodes?: any[]; edges?: any[] } | null = hasBlueprint
+              ? (args.blueprint as { nodes?: any[]; edges?: any[] })
+              : null;
+
             if (hasTasks && hasBlueprint) {
               input.encoder.send({
                 type: 'error',
@@ -191,8 +195,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
                 break;
               }
             } else {
-              const blueprint = args.blueprint as { nodes?: any[]; edges?: any[] } | null;
-              const validation = validateBlueprint(state, blueprint);
+              const validation = validateBlueprint(state, blueprintObj);
               if (!validation.ok) {
                 input.encoder.send({
                   type: 'error',
@@ -212,8 +215,8 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
                 detail: String(args.detail).trim(),
                 blueprint: hasBlueprint
                   ? {
-                      nodes: Array.isArray((args.blueprint as any)?.nodes) ? (args.blueprint as any).nodes : [],
-                      edges: Array.isArray((args.blueprint as any)?.edges) ? (args.blueprint as any).edges : [],
+                      nodes: Array.isArray(blueprintObj?.nodes) ? blueprintObj.nodes : [],
+                      edges: Array.isArray(blueprintObj?.edges) ? blueprintObj.edges : [],
                     }
                   : undefined,
                 tasks: hasTasks ? (args.tasks as any[]) : undefined,
