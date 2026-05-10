@@ -4,6 +4,8 @@ import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/
 import { getRegistryContext } from '@/lib/chat/registry-cache';
 import { uploadBase64ToStorage } from '@/lib/utils/image-processing';
 import { dispatchTool, type ToolHandlerState } from '@/lib/chat/tools/handlers';
+import { synthesizeTaskBlueprint, sleep } from '@/lib/chat/task-loop';
+import { STAGING_DELAY_MS } from '@/lib/chat/config';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
@@ -68,10 +70,13 @@ async function handlePlanApprove(opts: {
             return;
           }
           const blueprint = planRow.metadata?.plan?.blueprint;
-          if (!blueprint) {
+          const tasks = planRow.metadata?.plan?.tasks;
+          const isTasks = Array.isArray(tasks) && tasks.length > 0;
+
+          if (!isTasks && !blueprint) {
             encoder.send({
               type: 'error',
-              message: 'Plan has no blueprint to apply.',
+              message: 'Plan has no blueprint or tasks to apply.',
               recoverable: false,
             });
             encoder.send({ type: 'done' });
@@ -133,68 +138,166 @@ async function handlePlanApprove(opts: {
             aiModelHandles,
           };
 
-          // 5. Apply via dispatchTool('add_node', blueprint).
-          const result = dispatchTool(state, 'add_node', blueprint);
-          if (!result.success) {
+          if (!isTasks) {
+            // ─── ORIGINAL SINGLE-BLUEPRINT PATH — UNCHANGED ───
+
+            // 5. Apply via dispatchTool('add_node', blueprint).
+            const result = dispatchTool(state, 'add_node', blueprint);
+            if (!result.success) {
+              encoder.send({
+                type: 'error',
+                message: result.error || 'Plan apply failed.',
+                recoverable: true,
+              });
+              encoder.send({ type: 'done' });
+              encoder.close();
+              return;
+            }
+
+            // 6. Persist user message + canvas_state.
+            const dbOps: Promise<any>[] = [];
+            dbOps.push(
+              Promise.resolve(supabase.from('messages').insert({
+                ...(userMessageId ? { id: userMessageId } : {}),
+                session_id: sessionId,
+                role: 'user',
+                content: lastUserContent || 'Approved',
+                status: 'completed',
+                metadata: {
+                  plan_answer: {
+                    planMessageId: planAnswer.planMessageId,
+                    action: 'approve',
+                  },
+                },
+                created_at: new Date().toISOString(),
+              }) as any)
+            );
+            if (result.patch) {
+              dbOps.push(
+                Promise.resolve(supabase.from('sessions').update({
+                  canvas_state: { nodes: state.workflow.nodes, edges: state.workflow.edges },
+                  updated_at: new Date().toISOString(),
+                }).eq('id', sessionId) as any)
+              );
+            }
+            await Promise.all(dbOps);
+
+            // 7. Emit tool + usage(zero) + done.
+            if (result.patch) {
+              encoder.send({ type: 'tool', name: 'add_node', patch: result.patch });
+            }
             encoder.send({
-              type: 'error',
-              message: result.error || 'Plan apply failed.',
-              recoverable: true,
+              type: 'usage',
+              inputTokens: 0,
+              outputTokens: 0,
+              thinkingTokens: 0,
+              costUsd: 0,
             });
             encoder.send({ type: 'done' });
             encoder.close();
+
+            console.log('[chat] plan_approve', {
+              sessionId,
+              planMessageId: planAnswer.planMessageId,
+              blueprintNodeCount: Array.isArray(blueprint?.nodes) ? blueprint.nodes.length : 0,
+              latencyMs: Date.now() - t0,
+              status: 'ok',
+            });
             return;
           }
 
-          // 6. Persist user message + canvas_state.
-          const dbOps: Promise<any>[] = [];
-          dbOps.push(
-            Promise.resolve(supabase.from('messages').insert({
-              ...(userMessageId ? { id: userMessageId } : {}),
-              session_id: sessionId,
-              role: 'user',
-              content: lastUserContent || 'Approved',
-              status: 'completed',
+          // ─── NEW TASKS-MODE PATH ───
+
+          // Persist user-approval message ONCE upfront (mirrors single-blueprint path).
+          await supabase.from('messages').insert({
+            ...(userMessageId ? { id: userMessageId } : {}),
+            session_id: sessionId,
+            role: 'user',
+            content: lastUserContent || 'Approved',
+            status: 'completed',
+            metadata: { plan_answer: { planMessageId: planAnswer.planMessageId, action: 'approve' } },
+            created_at: new Date().toISOString(),
+          });
+
+          // Initial taskProgress on the assistant plan row.
+          const total = tasks.length;
+          await supabase
+            .from('messages')
+            .update({
               metadata: {
-                plan_answer: {
-                  planMessageId: planAnswer.planMessageId,
-                  action: 'approve',
-                },
+                ...planRow.metadata,
+                taskProgress: { status: 'running', currentIndex: 0, total, failedTaskId: null },
               },
-              created_at: new Date().toISOString(),
-            }) as any)
-          );
-          if (result.patch) {
-            dbOps.push(
-              Promise.resolve(supabase.from('sessions').update({
+            })
+            .eq('id', planAnswer.planMessageId);
+
+          let failed = false;
+          let failedTaskId: string | null = null;
+
+          for (let i = 0; i < tasks.length; i++) {
+            const task = tasks[i];
+            encoder.send({ type: 'task_start', taskId: task.id, index: i, total });
+
+            const augmented = synthesizeTaskBlueprint(task);
+            const result = dispatchTool(state, 'add_node', augmented);
+            if (!result.success) {
+              failed = true;
+              failedTaskId = task.id;
+              encoder.send({
+                type: 'error',
+                message: `Task "${task.title}" failed: ${result.error || 'unknown error'}`,
+                recoverable: true,
+              });
+              break;
+            }
+
+            if (result.patch) {
+              encoder.send({ type: 'tool', name: 'add_node', patch: result.patch });
+            }
+
+            // Persist incremental updates after each task.
+            await Promise.all([
+              supabase.from('sessions').update({
                 canvas_state: { nodes: state.workflow.nodes, edges: state.workflow.edges },
                 updated_at: new Date().toISOString(),
-              }).eq('id', sessionId) as any)
-            );
-          }
-          await Promise.all(dbOps);
+              }).eq('id', sessionId),
+              supabase.from('messages').update({
+                metadata: {
+                  ...planRow.metadata,
+                  taskProgress: { status: 'running', currentIndex: i + 1, total, failedTaskId: null },
+                },
+              }).eq('id', planAnswer.planMessageId),
+            ]);
 
-          // 7. Emit tool + usage(zero) + done.
-          if (result.patch) {
-            encoder.send({ type: 'tool', name: 'add_node', patch: result.patch });
+            encoder.send({ type: 'task_complete', taskId: task.id, index: i, total });
+
+            if (i < tasks.length - 1) {
+              await sleep(STAGING_DELAY_MS);
+            }
           }
-          encoder.send({
-            type: 'usage',
-            inputTokens: 0,
-            outputTokens: 0,
-            thinkingTokens: 0,
-            costUsd: 0,
-          });
+
+          // Final taskProgress update.
+          const finalProgress = failed
+            ? { status: 'failed' as const, currentIndex: tasks.findIndex((t: any) => t.id === failedTaskId), total, failedTaskId }
+            : { status: 'done' as const, currentIndex: total, total, failedTaskId: null };
+
+          await supabase
+            .from('messages')
+            .update({
+              metadata: {
+                ...planRow.metadata,
+                taskProgress: finalProgress,
+              },
+            })
+            .eq('id', planAnswer.planMessageId);
+
+          if (!failed) {
+            encoder.send({ type: 'tasks_complete', total });
+          }
+
+          encoder.send({ type: 'usage', inputTokens: 0, outputTokens: 0, thinkingTokens: 0, costUsd: 0 });
           encoder.send({ type: 'done' });
           encoder.close();
-
-          console.log('[chat] plan_approve', {
-            sessionId,
-            planMessageId: planAnswer.planMessageId,
-            blueprintNodeCount: Array.isArray(blueprint?.nodes) ? blueprint.nodes.length : 0,
-            latencyMs: Date.now() - t0,
-            status: 'ok',
-          });
         } catch (err: any) {
           encoder.send({
             type: 'error',
