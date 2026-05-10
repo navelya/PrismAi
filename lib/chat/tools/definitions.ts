@@ -59,9 +59,16 @@ const nodesEdgesSchema = {
         },
         data: {
           type: 'object',
-          properties: { config: { type: 'object', additionalProperties: true } },
+          properties: {
+            label: {
+              type: 'string',
+              maxLength: 40,
+              description: 'Optional custom label for this node — overrides the default label. Use only when a custom name materially aids comprehension. Same language as the user.',
+            },
+            config: { type: 'object', additionalProperties: true },
+          },
           required: ['config'],
-          description: 'Node config matching the registry aiSchema for this type.'
+          description: 'Node config matching the registry aiSchema. Optional `label` overrides the default node title.',
         },
         inputs: {
           type: 'array',
@@ -80,6 +87,29 @@ const nodesEdgesSchema = {
     default: [],
     description: 'Edges to add. Source/target may be temp ids or existing canvas UUIDs.'
   }
+} as const;
+
+const taskGroupSchema = {
+  type: 'object' as const,
+  properties: {
+    label: { type: 'string', maxLength: 40 },
+    icon:  { type: 'string', description: 'Lucide PascalCase name (Folder, Film, Camera, ...). Falls back to Folder if unknown.' },
+    color: { type: 'string', enum: ['neutral', 'indigo', 'emerald', 'rose', 'amber', 'sky'] },
+  },
+  required: ['label', 'icon'],
+} as const;
+
+const taskSchema = {
+  type: 'object' as const,
+  properties: {
+    id: { type: 'string', description: 'Model-supplied id scoped to this plan (e.g. "scene_1").' },
+    title: { type: 'string', maxLength: 60, description: 'Shown in the task checklist.' },
+    summary: { type: 'string', maxLength: 140, description: 'One-line description.' },
+    group: taskGroupSchema,
+    nodes: nodesEdgesSchema.nodes,
+    edges: nodesEdgesSchema.edges,
+  },
+  required: ['id', 'title', 'summary', 'nodes', 'edges'],
 } as const;
 
 export const TOOLS: AnthropicTool[] = [
@@ -164,57 +194,40 @@ Topological order is mandatory for nodes: a node's inputs may only reference IDs
     description:
       'Propose a workflow plan for the user to approve before building. ' +
       'Use ONLY for genuinely complex requests where guessing wrong would ' +
-      'waste real work — multi-section pipelines, large rewrites, or builds ' +
-      'with multiple model choices that affect creative direction. Do NOT ' +
-      'use for simple single-node updates, trivial changes, or anything where ' +
-      'the right answer is obvious. Do NOT use in the same turn as ' +
-      'ask_clarification — clarify first, plan next turn. Do NOT also call ' +
-      'add_node / update_node / remove_node in the same turn — the blueprint ' +
-      'IS the build; the user approves it to apply.',
+      'waste real work. The plan can be a single blueprint (default) OR a ' +
+      'sequential list of tasks for multi-section workflows. Use tasks ONLY ' +
+      'when the workflow has 2+ logically independent sections — each task ' +
+      'is one recognizable build chunk. Do NOT use propose_plan in the same ' +
+      'turn as ask_clarification or add_node/update_node/remove_node.',
     input_schema: {
       type: 'object',
       properties: {
-        title: {
-          type: 'string',
-          maxLength: 60,
-          description: 'Short title naming the workflow.'
-        },
-        summary: {
-          type: 'string',
-          maxLength: 240,
-          description: 'One- or two-sentence "what it does" — plain prose, no list.'
-        },
-        arrows: {
-          type: 'string',
-          maxLength: 240,
-          description: 'Compact arrow-style overview, one line.'
-        },
+        title:   { type: 'string', maxLength: 60 },
+        summary: { type: 'string', maxLength: 240 },
+        arrows:  { type: 'string', maxLength: 240 },
         models: {
           type: 'array',
           items: { type: 'string', maxLength: 60 },
           maxItems: 6,
-          description: 'Model names used. Empty array if none.'
         },
-        detail: {
-          type: 'string',
-          maxLength: 1200,
-          description:
-            'Detailed plan: nodes used, creative direction, scene/look description, ' +
-            'inputs, expected output appearance. Match length to plan complexity. ' +
-            'Plain prose, no markdown headers.'
-        },
+        detail:  { type: 'string', maxLength: 1200 },
         blueprint: {
           type: 'object',
-          description: 'Structured workflow patch applied verbatim if user approves. Same shape as add_node input.',
+          description: 'Single-blueprint mode. Omit when using tasks.',
           properties: {
             nodes: nodesEdgesSchema.nodes,
-            edges: nodesEdgesSchema.edges
+            edges: nodesEdgesSchema.edges,
           },
-          required: []
-        }
+        },
+        tasks: {
+          type: 'array',
+          description: 'Sequential task list. Use ONLY when the workflow has 2+ logically independent sections. Omit for single-blueprint plans.',
+          items: taskSchema,
+          minItems: 1,
+        },
       },
-      required: ['title', 'summary', 'arrows', 'models', 'detail', 'blueprint']
-    }
+      required: ['title', 'summary', 'arrows', 'models', 'detail'],
+    },
   },
 ];
 
