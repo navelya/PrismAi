@@ -26,7 +26,9 @@ export const compositorExecutor = async (
         const outputFormat = (config?.outputFormat || 'png') as string;
         const outputQuality = config?.outputQuality ?? 1.0;
 
-        console.log(`[CompositorExecutor] Canvas ${width}x${height}, ${layers.length} layers`);
+        console.log(
+            `[CompositorExecutor] Canvas ${width}x${height}, ${layers.length} layers, inputs keys: [${Object.keys(inputs).join(', ')}]`,
+        );
 
         let baseCanvas = sharp({
             create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
@@ -34,9 +36,18 @@ export const compositorExecutor = async (
 
         const layerResults = await Promise.all(
             layers.map(async (layer: any) => {
-                if (!layer.visible) return null;
+                if (!layer.visible) {
+                    console.log(`[CompositorExecutor] Skipping layer "${layer.name}" — not visible`);
+                    return null;
+                }
                 const imageUrl = inputs[layer.sourceHandleId];
-                if (!imageUrl || typeof imageUrl !== 'string') return null;
+                if (!imageUrl || typeof imageUrl !== 'string') {
+                    console.log(
+                        `[CompositorExecutor] Skipping layer "${layer.name}" — no input for sourceHandleId="${layer.sourceHandleId}" (got ${typeof imageUrl})`,
+                    );
+                    return null;
+                }
+                console.log(`[CompositorExecutor] Processing layer "${layer.name}" from ${imageUrl}`);
                 try {
                     const response = await fetch(imageUrl);
                     if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);

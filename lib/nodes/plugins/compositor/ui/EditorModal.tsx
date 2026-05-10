@@ -10,7 +10,7 @@ import {
     Image as ImageIcon, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Undo2, Redo2, MousePointer2, Hand, Minus
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Reorder } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
@@ -61,94 +61,57 @@ const BLEND_MODES = [
     { id: 'exclusion', display_name: 'Exclusion' },
 ];
 
-// Pure move: returns a new layers array with sourceId placed above/below targetId.
-// Used for both the live drag preview and the committed reorder on drop.
-function computeLayerMove<T extends { id: string }>(
-    items: T[],
-    sourceId: string,
-    targetId: string,
-    position: 'top' | 'bottom'
-): T[] {
-    if (sourceId === targetId) return items;
-    const source = items.find((i) => i.id === sourceId);
-    if (!source) return items;
-    const without = items.filter((i) => i.id !== sourceId);
-    const targetIdx = without.findIndex((i) => i.id === targetId);
-    if (targetIdx === -1) return items;
-    const insertAt = position === 'top' ? targetIdx : targetIdx + 1;
-    const next = [...without];
-    next.splice(insertAt, 0, source);
-    return next;
-}
-
 const LayerListItem = React.memo(({
     layer,
     isSelected,
     type,
-    isDragging,
     onSelect,
     onToggleVisibility,
     onToggleLock,
-    onDragStart,
-    onDragOver,
-    onDrop,
     onDragEnd,
 }: any) => {
     let Icon = ImageIcon;
     if (type === 'prompt') Icon = Type;
     if (type === 'media_input') Icon = Smartphone;
 
-    // Same two-layer structure as components/admin/ContextMenuBuilder.tsx:
-    //   outer wrapper div  → keeps key + flex column for vertical stacking
-    //   motion.div         → the drag source; minimal CSS so the browser's
-    //                        default drag snapshot captures the styled inner div
-    //                        cleanly (transforms or backgrounds on the draggable
-    //                        element itself produce a faded "placeholder"-looking
-    //                        ghost in HTML5 DnD).
-    //   inner div          → all visual styling (bg, border, padding)
+    // Reorder.Item is a framer-motion drag source: the element itself follows
+    // the pointer and siblings animate to fill the gap. `whileDrag` lifts the
+    // active item visually. Inner buttons stop pointer-down propagation so
+    // toggling visibility/lock can't be misread as a drag start.
     return (
-        <div className="flex flex-col relative">
-            <motion.div
-                layoutId={layer.id}
-                transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.6 }}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                draggable
-                onDragStart={(e) => onDragStart(e as any, layer.id)}
-                onDragOver={(e) => onDragOver(e as any, layer.id)}
-                onDrop={(e) => onDrop(e as any)}
-                onDragEnd={() => onDragEnd()}
-                onClick={() => onSelect(layer.id)}
-                className={cn(
-                    "relative group cursor-grab active:cursor-grabbing",
-                    isDragging && "z-30 scale-[1.02]"
-                )}
-            >
-                <div
-                    className={cn(
-                        "flex items-center gap-2 p-1.5 rounded-lg border transition-colors duration-200",
-                        isSelected
-                            ? "bg-accent-primary/20 border-accent-primary/40 shadow-lg shadow-accent-primary/5"
-                            : "bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20",
-                        isDragging && "ring-2 ring-accent-primary/40 shadow-2xl shadow-black/50"
-                    )}
+        <Reorder.Item
+            value={layer}
+            onDragEnd={onDragEnd}
+            onClick={() => onSelect(layer.id)}
+            whileDrag={{ scale: 1.04, zIndex: 30, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}
+            className={cn(
+                "flex items-center gap-2 p-1.5 rounded-lg border cursor-grab active:cursor-grabbing select-none transition-colors duration-200",
+                isSelected
+                    ? "bg-accent-primary/20 border-accent-primary/40 shadow-lg shadow-accent-primary/5"
+                    : "bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20"
+            )}
+        >
+            <div className={cn("w-5 h-5 rounded-md flex items-center justify-center border", isSelected ? "bg-accent-primary text-white border-white/20" : "bg-white/10 text-white/40 border-white/10")}>
+                <Icon className="w-2.5 h-2.5" />
+            </div>
+            <span className={cn("flex-1 text-[10px] font-bold truncate", isSelected ? "text-white" : "text-white/60")}>{layer.name}</span>
+            <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100">
+                <button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onToggleVisibility(layer.id); }}
+                    className="p-0.5 hover:text-white transition-colors cursor-pointer"
                 >
-                    <div className={cn("w-5 h-5 rounded-md flex items-center justify-center border", isSelected ? "bg-accent-primary text-white border-white/20" : "bg-white/10 text-white/40 border-white/10")}>
-                        <Icon className="w-2.5 h-2.5" />
-                    </div>
-                    <span className={cn("flex-1 text-[10px] font-bold truncate", isSelected ? "text-white" : "text-white/60")}>{layer.name}</span>
-                    <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100">
-                        <button onClick={(e) => { e.stopPropagation(); onToggleVisibility(layer.id); }} className="p-0.5 hover:text-white transition-colors cursor-pointer">
-                            {layer.visible ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); onToggleLock(layer.id); }} className="p-0.5 hover:text-white transition-colors cursor-pointer">
-                            {layer.locked ? <Lock className="w-2.5 h-2.5 text-amber-500" /> : <Unlock className="w-2.5 h-2.5" />}
-                        </button>
-                    </div>
-                </div>
-            </motion.div>
-        </div>
+                    {layer.visible ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
+                </button>
+                <button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onToggleLock(layer.id); }}
+                    className="p-0.5 hover:text-white transition-colors cursor-pointer"
+                >
+                    {layer.locked ? <Lock className="w-2.5 h-2.5 text-amber-500" /> : <Unlock className="w-2.5 h-2.5" />}
+                </button>
+            </div>
+        </Reorder.Item>
     );
 });
 
@@ -329,55 +292,52 @@ export default function CompositorEditorModal({
         updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, locked: !l.locked } : l));
     }, [updateLayers, pushSnapshot]);
 
-    // ---------- Native HTML5 DnD for the layers list ----------
-    // Mirrors the admin ContextMenuBuilder pattern: a live `previewLayers`
-    // memo shows items already shifted into their new position during drag,
-    // so the user gets smooth feedback instead of framer-motion's slow
-    // Reorder gesture.
-    const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
-    const [layerDropTarget, setLayerDropTarget] = useState<{ id: string; position: 'top' | 'bottom' } | null>(null);
+    // ---------- Reorder buffering ----------
+    //
+    // framer-motion's Reorder fires onReorder every time items pass each other.
+    // If we wrote each tick straight to the workflow store, every swap would
+    // trigger a Zustand cascade → modal re-render → Konva re-render of every
+    // layer, making the drag feel sluggish (this was the original bug).
+    //
+    // Instead we mirror the order in local state, render the Reorder.Group from
+    // local, and only commit to the global store on drag-end. The store still
+    // owns the truth — local just buffers the in-flight gesture.
+    const [localLayers, setLocalLayers] = useState<CompositorLayer[]>(layers);
+    const [isReordering, setIsReordering] = useState(false);
+    const localLayersRef = useRef<CompositorLayer[]>(layers);
+    const isReorderingRef = useRef(false);
+    localLayersRef.current = localLayers;
+    isReorderingRef.current = isReordering;
 
-    const handleLayerDragStart = useCallback((e: React.DragEvent, id: string) => {
-        e.stopPropagation();
-        setDraggedLayerId(id);
-        e.dataTransfer.setData('layerId', id);
-        e.dataTransfer.effectAllowed = 'move';
+    // Sync local from store whenever the store changes AND no drag is in flight.
+    // This picks up external mutations (new edge, undo, etc.) without clobbering
+    // the user's mid-gesture order.
+    useEffect(() => {
+        if (!isReordering) {
+            setLocalLayers(layers);
+        }
+    }, [layers, isReordering]);
+
+    const handleReorder = useCallback((newOrder: CompositorLayer[]) => {
+        setLocalLayers(newOrder);
+        setIsReordering(true);
     }, []);
 
-    const handleLayerDragOver = useCallback((e: React.DragEvent, targetId: string) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!draggedLayerId || draggedLayerId === targetId) return;
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const y = e.clientY - rect.top;
-        const position: 'top' | 'bottom' = y < rect.height * 0.5 ? 'top' : 'bottom';
-        setLayerDropTarget((prev) => {
-            if (prev?.id === targetId && prev.position === position) return prev;
-            return { id: targetId, position };
-        });
-    }, [draggedLayerId]);
-
-    const handleLayerDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const sourceId = draggedLayerId;
-        const target = layerDropTarget;
-        setDraggedLayerId(null);
-        setLayerDropTarget(null);
-        if (!sourceId || !target || sourceId === target.id) return;
+    const commitReorder = useCallback(() => {
+        if (!isReorderingRef.current) return;
+        setIsReordering(false);
+        const next = localLayersRef.current;
+        const prevLayers = (
+            useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId)
+                ?.data?.config as CompositorConfig | undefined
+        )?.layers || [];
+        const changed =
+            prevLayers.length !== next.length ||
+            prevLayers.some((l, i) => l.id !== next[i]?.id);
+        if (!changed) return;
         pushSnapshot();
-        updateLayers((prev) => computeLayerMove(prev, sourceId, target.id, target.position));
-    }, [draggedLayerId, layerDropTarget, updateLayers, pushSnapshot]);
-
-    const handleLayerDragEnd = useCallback(() => {
-        setDraggedLayerId(null);
-        setLayerDropTarget(null);
-    }, []);
-
-    const previewLayers = useMemo(() => {
-        if (!draggedLayerId || !layerDropTarget) return layers;
-        return computeLayerMove(layers, draggedLayerId, layerDropTarget.id, layerDropTarget.position);
-    }, [layers, draggedLayerId, layerDropTarget]);
+        updateLayers(() => next);
+    }, [nodeId, pushSnapshot, updateLayers]);
 
     // ---------- Fit canvas to layer content ----------
     // Compute the rotated AABB across every layer (including invisible ones —
@@ -634,9 +594,17 @@ export default function CompositorEditorModal({
                             <span className="text-[10px] font-black text-content-tertiary uppercase tracking-widest">Layers</span>
                             <div className="w-2 h-2 rounded-full bg-accent-primary animate-pulse" />
                         </div>
-                        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1.5 custom-scrollbar">
-                            <AnimatePresence mode="popLayout" initial={false}>
-                                {previewLayers.map((layer) => {
+                        <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+                            {/* Reorder.Group itself stays overflow:visible so a dragged
+                                item can extend past sibling rows without getting clipped.
+                                The scroll container is the parent div above. */}
+                            <Reorder.Group
+                                axis="y"
+                                values={localLayers}
+                                onReorder={handleReorder}
+                                className="flex flex-col gap-1.5"
+                            >
+                                {localLayers.map((layer) => {
                                     const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
                                     const type = edge ? nodeTypesBySource[edge.source] : undefined;
                                     return (
@@ -645,18 +613,14 @@ export default function CompositorEditorModal({
                                             layer={layer}
                                             isSelected={selectedLayerId === layer.id}
                                             type={type}
-                                            isDragging={draggedLayerId === layer.id}
                                             onSelect={setSelectedLayerId}
                                             onToggleVisibility={toggleVisibility}
                                             onToggleLock={toggleLock}
-                                            onDragStart={handleLayerDragStart}
-                                            onDragOver={handleLayerDragOver}
-                                            onDrop={handleLayerDrop}
-                                            onDragEnd={handleLayerDragEnd}
+                                            onDragEnd={commitReorder}
                                         />
                                     );
                                 })}
-                            </AnimatePresence>
+                            </Reorder.Group>
                             {layers.length === 0 && (
                                 <div className="text-center text-[10px] text-white/30 py-8 px-2">
                                     Connect a node to the Compositor to add a layer.

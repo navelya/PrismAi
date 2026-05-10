@@ -201,6 +201,25 @@ async function buildInputsFromParents(
       // when they wired a Prompt node to negative_prompt, and clobbered
       // legitimate per-handle wiring on multi-prompt models.
       inputs[inputKey] = typedValue;
+
+      // Also key by edge.id. The Compositor stores
+      // `layer.sourceHandleId = edge.id` because every layer edge shares
+      // the same static `layers` target handle, so per-edge id is the only
+      // way to disambiguate which upstream value belongs to which layer.
+      // Single-input nodes (Blur reads `inputs.image`) are unaffected — they
+      // still find their value under the handle name. Mirrors the browser-
+      // side input map in lib/hooks/use-node-auto-compute.ts. Use the non-
+      // array `getPrimaryInputValue(...)` shape here regardless of the
+      // arrayInputKeys flag, since `layer.sourceHandleId` is always a single-
+      // value lookup.
+      if (edge.id) {
+        const perEdgeValue = arrayInputKeys.has(inputKey)
+          ? getPrimaryInputValue(resultType, resultData)
+          : typedValue;
+        if (perEdgeValue !== undefined && perEdgeValue !== null) {
+          inputs[edge.id] = perEdgeValue;
+        }
+      }
     }
   }
 
