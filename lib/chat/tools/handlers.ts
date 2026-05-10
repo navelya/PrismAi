@@ -298,9 +298,10 @@ export function validateBlueprint(
 
 /**
  * Dry-run validation for a task list. Each task's blueprint goes through
- * the same checks as a single-blueprint propose_plan. The shared idMap
- * accumulates across tasks so a later task may reference an earlier
- * task's temp id.
+ * the same checks as a single-blueprint propose_plan. After each task
+ * passes, its node temp ids are manually registered in the shadow idMap
+ * (mirroring what applyAddNodeOp does at apply-time), so a later task may
+ * reference an earlier task's temp id.
  *
  * Returns ok: false with the first failure's task index + error.
  */
@@ -314,7 +315,7 @@ export function validateTaskList(
 
   // Shadow state so validation does not mutate the live handler state.
   const shadow: ToolHandlerState = {
-    workflow: { ...state.workflow, nodes: [...state.workflow.nodes], edges: [...state.workflow.edges] } as any,
+    workflow: { ...state.workflow, nodes: [...state.workflow.nodes], edges: [...state.workflow.edges] },
     idMap: new Map(state.idMap),
     aiModelHandles: state.aiModelHandles,
   };
@@ -336,11 +337,21 @@ export function validateTaskList(
       }
     }
 
-    // Validate the task's blueprint chunk in the shadow state. validateBlueprint
-    // mutates the shadow's idMap as it would in a real apply — that's what we
-    // want, so a later task referencing this task's ids will resolve.
+    // Validate the task's blueprint chunk in the shadow state. The idMap
+    // is then manually populated below to mirror applyAddNodeOp's side-
+    // effect, so a later task referencing this task's ids will resolve.
     const v = validateBlueprint(shadow, { nodes: t.nodes, edges: t.edges });
     if (!v.ok) return { ok: false, taskIndex: i, error: v.error };
+
+    // Mirror applyAddNodeOp's idMap side-effect — registers each new node's
+    // temp id so subsequent tasks can reference it. The actual UUID value
+    // does not need to match the eventual real apply; only presence in the
+    // map matters for cross-task validation.
+    for (const node of t.nodes) {
+      if (node && typeof node.id === 'string' && node.id.length > 0 && !shadow.idMap.has(node.id)) {
+        shadow.idMap.set(node.id, crypto.randomUUID());
+      }
+    }
   }
 
   return { ok: true };
