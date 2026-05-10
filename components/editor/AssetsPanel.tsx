@@ -64,6 +64,9 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         return ids;
     }, [workflowNodes]);
 
+    // Pure unpacker — independent of the workflow store so canvas edits don't
+    // invalidate this callback and trigger a refetch. The ephemeral filter is
+    // applied at render time in `visibleAssets` instead.
     const unpackAssets = useCallback((rows: any[]): AssetItem[] => {
         const unpacked: AssetItem[] = [];
         const seenUrls = new Set<string>();
@@ -71,7 +74,6 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         rows.forEach((row) => {
             const type = row?.result_type as AssetItem['result_type'];
             if (!['image', 'video', 'audio', '3d'].includes(type)) return;
-            if (ephemeralNodeIds?.has(row.node_id)) return;
 
             const values = Array.isArray(row?.result_data) ? row.result_data : [];
             values.forEach((item: any, index: number) => {
@@ -94,7 +96,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
             });
         });
         return unpacked;
-    }, [ephemeralNodeIds]);
+    }, []);
 
     const fetchAssets = useCallback(async () => {
         if (scope === 'current' && !sessionId) {
@@ -179,10 +181,16 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
     };
 
 
-    const visibleAssets = React.useMemo(
-        () => (typeFilter === 'all' ? assets : assets.filter((a) => a.result_type === typeFilter)),
-        [assets, typeFilter]
-    );
+    const visibleAssets = React.useMemo(() => {
+        let list = assets;
+        if (ephemeralNodeIds && ephemeralNodeIds.size > 0) {
+            list = list.filter((a) => !ephemeralNodeIds.has(a.node_id));
+        }
+        if (typeFilter !== 'all') {
+            list = list.filter((a) => a.result_type === typeFilter);
+        }
+        return list;
+    }, [assets, typeFilter, ephemeralNodeIds]);
 
     const allTypesActive = typeFilter === 'all';
 

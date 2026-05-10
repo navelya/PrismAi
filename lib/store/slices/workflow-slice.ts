@@ -36,7 +36,17 @@ function buildAutoLayerForEdge(
 
 const HISTORY_LIMIT = 50;
 
-export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice> = (set, get) => ({
+export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice> = (set, get) => {
+    // Coalesce snapshots taken within the same microtask into a single entry.
+    // A single user action often triggers multiple structural dispatches in
+    // quick succession (e.g. Delete on a connected node fires onEdgesChange
+    // then onNodesChange, each of which auto-snapshots). The FIRST call wins
+    // — it captures the pre-action state. Subsequent calls in the same tick
+    // would otherwise push intermediate states and force the user to undo
+    // multiple times to revert one logical action.
+    let snapshotPending = false;
+
+    return {
     activeSessionId: null,
     currentWorkflow: null,
     isDragging: false,
@@ -52,8 +62,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     future: [],
 
     setActiveSessionId: (sessionId) => {
-        set({ 
-            activeSessionId: sessionId, 
+        set({
+            activeSessionId: sessionId,
             isWorkflowDirty: false,
             past: [],
             future: []
@@ -65,8 +75,13 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     },
 
     takeSnapshot: () => {
+        if (snapshotPending) return;
+
         const { currentWorkflow, past } = get();
         if (!currentWorkflow) return;
+
+        snapshotPending = true;
+        queueMicrotask(() => { snapshotPending = false; });
 
         // Reference-snapshot, not deep-clone. Every mutation in this slice
         // (onNodesChange, updateNodePositions, updateNodeConfig, ...) builds a
@@ -892,4 +907,5 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             isWorkflowDirty: true,
         });
     },
-});
+    };
+};

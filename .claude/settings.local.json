@@ -36,7 +36,8 @@
       "Bash(Get-Content \"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projects-Prisfol-PrismAi\\\\d4557362-3017-4999-970c-bb19843a4792\\\\tasks\\\\b4y2l14cd.output\" -Wait)",
       "Bash(Select-String -Pattern \"error|Error|warn|✓|✗|compiled|failed|success|Compiled|Failed|Route|done|Done\" --SimpleMatch)",
       "Bash(Get-Content \"C:\\\\Projects\\\\Prisfol\\\\PrismAi\\\\lib\\\\store\\\\app-store.ts\")",
-      "Bash(Select-String \"updateMessage\")"
+      "Bash(Select-String \"updateMessage\")",
+      "Bash(findstr *)"
     ]
   }
 }
