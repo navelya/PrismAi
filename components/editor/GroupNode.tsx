@@ -20,7 +20,10 @@ interface GroupNodeData {
 function resolveIcon(name: string | undefined): LucideIcon {
     if (!name) return LucideIcons.Folder;
     const Candidate = (LucideIcons as any)[name];
-    return (Candidate && typeof Candidate === 'object') ? Candidate as LucideIcon : LucideIcons.Folder;
+    if (Candidate && (typeof Candidate === 'function' || typeof Candidate === 'object')) {
+        return Candidate as LucideIcon;
+    }
+    return LucideIcons.Folder;
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
