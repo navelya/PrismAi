@@ -7,6 +7,9 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson, NodeConfig } from './types-v2';
 import { dispatchNode } from './dispatch-v2';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from './result-format';
+import { serverRegistry } from '@/lib/nodes/core/server-registry';
+
+const EPHEMERAL_BUCKET = 'workflow-ephemeral-tmp';
 
 // Module-scoped cache for ai_models.inputs_schema array-input keys.
 // Schema rows can be edited from the admin panel, so we expire entries on a
@@ -310,7 +313,112 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
       }
     }
 
+    await cleanupEphemeralResults(executionId, graph);
+
   } catch (error) {
     console.error(`[Orchestrator] Error updating final status:`, error);
+  }
+}
+
+/**
+ * Removes ephemeral node outputs (storage objects + node_results rows) for an
+ * execution after it reaches a terminal state. Ephemeral nodes (blur, levels,
+ * compositor, ...) are identified via `meta.ephemeral === true` on their
+ * server-registry definition. Persistent outputs (ai_generator, media_input)
+ * are left untouched so they remain visible in the asset library.
+ *
+ * Failures are logged but never thrown — cleanup is best-effort and must not
+ * mask the execution's final status.
+ */
+async function cleanupEphemeralResults(
+  executionId: string,
+  graph: GraphJson,
+): Promise<void> {
+  try {
+    const ephemeralNodeIds = (graph?.nodes || [])
+      .filter((n) => serverRegistry[n.type]?.meta?.ephemeral === true)
+      .map((n) => n.id);
+
+    if (ephemeralNodeIds.length === 0) return;
+
+    const supabase = createServiceClient();
+
+    // Storage objects are written under `{executionId}/{nodeId}/...` by every
+    // ephemeral plugin, so listing the execution prefix gives us every file
+    // across every ephemeral node in this run in one round-trip.
+    const { data: nodeFolders, error: listErr } = await supabase.storage
+      .from(EPHEMERAL_BUCKET)
+      .list(executionId, { limit: 1000 });
+
+    if (listErr) {
+      console.error(
+        `[Orchestrator] Failed listing ephemeral storage for execution ${executionId}:`,
+        listErr,
+      );
+    } else if (nodeFolders && nodeFolders.length > 0) {
+      const ephemeralIdSet = new Set(ephemeralNodeIds);
+      const fileLists = await Promise.all(
+        nodeFolders
+          .filter((entry) => ephemeralIdSet.has(entry.name))
+          .map((entry) =>
+            supabase.storage
+              .from(EPHEMERAL_BUCKET)
+              .list(`${executionId}/${entry.name}`, { limit: 1000 })
+              .then((res) => ({ nodeId: entry.name, ...res })),
+          ),
+      );
+
+      const pathsToDelete: string[] = [];
+      for (const { nodeId, data, error } of fileLists) {
+        if (error) {
+          console.error(
+            `[Orchestrator] Failed listing ${executionId}/${nodeId}:`,
+            error,
+          );
+          continue;
+        }
+        for (const file of data || []) {
+          pathsToDelete.push(`${executionId}/${nodeId}/${file.name}`);
+        }
+      }
+
+      if (pathsToDelete.length > 0) {
+        const { error: removeErr } = await supabase.storage
+          .from(EPHEMERAL_BUCKET)
+          .remove(pathsToDelete);
+        if (removeErr) {
+          console.error(
+            `[Orchestrator] Failed removing ${pathsToDelete.length} ephemeral objects:`,
+            removeErr,
+          );
+        } else {
+          console.log(
+            `[Orchestrator] Removed ${pathsToDelete.length} ephemeral storage objects for execution ${executionId}`,
+          );
+        }
+      }
+    }
+
+    const { error: deleteErr, count } = await supabase
+      .from('node_results')
+      .delete({ count: 'exact' })
+      .eq('execution_id', executionId)
+      .in('node_id', ephemeralNodeIds);
+
+    if (deleteErr) {
+      console.error(
+        `[Orchestrator] Failed deleting ephemeral node_results rows:`,
+        deleteErr,
+      );
+    } else {
+      console.log(
+        `[Orchestrator] Deleted ${count ?? 0} ephemeral node_results rows for execution ${executionId}`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[Orchestrator] cleanupEphemeralResults threw for execution ${executionId}:`,
+      err,
+    );
   }
 }

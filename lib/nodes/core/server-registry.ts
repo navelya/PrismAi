@@ -7,6 +7,8 @@ import { compositorSharedDef } from '../plugins/compositor/definition';
 import { compositorExecutor } from '../plugins/compositor/executor.server';
 import { blurSharedDef } from '../plugins/blur/definition';
 import { blurExecutor } from '../plugins/blur/executor.server';
+import { levelsSharedDef } from '../plugins/levels/definition';
+import { levelsExecutor } from '../plugins/levels/executor.server';
 import { aiGeneratorSharedDef } from '../plugins/ai_generator/definition';
 import { aiGeneratorExecutor } from '../plugins/ai_generator/executor.server';
 
@@ -17,6 +19,7 @@ export const serverRegistry: Record<string, NodeServerDef> = {
     media_input: { ...mediaInputSharedDef, executor: mediaInputExecutor },
     compositor: { ...compositorSharedDef, executor: compositorExecutor },
     blur: { ...blurSharedDef, executor: blurExecutor },
+    levels: { ...levelsSharedDef, executor: levelsExecutor },
     ai_generator: { ...aiGeneratorSharedDef, executor: aiGeneratorExecutor },
 };
 

@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { PillTabs } from '@/components/ui/PillTabs';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { clientRegistry } from '@/lib/nodes/core/client-registry';
+import { useAppStore } from '@/lib/store/app-store';
 
 type AssetType = 'image' | 'video' | 'audio' | '3d';
 type AssetScope = 'current' | 'all';
@@ -44,6 +46,24 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
     const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
     const supabase = React.useMemo(() => createClient(), []);
 
+    // Set of node_ids that are ephemeral in the active workflow. Ephemeral nodes
+    // (blur, levels, compositor, ...) write to node_results during a run so the
+    // orchestrator can dispatch downstream nodes, but their outputs are
+    // intermediate transforms — they shouldn't show up here. Cleanup in
+    // `updateExecutionFinalStatus` removes the rows once the run finalizes;
+    // this lookup hides them in the live window before that happens.
+    const workflowNodes = useAppStore((state) => state.currentWorkflow?.nodes);
+    const ephemeralNodeIds = React.useMemo(() => {
+        if (!workflowNodes) return null;
+        const ids = new Set<string>();
+        for (const node of workflowNodes) {
+            if (clientRegistry[node.type]?.meta?.ephemeral === true) {
+                ids.add(node.id);
+            }
+        }
+        return ids;
+    }, [workflowNodes]);
+
     const unpackAssets = useCallback((rows: any[]): AssetItem[] => {
         const unpacked: AssetItem[] = [];
         const seenUrls = new Set<string>();
@@ -51,6 +71,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         rows.forEach((row) => {
             const type = row?.result_type as AssetItem['result_type'];
             if (!['image', 'video', 'audio', '3d'].includes(type)) return;
+            if (ephemeralNodeIds?.has(row.node_id)) return;
 
             const values = Array.isArray(row?.result_data) ? row.result_data : [];
             values.forEach((item: any, index: number) => {
@@ -73,7 +94,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
             });
         });
         return unpacked;
-    }, []);
+    }, [ephemeralNodeIds]);
 
     const fetchAssets = useCallback(async () => {
         if (scope === 'current' && !sessionId) {
