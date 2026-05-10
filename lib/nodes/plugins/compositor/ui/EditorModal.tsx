@@ -5,12 +5,12 @@ import { Stage, Layer, Rect, Path, Transformer } from 'react-konva';
 import {
     Eye, EyeOff, Lock, Unlock, Layers2,
     RotateCcw, FlipHorizontal, FlipVertical, Plus,
-    Monitor, Smartphone, Maximize2,
+    Monitor, Smartphone, Maximize2, Crop,
     Instagram, Youtube, Facebook, Linkedin, Video, Play, Twitter,
     Image as ImageIcon, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Undo2, Redo2, MousePointer2, Hand, Minus
 } from 'lucide-react';
-import { Reorder } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
@@ -61,42 +61,94 @@ const BLEND_MODES = [
     { id: 'exclusion', display_name: 'Exclusion' },
 ];
 
+// Pure move: returns a new layers array with sourceId placed above/below targetId.
+// Used for both the live drag preview and the committed reorder on drop.
+function computeLayerMove<T extends { id: string }>(
+    items: T[],
+    sourceId: string,
+    targetId: string,
+    position: 'top' | 'bottom'
+): T[] {
+    if (sourceId === targetId) return items;
+    const source = items.find((i) => i.id === sourceId);
+    if (!source) return items;
+    const without = items.filter((i) => i.id !== sourceId);
+    const targetIdx = without.findIndex((i) => i.id === targetId);
+    if (targetIdx === -1) return items;
+    const insertAt = position === 'top' ? targetIdx : targetIdx + 1;
+    const next = [...without];
+    next.splice(insertAt, 0, source);
+    return next;
+}
+
 const LayerListItem = React.memo(({
     layer,
     isSelected,
     type,
+    isDragging,
     onSelect,
     onToggleVisibility,
-    onToggleLock
+    onToggleLock,
+    onDragStart,
+    onDragOver,
+    onDrop,
+    onDragEnd,
 }: any) => {
     let Icon = ImageIcon;
     if (type === 'prompt') Icon = Type;
     if (type === 'media_input') Icon = Smartphone;
 
+    // Same two-layer structure as components/admin/ContextMenuBuilder.tsx:
+    //   outer wrapper div  → keeps key + flex column for vertical stacking
+    //   motion.div         → the drag source; minimal CSS so the browser's
+    //                        default drag snapshot captures the styled inner div
+    //                        cleanly (transforms or backgrounds on the draggable
+    //                        element itself produce a faded "placeholder"-looking
+    //                        ghost in HTML5 DnD).
+    //   inner div          → all visual styling (bg, border, padding)
     return (
-        <Reorder.Item
-            value={layer}
-            onClick={() => onSelect(layer.id)}
-            className={cn(
-                "p-1.5 rounded-lg border cursor-grab active:cursor-grabbing select-none transition-colors duration-200",
-                isSelected ? "bg-accent-primary/20 border-accent-primary/40 shadow-lg shadow-accent-primary/5" : "bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20"
-            )}
-        >
-            <div className="flex items-center gap-2">
-                <div className={cn("w-5 h-5 rounded-md flex items-center justify-center border", isSelected ? "bg-accent-primary text-white border-white/20" : "bg-white/10 text-white/40 border-white/10")}>
-                    <Icon className="w-2.5 h-2.5" />
+        <div className="flex flex-col relative">
+            <motion.div
+                layoutId={layer.id}
+                transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.6 }}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                draggable
+                onDragStart={(e) => onDragStart(e as any, layer.id)}
+                onDragOver={(e) => onDragOver(e as any, layer.id)}
+                onDrop={(e) => onDrop(e as any)}
+                onDragEnd={() => onDragEnd()}
+                onClick={() => onSelect(layer.id)}
+                className={cn(
+                    "relative group cursor-grab active:cursor-grabbing",
+                    isDragging && "z-30 scale-[1.02]"
+                )}
+            >
+                <div
+                    className={cn(
+                        "flex items-center gap-2 p-1.5 rounded-lg border transition-colors duration-200",
+                        isSelected
+                            ? "bg-accent-primary/20 border-accent-primary/40 shadow-lg shadow-accent-primary/5"
+                            : "bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20",
+                        isDragging && "ring-2 ring-accent-primary/40 shadow-2xl shadow-black/50"
+                    )}
+                >
+                    <div className={cn("w-5 h-5 rounded-md flex items-center justify-center border", isSelected ? "bg-accent-primary text-white border-white/20" : "bg-white/10 text-white/40 border-white/10")}>
+                        <Icon className="w-2.5 h-2.5" />
+                    </div>
+                    <span className={cn("flex-1 text-[10px] font-bold truncate", isSelected ? "text-white" : "text-white/60")}>{layer.name}</span>
+                    <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100">
+                        <button onClick={(e) => { e.stopPropagation(); onToggleVisibility(layer.id); }} className="p-0.5 hover:text-white transition-colors cursor-pointer">
+                            {layer.visible ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onToggleLock(layer.id); }} className="p-0.5 hover:text-white transition-colors cursor-pointer">
+                            {layer.locked ? <Lock className="w-2.5 h-2.5 text-amber-500" /> : <Unlock className="w-2.5 h-2.5" />}
+                        </button>
+                    </div>
                 </div>
-                <span className={cn("flex-1 text-[10px] font-bold truncate", isSelected ? "text-white" : "text-white/60")}>{layer.name}</span>
-                <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100">
-                    <button onClick={(e) => { e.stopPropagation(); onToggleVisibility(layer.id); }} className="p-0.5 hover:text-white transition-colors cursor-pointer">
-                        {layer.visible ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); onToggleLock(layer.id); }} className="p-0.5 hover:text-white transition-colors cursor-pointer">
-                        {layer.locked ? <Lock className="w-2.5 h-2.5 text-amber-500" /> : <Unlock className="w-2.5 h-2.5" />}
-                    </button>
-                </div>
-            </div>
-        </Reorder.Item>
+            </motion.div>
+        </div>
     );
 });
 
@@ -277,10 +329,115 @@ export default function CompositorEditorModal({
         updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, locked: !l.locked } : l));
     }, [updateLayers, pushSnapshot]);
 
-    const reorderLayers = useCallback((newOrder: CompositorLayer[]) => {
+    // ---------- Native HTML5 DnD for the layers list ----------
+    // Mirrors the admin ContextMenuBuilder pattern: a live `previewLayers`
+    // memo shows items already shifted into their new position during drag,
+    // so the user gets smooth feedback instead of framer-motion's slow
+    // Reorder gesture.
+    const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
+    const [layerDropTarget, setLayerDropTarget] = useState<{ id: string; position: 'top' | 'bottom' } | null>(null);
+
+    const handleLayerDragStart = useCallback((e: React.DragEvent, id: string) => {
+        e.stopPropagation();
+        setDraggedLayerId(id);
+        e.dataTransfer.setData('layerId', id);
+        e.dataTransfer.effectAllowed = 'move';
+    }, []);
+
+    const handleLayerDragOver = useCallback((e: React.DragEvent, targetId: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!draggedLayerId || draggedLayerId === targetId) return;
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const position: 'top' | 'bottom' = y < rect.height * 0.5 ? 'top' : 'bottom';
+        setLayerDropTarget((prev) => {
+            if (prev?.id === targetId && prev.position === position) return prev;
+            return { id: targetId, position };
+        });
+    }, [draggedLayerId]);
+
+    const handleLayerDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const sourceId = draggedLayerId;
+        const target = layerDropTarget;
+        setDraggedLayerId(null);
+        setLayerDropTarget(null);
+        if (!sourceId || !target || sourceId === target.id) return;
         pushSnapshot();
-        updateLayers(() => newOrder);
-    }, [updateLayers, pushSnapshot]);
+        updateLayers((prev) => computeLayerMove(prev, sourceId, target.id, target.position));
+    }, [draggedLayerId, layerDropTarget, updateLayers, pushSnapshot]);
+
+    const handleLayerDragEnd = useCallback(() => {
+        setDraggedLayerId(null);
+        setLayerDropTarget(null);
+    }, []);
+
+    const previewLayers = useMemo(() => {
+        if (!draggedLayerId || !layerDropTarget) return layers;
+        return computeLayerMove(layers, draggedLayerId, layerDropTarget.id, layerDropTarget.position);
+    }, [layers, draggedLayerId, layerDropTarget]);
+
+    // ---------- Fit canvas to layer content ----------
+    // Compute the rotated AABB across every layer (including invisible ones —
+    // hiding doesn't change a layer's geometry, and ignoring them would surprise
+    // users who toggled visibility temporarily). Then resize the canvas to that
+    // box and shift every layer so the box origin sits at (0, 0).
+    const fitCanvasToContent = useCallback(() => {
+        if (layers.length === 0) return;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const l of layers) {
+            const t = l.transform;
+            const cx = t.x + t.width / 2;
+            const cy = t.y + t.height / 2;
+            const rad = ((t.rotation || 0) * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            const hw = t.width / 2;
+            const hh = t.height / 2;
+            const corners = [
+                { x: -hw, y: -hh },
+                { x:  hw, y: -hh },
+                { x:  hw, y:  hh },
+                { x: -hw, y:  hh },
+            ];
+            for (const c of corners) {
+                const rx = c.x * cos - c.y * sin + cx;
+                const ry = c.x * sin + c.y * cos + cy;
+                if (rx < minX) minX = rx;
+                if (ry < minY) minY = ry;
+                if (rx > maxX) maxX = rx;
+                if (ry > maxY) maxY = ry;
+            }
+        }
+
+        if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return;
+
+        const newWidth = Math.max(1, Math.round(maxX - minX));
+        const newHeight = Math.max(1, Math.round(maxY - minY));
+
+        pushSnapshot();
+
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        if (!node) return;
+        const cfg = (node.data?.config as CompositorConfig) || initialConfig;
+        const shiftedLayers = (cfg.layers || []).map((l) => ({
+            ...l,
+            transform: {
+                ...l.transform,
+                x: l.transform.x - minX,
+                y: l.transform.y - minY,
+            },
+        }));
+        updateNodeConfig(nodeId, {
+            ...cfg,
+            canvasWidth: newWidth,
+            canvasHeight: newHeight,
+            layers: shiftedLayers,
+        });
+    }, [layers, nodeId, updateNodeConfig, pushSnapshot, initialConfig]);
 
     const alignLayer = useCallback((layerId: string, type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
         pushSnapshot();
@@ -324,7 +481,24 @@ export default function CompositorEditorModal({
     // ---------- Selection / viewport (purely local UI state) ----------
 
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+    const selectedLayerIdRef = useRef<string | null>(null);
+    selectedLayerIdRef.current = selectedLayerId;
     const [tool, setTool] = useState<'move' | 'pan'>('move');
+
+    // Delete = drop the upstream connection that fed this layer in. The store's
+    // onEdgesChange handler already strips the matching layer from the
+    // compositor config when the edge is removed (workflow-slice.ts) — we just
+    // need to dispatch the removal and clear local selection.
+    const deleteSelectedLayer = useCallback((layerId: string) => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = node?.data?.config as CompositorConfig | undefined;
+        const layer = cfg?.layers?.find((l) => l.id === layerId);
+        if (!layer) return;
+        const edgeId = layer.sourceHandleId;
+        if (!edgeId) return;
+        useAppStore.getState().onEdgesChange([{ id: edgeId, type: 'remove' } as any]);
+        setSelectedLayerId(null);
+    }, [nodeId]);
     const stageRef = useRef<any>(null);
     const transformerRef = useRef<any>(null);
     const stageContainerRef = useRef<HTMLDivElement>(null);
@@ -368,7 +542,12 @@ export default function CompositorEditorModal({
 
     useEffect(() => { fitToView(); }, [fitToView]);
 
-    // Keyboard: pan toggle + global undo/redo.
+    // Keyboard: pan toggle + local undo/redo + delete-selected-layer.
+    //
+    // The Delete branch runs in CAPTURE phase and calls stopImmediatePropagation
+    // so React Flow's own delete-key handler (registered on the canvas) never
+    // sees the event. Without that, Delete inside the modal would also fire RF's
+    // onNodesDelete and remove the entire compositor node.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.code === 'Space' && !e.repeat && e.target === document.body) {
@@ -376,17 +555,29 @@ export default function CompositorEditorModal({
                 setSpaceHeld(true);
             }
             if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-                // Ctrl+Z while the modal is mounted goes to the local stack
-                // only — the global workflow undo is intentionally not invoked.
                 e.preventDefault();
                 if (e.shiftKey) localRedo(); else localUndo();
             }
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                // Skip when the user is typing into a real input/textarea — they
+                // expect Backspace/Delete to edit text, not remove a layer.
+                const target = e.target as HTMLElement | null;
+                const tag = target?.tagName;
+                const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || (target?.isContentEditable === true);
+                if (isEditable) return;
+                const layerId = selectedLayerIdRef.current;
+                if (!layerId) return;
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                deleteSelectedLayer(layerId);
+            }
         };
         const onKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') { setSpaceHeld(false); setIsPanning(false); } };
-        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keydown', onKeyDown, true);
         window.addEventListener('keyup', onKeyUp);
-        return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
-    }, [localUndo, localRedo]);
+        return () => { window.removeEventListener('keydown', onKeyDown, true); window.removeEventListener('keyup', onKeyUp); };
+    }, [localUndo, localRedo, deleteSelectedLayer]);
 
     const checkDeselect = (e: any) => {
         const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'background';
@@ -443,28 +634,35 @@ export default function CompositorEditorModal({
                             <span className="text-[10px] font-black text-content-tertiary uppercase tracking-widest">Layers</span>
                             <div className="w-2 h-2 rounded-full bg-accent-primary animate-pulse" />
                         </div>
-                        <Reorder.Group axis="y" values={layers} onReorder={reorderLayers} className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
-                            {layers.map((layer) => {
-                                const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
-                                const type = edge ? nodeTypesBySource[edge.source] : undefined;
-                                return (
-                                    <LayerListItem
-                                        key={layer.id}
-                                        layer={layer}
-                                        isSelected={selectedLayerId === layer.id}
-                                        type={type}
-                                        onSelect={setSelectedLayerId}
-                                        onToggleVisibility={toggleVisibility}
-                                        onToggleLock={toggleLock}
-                                    />
-                                );
-                            })}
+                        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1.5 custom-scrollbar">
+                            <AnimatePresence mode="popLayout" initial={false}>
+                                {previewLayers.map((layer) => {
+                                    const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
+                                    const type = edge ? nodeTypesBySource[edge.source] : undefined;
+                                    return (
+                                        <LayerListItem
+                                            key={layer.id}
+                                            layer={layer}
+                                            isSelected={selectedLayerId === layer.id}
+                                            type={type}
+                                            isDragging={draggedLayerId === layer.id}
+                                            onSelect={setSelectedLayerId}
+                                            onToggleVisibility={toggleVisibility}
+                                            onToggleLock={toggleLock}
+                                            onDragStart={handleLayerDragStart}
+                                            onDragOver={handleLayerDragOver}
+                                            onDrop={handleLayerDrop}
+                                            onDragEnd={handleLayerDragEnd}
+                                        />
+                                    );
+                                })}
+                            </AnimatePresence>
                             {layers.length === 0 && (
                                 <div className="text-center text-[10px] text-white/30 py-8 px-2">
                                     Connect a node to the Compositor to add a layer.
                                 </div>
                             )}
-                        </Reorder.Group>
+                        </div>
                     </div>
 
                     {/* Center - Stage Container */}
@@ -519,6 +717,7 @@ export default function CompositorEditorModal({
                             <ToolbarButton icon={MousePointer2} onClick={() => setTool('move')} active={tool === 'move'} title="Select Tool" />
                             <ToolbarButton icon={Hand} onClick={() => setTool('pan')} active={tool === 'pan'} title="Pan Tool" />
                             <ToolbarButton icon={Maximize2} onClick={fitToView} title="Fit to View" />
+                            <ToolbarButton icon={Crop} onClick={fitCanvasToContent} disabled={layers.length === 0} title="Fit Canvas to Content" />
 
                             <ToolbarButton icon={Minus} onClick={() => setStageZoom(z => Math.max(z * 0.8, 0.05))} title="Zoom Out" />
                             <span className="px-2 text-xs font-medium text-content-secondary min-w-[40px] text-center tabular-nums">{Math.round(stageZoom * 100)}%</span>

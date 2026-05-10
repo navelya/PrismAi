@@ -233,22 +233,33 @@ async function buildNodeInputs(
   
   for (const edge of incomingEdges) {
     const sourceNodeState = nodeStates[edge.source];
-    
+
     if (sourceNodeState?.status === 'completed') {
       // Use targetHandle as the input key, or default to 'image'
       const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
-      
+
       // Get the output from the source node
+      let value: any;
       if (sourceNodeState.result_type && sourceNodeState.result_data) {
-        inputs[inputKey] = getPrimaryInputValue(
+        value = getPrimaryInputValue(
           normalizeNodeResultType(sourceNodeState.result_type),
           sourceNodeState.result_data
         );
       } else if (sourceNodeState.result_url) {
-        inputs[inputKey] = sourceNodeState.result_url;
+        value = sourceNodeState.result_url;
       } else if (sourceNodeState.output) {
-        inputs[inputKey] = sourceNodeState.output;
+        value = sourceNodeState.output;
+      } else {
+        continue;
       }
+
+      // Key by BOTH the target handle id AND the edge id. Compositor layers
+      // store `layer.sourceHandleId = edge.id` because every layer edge shares
+      // the same static `layers` target handle, so per-edge id is the only way
+      // to disambiguate which upstream value belongs to which layer. Mirrors
+      // browser-side input map in lib/hooks/use-node-auto-compute.ts.
+      inputs[inputKey] = value;
+      if (edge.id) inputs[edge.id] = value;
     }
   }
   

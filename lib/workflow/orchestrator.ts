@@ -9,8 +9,15 @@ import { dispatchNode } from './dispatch-v2';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from './result-format';
 
 // Module-scoped cache for ai_models.inputs_schema array-input keys.
-// Cleared on process cold start; model schemas don't mutate at runtime.
-const aiArrayInputKeysCache = new Map<string, Set<string>>();
+// Schema rows can be edited from the admin panel, so we expire entries on a
+// short TTL — high enough to absorb the bursty per-edge lookups inside a
+// single dispatch (same model is hit N times in one buildInputsFromParents
+// call) yet low enough that admin edits propagate without a server restart.
+const ARRAY_INPUT_KEYS_TTL_MS = 60_000;
+const aiArrayInputKeysCache = new Map<
+  string,
+  { keys: Set<string>; expiresAt: number }
+>();
 
 export async function getAiArrayInputKeys(
   supabase: ReturnType<typeof createServiceClient>,
@@ -21,8 +28,9 @@ export async function getAiArrayInputKeys(
   const modelId = node.data?.config?.model_id ?? node.data?.model_id;
   if (!modelId) return new Set<string>();
 
+  const now = Date.now();
   const cached = aiArrayInputKeysCache.get(modelId);
-  if (cached) return cached;
+  if (cached && cached.expiresAt > now) return cached.keys;
 
   const { data: model } = await supabase
     .from('ai_models')
@@ -31,14 +39,17 @@ export async function getAiArrayInputKeys(
     .single();
 
   const handles = model?.inputs_schema?.handles || [];
-  const result = new Set<string>(
+  const keys = new Set<string>(
     handles
       .filter((h: any) => h?.is_array)
       .map((h: any) => h?.api_mapping_key)
       .filter(Boolean)
   );
-  aiArrayInputKeysCache.set(modelId, result);
-  return result;
+  aiArrayInputKeysCache.set(modelId, {
+    keys,
+    expiresAt: now + ARRAY_INPUT_KEYS_TTL_MS,
+  });
+  return keys;
 }
 
 /**
@@ -179,18 +190,17 @@ async function buildInputsFromParents(
       : getPrimaryInputValue(resultType, resultData);
 
     if (typedValue !== undefined && typedValue !== null) {
-      const sourceNode = graph.nodes.find(n => n.id === edge.source);
-
-      // Special mapping for prompt nodes
-      if (sourceNode?.type === 'prompt') {
-        inputs['prompt'] = typedValue;
-      } else {
-        inputs[inputKey] = typedValue;
-        // Fallback for nodes that expect 'prompt' but receive it via a generic 'output' handle
-        if (inputKey.toLowerCase().includes('prompt')) {
-          inputs['prompt'] = typedValue;
-        }
-      }
+      // Deliver strictly under the wired handle's key. With connection
+      // validation in place, edge.targetHandle is the consumer's
+      // api_mapping_key, so this matches what the executor reads.
+      //
+      // The previous prompt-source override (force-routing every prompt
+      // node's output to inputs.prompt and mirroring any "*prompt*" target
+      // to inputs.prompt) was a workaround for missing/wrong handles in
+      // older edges. It silently overwrote the user's typed prompt control
+      // when they wired a Prompt node to negative_prompt, and clobbered
+      // legitimate per-handle wiring on multi-prompt models.
+      inputs[inputKey] = typedValue;
     }
   }
 

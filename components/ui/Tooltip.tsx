@@ -39,7 +39,7 @@ export function Tooltip({
                     sideOffset={8}
                     collisionPadding={8}
                     className={cn(
-                        'z-[9999] px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap',
+                        'z-[100100] px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap',
                         'bg-surface-secondary/95 text-content-primary border border-stroke-subtle backdrop-blur-md shadow-premium',
                         'animate-in fade-in-0 zoom-in-95',
                         'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',

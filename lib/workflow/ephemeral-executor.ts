@@ -157,16 +157,26 @@ function buildNodeInputs(
     const sourceNodeState = nodeStates[edge.source];
     if (sourceNodeState?.status === 'completed') {
       const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
+      let value: any;
       if (sourceNodeState.result_type && sourceNodeState.result_data) {
-        inputs[inputKey] = getPrimaryInputValue(
+        value = getPrimaryInputValue(
           normalizeNodeResultType(sourceNodeState.result_type),
           sourceNodeState.result_data,
         );
       } else if ((sourceNodeState as any).result_url) {
-        inputs[inputKey] = (sourceNodeState as any).result_url;
+        value = (sourceNodeState as any).result_url;
       } else {
-        inputs[inputKey] = (sourceNodeState as any).output;
+        value = (sourceNodeState as any).output;
       }
+      // Key by BOTH the target handle id AND the edge id. Compositor layers
+      // store `layer.sourceHandleId = edge.id` because every layer edge shares
+      // the same static `layers` target handle, so per-edge id is the only way
+      // to disambiguate which upstream value belongs to which layer. Single-
+      // input nodes (Blur reads `inputs.image`) are unaffected — they read by
+      // handle name. Mirrors the browser-side input map in
+      // lib/hooks/use-node-auto-compute.ts.
+      inputs[inputKey] = value;
+      if (edge.id) inputs[edge.id] = value;
     }
   }
   return inputs;
