@@ -19,6 +19,7 @@ import {
     Settings2,
     Link2,
     ChevronDown,
+    ChevronRight,
     Info,
     ExternalLink,
     Building2,
@@ -26,16 +27,79 @@ import {
     X,
     Search,
     Download,
-    Edit2
+    Edit2,
+    Users,
+    Sparkles,
+    Lock,
+    Calculator,
+    Video,
+    Settings,
+    ArrowDownUp,
+    RotateCcw
 } from 'lucide-react';
 import { modelsAdminApi } from '@/lib/api/admin';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
+import { NumberInput } from '@/components/ui/NumberInput';
 import { formatDisplayName, parseIconName } from '@/lib/utils/schema-parser';
 import { cn } from '@/lib/utils';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { ModelForm } from '@/components/admin/ModelForm';
 import { ContextMenuBuilder } from '@/components/admin/ContextMenuBuilder';
+
+// =============================================================================
+// SECTION NAVIGATION CONFIG
+// =============================================================================
+
+type SectionId = 'models' | 'users';
+
+interface SectionNavItem {
+    id: SectionId;
+    label: string;
+    icon: React.ReactNode;
+    comingSoon?: boolean;
+}
+
+const sectionNavItems: SectionNavItem[] = [
+    { id: 'models', label: 'Models', icon: <Database className="w-4 h-4" /> },
+    { id: 'users', label: 'Users', icon: <Users className="w-4 h-4" />, comingSoon: true },
+];
+
+// =============================================================================
+// USERS PLACEHOLDER VIEW
+// =============================================================================
+
+function UsersComingSoonView({ onMobileBack }: { onMobileBack: () => void }) {
+    return (
+        <div className="max-w-4xl mx-auto py-12 md:py-20 px-8 md:px-12 relative z-10">
+            <button
+                onClick={onMobileBack}
+                className="md:hidden flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-content-tertiary hover:text-content-primary mb-6 transition-all"
+            >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Return to Admin</span>
+            </button>
+            <div className="flex flex-col items-center justify-center py-24 text-center animate-in fade-in zoom-in-95 duration-500">
+                <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center mb-8 border border-white/10 shadow-2xl relative group">
+                    <div className="absolute inset-0 bg-accent-primary/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <Users className="w-8 h-8 text-content-tertiary relative z-10" />
+                </div>
+                <h3 className="text-2xl font-black text-content-primary mb-3 uppercase tracking-tighter">Users</h3>
+                <p className="text-content-tertiary text-xs max-w-sm leading-relaxed font-medium opacity-70">
+                    Manage user accounts, permissions, and access controls. Coming soon.
+                </p>
+                <div className="mt-8 flex items-center gap-3 px-4 py-2 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black text-content-tertiary uppercase tracking-widest">
+                    <Sparkles className="w-3 h-3 text-accent-primary" />
+                    Feature Roadmap
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// =============================================================================
+// ADMIN SHELL (sidebar + section routing)
+// =============================================================================
 
 export default function AdminPage() {
     return (
@@ -45,12 +109,348 @@ export default function AdminPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-content-tertiary">Initializing Admin...</p>
             </div>
         }>
-            <AdminPageContent />
+            <AdminShell />
         </Suspense>
     );
 }
 
-function AdminPageContent() {
+function AdminShell() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
+
+    const sectionParam = searchParams.get('section') as SectionId | null;
+    const activeSection: SectionId = sectionParam === 'users' ? 'users' : 'models';
+
+    const [mobileShowContent, setMobileShowContent] = useState(false);
+    const [sidebarHovered, setSidebarHovered] = useState(false);
+
+    const handleSectionSelect = (id: SectionId) => {
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('section', id);
+        if (id !== 'models') params.delete('tab');
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+        setMobileShowContent(true);
+    };
+
+    return (
+        <div className="w-full h-full flex bg-surface-primary mesh-gradient overflow-hidden relative">
+            {/* Spacer reserves the collapsed-rail width on desktop so main content doesn't shift on hover */}
+            <div className="hidden md:block md:w-14 md:shrink-0" aria-hidden="true" />
+
+            {/* Sidebar Navigation — full width on mobile, hover-expanding overlay rail on desktop */}
+            <aside
+                onMouseEnter={() => setSidebarHovered(true)}
+                onMouseLeave={() => setSidebarHovered(false)}
+                className={`
+                    md:absolute md:left-0 md:top-0 md:bottom-0 md:z-50
+                    md:border-r md:border-stroke-subtle/60 bg-surface-primary/70 backdrop-blur-3xl md:overflow-hidden md:block shadow-xl
+                    transition-[width] duration-150 ease-out
+                    ${sidebarHovered ? 'md:w-60 md:shadow-2xl' : 'md:w-14'}
+                    ${mobileShowContent ? 'hidden' : 'w-full bg-surface-primary overflow-y-auto z-20'}
+                `}
+            >
+                <div className={`md:h-full md:flex md:flex-col ${sidebarHovered ? 'md:overflow-y-auto' : 'md:overflow-hidden'}`}>
+                    <div className="py-3 px-4 md:py-3 md:px-2">
+                        <nav className="space-y-0.5">
+                            {sectionNavItems.map((item) => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => handleSectionSelect(item.id)}
+                                    title={item.label}
+                                    className={`
+                                        w-full flex items-center gap-2.5 py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-colors duration-150
+                                        ${activeSection === item.id
+                                            ? 'bg-white/8 text-content-primary'
+                                            : 'text-content-tertiary hover:bg-white/5 hover:text-content-secondary'
+                                        }
+                                    `}
+                                >
+                                    <span className={`w-5 h-5 flex items-center justify-center shrink-0 transition-colors ${activeSection === item.id ? 'text-accent-primary' : ''}`}>
+                                        {item.icon}
+                                    </span>
+                                    <span className={`
+                                        flex-1 text-left truncate whitespace-nowrap transition-opacity duration-100
+                                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
+                                    `}>
+                                        {item.label}
+                                    </span>
+                                    {item.comingSoon && (
+                                        <span className={`
+                                            px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider bg-white/5 text-content-tertiary rounded-md shrink-0 border border-white/10 transition-opacity duration-100
+                                            ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
+                                        `}>
+                                            Soon
+                                        </span>
+                                    )}
+                                    <ChevronRight className={`
+                                        w-3 h-3 shrink-0 transition-opacity duration-100
+                                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
+                                        ${activeSection === item.id ? 'opacity-100 text-accent-primary' : 'opacity-0'}
+                                    `} />
+                                </button>
+                            ))}
+                        </nav>
+                    </div>
+
+                    {/* Footer */}
+                    <div className={`
+                        px-3 py-2 border-t border-stroke-subtle/60 mt-auto
+                        transition-opacity duration-100
+                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0 md:pointer-events-none'}
+                    `}>
+                        <div className="flex items-center gap-1.5 opacity-50">
+                            <div className="w-1 h-1 rounded-full bg-green-500" />
+                            <p className="text-[9px] font-bold text-content-tertiary uppercase tracking-widest">
+                                Admin Console
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            {/* Main Content Area — hidden on mobile until a section is selected */}
+            <main className={`
+                flex-1 overflow-y-auto custom-scrollbar relative
+                ${mobileShowContent ? 'block' : 'hidden md:block'}
+            `}>
+                {activeSection === 'models' && <ModelsAdminContent onMobileBack={() => setMobileShowContent(false)} />}
+                {activeSection === 'users' && <UsersComingSoonView onMobileBack={() => setMobileShowContent(false)} />}
+            </main>
+        </div>
+    );
+}
+
+// =============================================================================
+// COST CALCULATOR (sticky right rail)
+// =============================================================================
+
+const CALC_STORAGE_KEY = 'prismai-admin-cost-calculator';
+const DEFAULT_IMAGE_MULTIPLIER = 4;
+const DEFAULT_VIDEO_MULTIPLIER = 3;
+
+interface CalcConfig {
+    imageMultiplier: number;
+    videoMultiplier: number;
+    mode: 'image' | 'video';
+    direction: 'cents-to-tokens' | 'tokens-to-cents';
+}
+
+const DEFAULT_CALC_CONFIG: CalcConfig = {
+    imageMultiplier: DEFAULT_IMAGE_MULTIPLIER,
+    videoMultiplier: DEFAULT_VIDEO_MULTIPLIER,
+    mode: 'image',
+    direction: 'cents-to-tokens',
+};
+
+function CostCalculator() {
+    const [config, setConfig] = useState<CalcConfig>(DEFAULT_CALC_CONFIG);
+    const [hydrated, setHydrated] = useState(false);
+    const [input, setInput] = useState<string>('');
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [draftImage, setDraftImage] = useState<string>(String(DEFAULT_IMAGE_MULTIPLIER));
+    const [draftVideo, setDraftVideo] = useState<string>(String(DEFAULT_VIDEO_MULTIPLIER));
+
+    // Hydrate from localStorage on mount
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem(CALC_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored) as Partial<CalcConfig>;
+                setConfig(prev => ({ ...prev, ...parsed }));
+            }
+        } catch { /* ignore corrupt storage */ }
+        setHydrated(true);
+    }, []);
+
+    // Persist on change (skip first render before hydration)
+    useEffect(() => {
+        if (!hydrated) return;
+        try {
+            localStorage.setItem(CALC_STORAGE_KEY, JSON.stringify(config));
+        } catch { /* ignore quota errors */ }
+    }, [config, hydrated]);
+
+    const reverseMode = config.direction === 'tokens-to-cents';
+    const multiplier = config.mode === 'image' ? config.imageMultiplier : config.videoMultiplier;
+    const numInput = parseFloat(input);
+    const hasInput = !isNaN(numInput) && input.trim() !== '';
+    const result = hasInput
+        ? (reverseMode ? numInput / multiplier : numInput * multiplier)
+        : 0;
+
+    const inputLabel = reverseMode ? 'Tokens' : 'Cost (Cents)';
+    const inputSuffix = reverseMode ? undefined : '¢';
+    const resultLabel = reverseMode ? 'Cents' : 'Tokens';
+    const formula = reverseMode ? `${numInput} ÷ ${multiplier}` : `${numInput} × ${multiplier}`;
+
+    const swap = () => {
+        setConfig(prev => ({ ...prev, direction: reverseMode ? 'cents-to-tokens' : 'tokens-to-cents' }));
+        setInput('');
+    };
+
+    const openSettings = () => {
+        setDraftImage(String(config.imageMultiplier));
+        setDraftVideo(String(config.videoMultiplier));
+        setSettingsOpen(true);
+    };
+
+    const saveSettings = () => {
+        const img = parseFloat(draftImage);
+        const vid = parseFloat(draftVideo);
+        setConfig(prev => ({
+            ...prev,
+            imageMultiplier: !isNaN(img) && img > 0 ? img : prev.imageMultiplier,
+            videoMultiplier: !isNaN(vid) && vid > 0 ? vid : prev.videoMultiplier,
+        }));
+        setSettingsOpen(false);
+    };
+
+    const resetDrafts = () => {
+        setDraftImage(String(DEFAULT_IMAGE_MULTIPLIER));
+        setDraftVideo(String(DEFAULT_VIDEO_MULTIPLIER));
+    };
+
+    return (
+        <div className="hidden xl:block fixed right-6 top-32 z-20 w-72">
+            <div className="glassmorphism rounded-2xl p-5 shadow-2xl border border-white/10 backdrop-blur-3xl bg-surface-primary/70">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-accent-primary/10 flex items-center justify-center border border-accent-primary/20 shrink-0">
+                            {settingsOpen
+                                ? <Settings className="w-3.5 h-3.5 text-accent-primary" />
+                                : <Calculator className="w-3.5 h-3.5 text-accent-primary" />}
+                        </div>
+                        <div className="min-w-0">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-content-primary truncate">
+                                {settingsOpen ? 'Multipliers' : 'Cost Calculator'}
+                            </h3>
+                            <p className="text-[8px] font-bold uppercase tracking-widest text-content-tertiary opacity-60 mt-0.5 truncate">
+                                {settingsOpen
+                                    ? 'Configure margins'
+                                    : (reverseMode ? 'Tokens → Cents' : 'Cents → Tokens')}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => settingsOpen ? setSettingsOpen(false) : openSettings()}
+                        title={settingsOpen ? 'Close' : 'Edit multipliers'}
+                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/5 rounded-lg transition-all shrink-0"
+                    >
+                        {settingsOpen ? <X className="w-3.5 h-3.5" /> : <Settings className="w-3.5 h-3.5" />}
+                    </button>
+                </div>
+
+                {settingsOpen ? (
+                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <NumberInput
+                            label="Image Multiplier"
+                            value={draftImage}
+                            onChange={e => setDraftImage(e.target.value)}
+                            min={0.01}
+                            step={0.5}
+                        />
+                        <NumberInput
+                            label="Video Multiplier"
+                            value={draftVideo}
+                            onChange={e => setDraftVideo(e.target.value)}
+                            min={0.01}
+                            step={0.5}
+                        />
+                        <div className="flex gap-2 pt-3 border-t border-white/10">
+                            <button
+                                onClick={resetDrafts}
+                                title="Reset to defaults"
+                                className="flex items-center gap-1.5 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-content-tertiary hover:text-content-primary bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all"
+                            >
+                                <RotateCcw className="w-3 h-3" />
+                                Reset
+                            </button>
+                            <button
+                                onClick={saveSettings}
+                                className="flex-1 px-3 py-2 text-[9px] font-black uppercase tracking-widest bg-accent-primary text-white rounded-lg transition-all hover:opacity-90 active:scale-[0.98]"
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                        {/* Mode Toggle */}
+                        <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/10 mb-4">
+                            <button
+                                onClick={() => setConfig(prev => ({ ...prev, mode: 'image' }))}
+                                className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${config.mode === 'image'
+                                    ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
+                                    : 'text-content-tertiary hover:text-content-secondary'
+                                    }`}
+                            >
+                                <ImageIcon className="w-3 h-3" />
+                                Image ×{config.imageMultiplier}
+                            </button>
+                            <button
+                                onClick={() => setConfig(prev => ({ ...prev, mode: 'video' }))}
+                                className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${config.mode === 'video'
+                                    ? 'bg-white/10 text-content-primary shadow-premium ring-1 ring-white/20'
+                                    : 'text-content-tertiary hover:text-content-secondary'
+                                    }`}
+                            >
+                                <Video className="w-3 h-3" />
+                                Video ×{config.videoMultiplier}
+                            </button>
+                        </div>
+
+                        {/* Input header with swap */}
+                        <div className="flex items-center justify-between px-1 mb-2 h-5">
+                            <span className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] opacity-80 leading-none">
+                                {inputLabel}
+                            </span>
+                            <button
+                                onClick={swap}
+                                title="Swap direction"
+                                className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-content-tertiary hover:text-accent-primary transition-all leading-none"
+                            >
+                                <ArrowDownUp className="w-2.5 h-2.5" />
+                                Swap
+                            </button>
+                        </div>
+                        <NumberInput
+                            suffix={inputSuffix}
+                            min={0}
+                            step={1}
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            placeholder="0"
+                        />
+
+                        {/* Result */}
+                        <div className="mt-5 pt-5 border-t border-white/10">
+                            <div className="flex items-baseline justify-between mb-1">
+                                <span className="text-[9px] font-black text-content-tertiary uppercase tracking-[0.2em]">{resultLabel}</span>
+                                {hasInput && (
+                                    <span className="text-[9px] font-mono text-content-tertiary opacity-50">
+                                        {formula}
+                                    </span>
+                                )}
+                            </div>
+                            <p className={`text-3xl font-black tracking-tighter ${hasInput ? 'text-accent-primary' : 'text-content-tertiary opacity-30'}`}>
+                                {hasInput ? result.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}
+                                {hasInput && reverseMode && <span className="text-base ml-1 opacity-60">¢</span>}
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// =============================================================================
+// MODELS ADMIN CONTENT (existing admin functionality)
+// =============================================================================
+
+function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const pathname = usePathname();
@@ -277,8 +677,18 @@ function AdminPageContent() {
     };
 
     return (
-        <div className="w-full h-full overflow-y-auto custom-scrollbar bg-surface-primary mesh-gradient">
-            <div className="min-h-full flex flex-col">
+        <div className="min-h-full flex flex-col">
+            {/* Mobile back-to-sidebar */}
+            <div className="md:hidden px-8 pt-6">
+                <button
+                    onClick={onMobileBack}
+                    className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-content-tertiary hover:text-content-primary transition-all"
+                >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Return to Admin</span>
+                </button>
+            </div>
+
             {/* Header */}
             <header className="sticky top-0 z-30 bg-surface-primary/60 backdrop-blur-xl border-b border-white/5 px-8 py-5 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-2xl">
                 <div className="flex items-center gap-5">
@@ -923,7 +1333,8 @@ function AdminPageContent() {
                 message={`Are you sure you want to delete "${nodeTypeToDelete?.display_name}"? This may affect models associated with this category.`}
                 variant="danger"
             />
-            </div>
+
+            {(activeTab === 'models' || activeTab === 'management') && <CostCalculator />}
         </div>
     );
 }
