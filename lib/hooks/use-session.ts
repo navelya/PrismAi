@@ -104,22 +104,35 @@ export function useSession() {
             // null and onNodesChange/onConnect bail on their null guards, making it impossible
             // to add the first node.
             const rawCanvas = (session.canvas_state || {}) as Partial<Workflow>;
+            // Self-heal orphaned parentNode references: if a node points at a
+            // parent id that doesn't exist in the same node array, drop the
+            // parentNode field. React Flow throws "Parent node X not found"
+            // and refuses to render the whole canvas otherwise. This catches
+            // both legacy rows persisted before parentNode-resolution shipped
+            // and any future bug that lets an unresolved temp id slip through.
+            const rawNodes = (rawCanvas.nodes || []) as any[];
+            const nodeIdSet = new Set(rawNodes.map((n: any) => n.id));
             const workflow: Workflow = {
                 ...rawCanvas,
                 id: session.id,
                 name: rawCanvas.name || session.title || 'Untitled Workflow',
-                nodes: (rawCanvas.nodes || []).map((n: any) => ({
-                    ...n,
-                    data: {
-                        ...n.data,
-                        // V3.1: Strip any legacy status/output from blueprint nodes so a stale
-                        // "Success" from a previous run doesn't flash while fresh results load.
-                        status: undefined,
-                        output: undefined,
-                        outputMetadata: undefined,
-                        error: undefined,
-                    },
-                })),
+                nodes: rawNodes.map((n: any) => {
+                    const hasOrphanParent = n.parentNode && !nodeIdSet.has(n.parentNode);
+                    const { parentNode: _stripped, ...rest } = n;
+                    const base = hasOrphanParent ? rest : n;
+                    return {
+                        ...base,
+                        data: {
+                            ...base.data,
+                            // V3.1: Strip any legacy status/output from blueprint nodes so a stale
+                            // "Success" from a previous run doesn't flash while fresh results load.
+                            status: undefined,
+                            output: undefined,
+                            outputMetadata: undefined,
+                            error: undefined,
+                        },
+                    };
+                }),
                 edges: rawCanvas.edges || [],
             };
 
