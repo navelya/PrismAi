@@ -7,7 +7,9 @@ interface AddNodeOp {
     node_type_id?: string;
     model_id?: number;
     position: { x: number; y: number };
+    parentNode?: string;          // set by tasks-mode group synthesis
     data: {
+        label?: string;           // optional custom label override
         config: Record<string, any>;
     };
     inputs?: WorkflowNodeInputRef[];
@@ -82,8 +84,9 @@ export function applyAddNodeOp(workflow: Workflow, op: AddNodeOp, idMap: Map<str
         id: resolvedNodeId,
         type: op.type as any,
         position: op.position,
+        ...(op.parentNode ? { parentNode: op.parentNode } : {}),
         data: {
-            label: defaultLabel(op.type),
+            label: op.data?.label && op.data.label.length > 0 ? op.data.label : defaultLabel(op.type),
             config: {
                 ...(op.data?.config || {}),
                 ...(op.node_type_id ? { node_type_id: op.node_type_id } : {}),
