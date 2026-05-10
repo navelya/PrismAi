@@ -248,6 +248,11 @@ export function dispatchTool(state: ToolHandlerState, name: ToolName, args: any)
  * state. Returns { ok: true } if the blueprint would apply cleanly, or
  * { ok: false, error } with a specific failure reason.
  *
+ * Note: validateBlueprint takes a ToolHandlerState but does NOT mutate it —
+ * the helper only reads state.aiModelHandles for handle validation. The idMap
+ * is intentionally not updated here because blueprint validation is a dry run.
+ * (validateTaskList passes a shadow state so accumulation across tasks works.)
+ *
  * Why we re-validate here: the brain emits the plan event BEFORE any
  * apply happens. If the model produces an invalid blueprint, we want to
  * surface the error immediately so the model self-corrects on the next
@@ -286,6 +291,56 @@ export function validateBlueprint(
   for (const node of nodes) {
     const err = validateEdgeHandles(node, state.aiModelHandles);
     if (err) return { ok: false, error: err };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Dry-run validation for a task list. Each task's blueprint goes through
+ * the same checks as a single-blueprint propose_plan. The shared idMap
+ * accumulates across tasks so a later task may reference an earlier
+ * task's temp id.
+ *
+ * Returns ok: false with the first failure's task index + error.
+ */
+export function validateTaskList(
+  state: ToolHandlerState,
+  tasks: any[] | null | undefined
+): { ok: true } | { ok: false; taskIndex: number; error: string } {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return { ok: false, taskIndex: -1, error: 'tasks must be a non-empty array.' };
+  }
+
+  // Shadow state so validation does not mutate the live handler state.
+  const shadow: ToolHandlerState = {
+    workflow: { ...state.workflow, nodes: [...state.workflow.nodes], edges: [...state.workflow.edges] } as any,
+    idMap: new Map(state.idMap),
+    aiModelHandles: state.aiModelHandles,
+  };
+
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
+    if (!t || typeof t !== 'object') return { ok: false, taskIndex: i, error: 'task must be an object.' };
+    if (typeof t.id !== 'string' || t.id.length === 0) return { ok: false, taskIndex: i, error: 'task.id required.' };
+    if (typeof t.title !== 'string' || t.title.length === 0) return { ok: false, taskIndex: i, error: 'task.title required.' };
+    if (typeof t.summary !== 'string') return { ok: false, taskIndex: i, error: 'task.summary required.' };
+    if (!Array.isArray(t.nodes) || !Array.isArray(t.edges)) return { ok: false, taskIndex: i, error: 'task.nodes and task.edges must be arrays.' };
+
+    if (t.group !== undefined) {
+      if (!t.group || typeof t.group !== 'object') return { ok: false, taskIndex: i, error: 'task.group must be an object when present.' };
+      if (typeof t.group.label !== 'string' || t.group.label.length === 0) return { ok: false, taskIndex: i, error: 'task.group.label required.' };
+      if (typeof t.group.icon !== 'string' || t.group.icon.length === 0) return { ok: false, taskIndex: i, error: 'task.group.icon required.' };
+      if (t.group.color !== undefined && !['neutral','indigo','emerald','rose','amber','sky'].includes(t.group.color)) {
+        return { ok: false, taskIndex: i, error: 'task.group.color must be one of: neutral, indigo, emerald, rose, amber, sky.' };
+      }
+    }
+
+    // Validate the task's blueprint chunk in the shadow state. validateBlueprint
+    // mutates the shadow's idMap as it would in a real apply — that's what we
+    // want, so a later task referencing this task's ids will resolve.
+    const v = validateBlueprint(shadow, { nodes: t.nodes, edges: t.edges });
+    if (!v.ok) return { ok: false, taskIndex: i, error: v.error };
   }
 
   return { ok: true };
