@@ -40,4 +40,46 @@ Assistant: Switched to Imagen 4 and dropped the grade pass.
   arrows="photo → bg-remove → composite ← imagen-4 ← prompt → output"
   models=["Imagen 4", "BG-remover"]
   detail="..."
-  blueprint={ ... revised nodes + edges ... }]`;
+  blueprint={ ... revised nodes + edges ... }]
+
+[multi-scene tasks example]
+User: I want a short 30-second video with three scenes — a forest, a campfire, and a wide finale.
+Assistant: Splitting this into four tasks so you can see each scene build.
+[calls propose_plan with:
+  title="Three-scene short film"
+  summary="30-second video assembled from three distinct scenes plus a final compositor."
+  arrows="[forest scene] → [campfire scene] → [wide finale] → composite → output"
+  models=["Veo 3", "Compositor"]
+  detail="Each scene gets its own prompt + Veo 3 generator. The compositor task ties the three outputs into a single video."
+  tasks=[
+    { id="scene_1", title="Forest establishing shot", group={ label="Scene 1 — Forest", icon="Film", color="emerald" }, nodes=[prompt + veo_3 generator], edges=[p1→g1] },
+    { id="scene_2", title="Campfire close-up", group={ label="Scene 2 — Campfire", icon="Film", color="amber" }, nodes=[prompt + veo_3 generator], edges=[p2→g2] },
+    { id="scene_3", title="Wide finale", group={ label="Scene 3 — Finale", icon="Film", color="sky" }, nodes=[prompt + veo_3 generator], edges=[p3→g3] },
+    { id="compose", title="Compose into one video", nodes=[compositor], edges=[g1→c1, g2→c1, g3→c1 via layers handle] }
+  ]]
+(three distinct scenes → tasks-mode; each scene gets a Film-icon group. Final compositor task has no group — it assembles the full video.)
+
+[multi-turn clarification example]
+User: Make me a video.
+Assistant: A few quick things — what should it be about?
+(no tool call — free-text answer expected)
+User: A short product reel for my new sneakers.
+Assistant: Got it. How long should it be?
+[calls ask_clarification with options=["15 seconds", "30 seconds", "60 seconds"]]
+User: 30 seconds
+Assistant: And do you have product photos to use as reference, or should I generate the look from scratch?
+[calls ask_clarification with options=["I'll attach photos", "Generate from scratch"]]
+User: I'll attach photos
+[next turn — emits propose_plan with tasks for an upload + two angle groups; blueprint ready]
+
+[smart label renaming example]
+User: Build me a workflow that generates a hero shot of a sports car and adds a subtle blur to the background.
+Assistant: One generator + one blur — straightforward. Renaming the generator so its purpose is clear at a glance.
+[calls add_node with:
+  nodes=[
+    { type="prompt",       label="Sports car hero prompt",   config={ prompt="Hero shot of a metallic-red sports car, studio light, high detail." } },
+    { type="ai_generator", label="Hero shot — studio light", node_type_id="imagen_4", config={ model_id=17, aspect_ratio="16:9" } },
+    { type="blur",                                           config={ radius=6 } }
+  ]
+  edges=[prompt→generator via prompt handle, generator→blur via image handle]]
+(the generator label "Hero shot — studio light" mirrors the creative intent — prefer descriptive labels over generic defaults like "Imagen 4")`;
