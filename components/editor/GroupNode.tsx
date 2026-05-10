@@ -28,13 +28,13 @@ function resolveIcon(name: string | undefined): LucideIcon {
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
-const GROUP_COLOR_CLASSES: Record<string, { ring: string; bgRgba: string; borderRgba: string }> = {
-    neutral: { ring: 'rgb(127, 127, 127)', bgRgba: 'rgba(127, 127, 127, 0.10)', borderRgba: 'rgba(127, 127, 127, 0.375)' },
-    indigo:  { ring: 'rgb(99, 102, 241)',  bgRgba: 'rgba(99, 102, 241, 0.10)',  borderRgba: 'rgba(99, 102, 241, 0.375)' },
-    emerald: { ring: 'rgb(16, 185, 129)',  bgRgba: 'rgba(16, 185, 129, 0.10)',  borderRgba: 'rgba(16, 185, 129, 0.375)' },
-    rose:    { ring: 'rgb(244, 63, 94)',   bgRgba: 'rgba(244, 63, 94, 0.10)',   borderRgba: 'rgba(244, 63, 94, 0.375)' },
-    amber:   { ring: 'rgb(245, 158, 11)',  bgRgba: 'rgba(245, 158, 11, 0.10)',  borderRgba: 'rgba(245, 158, 11, 0.375)' },
-    sky:     { ring: 'rgb(14, 165, 233)',  bgRgba: 'rgba(14, 165, 233, 0.10)',  borderRgba: 'rgba(14, 165, 233, 0.375)' },
+const GROUP_COLOR_CLASSES: Record<string, { bgRgba: string; borderRgba: string }> = {
+    neutral: { bgRgba: 'rgba(127, 127, 127, 0.10)', borderRgba: 'rgba(127, 127, 127, 0.375)' },
+    indigo:  { bgRgba: 'rgba(99, 102, 241, 0.10)',  borderRgba: 'rgba(99, 102, 241, 0.375)' },
+    emerald: { bgRgba: 'rgba(16, 185, 129, 0.10)',  borderRgba: 'rgba(16, 185, 129, 0.375)' },
+    rose:    { bgRgba: 'rgba(244, 63, 94, 0.10)',   borderRgba: 'rgba(244, 63, 94, 0.375)' },
+    amber:   { bgRgba: 'rgba(245, 158, 11, 0.10)',  borderRgba: 'rgba(245, 158, 11, 0.375)' },
+    sky:     { bgRgba: 'rgba(14, 165, 233, 0.10)',  borderRgba: 'rgba(14, 165, 233, 0.375)' },
 };
 
 const HANDLES: Array<{ dir: ResizeDir; cursor: string; style: React.CSSProperties }> = [
@@ -53,6 +53,7 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     const height = data.config?.height ?? 300;
     const iconName = data.config?.icon ?? 'Folder';
     const colorToken = data.config?.color ?? 'neutral';
+    const GroupIcon = resolveIcon(iconName);
 
     const renameGroup = useAppStore((s) => s.renameGroup);
     const resizeGroup = useAppStore((s) => s.resizeGroup);
@@ -162,10 +163,7 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     style={{ pointerEvents: 'auto' }}
                     onMouseDown={(e) => e.stopPropagation()}
                 >
-                    {(() => {
-                        const Icon = resolveIcon(iconName);
-                        return <Icon size={12} className="mr-1.5 text-content-secondary shrink-0" />;
-                    })()}
+                    <GroupIcon size={12} className="mr-1.5 text-content-secondary shrink-0" />
                     {isEditingTitle ? (
                         <>
                             <input
