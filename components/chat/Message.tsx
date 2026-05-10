@@ -10,6 +10,7 @@ import MessageRenderer from './MessageRenderer';
 import { ThinkingPanel } from './ThinkingPanel';
 import { ChipCard } from './ChipCard';
 import { PlanCard } from './PlanCard';
+import { TaskProgressCard } from './TaskProgressCard';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
@@ -35,12 +36,20 @@ interface Message {
         arrows: string;
         models: string[];
         detail: string;
+        tasks?: import('@/lib/chat/streaming/protocol').TaskBlueprint[];
     };
     planAnswer?: {
         action: 'approve' | 'feedback';
         feedbackText?: string;
     };
     planApproveError?: string;
+    taskProgress?: {
+        status: 'running' | 'done' | 'failed';
+        currentIndex: number;
+        total: number;
+        failedTaskId?: string | null;
+        errorMessage?: string;
+    };
 }
 
 const ChatMessageContent = ({
@@ -298,6 +307,7 @@ export const Message = React.memo(function Message({
                                 arrows: message.plan.arrows,
                                 models: message.plan.models,
                                 detail: message.plan.detail,
+                                tasks: message.plan.tasks,
                             }}
                             status={
                                 message.planApproveError
@@ -318,6 +328,26 @@ export const Message = React.memo(function Message({
                             onFeedback={(text) => onPlanFeedback?.(message.id, text)}
                         />
                     )}
+
+                    {message.type === 'assistant' &&
+                        message.plan?.tasks &&
+                        message.plan.tasks.length > 0 &&
+                        message.taskProgress && (
+                            <TaskProgressCard
+                                tasks={message.plan.tasks}
+                                progress={message.taskProgress}
+                                onRetryFromTask={(taskId) => {
+                                    if (onPlanFeedback) {
+                                        onPlanFeedback(
+                                            message.id,
+                                            `The build failed at task ${taskId}. Please revise the plan from there.`
+                                        );
+                                    } else {
+                                        console.warn('[chat] retry-from-task not yet wired:', taskId);
+                                    }
+                                }}
+                            />
+                        )}
 
                     {message.type === 'user' && (
                         <div

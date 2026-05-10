@@ -426,6 +426,47 @@ export function useChatMessages({
                                     nodes: Array.isArray(p.blueprint?.nodes) ? p.blueprint.nodes : [],
                                     edges: Array.isArray(p.blueprint?.edges) ? p.blueprint.edges : [],
                                 },
+                                tasks: Array.isArray(p.tasks) ? p.tasks : undefined,
+                            },
+                        });
+                    }
+                }
+                else if (parsed.type === 'task_start') {
+                    // Drive TaskProgressCard live during the approve/apply loop.
+                    // The progress is stored on the plan message so the card that
+                    // owns the task list can update in place.
+                    const planMsgId = resolvedPlanAnswer?.planMessageId;
+                    if (planMsgId) {
+                        useAppStore.getState().updateMessage(planMsgId, {
+                            taskProgress: {
+                                status: 'running',
+                                currentIndex: typeof parsed.index === 'number' ? parsed.index : 0,
+                                total: typeof parsed.total === 'number' ? parsed.total : 0,
+                            },
+                        });
+                    }
+                }
+                else if (parsed.type === 'task_complete') {
+                    const planMsgId = resolvedPlanAnswer?.planMessageId;
+                    if (planMsgId) {
+                        useAppStore.getState().updateMessage(planMsgId, {
+                            taskProgress: {
+                                status: 'running',
+                                currentIndex: typeof parsed.index === 'number' ? parsed.index + 1 : 1,
+                                total: typeof parsed.total === 'number' ? parsed.total : 0,
+                            },
+                        });
+                    }
+                }
+                else if (parsed.type === 'tasks_complete') {
+                    const planMsgId = resolvedPlanAnswer?.planMessageId;
+                    if (planMsgId) {
+                        const total = typeof parsed.total === 'number' ? parsed.total : 0;
+                        useAppStore.getState().updateMessage(planMsgId, {
+                            taskProgress: {
+                                status: 'done',
+                                currentIndex: total,
+                                total,
                             },
                         });
                     }

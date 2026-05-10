@@ -78,6 +78,16 @@ export function useChatRealtime({
         const handleMessageUpdate = async (payload: any) => {
             const updatedMessage = payload.new;
             if (updatedMessage.role !== 'assistant') return;
+
+            // Always forward taskProgress updates regardless of message status so
+            // the TaskProgressCard tracks live task execution in real time.
+            const incomingTaskProgress = updatedMessage.metadata?.taskProgress;
+            if (incomingTaskProgress) {
+                useAppStore.getState().updateMessage(updatedMessage.id, {
+                    taskProgress: incomingTaskProgress,
+                });
+            }
+
             if (
                 updatedMessage.status !== 'completed' &&
                 updatedMessage.status !== 'failed' &&
