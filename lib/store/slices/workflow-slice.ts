@@ -711,6 +711,90 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         });
     },
 
+    createGroupFromSelection: (nodeIds, options) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow) return null;
+
+        const selected = currentWorkflow.nodes.filter((n) => nodeIds.includes(n.id));
+
+        if (selected.length < 2) return null;
+        if (selected.some((n) => n.parentNode)) return null;
+        if (selected.some((n) => n.type === 'group_container')) return null;
+
+        // Bounding box from absolute positions.
+        const bbox = selected.reduce(
+            (acc, n) => {
+                const w = n.measured?.width ?? (n.width as number | undefined) ?? 240;
+                const h = n.measured?.height ?? (n.height as number | undefined) ?? 120;
+                return {
+                    minX: Math.min(acc.minX, n.position.x),
+                    minY: Math.min(acc.minY, n.position.y),
+                    maxX: Math.max(acc.maxX, n.position.x + w),
+                    maxY: Math.max(acc.maxY, n.position.y + h),
+                };
+            },
+            { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
+        );
+
+        const PAD_X = 24;
+        const PAD_Y_TOP = 56; // header
+        const PAD_Y_BOT = 24;
+
+        const groupX = bbox.minX - PAD_X;
+        const groupY = bbox.minY - PAD_Y_TOP;
+        const groupW = (bbox.maxX - bbox.minX) + PAD_X * 2;
+        const groupH = (bbox.maxY - bbox.minY) + PAD_Y_TOP + PAD_Y_BOT;
+
+        const groupId = `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        get().takeSnapshot();
+
+        const groupNode: WorkflowNode = {
+            id: groupId,
+            type: 'group_container',
+            position: { x: groupX, y: groupY },
+            data: {
+                label: options?.label ?? GROUP_DEFAULT_LABEL,
+                config: {
+                    width: groupW,
+                    height: groupH,
+                    icon: options?.icon ?? 'Folder',
+                    color: options?.color ?? 'neutral',
+                } as any,
+            },
+            zIndex: 0,
+        };
+
+        const childSet = new Set(nodeIds);
+        const updatedChildren: WorkflowNode[] = currentWorkflow.nodes.map((n) => {
+            if (!childSet.has(n.id)) return n;
+            return {
+                ...n,
+                parentNode: groupId,
+                selected: false,
+                position: {
+                    x: n.position.x - groupX,
+                    y: n.position.y - groupY,
+                },
+            };
+        });
+
+        // Group must come BEFORE its children in the array — React Flow requires
+        // a parent to appear earlier than any of its children.
+        const others = updatedChildren.filter((n) => !childSet.has(n.id));
+        const children = updatedChildren.filter((n) => childSet.has(n.id));
+
+        set({
+            currentWorkflow: {
+                ...currentWorkflow,
+                nodes: [...others, { ...groupNode, selected: true } as WorkflowNode, ...children],
+            },
+            isWorkflowDirty: true,
+        });
+
+        return groupId;
+    },
+
     setNodeParent: (nodeId, parentId) => {
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;

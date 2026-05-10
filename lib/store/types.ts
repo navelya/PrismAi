@@ -137,6 +137,22 @@ export interface WorkflowSlice {
      * Rename a group's title (stored in data.label).
      */
     renameGroup: (groupId: string, label: string) => void;
+    /**
+     * Wrap the given node IDs in a new group_container. The new group is positioned
+     * at the bounding box of the selection minus padding (24px X, 56px Y for header).
+     * Children's positions become relative to the new group; their parentNode is set.
+     *
+     * Validation (caller's responsibility — store does not enforce):
+     * - All IDs must exist on the canvas.
+     * - None of the nodes may already be inside another group (parentNode unset).
+     * - None may BE a group_container.
+     *
+     * Returns the new group's id, or null if validation fails.
+     */
+    createGroupFromSelection: (
+        nodeIds: string[],
+        options?: { label?: string; icon?: string; color?: string }
+    ) => string | null;
 }
 
 export interface ChatSlice {
