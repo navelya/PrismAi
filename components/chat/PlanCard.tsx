@@ -2,8 +2,11 @@
 
 import React, { useState } from 'react';
 import { Check, ChevronDown, ChevronRight, AlertCircle, RotateCcw } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import type { AiModel } from '@/lib/nodes/types';
+import type { TaskBlueprint } from '@/lib/chat/streaming/protocol';
 
 export interface PlanCardProps {
     plan: {
@@ -12,6 +15,7 @@ export interface PlanCardProps {
         arrows: string;
         models: string[];
         detail: string;
+        tasks?: TaskBlueprint[];
     };
     /**
      * Card state derived from history pairing in Message.tsx:
@@ -53,6 +57,50 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
         <div className="text-[9px] uppercase tracking-widest text-content-primary/90 font-bold">
             {children}
         </div>
+    );
+}
+
+const TASK_COLOR_CHIP: Record<string, string> = {
+    neutral: 'bg-stroke-subtle/30 text-content-secondary',
+    indigo:  'bg-indigo-500/15 text-indigo-300',
+    emerald: 'bg-emerald-500/15 text-emerald-300',
+    rose:    'bg-rose-500/15 text-rose-300',
+    amber:   'bg-amber-500/15 text-amber-300',
+    sky:     'bg-sky-500/15 text-sky-300',
+};
+
+function resolveTaskIcon(name: string | undefined): LucideIcon {
+    if (!name) return LucideIcons.Folder;
+    const Cand = (LucideIcons as any)[name];
+    if (Cand && (typeof Cand === 'function' || typeof Cand === 'object')) return Cand as LucideIcon;
+    return LucideIcons.Folder;
+}
+
+function PlanTaskList({ tasks }: { tasks: TaskBlueprint[] }) {
+    return (
+        <ul className="flex flex-col gap-2 my-3">
+            {tasks.map((t, i) => {
+                const GIcon = t.group ? resolveTaskIcon(t.group.icon) : null;
+                const colorClass = t.group?.color ? TASK_COLOR_CHIP[t.group.color] : TASK_COLOR_CHIP.neutral;
+                return (
+                    <li key={t.id} className="flex items-start gap-2 text-sm">
+                        <span className="text-content-tertiary text-xs w-4 shrink-0 mt-0.5">{i + 1}.</span>
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {t.group && GIcon && (
+                                    <span className={'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ' + colorClass}>
+                                        <GIcon size={11} />
+                                        <span className="truncate max-w-[140px]">{t.group.label}</span>
+                                    </span>
+                                )}
+                                <span className="font-medium text-content-primary truncate">{t.title}</span>
+                            </div>
+                            <p className="text-xs text-content-secondary leading-snug">{t.summary}</p>
+                        </div>
+                    </li>
+                );
+            })}
+        </ul>
     );
 }
 
@@ -132,6 +180,9 @@ export function PlanCard({
                     </div>
                 </div>
             )}
+
+            {/* Task list (tasks mode) */}
+            {plan.tasks && plan.tasks.length > 0 && <PlanTaskList tasks={plan.tasks} />}
 
             {/* Models used */}
             {plan.models.length > 0 && (
