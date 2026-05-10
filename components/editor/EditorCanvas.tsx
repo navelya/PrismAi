@@ -329,11 +329,18 @@ const EditorCanvasInner = ({
                 if (canRedo) redo?.();
                 return;
             }
+
+            if (ctrlKey && event.key.toLowerCase() === 'g') {
+                if (!canGroupSelection) return;
+                event.preventDefault();
+                handleGroupSelected();
+                return;
+            }
         };
 
         document.addEventListener('keydown', handleKeyDown, true);
         return () => document.removeEventListener('keydown', handleKeyDown, true);
-    }, [undo, redo, canUndo, canRedo]);
+    }, [undo, redo, canUndo, canRedo, canGroupSelection, handleGroupSelected]);
 
     const handleNodesChange = useCallback((changes: NodeChange[]) => {
         // Selection redirection: a node inside a group must never appear
@@ -772,7 +779,7 @@ const EditorCanvasInner = ({
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleGroupSelected(); }}
                                     onMouseDown={(e) => e.stopPropagation()}
                                     className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
-                                    title="Group selected"
+                                    title="Group selected (Cmd+G)"
                                 >
                                     <GroupIcon className="w-3 h-3 pointer-events-none" />
                                 </button>
