@@ -490,6 +490,20 @@ export function useChatMessages({
                             // can avoid collisions with earlier ones in the same batch.
                             const resolvedNodes: typeof currentNodes = [];
                             for (const node of parsed.patch.addedNodes) {
+                                // Preserve server-computed positions for grouped/grouping
+                                // nodes. Group_container positions come from bounding-box
+                                // math; child positions are RELATIVE to the parent and
+                                // would be mangled by an absolute-space layout pass —
+                                // children would render outside their group at fresh
+                                // canvas coords. Same applies to any node carrying
+                                // parentNode (manual subsequent add_node into a group).
+                                const isGroupOrChild = node.type === 'group_container'
+                                    || (node as any).parentNode;
+                                if (isGroupOrChild) {
+                                    resolvedNodes.push(node);
+                                    continue;
+                                }
+
                                 const sourceNodeIds = patchEdges
                                     .filter((e: any) => e.target === node.id)
                                     .map((e: any) => e.source);
