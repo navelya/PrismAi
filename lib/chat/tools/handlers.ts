@@ -1,5 +1,6 @@
 import { applyAddNodeOp, applyRemoveNodeOp, applyUpdateNodeOp } from '@/lib/workflow/graph-ops';
 import { applyWorkflowPatch, mergeWorkflowPatches, type WorkflowPatch } from '@/lib/workflow/workflow-patch';
+import { placeBatchInFreeSpace } from '@/lib/workflow/place-batch';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { Workflow } from '@/lib/nodes/types';
 import type { ToolName } from './definitions';
@@ -113,6 +114,15 @@ export function runAddNode(state: ToolHandlerState, args: any): ToolResult {
 
   if (!hasNodes && !hasEdges) {
     return { success: false, error: 'add_node requires at least one node or one edge.' };
+  }
+
+  // Translate the batch to sit beside existing canvas content. Children
+  // (parentNode set) keep their relative positions; only top-level nodes
+  // shift. Empty canvas → no translation. This replaces the per-node
+  // client-side layout recalc, so the client can trust the positions it
+  // receives.
+  if (hasNodes) {
+    args = { ...args, nodes: placeBatchInFreeSpace(args.nodes, state.workflow.nodes) };
   }
 
   // Pre-validate every node against the registry so a bad config gives one

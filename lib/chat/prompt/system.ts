@@ -26,7 +26,7 @@ const TOOL_RULES = `TOOL USAGE RULES:
 - BATCHING: For any workflow creation, include ALL new nodes in a SINGLE add_node call.
 - TOPOLOGICAL ORDER (mandatory): a node may only be added after every node it lists in inputs already exists in the same call (earlier in the array) or in the existing canvas.
 - ID rules: for new nodes generate simple IDs like "n1", "n2", "prompt_1"; reuse those IDs in later tool calls in the same turn.
-- Positions: pass any position — they are auto-calculated. Focus on types, connections, config.
+- Positions: lay out nodes thoughtfully within your batch. Use ~280px horizontal spacing between sequentially-connected nodes (input → process → output flows left to right) and ~160px vertical spacing between parallel branches. Start the batch's first node near (0, 0) and grow from there — the runtime translates the whole batch to land beside the existing canvas, so the ABSOLUTE coordinates don't matter; only the RELATIVE positions between nodes in your batch matter. For tasks-mode plans, lay out each task starting near (0, 0) the same way; the runtime places each task adjacent to the previous one.
 - After tool calls, do not restate every node added — the UI shows the diff.
 
 CLARIFYING QUESTIONS:
@@ -74,6 +74,7 @@ const GROUPING = `GROUPING:
   - icon: a Lucide PascalCase name like 'Film', 'Camera', 'Folder', 'Music', 'Wand2', 'Layers', 'Scissors'. Pick one that mirrors the group's purpose. Falls back to 'Folder' if unknown.
   - color: one of 'neutral' (default), 'indigo', 'emerald', 'rose', 'amber', 'sky'. Use distinct colors when sections benefit from visual separation; otherwise 'neutral'.
 - To put a node into the group, set its parentNode field to the group's id in the SAME tool call that creates both. Children's positions are relative to the group's origin.
+  - Within a group, place children at sensible relative coordinates (small positive numbers — e.g. first child at (24, 24), next at (304, 24) for a left-to-right pair). The group auto-fits its children plus padding.
 - A group has no input/output handles. NEVER add an edge whose source or target is a group node.
 - Groups never execute. Do not propose a group as a way to run nodes in parallel or "wrap" execution.
 - Default size when uncertain: width 400, height 300. The UI auto-expands.
