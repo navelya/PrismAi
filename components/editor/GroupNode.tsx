@@ -5,7 +5,8 @@ import { NodeProps, NodeToolbar, Position } from 'reactflow';
 import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
-import { GROUP_RESIZE_HANDLE_SIZE } from '@/lib/nodes/group-constants';
+import { useShallow } from 'zustand/react/shallow';
+import { GROUP_RESIZE_HANDLE_SIZE, GROUP_PADDING } from '@/lib/nodes/group-constants';
 import { GroupHeaderToolbar } from './GroupHeaderToolbar';
 
 interface GroupNodeData {
@@ -50,11 +51,56 @@ const HANDLES: Array<{ dir: ResizeDir; cursor: string; style: React.CSSPropertie
 ];
 
 export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeData>) {
-    const width = data.config?.width ?? 400;
-    const height = data.config?.height ?? 300;
+    // Stored size — set at creation (AI synthesis or manual group action) and
+    // updated by the resize handles. Acts as the FLOOR for our rendered size.
+    const storedWidth = data.config?.width ?? 400;
+    const storedHeight = data.config?.height ?? 300;
     const iconName = data.config?.icon ?? 'Folder';
     const colorToken = data.config?.color ?? 'neutral';
     const GroupIcon = resolveIcon(iconName);
+
+    // Dynamic child bbox — read children with parentNode === id from the
+    // store and compute the rightmost/bottommost extent. This reacts to:
+    //   • child position changes (RF onNodesChange writes new positions)
+    //   • child measured-size changes (RF ResizeObserver writes measured.w/h
+    //     when content reflows — e.g., when execution output renders below
+    //     a node and the node body grows).
+    // useShallow keeps the selector from causing renders on object identity
+    // alone; we re-render only when one of the numbers actually changes.
+    const childBbox = useAppStore(useShallow((s) => {
+        const allNodes = s.currentWorkflow?.nodes ?? [];
+        let maxX = 0;
+        let maxY = 0;
+        for (const c of allNodes as any[]) {
+            if (c.parentNode !== id) continue;
+            const cx = c.position?.x ?? 0;
+            const cy = c.position?.y ?? 0;
+            const cw = c.measured?.width ?? c.width ?? 240;
+            const ch = c.measured?.height ?? c.height ?? 120;
+            if (cx + cw > maxX) maxX = cx + cw;
+            if (cy + ch > maxY) maxY = cy + ch;
+        }
+        return { maxX, maxY };
+    }));
+
+    // Required size to fully wrap the children with consistent padding.
+    // 0 when there are no children yet (bbox stays at 0,0) — falls back to
+    // stored size.
+    const requiredWidth  = childBbox.maxX > 0 ? childBbox.maxX + GROUP_PADDING : 0;
+    const requiredHeight = childBbox.maxY > 0 ? childBbox.maxY + GROUP_PADDING : 0;
+
+    // Final rendered size: max of stored and required. This means:
+    //   • If the AI's bbox guess was too small (children's actual rendered
+    //     widths are larger than the 240/120 fallback), the group grows to
+    //     wrap them correctly.
+    //   • If a child grows mid-execution (output renders below), the group
+    //     follows along automatically.
+    //   • If the user manually resized the group LARGER than its children,
+    //     storedWidth/Height wins — we never shrink below user intent.
+    //   • If the user dragged the group SMALLER than its children, required
+    //     wins — you can't squeeze a group below its contents.
+    const width  = Math.max(storedWidth,  requiredWidth);
+    const height = Math.max(storedHeight, requiredHeight);
 
     const renameGroup = useAppStore((s) => s.renameGroup);
     const resizeGroup = useAppStore((s) => s.resizeGroup);
