@@ -20,7 +20,7 @@ const ELK_OPTIONS = {
 };
 
 const GROUP_LAYOUT_OPTIONS = {
-    'org.eclipse.elk.nodeSize.constraints': 'NODE_LABELS PORTS MINIMUM_SIZE',
+    'elk.nodeSize.constraints': 'NODE_LABELS PORTS MINIMUM_SIZE',
 };
 
 export interface LayoutPatchInput {
@@ -32,10 +32,11 @@ export interface LayoutPatchInput {
 
 /**
  * Compute positions for `newNodes` that flow topologically around the
- * existing canvas. Existing node positions are guaranteed unchanged: ELK
- * runs with INTERACTIVE strategies (seeded with existing x/y), and a
- * post-layout step restores existing positions byte-for-byte as a
- * safety net against any INTERACTIVE-mode drift.
+ * existing canvas. Existing node positions are guaranteed unchanged:
+ * ELK runs with INTERACTIVE strategies (seeded with existing x/y), and
+ * existing nodes are excluded from the returned Map, so the caller
+ * never has positions to apply to them — their canvas positions remain
+ * untouched even if ELK's INTERACTIVE strategies drift slightly.
  *
  * Returns Map<nodeId, {x, y}> for NEW nodes only. Children inside groups
  * have positions RELATIVE to their parent (React Flow's `parentNode`
