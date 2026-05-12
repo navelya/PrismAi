@@ -53,13 +53,19 @@ Three integration points:
    - Rename `IMAGE_CAP` to `ATTACHMENT_CAP` (value stays `4`) since the cap now covers images and videos together. Update the drag-and-drop handlers and any error messages that reference "image" to "attachment" or media-type-aware copy.
    - Also tighten the drag-and-drop handlers to use the same accept-and-reject logic. Currently `handleChatDrop` accepts anything starting with `image/`; it must now accept both prefixes and apply the size checks.
 
-3. **[lib/utils/image-processing.ts](../../../lib/utils/image-processing.ts) `uploadImageToStorage()`** — rename to `uploadAttachmentToStorage(blob: Blob, userId: string, fileCounter: number, extension: string)`. The function takes a `Blob` and an explicit extension (`'webp'` for images, the original extension for videos like `'mp4'`, `'mov'`, `'webm'`).
+3. **[lib/utils/image-processing.ts](../../../lib/utils/image-processing.ts) `uploadImageToStorage()`** — **don't rename**. The function has server-side callers ([:80](../../../lib/utils/image-processing.ts#L80), [:128](../../../lib/utils/image-processing.ts#L128)) in the workflow-result upload path that aren't part of this feature. Instead, add an optional fourth argument `options?: { extension?: string; contentType?: string }` defaulting to `'webp'` / `'image/webp'`. Existing callers don't change; the new video path passes the actual extension and MIME type.
 
-   Storage path: `chat-assets/{userId}/{timestamp}-{counter}-{random}.{ext}`. Bucket stays `chat-assets`. Update all call sites of `uploadImageToStorage` to pass the extension.
+   Storage path: `chat-assets/{userId}/{timestamp}-{counter}-{random}.{ext}`. Bucket stays `chat-assets`.
 
 **Extension extraction for videos:** Derive the extension from the original `File.name` (split on the last `.`). If the filename has no extension, fall back to deriving from `file.type` (e.g., `video/mp4` → `mp4`). If neither is available, use `bin`. This is a defensive edge case — the file picker normally produces well-named files.
 
 **Metadata:** Existing attachment metadata storage (image URL inside chat messages) extends to video URLs with no schema change. Renderers consuming attachments need to be media-type-aware (already partially handled in `ImageLightbox` via `detectMediaTypeFromUrl`).
+
+**Video upload architecture (resolved during planning):** A 50MB video as a base64 data URL inside a JSON request body would blow past Vercel's default 4.5MB serverless body limit, which is how images currently flow ([app/api/chat/stream/route.ts:439](../../../app/api/chat/stream/route.ts#L439)). To keep request bodies small, videos are **uploaded from the client directly to Supabase** at the moment the user picks the file (using the browser client from [lib/supabase/client.ts](../../../lib/supabase/client.ts)). The resulting public URL — not a data URL — is what gets pushed into the existing `attachedImages` array. The server-side handler in [route.ts:435-445](../../../app/api/chat/stream/route.ts#L435-L445) gains one branch: if the entry is already an `http(s)://` URL, push it straight to `attachedImageUrls` without re-uploading. The existing image flow (data URL → server-side upload via service role) is unchanged. Videos are automatically excluded from the model's vision attachments because `parseImageAttachments()` already requires a `data:image/...` prefix.
+
+**RLS:** Client-side direct upload requires the `chat-assets` bucket to permit `authenticated` role INSERTs under the user's own folder. The plan includes a verification step; if the policy doesn't exist, the plan adds it via a Supabase migration.
+
+**User message renderer:** [components/chat/Message.tsx:243-251](../../../components/chat/Message.tsx#L243-L251) currently renders every entry in `message.images` as `<img>`. It needs to detect media type (via `detectMediaTypeFromUrl`) and render `<video>` for video URLs.
 
 ## Section 3 — Lightbox format selector
 
@@ -119,15 +125,11 @@ User clicks Download
 
 ## Files touched
 
-- [lib/utils/image-processing.ts](../../../lib/utils/image-processing.ts) — extend `convertImageToWebP` with size ladder; rename `uploadImageToStorage` → `uploadAttachmentToStorage` and generalize signature.
-- [lib/hooks/use-file-upload.ts](../../../lib/hooks/use-file-upload.ts) — accept videos, branch by media type, rename cap constant, update drag/drop handlers.
-- [components/chat/ChatInput.tsx](../../../components/chat/ChatInput.tsx) — update `accept` attribute.
+- [lib/utils/image-processing.ts](../../../lib/utils/image-processing.ts) — extend `convertImageToWebP` with size ladder; add optional `options` arg to `uploadImageToStorage` (no rename).
+- [lib/hooks/use-file-upload.ts](../../../lib/hooks/use-file-upload.ts) — accept videos, branch by media type, upload videos directly to Supabase, rename cap constant, update drag/drop handlers.
+- [components/chat/ChatInterface.tsx](../../../components/chat/ChatInterface.tsx) — update file input `accept`.
+- [components/chat/ChatEmptyState.tsx](../../../components/chat/ChatEmptyState.tsx) — update both file inputs (desktop + mobile) `accept`.
+- [components/chat/Message.tsx](../../../components/chat/Message.tsx) — media-aware rendering for `message.images`.
+- [app/api/chat/stream/route.ts](../../../app/api/chat/stream/route.ts) — recognize HTTP URLs in `attachedImages` and skip re-upload.
 - [components/ui/ImageLightbox.tsx](../../../components/ui/ImageLightbox.tsx) — split-button UI, dropdown, conversion-on-download, localStorage persistence.
 - **New:** [lib/utils/image-format.ts](../../../lib/utils/image-format.ts) — `convertImageFormat` helper.
-
-Plus any call sites of `uploadImageToStorage` that need to pass the extension parameter (grep for callers when planning).
-
-## Open questions for the planning phase
-
-- Confirm that all existing call sites of `uploadImageToStorage` are inside the user-upload path. If `extractAndUploadResultImages()` (or other server-side flows) also calls it, the rename + signature change needs care. The Section 2 rename assumes user-upload-only callers.
-- Decide on the toast component. The project may already have a notification primitive — to be checked during planning.
