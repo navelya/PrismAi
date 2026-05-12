@@ -19,10 +19,6 @@ const ELK_OPTIONS = {
     'elk.padding': '[top=50,left=50,bottom=50,right=50]',
     'elk.spacing.componentComponent': '80',
     'elk.separateConnectedComponents': 'true',
-    // Bias component packing toward a taller layout so parallel groups
-    // (e.g. 3 scenes with no inter-group edges) stack vertically rather
-    // than getting packed side-by-side and overlapping.
-    'elk.aspectRatio': '0.5',
 };
 
 const GROUP_LAYOUT_OPTIONS = {
@@ -145,8 +141,19 @@ export async function layoutPatchAsync(
             edges: elkEdges,
         };
 
+        // Debug — remove once layout is confirmed working.
+        console.log('[layoutPatchAsync] ELK input:', JSON.stringify({
+            children: graph.children.map((c: any) => ({ id: c.id, w: c.width, h: c.height, childCount: c.children?.length ?? 0 })),
+            edges: graph.edges,
+            options: ELK_OPTIONS,
+        }, null, 2));
+
         try {
             const laidOut = await elk.layout(graph);
+            console.log('[layoutPatchAsync] ELK output:', JSON.stringify(
+                (laidOut.children ?? []).map((c: any) => ({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height })),
+                null, 2
+            ));
 
             // Collect ELK positions for every node in the subgraph.
             const elkPositions = new Map<string, { x: number; y: number }>();
