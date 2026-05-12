@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Download, ChevronDown } from 'lucide-react';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
+import { convertImageFormat, extensionForFormat, urlMatchesFormat, type DownloadFormat } from '@/lib/utils/image-format';
 
 
 interface ImageLightboxProps {
@@ -18,6 +19,43 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
     // Portal mount guard — prevents SSR mismatch
     const [mounted, setMounted] = useState(false);
     useEffect(() => { setMounted(true); }, []);
+
+    const [downloadFormat, setDownloadFormat] = useState<DownloadFormat>('png');
+    const [formatMenuOpen, setFormatMenuOpen] = useState(false);
+    const formatMenuRef = useRef<HTMLDivElement>(null);
+
+    // Load persisted format choice on mount.
+    useEffect(() => {
+        try {
+            const stored = window.localStorage.getItem('prismai.lightbox.downloadFormat');
+            if (stored === 'png' || stored === 'jpeg' || stored === 'webp') {
+                setDownloadFormat(stored);
+            }
+        } catch {
+            // localStorage unavailable; stick with default
+        }
+    }, []);
+
+    const persistFormat = useCallback((fmt: DownloadFormat) => {
+        setDownloadFormat(fmt);
+        try {
+            window.localStorage.setItem('prismai.lightbox.downloadFormat', fmt);
+        } catch {
+            // ignore
+        }
+    }, []);
+
+    // Close format menu on outside click.
+    useEffect(() => {
+        if (!formatMenuOpen) return;
+        const onPointer = (e: PointerEvent) => {
+            if (formatMenuRef.current && !formatMenuRef.current.contains(e.target as Node)) {
+                setFormatMenuOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', onPointer);
+        return () => window.removeEventListener('pointerdown', onPointer);
+    }, [formatMenuOpen]);
 
     // Normalize media to array
     const normalizedMedia = React.useMemo(() => {
@@ -60,25 +98,57 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose, goToPrevious, goToNext]);
 
-    // Download handler
-    const handleDownload = async () => {
+    const triggerBlobDownload = useCallback((blob: Blob, filename: string) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    }, []);
+
+    const handleVideoDownload = useCallback(async () => {
         try {
             const response = await fetch(mediaSrc);
             const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const extension = isVideo ? 'mp4' : (blob.type.includes('png') ? 'png' : 'jpg');
-            a.download = `output_${currentIndex + 1}.${extension}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        } catch (error) {
-            // Fallback: open in new tab
+            triggerBlobDownload(blob, `output_${currentIndex + 1}.mp4`);
+        } catch {
             window.open(mediaSrc, '_blank');
         }
-    };
+    }, [mediaSrc, currentIndex, triggerBlobDownload]);
+
+    const handleImageDownload = useCallback(async (format: DownloadFormat) => {
+        const filename = `output_${currentIndex + 1}.${extensionForFormat(format)}`;
+        try {
+            if (urlMatchesFormat(mediaSrc, format)) {
+                const response = await fetch(mediaSrc);
+                if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+                triggerBlobDownload(await response.blob(), filename);
+                return;
+            }
+            const blob = await convertImageFormat(mediaSrc, format);
+            triggerBlobDownload(blob, filename);
+        } catch (err) {
+            console.error('Image download failed:', err);
+            window.open(mediaSrc, '_blank');
+        }
+    }, [mediaSrc, currentIndex, triggerBlobDownload]);
+
+    const handleDownload = useCallback(() => {
+        if (isVideo) {
+            void handleVideoDownload();
+        } else {
+            void handleImageDownload(downloadFormat);
+        }
+    }, [isVideo, handleVideoDownload, handleImageDownload, downloadFormat]);
+
+    const handleFormatChoice = useCallback((fmt: DownloadFormat) => {
+        persistFormat(fmt);
+        setFormatMenuOpen(false);
+        void handleImageDownload(fmt);
+    }, [persistFormat, handleImageDownload]);
 
     const lightbox = (
         <div
@@ -101,16 +171,62 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
                 <X className="w-6 h-6" />
             </button>
 
-            {/* Download button */}
-            <button
-                onMouseDown={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); handleDownload(); }}
-                className="absolute top-4 right-16 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="Download image"
-            >
-                <Download className="w-6 h-6" />
-            </button>
+            {/* Download control — split button for images, single button for videos */}
+            {isVideo ? (
+                <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                    className="absolute top-4 right-16 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    title="Download video"
+                >
+                    <Download className="w-6 h-6" />
+                </button>
+            ) : (
+                <div
+                    ref={formatMenuRef}
+                    className="absolute top-4 right-16 flex items-center"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                >
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-l-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                        title={`Download as ${downloadFormat.toUpperCase()}`}
+                    >
+                        <Download className="w-5 h-5" />
+                        <span className="text-xs font-medium uppercase">{downloadFormat}</span>
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setFormatMenuOpen(o => !o); }}
+                        className="px-2 py-2 rounded-r-full bg-white/10 hover:bg-white/20 text-white transition-colors border-l border-white/10"
+                        title="Choose download format"
+                        aria-expanded={formatMenuOpen}
+                        aria-haspopup="menu"
+                    >
+                        <ChevronDown className="w-4 h-4" />
+                    </button>
+                    {formatMenuOpen && (
+                        <div
+                            role="menu"
+                            className="absolute top-full right-0 mt-2 w-32 rounded-lg bg-black/90 backdrop-blur border border-white/10 shadow-2xl overflow-hidden"
+                        >
+                            {(['png', 'jpeg', 'webp'] as const).map(fmt => (
+                                <button
+                                    key={fmt}
+                                    role="menuitem"
+                                    onClick={(e) => { e.stopPropagation(); handleFormatChoice(fmt); }}
+                                    className={`w-full text-left px-3 py-2 text-sm uppercase tracking-wide transition-colors ${
+                                        fmt === downloadFormat ? 'bg-white/15 text-white' : 'text-white/80 hover:bg-white/10'
+                                    }`}
+                                >
+                                    {fmt}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Counter */}
             <div className="absolute top-4 left-4 px-3 py-1 rounded-full bg-white/10 text-white text-sm">
