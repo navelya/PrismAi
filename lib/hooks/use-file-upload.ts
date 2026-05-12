@@ -1,17 +1,23 @@
 import { useState, useRef, useCallback } from 'react';
-import { convertImageToWebP } from '@/lib/utils/image-processing';
+import { convertImageToWebP, ImageTooLargeError } from '@/lib/utils/image-processing';
 
 const IMAGE_CAP = 4;
 const EVICTION_TOAST_MSG = 'Removed earliest photo — chat keeps the 4 most recent images active.';
+const IMAGE_TOO_LARGE_TOAST_MSG = 'Image too large, even after compression. Try a smaller file.';
 
 export function useFileUpload() {
     const [attachedImages, setAttachedImages] = useState<string[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [evictionToast, setEvictionToast] = useState(false);
+    const [imageTooLargeToast, setImageTooLargeToast] = useState(false);
     const attachedBlobsRef = useRef<Blob[]>([]);
 
     const dismissEvictionToast = useCallback(() => {
         setEvictionToast(false);
+    }, []);
+
+    const dismissImageTooLargeToast = useCallback(() => {
+        setImageTooLargeToast(false);
     }, []);
 
     const handleImageFiles = useCallback(async (files: FileList | null) => {
@@ -21,7 +27,6 @@ export function useFileUpload() {
             if (file.type.startsWith('image/')) {
                 try {
                     const webpBlob = await convertImageToWebP(file);
-                    // Create preview (data-URI — safe to send as request body to the server)
                     const preview = await new Promise<string>((resolve) => {
                         const reader = new FileReader();
                         reader.onloadend = () => resolve(reader.result as string);
@@ -29,7 +34,11 @@ export function useFileUpload() {
                     });
                     return { blob: webpBlob, preview };
                 } catch (e) {
-                    console.error("Image conversion failed", e);
+                    if (e instanceof ImageTooLargeError) {
+                        setImageTooLargeToast(true);
+                    } else {
+                        console.error("Image conversion failed", e);
+                    }
                     return null;
                 }
             }
@@ -112,5 +121,8 @@ export function useFileUpload() {
         evictionToast,
         evictionToastMessage: EVICTION_TOAST_MSG,
         dismissEvictionToast,
+        imageTooLargeToast,
+        imageTooLargeToastMessage: IMAGE_TOO_LARGE_TOAST_MSG,
+        dismissImageTooLargeToast,
     };
 }

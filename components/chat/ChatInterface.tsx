@@ -103,6 +103,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         evictionToast,
         evictionToastMessage,
         dismissEvictionToast,
+        imageTooLargeToast,
+        imageTooLargeToastMessage,
+        dismissImageTooLargeToast,
     } = useFileUpload();
 
     const { createNewSession } = useSession();
@@ -357,6 +360,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 evictionToast={evictionToast}
                 evictionToastMessage={evictionToastMessage}
                 onDismissEvictionToast={dismissEvictionToast}
+                imageTooLargeToast={imageTooLargeToast}
+                imageTooLargeToastMessage={imageTooLargeToastMessage}
+                onDismissImageTooLargeToast={dismissImageTooLargeToast}
             />
         );
     }
@@ -459,6 +465,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     message={evictionToastMessage}
                     duration={4000}
                     onClose={dismissEvictionToast}
+                />
+            )}
+            {imageTooLargeToast && (
+                <Toast
+                    message={imageTooLargeToastMessage}
+                    duration={4000}
+                    onClose={dismissImageTooLargeToast}
                 />
             )}
         </div>

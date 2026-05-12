@@ -37,6 +37,9 @@ interface ChatEmptyStateProps {
     evictionToast?: boolean;
     evictionToastMessage?: string;
     onDismissEvictionToast?: () => void;
+    imageTooLargeToast?: boolean;
+    imageTooLargeToastMessage?: string;
+    onDismissImageTooLargeToast?: () => void;
 }
 
 export function ChatEmptyState({
@@ -55,6 +58,9 @@ export function ChatEmptyState({
     evictionToast,
     evictionToastMessage,
     onDismissEvictionToast,
+    imageTooLargeToast,
+    imageTooLargeToastMessage,
+    onDismissImageTooLargeToast,
 }: ChatEmptyStateProps) {
     if (!isMobile) {
         return (
@@ -191,6 +197,13 @@ export function ChatEmptyState({
                     message={evictionToastMessage ?? ''}
                     duration={4000}
                     onClose={onDismissEvictionToast ?? (() => {})}
+                />
+            )}
+            {imageTooLargeToast && (
+                <Toast
+                    message={imageTooLargeToastMessage ?? ''}
+                    duration={4000}
+                    onClose={onDismissImageTooLargeToast ?? (() => {})}
                 />
             )}
         </div>
