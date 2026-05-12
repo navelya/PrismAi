@@ -30,7 +30,6 @@ const CANVAS_TRANSITION = { type: 'tween' as const, ease: 'easeOut' as const, du
 const RAIL_SPRING = { type: 'spring' as const, stiffness: 340, damping: 30 };
 
 const SIDEBAR_WIDTH = 340;
-const SIDEBAR_HEIGHT = 600;
 const PANEL_W = 320; // left-side panel width
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,18 +37,6 @@ type ActivePanel = 'node-library' | 'assets' | 'templates' | null;
 
 export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult, sessionId }: WorkspaceLayoutProps) {
     const isMobile = useIsMobile();
-
-    // BOOTSTRAP (render-phase, runs once before the first paint):
-    // Sync the store to the optimistic mode now so the first paint and every
-    // store subscriber (chat panel included) agree.
-    const hasBootstrappedMode = useRef(false);
-    if (!hasBootstrappedMode.current) {
-        hasBootstrappedMode.current = true;
-        const store = useAppStore.getState();
-        const wantCanvas = !!sessionId;
-        if (store.isCanvasMode !== wantCanvas) store.setIsCanvasMode(wantCanvas);
-        if (store.isCopilotMinimized) store.setIsCopilotMinimized(false);
-    }
 
     const isCanvasMode = useAppStore(s => s.isCanvasMode);
     const setIsCanvasMode = useAppStore(s => s.setIsCanvasMode);
@@ -59,32 +46,22 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
-    // MAINTENANCE: While the session is still loading (workflow not yet
-    // resolved), keep canvas mode pinned. This defends against
-    // `clearAllState()` in /chat/[id]/page.tsx, which fires AFTER our render
-    // bootstrap and resets isCanvasMode to false. useLayoutEffect runs before
-    // paint, so the user never sees the intermediate full-screen frame.
+    // Commit canvas mode once per mount, after the workflow for this session
+    // has loaded. Only auto-ENABLE canvas mode when the workflow has nodes;
+    // never auto-disable, so navigating to an empty session doesn't yank the
+    // user out of canvas mode mid-interaction.
     const hasHandledInitialMode = useRef(false);
     useLayoutEffect(() => {
         if (hasHandledInitialMode.current) return;
+        if (!sessionId) return;
+        if (!workflow || workflow.id !== sessionId) return;
+        const hasNodes = (workflow.nodes?.length || 0) > 0;
         const store = useAppStore.getState();
-        const wantCanvas = !!sessionId;
-        if (store.isCanvasMode !== wantCanvas) store.setIsCanvasMode(wantCanvas);
+        // Only ENABLE canvas mode automatically; never auto-disable it.
+        if (hasNodes && !store.isCanvasMode) store.setIsCanvasMode(true);
         if (store.isCopilotMinimized) store.setIsCopilotMinimized(false);
-    });
-
-    // VERIFICATION: When the workflow lands, commit the final mode based on
-    // whether it has nodes, then release the maintenance loop above.
-    useEffect(() => {
-        if (!sessionId || hasHandledInitialMode.current) return;
-
-        if (workflow && workflow.id === sessionId) {
-            const hasNodes = (workflow.nodes?.length || 0) > 0;
-            setIsCanvasMode(hasNodes);
-            setIsCopilotMinimized(false);
-            hasHandledInitialMode.current = true;
-        }
-    }, [sessionId, workflow, setIsCanvasMode, setIsCopilotMinimized]);
+        hasHandledInitialMode.current = true;
+    }, [sessionId, workflow]);
 
     const togglePanel = useCallback((panel: ActivePanel) => {
         setActivePanel(prev => (prev === panel ? null : panel));
@@ -145,7 +122,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const TOP_BAR_OFFSET = 64; // clears the credits/upgrade pill at top-left of the canvas
     const canvasLeft = 16;  // matches left-4 = 16px (same as other panels)
     const canvasTop = TOP_BAR_OFFSET;
-    const chatHeight = Math.max(SIDEBAR_HEIGHT, containerSize.h - TOP_BAR_OFFSET - PAD);
+    const chatHeight = Math.max(0, containerSize.h - TOP_BAR_OFFSET - PAD);
 
     // Rail left position:
     //   chat open  → right edge of chat panel (PAD + SIDEBAR_WIDTH + gap)

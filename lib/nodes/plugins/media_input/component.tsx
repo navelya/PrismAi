@@ -5,7 +5,7 @@ import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
-import { LayoutGrid, Square, Check, Upload, Plus, X, Play } from 'lucide-react';
+import { LayoutGrid, Square, Check, Upload, Plus, X } from 'lucide-react';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import ImageLightbox from '@/components/ui/ImageLightbox';
@@ -24,7 +24,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [lightboxOpen, setLightboxOpen] = useState(false);
-    const videoRef = useRef<HTMLVideoElement>(null);
 
     const images = data.config?.images || [];
 
@@ -69,7 +68,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             const { uploadApi } = await import('@/lib/api/client');
 
             const uploadPromises = Array.from(files).map(async (file) => {
-                if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+                if (file.type.startsWith('image/')) {
                     const result = await uploadApi.upload(file, {
                         sessionId: activeSessionId,
                         nodeId: id
@@ -129,7 +128,8 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
                 const droppedUrls = dropped
                     .map((item: any) => (typeof item === 'string' ? item : item?.url))
-                    .filter((url: any) => typeof url === 'string' && (url.startsWith('http') || url.startsWith('data:')));
+                    .filter((url: any) => typeof url === 'string' && (url.startsWith('http') || url.startsWith('data:')))
+                    .filter((url: string) => detectMediaTypeFromUrl(url) !== 'video');
 
                 if (droppedUrls.length > 0) {
                     appendUniqueUrls(droppedUrls);
@@ -161,10 +161,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
         const newImages = images.filter((_, i) => i !== index);
         updateImages(newImages);
-    };
-
-    const isVideo = (url: string) => {
-        return detectMediaTypeFromUrl(url) === 'video';
     };
 
     return (
@@ -204,44 +200,20 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                         <div className="w-10 h-10 rounded-full bg-surface-primary flex items-center justify-center shadow-sm">
                             <Upload className="w-5 h-5" />
                         </div>
-                        <span className="text-xs font-medium">Click or drag media to upload</span>
+                        <span className="text-xs font-medium">Click or drag images to upload</span>
                     </button>
                 ) : (
                     <>
                         {previewMode === 'single' ? (
-                            <div 
+                            <div
                                 className="w-full h-full group/preview relative cursor-zoom-in"
-                                onMouseEnter={() => videoRef.current?.play()}
-                                onMouseLeave={() => {
-                                    if (videoRef.current) {
-                                        videoRef.current.pause();
-                                        videoRef.current.currentTime = 0;
-                                    }
-                                }}
                                 onClick={() => setLightboxOpen(true)}
                             >
-                                {isVideo(getMediaUrl(images[activeImageIndex])) ? (
-                                    <>
-                                        <video
-                                            ref={videoRef}
-                                            src={getMediaUrl(images[activeImageIndex])}
-                                            className="w-full h-full object-contain"
-                                            controls={false}
-                                            muted
-                                            loop
-                                            playsInline
-                                        />
-                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                                            <Play className="w-10 h-10 text-white fill-current" />
-                                        </div>
-                                    </>
-                                ) : (
-                                    <img
-                                        src={getMediaUrl(images[activeImageIndex])}
-                                        alt=""
-                                        className="w-full h-full object-contain"
-                                    />
-                                )}
+                                <img
+                                    src={getMediaUrl(images[activeImageIndex])}
+                                    alt=""
+                                    className="w-full h-full object-contain"
+                                />
                                 <button
                                     type="button"
                                     onClick={(e) => removeImage(e, activeImageIndex)}
@@ -256,7 +228,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                 <div className="grid grid-cols-3 gap-1.5">
                                     {images.map((img, index) => {
                                         const url = getMediaUrl(img);
-                                        const isVid = isVideo(url);
                                         return (
                                             <button
                                                 key={index}
@@ -267,20 +238,11 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                                     activeImageIndex === index ? "border-accent-primary ring-2 ring-accent-primary/20" : "border-white/5"
                                                 )}
                                             >
-                                                {isVid ? (
-                                                    <video
-                                                        src={url}
-                                                        className="w-full h-full object-cover"
-                                                        muted
-                                                        playsInline
-                                                    />
-                                                ) : (
-                                                    <img 
-                                                        src={url} 
-                                                        alt="" 
-                                                        className="w-full h-full object-cover" 
-                                                    />
-                                                )}
+                                                <img
+                                                    src={url}
+                                                    alt=""
+                                                    className="w-full h-full object-cover"
+                                                />
                                                 {activeImageIndex === index && (
                                                     <div className="absolute inset-0 bg-accent-primary/20 flex items-center justify-center">
                                                         <Check className="w-3 h-3 text-white" />
@@ -336,7 +298,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*"
                 multiple
                 onChange={handleInputChange}
                 className="hidden"
@@ -346,7 +308,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             {lightboxOpen && images.length > 0 && (
                 <ImageLightbox
                     media={images.map(getMediaUrl)}
-                    type="any"
+                    type="image"
                     initialIndex={activeImageIndex}
                     onClose={() => setLightboxOpen(false)}
                 />

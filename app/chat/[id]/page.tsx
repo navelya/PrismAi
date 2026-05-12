@@ -29,16 +29,17 @@ export default function ActiveSessionPage({ params }: { params: { id: string } }
 
         // Ghost Message Prevention => Wipe stale state IF the ID is different from what's currently in store.
         if (store.activeSessionId !== sessionId) {
-            console.log('[DEBUG] Session ID changed, clearing all state');
             store.clearAllState();
             store.setActiveSessionId(sessionId);
         }
 
-        // If the store already has messages for this exact session, we likely JUST created it 
-        // optimistically (or soft-navigated back). Skip loading to preserve optimistic UI.
-        const hasMessages = useAppStore.getState().chatMessages.some(m => m.sessionId === sessionId);
-        if (hasMessages) {
-            console.log('[DEBUG] Store already has messages for session, skipping load to preserve optimistic UI');
+        // If the store already has messages OR a workflow keyed to this exact
+        // session, we likely JUST created it optimistically (or soft-navigated
+        // back). Skip loading to preserve optimistic UI.
+        const storeState = useAppStore.getState();
+        const hasMessages = storeState.chatMessages.some(m => m.sessionId === sessionId);
+        const hasWorkflowForSession = storeState.currentWorkflow?.id === sessionId;
+        if (hasMessages || hasWorkflowForSession) {
             setIsSessionReady(true);
             return;
         }

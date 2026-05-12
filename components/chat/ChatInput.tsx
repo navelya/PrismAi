@@ -101,6 +101,16 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
 
         const [isExpanded, setIsExpanded] = useState(false);
         const [isMultiLine, setIsMultiLine] = useState(false);
+        // Mirror isMultiLine into a ref so adjustTextareaHeight can read the latest
+        // value without taking isMultiLine as a useCallback dep. Otherwise:
+        //   setIsMultiLine → state change → adjustTextareaHeight new identity →
+        //   useEffect re-fires → adjustTextareaHeight → setIsMultiLine → ...
+        // Triggered by any external CSS change that perturbs the textarea's
+        // scrollHeight into the (40, 60) band (e.g. canvas-mode toggle, which
+        // flips minHeight 24↔40 and the textarea's positioning class). Result was
+        // "Maximum update depth exceeded".
+        const isMultiLineRef = useRef(isMultiLine);
+        useEffect(() => { isMultiLineRef.current = isMultiLine; }, [isMultiLine]);
         // Single source of truth for which footer dropdown is open. Opening one
         // automatically closes the other so they can't both be visible.
         const [openMenu, setOpenMenu] = useState<'none' | 'plus' | 'model'>('none');
@@ -156,7 +166,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             const currentInput = textarea.value;
             const hasNewlines = currentInput.includes('\n');
 
-            if (!isMultiLine && !hasNewlines) {
+            if (!isMultiLineRef.current && !hasNewlines) {
                 if (textarea.scrollHeight > 40) {
                     setIsMultiLine(true);
                 }
@@ -181,7 +191,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     textarea.style.height = `${newHeight}px`;
                 }
             }
-        }, [isMultiLine, isMobile, isExpanded, textareaRef]);
+        }, [isMobile, isExpanded, textareaRef]);
 
         // Sync height whenever value changes (including when cleared)
         useEffect(() => {

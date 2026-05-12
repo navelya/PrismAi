@@ -224,7 +224,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                                 flex items-center gap-3 px-4 py-3 rounded-xl
                                                 transition-all duration-200
                                                 ${isActive
-                                                    ? 'bg-accent-primary/10 text-accent-primary border border-accent-primary/10 shadow-sm'
+                                                    ? 'bg-accent-primary/10 text-accent-primary'
                                                     : 'text-content-primary hover:bg-interactive-hover'
                                                 }
                                             `}
@@ -299,7 +299,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     </MobileActionSheet>
 
                     {/* Bottom Section - Fixed in Flex column */}
-                    <div className="p-4 border-t border-stroke-subtle bg-surface-primary safe-area-bottom">
+                    <div className="p-4 border-t border-stroke-subtle/40 bg-surface-primary safe-area-bottom">
                         {user ? (
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
@@ -357,7 +357,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     return (
         <div
             className={`
-                flex flex-col bg-surface-primary border-r border-stroke-subtle h-full
+                flex flex-col bg-surface-primary border-r border-stroke-subtle/40 h-full
                 transition-all duration-300 ease-in-out
                 ${isExpanded ? 'w-60' : 'w-16'}
             `}
@@ -407,7 +407,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                             group relative flex items-center gap-3 px-3 py-2.5 rounded-lg
                                             transition-all duration-200
                                             ${isActive
-                                                ? 'bg-accent-primary/10 text-accent-primary border border-accent-primary/10 shadow-sm'
+                                                ? 'bg-accent-primary/10 text-accent-primary'
                                                 : 'text-content-primary hover:bg-interactive-hover'
                                             }
                                         `}
@@ -424,7 +424,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                         </span>
 
                                         {isActive && (
-                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-primary rounded-r-full shadow-[0_0_8px_rgb(var(--accent-primary)/0.6)]" />
+                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-accent-primary rounded-r-full" />
                                         )}
 
                                         {!isExpanded && (
@@ -481,7 +481,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             </div>
 
             {/* Logo at Bottom (Replaced by Profile for Authenticated Users) */}
-            <div className="border-t border-stroke-subtle bg-surface-secondary relative">
+            <div className="border-t border-stroke-subtle/40 relative">
                 {user ? (
                     <div className="p-2">
                         <div className="relative">
@@ -683,7 +683,7 @@ function SidebarSessionItem({
                     group flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer
                     transition-all duration-200 select-none
                     ${isActive
-                        ? 'bg-accent-primary/10 text-accent-primary font-bold border border-accent-primary/10 shadow-sm'
+                        ? 'bg-accent-primary/10 text-accent-primary font-bold'
                         : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
                     }
                 `}
@@ -733,7 +733,7 @@ function SidebarSessionItem({
                     group relative flex items-center gap-3 px-3 py-2 rounded-lg
                     transition-all duration-200
                     ${isActive
-                    ? 'bg-accent-primary/10 text-accent-primary font-bold border border-accent-primary/10 shadow-sm'
+                    ? 'bg-accent-primary/10 text-accent-primary font-bold'
                     : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
                 }
                 `}

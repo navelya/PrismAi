@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, startTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store/app-store';
 import { Workflow } from '@/lib/nodes/types';
@@ -29,35 +29,40 @@ export function useSession() {
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
     const [error, setError] = useState<Error | null>(null);
 
-    // Create a new session and redirect
-    const createNewSession = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const { session } = await sessionsApi.create('New Workflow');
+    // Create a new session — mirrors the typing flow in use-chat-messages.ts
+    // exactly. Generate the UUID client-side so the URL change and store
+    // seeding happen synchronously (no awaiting the DB round-trip), then
+    // fire the DB insert in the background and soft-navigate via replace +
+    // startTransition. The new session opens with canvas mode on and the
+    // copilot collapsed to a sidebar — matching what the user would see
+    // after sending the first message in the typing flow.
+    const createNewSession = useCallback(() => {
+        const sessionId = crypto.randomUUID();
+        const store = useAppStore.getState();
 
-            if (session) {
-                // Reset ALL local store state before navigating
-                const store = useAppStore.getState();
+        store.setActiveSessionId(sessionId);
+        store.setCurrentWorkflow({
+            id: sessionId,
+            name: 'Untitled Workflow',
+            nodes: [],
+            edges: [],
+        }, false);
+        store.clearMessages();
+        store.clearExecutionResults();
+        store.resetNodeStatuses();
+        store.clearNodeOutputs();
+        store.setIsCanvasMode(true);
+        store.setIsCopilotMinimized(false);
 
-                // Set active session to the new session ID
-                store.setActiveSessionId(session.id);
+        // Fire the DB insert in the background — don't await. Matches the
+        // typing flow's pattern.
+        sessionsApi.create('New Workflow', sessionId).catch((err) => {
+            console.error('Failed to create session:', err);
+        });
 
-                // Clear workflow and other state for fresh start (false = don't mark dirty)
-                store.setCurrentWorkflow(null, false);
-                store.clearMessages();
-                store.clearExecutionResults();
-                store.resetNodeStatuses();
-                store.clearNodeOutputs();
-                // Canvas mode is preserved across sessions (managed by isCanvasMode in store)
-
-                // Use native Next.js Router to soft-navigate without unmounting the layout
-                router.push(`/chat/${session.id}`);
-            }
-        } catch (error) {
-            console.error('Failed to create session:', error);
-        } finally {
-            setIsLoading(false);
-        }
+        startTransition(() => {
+            router.replace(`/chat/${sessionId}`, { scroll: false });
+        });
     }, [router]);
 
     // Load a session by ID

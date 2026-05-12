@@ -1,34 +1,91 @@
 /**
- * Converts a file to WebP format using client-side canvas.
+ * Converts a file to WebP format using client-side canvas, targeting a 5MB ceiling.
+ *
+ * Strategy:
+ *   1. Encode at quality 0.8 → if ≤ 5MB, return.
+ *   2. Retry at 0.6, then 0.4.
+ *   3. If still oversized, scale longest edge to 4096px and retry 0.8 → 0.6 → 0.4.
+ *   4. If even that fails, throw `ImageTooLargeError`.
+ *
  * @param file The input file (image)
- * @param quality Quality from 0 to 1 (default 0.8)
- * @returns Promise<Blob> The WebP blob
+ * @returns Promise<Blob> The WebP blob, guaranteed ≤ 5MB on success.
  */
-export async function convertImageToWebP(file: File, quality = 0.8): Promise<Blob> {
+const TARGET_IMAGE_BYTES = 5 * 1024 * 1024;
+const QUALITY_LADDER = [0.8, 0.6, 0.4] as const;
+const MAX_LONGEST_EDGE = 4096;
+
+export class ImageTooLargeError extends Error {
+    constructor() {
+        super('Image too large, even after compression');
+        this.name = 'ImageTooLargeError';
+    }
+}
+
+function decodeFileToImage(file: File): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-                reject(new Error('Canvas context not supported'));
-                return;
-            }
-            ctx.drawImage(img, 0, 0);
-            canvas.toBlob(
-                (blob) => {
-                    if (blob) resolve(blob);
-                    else reject(new Error('WebP conversion failed'));
-                },
-                'image/webp',
-                quality
-            );
-        };
+        img.onload = () => resolve(img);
         img.onerror = (err) => reject(err);
         img.src = URL.createObjectURL(file);
     });
+}
+
+function encodeCanvasToWebP(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(
+            (blob) => {
+                if (blob) resolve(blob);
+                else reject(new Error('WebP conversion failed'));
+            },
+            'image/webp',
+            quality
+        );
+    });
+}
+
+function drawToCanvas(img: HTMLImageElement, width: number, height: number): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not supported');
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas;
+}
+
+async function encodeAtNaturalSize(img: HTMLImageElement): Promise<Blob | null> {
+    const canvas = drawToCanvas(img, img.width, img.height);
+    for (const quality of QUALITY_LADDER) {
+        const blob = await encodeCanvasToWebP(canvas, quality);
+        if (blob.size <= TARGET_IMAGE_BYTES) return blob;
+    }
+    return null;
+}
+
+async function encodeAtScaledSize(img: HTMLImageElement): Promise<Blob | null> {
+    const longest = Math.max(img.width, img.height);
+    if (longest <= MAX_LONGEST_EDGE) return null; // no point resizing
+    const scale = MAX_LONGEST_EDGE / longest;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = drawToCanvas(img, w, h);
+    for (const quality of QUALITY_LADDER) {
+        const blob = await encodeCanvasToWebP(canvas, quality);
+        if (blob.size <= TARGET_IMAGE_BYTES) return blob;
+    }
+    return null;
+}
+
+export async function convertImageToWebP(file: File): Promise<Blob> {
+    const img = await decodeFileToImage(file);
+
+    const naturalResult = await encodeAtNaturalSize(img);
+    if (naturalResult) return naturalResult;
+
+    const scaledResult = await encodeAtScaledSize(img);
+    if (scaledResult) return scaledResult;
+
+    throw new ImageTooLargeError();
 }
 
 // Counter for unique filenames within the same millisecond

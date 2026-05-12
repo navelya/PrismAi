@@ -132,12 +132,19 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const aspectCustomFlag = config.ui_state?.aspect_ratio_custom === true;
     const aspectIsCustom = aspectCustomFlag || (!!aspectControl && isCustomAspectFormat(aspectValue));
 
-    const setAspectCustom = (next: boolean) => {
+    /** Atomic aspect_ratio update — sets both control_values and ui_state in a
+     *  single onUpdate call. Splitting them caused the second call to clobber
+     *  the first because both spread the same captured `config`. */
+    const handleAspectChange = (key: string, value: string, custom: boolean) => {
         onUpdate({
             ...config,
+            control_values: {
+                ...(config.control_values || {}),
+                [key]: value,
+            },
             ui_state: {
                 ...(config.ui_state || {}),
-                aspect_ratio_custom: next,
+                aspect_ratio_custom: custom,
             },
         });
     };
@@ -261,7 +268,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                                                 value={config.control_values?.[ctrl.api_mapping_key]}
                                                 onChange={handleControlChange}
                                                 aspectIsCustom={aspectIsCustom}
-                                                onAspectCustomChange={setAspectCustom}
+                                                onAspectChange={handleAspectChange}
                                             />
                                         </div>
                                     </div>
@@ -306,13 +313,13 @@ function ControlRenderer({
     value,
     onChange,
     aspectIsCustom,
-    onAspectCustomChange,
+    onAspectChange,
 }: {
     control: Control;
     value: any;
     onChange: (key: string, val: any) => void;
     aspectIsCustom?: boolean;
-    onAspectCustomChange?: (custom: boolean) => void;
+    onAspectChange?: (key: string, value: string, custom: boolean) => void;
 }) {
     const label = control.label || formatDisplayName(control.api_mapping_key);
 
@@ -340,10 +347,12 @@ function ControlRenderer({
                     label={label}
                     value={String(value ?? control.default_value ?? '')}
                     options={control.options}
-                    onChange={val => onChange(control.api_mapping_key, val)}
+                    onChange={(val, custom) => {
+                        if (onAspectChange) onAspectChange(control.api_mapping_key, val, custom);
+                        else onChange(control.api_mapping_key, val);
+                    }}
                     variant="minimal"
                     isCustom={aspectIsCustom}
-                    onCustomChange={onAspectCustomChange}
                 />
             );
         case 'select':

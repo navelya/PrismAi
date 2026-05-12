@@ -2,7 +2,8 @@ import { NodeSharedDef } from '../../core/types';
 
 /**
  * Media Input Node Configuration
- * Stores manually uploaded images as base64 data URLs
+ * Stores manually uploaded images as base64 data URLs or storage objects.
+ * Images-only — videos and other media types are not accepted.
  */
 export interface MediaInputConfig {
     /** Array of base64 data URLs (legacy) or storage objects for uploaded images */
@@ -15,7 +16,7 @@ export const mediaInputSharedDef: NodeSharedDef<MediaInputConfig> = {
     category: 'input',
     meta: {
         label: 'Media Input',
-        description: 'Upload images manually',
+        description: 'Upload images manually (images only)',
         color: '#3b82f6',
         icon: 'ImagePlus',
     },

@@ -3,18 +3,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { NumberInput } from './NumberInput';
 
 interface AspectRatioPickerProps {
     label?: string;
     value: string;
     options?: string[];
-    onChange: (value: string) => void;
+    /** Single atomic callback — fires with the new value and whether Custom mode
+     *  is active. The parent must commit BOTH in the same update to avoid the
+     *  React batching race where two setState calls clobber each other. */
+    onChange: (value: string, isCustom: boolean) => void;
     variant?: 'default' | 'minimal';
-    /** Optional controlled custom-mode flag. Lets the parent drive the toggle so it
-     *  can use the same signal (e.g. to hide linked width/height controls). */
+    /** Optional controlled custom-mode flag. When provided, the parent owns it. */
     isCustom?: boolean;
-    onCustomChange?: (isCustom: boolean) => void;
 }
 
 /** Exported so the property panel can use the same detection rule. */
@@ -88,17 +88,10 @@ export function AspectRatioPicker({
     onChange,
     variant = 'default',
     isCustom,
-    onCustomChange,
 }: AspectRatioPickerProps) {
     const [open, setOpen] = useState(false);
     const [internalCustomMode, setInternalCustomMode] = useState(() => isCustomFormat(value));
     const customMode = isCustom !== undefined ? isCustom : internalCustomMode;
-    const setCustomMode = (next: boolean) => {
-        if (onCustomChange) onCustomChange(next);
-        if (isCustom === undefined) setInternalCustomMode(next);
-    };
-    const [customW, setCustomW] = useState<string>('16');
-    const [customH, setCustomH] = useState<string>('9');
     const containerRef = useRef<HTMLDivElement>(null);
     const isMinimal = variant === 'minimal';
 
@@ -112,16 +105,10 @@ export function AspectRatioPicker({
     const showCustom = customMode || isCustomFormat(value);
 
     useEffect(() => {
-        if (isCustomFormat(value)) {
-            const [w, h] = parseCustom(value);
-            setCustomW(String(w));
-            setCustomH(String(h));
-            setCustomMode(true);
+        if (isCustomFormat(value) && isCustom === undefined) {
+            setInternalCustomMode(true);
         }
-        // value matching a preset doesn't auto-clear customMode — the parent
-        // (or the preset-button click) is the only source for clearing it,
-        // because a custom W:H may legitimately equal a preset string.
-    }, [value]);
+    }, [value, isCustom]);
 
     useEffect(() => {
         if (!open) return;
@@ -142,27 +129,18 @@ export function AspectRatioPicker({
             : (value || 'Select…');
 
     const handleSelectPreset = (preset: PresetMeta) => {
-        setCustomMode(false);
-        onChange(preset.value);
+        if (isCustom === undefined) setInternalCustomMode(false);
+        onChange(preset.value, false);
         setOpen(false);
     };
 
     const handleSelectCustom = () => {
-        const w = parseInt(customW) || 16;
-        const h = parseInt(customH) || 9;
-        setCustomMode(true);
-        onChange(`${w}:${h}`);
+        if (isCustom === undefined) setInternalCustomMode(true);
+        // Keep the existing value so the API still receives a valid string —
+        // the model's width/height controls take over for actual sizing.
+        const fallback = availablePresets[0]?.value || '1:1';
+        onChange(value || fallback, true);
         setOpen(false);
-    };
-
-    const handleCustomChange = (w: string, h: string) => {
-        setCustomW(w);
-        setCustomH(h);
-        const wn = parseInt(w);
-        const hn = parseInt(h);
-        if (Number.isFinite(wn) && Number.isFinite(hn) && wn > 0 && hn > 0) {
-            onChange(`${wn}:${hn}`);
-        }
     };
 
     return (
@@ -186,10 +164,7 @@ export function AspectRatioPicker({
                 )}
             >
                 <div className="flex items-center gap-2 min-w-0">
-                    {showCustom
-                        ? <RatioIcon width={parseInt(customW) || 1} height={parseInt(customH) || 1} active />
-                        : currentMeta && <RatioIcon width={currentMeta.width} height={currentMeta.height} active />
-                    }
+                    {!showCustom && currentMeta && <RatioIcon width={currentMeta.width} height={currentMeta.height} active />}
                     <span className="truncate font-medium">{triggerLabel}</span>
                 </div>
                 <ChevronDown className={cn(
@@ -241,33 +216,6 @@ export function AspectRatioPicker({
                 </div>
             )}
 
-            {showCustom && (
-                <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                    <div className="flex items-end gap-1.5">
-                        <div className="flex-1">
-                            <NumberInput
-                                variant={isMinimal ? 'minimal' : 'default'}
-                                label="Width"
-                                min={1}
-                                step={1}
-                                value={customW}
-                                onChange={e => handleCustomChange(e.target.value, customH)}
-                            />
-                        </div>
-                        <span className="text-content-tertiary font-bold pb-2 text-sm">:</span>
-                        <div className="flex-1">
-                            <NumberInput
-                                variant={isMinimal ? 'minimal' : 'default'}
-                                label="Height"
-                                min={1}
-                                step={1}
-                                value={customH}
-                                onChange={e => handleCustomChange(customW, e.target.value)}
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
