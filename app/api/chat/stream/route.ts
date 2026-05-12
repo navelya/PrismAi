@@ -434,13 +434,22 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
   const folder = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : 'anonymous';
   for (const item of rawAttached) {
     const url: string | undefined = typeof item === 'string' ? item : item?.dataUrl ?? item?.url;
-    if (!url || !/^data:image\//.test(url)) continue;
-    try {
-      const { publicUrl } = await uploadBase64ToStorage(url, folder, supabase);
-      attachedImageUrls.push(publicUrl);
-    } catch (err) {
-      console.error('[chat] image upload failed:', err);
+    if (!url) continue;
+
+    if (/^https?:\/\//.test(url)) {
+      // Already-uploaded HTTPS URL (videos, or any pre-uploaded asset) — pass through.
+      attachedImageUrls.push(url);
+    } else if (/^data:image\//.test(url)) {
+      // Image as base64 data URL — upload here via service-role.
+      try {
+        const { publicUrl } = await uploadBase64ToStorage(url, folder, supabase);
+        attachedImageUrls.push(publicUrl);
+      } catch (err) {
+        console.error('[chat] image upload failed:', err);
+      }
     }
+    // Other prefixes (e.g., data:video/...) are ignored — videos must use direct upload.
+
     if (attachedImageUrls.length >= 4) break; // hard cap consistent with parseImageAttachments
   }
 
