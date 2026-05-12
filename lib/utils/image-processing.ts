@@ -98,24 +98,39 @@ export async function convertImageToWebP(file: File): Promise<Blob> {
 // Counter for unique filenames within the same millisecond
 let fileCounter = 0;
 
+export interface UploadOptions {
+    extension?: string;     // e.g. 'webp' | 'mp4' | 'mov'. Defaults to 'webp'.
+    contentType?: string;   // e.g. 'image/webp' | 'video/mp4'. Defaults to 'image/webp'.
+}
+
 /**
- * Uploads a file to Supabase Storage and returns path and public URL.
- * @param file The file or blob to upload
+ * Uploads a blob to Supabase Storage and returns path and public URL.
+ * Defaults to webp/image-webp for backwards compatibility with existing image callers.
+ *
+ * @param file The blob to upload
  * @param userId User ID for folder organization
  * @param supabase Supabase client instance
+ * @param options Optional extension + MIME type overrides
  * @returns Object with { path, publicUrl }
  */
-export async function uploadImageToStorage(file: Blob, userId: string, supabase: any): Promise<{ path: string, publicUrl: string }> {
-    // Generate unique filename
+export async function uploadImageToStorage(
+    file: Blob,
+    userId: string,
+    supabase: any,
+    options: UploadOptions = {}
+): Promise<{ path: string, publicUrl: string }> {
+    const extension = options.extension ?? 'webp';
+    const contentType = options.contentType ?? 'image/webp';
+
     const timestamp = Date.now();
     fileCounter = (fileCounter + 1) % 1000;
     const random = Math.random().toString(36).substring(7);
-    const filename = `${userId}/${timestamp}-${fileCounter}-${random}.webp`;
+    const filename = `${userId}/${timestamp}-${fileCounter}-${random}.${extension}`;
 
     const { data, error } = await supabase.storage
         .from('chat-assets')
         .upload(filename, file, {
-            contentType: 'image/webp',
+            contentType,
             upsert: false
         });
 
@@ -124,9 +139,7 @@ export async function uploadImageToStorage(file: Blob, userId: string, supabase:
         throw error;
     }
 
-    // Get public URL
     const publicUrl = supabase.storage.from('chat-assets').getPublicUrl(data.path).data.publicUrl;
-
     return { path: data.path, publicUrl };
 }
 
