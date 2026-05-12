@@ -121,11 +121,33 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
   // intra-group layout. Rebuilds args.nodes with ELK-computed positions;
   // existing nodes are untouched. See lib/workflow/layout-incremental.ts.
   if (hasNodes) {
+    // The chat tool accepts edges in TWO places: top-level args.edges
+    // AND inside each node as a legacy `inputs[]` array (still supported
+    // by applyAddNodeOp). ELK needs ALL of them to understand topology —
+    // missing per-node inputs caused new chains to look disconnected and
+    // either get stacked perpendicular to the flow or overlap existing
+    // nodes. We synthesize edges for layout only; the actual workflow
+    // edges are still applied by applyAddNodeOp from inputs[].
+    const inputEdges: any[] = [];
+    for (const n of args.nodes) {
+      const inputs = Array.isArray(n?.inputs) ? n.inputs : [];
+      for (let i = 0; i < inputs.length; i++) {
+        const src = inputs[i]?.source;
+        if (typeof src === 'string') {
+          inputEdges.push({
+            id: `__layout_${n.id}_${i}`,
+            source: src,
+            target: n.id,
+          });
+        }
+      }
+    }
+
     const positions = await layoutPatchAsync({
       existingNodes: state.workflow.nodes,
       existingEdges: state.workflow.edges,
       newNodes: args.nodes,
-      newEdges: args.edges ?? [],
+      newEdges: [...(args.edges ?? []), ...inputEdges],
     });
     args = {
       ...args,

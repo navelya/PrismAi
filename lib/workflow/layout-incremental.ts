@@ -21,6 +21,9 @@ const ELK_OPTIONS = {
 
 const GROUP_LAYOUT_OPTIONS = {
     'elk.nodeSize.constraints': 'NODE_LABELS PORTS MINIMUM_SIZE',
+    // Top padding is larger to leave room for the group's header/label.
+    'elk.padding': '[top=56,left=24,bottom=24,right=24]',
+    'elk.spacing.nodeNode': '60',
 };
 
 export interface LayoutPatchInput {
