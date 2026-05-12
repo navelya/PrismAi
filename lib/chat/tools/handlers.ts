@@ -118,8 +118,8 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
 
   // Incremental ELK layout: existing canvas nodes are fixed anchors;
   // ELK places the new batch around them with proper spacing and
-  // intra-group layout. Mutates positions on args.nodes; existing nodes
-  // are untouched. See lib/workflow/layout-incremental.ts.
+  // intra-group layout. Rebuilds args.nodes with ELK-computed positions;
+  // existing nodes are untouched. See lib/workflow/layout-incremental.ts.
   if (hasNodes) {
     const positions = await layoutPatchAsync({
       existingNodes: state.workflow.nodes,
