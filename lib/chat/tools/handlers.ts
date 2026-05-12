@@ -1,6 +1,6 @@
 import { applyAddNodeOp, applyRemoveNodeOp, applyUpdateNodeOp } from '@/lib/workflow/graph-ops';
 import { applyWorkflowPatch, mergeWorkflowPatches, type WorkflowPatch } from '@/lib/workflow/workflow-patch';
-import { placeBatchInFreeSpace } from '@/lib/workflow/place-batch';
+import { layoutPatchAsync } from '@/lib/workflow/layout-incremental';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { Workflow } from '@/lib/nodes/types';
 import type { ToolName } from './definitions';
@@ -108,7 +108,7 @@ function validateNodeConfigAgainstRegistry(node: { type: string; data?: { config
   return null;
 }
 
-export function runAddNode(state: ToolHandlerState, args: any): ToolResult {
+export async function runAddNode(state: ToolHandlerState, args: any): Promise<ToolResult> {
   const hasNodes = Array.isArray(args?.nodes) && args.nodes.length > 0;
   const hasEdges = Array.isArray(args?.edges) && args.edges.length > 0;
 
@@ -116,13 +116,24 @@ export function runAddNode(state: ToolHandlerState, args: any): ToolResult {
     return { success: false, error: 'add_node requires at least one node or one edge.' };
   }
 
-  // Translate the batch to sit beside existing canvas content. Children
-  // (parentNode set) keep their relative positions; only top-level nodes
-  // shift. Empty canvas → no translation. This replaces the per-node
-  // client-side layout recalc, so the client can trust the positions it
-  // receives.
+  // Incremental ELK layout: existing canvas nodes are fixed anchors;
+  // ELK places the new batch around them with proper spacing and
+  // intra-group layout. Mutates positions on args.nodes; existing nodes
+  // are untouched. See lib/workflow/layout-incremental.ts.
   if (hasNodes) {
-    args = { ...args, nodes: placeBatchInFreeSpace(args.nodes, state.workflow.nodes) };
+    const positions = await layoutPatchAsync({
+      existingNodes: state.workflow.nodes,
+      existingEdges: state.workflow.edges,
+      newNodes: args.nodes,
+      newEdges: args.edges ?? [],
+    });
+    args = {
+      ...args,
+      nodes: args.nodes.map((n: any) => {
+        const pos = positions.get(n.id);
+        return pos ? { ...n, position: pos } : n;
+      }),
+    };
   }
 
   // Pre-validate every node against the registry so a bad config gives one
@@ -231,9 +242,9 @@ export function runRemoveNode(state: ToolHandlerState, args: any): ToolResult {
   return { success: true, patch: result.patch ?? undefined };
 }
 
-export function dispatchTool(state: ToolHandlerState, name: ToolName, args: any): ToolResult {
+export async function dispatchTool(state: ToolHandlerState, name: ToolName, args: any): Promise<ToolResult> {
   switch (name) {
-    case 'add_node':    return runAddNode(state, args);
+    case 'add_node':    return await runAddNode(state, args);
     case 'update_node': return runUpdateNode(state, args);
     case 'remove_node': return runRemoveNode(state, args);
     case 'ask_clarification':

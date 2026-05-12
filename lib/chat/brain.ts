@@ -230,7 +230,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
             input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
             break;
           }
-          const result = dispatchTool(state, name, event.args);
+          const result = await dispatchTool(state, name, event.args);
           if (!result.success) {
             input.encoder.send({ type: 'error', message: result.error || `${name} failed`, recoverable: true });
             break;

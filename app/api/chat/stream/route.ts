@@ -142,7 +142,7 @@ async function handlePlanApprove(opts: {
             // ─── ORIGINAL SINGLE-BLUEPRINT PATH — UNCHANGED ───
 
             // 5. Apply via dispatchTool('add_node', blueprint).
-            const result = dispatchTool(state, 'add_node', blueprint);
+            const result = await dispatchTool(state, 'add_node', blueprint);
             if (!result.success) {
               encoder.send({
                 type: 'error',
@@ -239,7 +239,7 @@ async function handlePlanApprove(opts: {
             encoder.send({ type: 'task_start', taskId: task.id, index: i, total });
 
             const augmented = synthesizeTaskBlueprint(task);
-            const result = dispatchTool(state, 'add_node', augmented);
+            const result = await dispatchTool(state, 'add_node', augmented);
             if (!result.success) {
               failed = true;
               failedTaskId = task.id;
