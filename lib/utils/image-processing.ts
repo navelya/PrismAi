@@ -23,10 +23,17 @@ export class ImageTooLargeError extends Error {
 
 function decodeFileToImage(file: File): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
         const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = (err) => reject(err);
-        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve(img);
+        };
+        img.onerror = (err) => {
+            URL.revokeObjectURL(url);
+            reject(err);
+        };
+        img.src = url;
     });
 }
 
