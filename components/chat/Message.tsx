@@ -14,6 +14,7 @@ import { TaskProgressCard } from './TaskProgressCard';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
+import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 
 interface Message {
     id: string;
@@ -242,11 +243,18 @@ export const Message = React.memo(function Message({
 
                     {message.type === 'user' && message.images && message.images.length > 0 && (
                         <div className="flex gap-2 flex-wrap mb-1">
-                            {message.images.map((img, index) => (
-                                <div key={index} className="w-20 h-20 rounded-lg overflow-hidden bg-black/20 border border-white/10 shadow-sm">
-                                    <img src={img} alt={`Attachment ${index + 1}`} className="w-full h-full object-cover" />
-                                </div>
-                            ))}
+                            {message.images.map((src, index) => {
+                                const isVideo = detectMediaTypeFromUrl(src) === 'video';
+                                return (
+                                    <div key={index} className="w-20 h-20 rounded-lg overflow-hidden bg-black/20 border border-white/10 shadow-sm">
+                                        {isVideo ? (
+                                            <video src={src} muted className="w-full h-full object-cover" />
+                                        ) : (
+                                            <img src={src} alt={`Attachment ${index + 1}`} className="w-full h-full object-cover" />
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
 
