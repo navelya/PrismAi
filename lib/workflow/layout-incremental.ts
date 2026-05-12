@@ -125,11 +125,15 @@ export async function layoutPatchAsync(
         // Only edges where BOTH endpoints are in the new subgraph. Edges that
         // cross the new/existing boundary are dropped — the dock step handles
         // overall positioning relative to the existing canvas.
+        // Top-level edges from the chat tool come in without IDs (the schema
+        // doesn't include them — IDs are assigned later in runAddNode via
+        // crypto.randomUUID). ELK rejects edges without IDs, so synthesize
+        // one when missing.
         const elkEdges = newEdges
             .filter((e) => subgraphIds.has(e.source) && subgraphIds.has(e.target))
             .filter((e) => e.source !== e.target)
-            .map((e) => ({
-                id: e.id,
+            .map((e, i) => ({
+                id: e.id ?? `__elk_edge_${i}_${e.source}_${e.target}`,
                 sources: [e.source],
                 targets: [e.target],
             }));
@@ -141,19 +145,8 @@ export async function layoutPatchAsync(
             edges: elkEdges,
         };
 
-        // Debug — remove once layout is confirmed working.
-        console.log('[layoutPatchAsync] ELK input:', JSON.stringify({
-            children: graph.children.map((c: any) => ({ id: c.id, w: c.width, h: c.height, childCount: c.children?.length ?? 0 })),
-            edges: graph.edges,
-            options: ELK_OPTIONS,
-        }, null, 2));
-
         try {
             const laidOut = await elk.layout(graph);
-            console.log('[layoutPatchAsync] ELK output:', JSON.stringify(
-                (laidOut.children ?? []).map((c: any) => ({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height })),
-                null, 2
-            ));
 
             // Collect ELK positions for every node in the subgraph.
             const elkPositions = new Map<string, { x: number; y: number }>();
