@@ -85,7 +85,7 @@ export function ChatEmptyState({
                 <input
                     ref={imageInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,video/*"
                     multiple
                     onChange={onImageInputChange}
                     className="hidden"
@@ -156,7 +156,7 @@ export function ChatEmptyState({
             <input
                 ref={imageInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 onChange={onImageInputChange}
                 className="hidden"

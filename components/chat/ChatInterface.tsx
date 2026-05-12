@@ -389,7 +389,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             <input
                 ref={imageInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 onChange={(e) => {
                     handleImageFiles(e.target.files);
