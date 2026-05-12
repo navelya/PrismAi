@@ -1,78 +1,128 @@
 import { useState, useRef, useCallback } from 'react';
-import { convertImageToWebP, ImageTooLargeError } from '@/lib/utils/image-processing';
+import { convertImageToWebP, ImageTooLargeError, uploadImageToStorage } from '@/lib/utils/image-processing';
+import { createClient } from '@/lib/supabase/client';
 
-const IMAGE_CAP = 4;
-const EVICTION_TOAST_MSG = 'Removed earliest photo — chat keeps the 4 most recent images active.';
+const ATTACHMENT_CAP = 4;
+const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+
+const EVICTION_TOAST_MSG = 'Removed earliest attachment — chat keeps the 4 most recent files active.';
 const IMAGE_TOO_LARGE_TOAST_MSG = 'Image too large, even after compression. Try a smaller file.';
+const VIDEO_TOO_LARGE_TOAST_MSG = 'Video too large — 50MB max.';
+const VIDEO_UPLOAD_FAILED_TOAST_MSG = 'Video upload failed. Please try again.';
+
+function extensionFromFile(file: File): string {
+    const dotIdx = file.name.lastIndexOf('.');
+    if (dotIdx > 0 && dotIdx < file.name.length - 1) {
+        return file.name.slice(dotIdx + 1).toLowerCase();
+    }
+    if (file.type && file.type.includes('/')) {
+        return file.type.split('/')[1].toLowerCase();
+    }
+    return 'bin';
+}
 
 export function useFileUpload() {
+    // Strings here can be data URLs (images) OR https URLs (videos uploaded directly).
     const [attachedImages, setAttachedImages] = useState<string[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [evictionToast, setEvictionToast] = useState(false);
     const [imageTooLargeToast, setImageTooLargeToast] = useState(false);
+    const [videoTooLargeToast, setVideoTooLargeToast] = useState(false);
+    const [videoUploadFailedToast, setVideoUploadFailedToast] = useState(false);
+    // Kept for backwards compatibility with handleSend's signature. Only contains
+    // image webp blobs; video entries contribute a placeholder empty Blob to keep
+    // index alignment with attachedImages for removeAttachedImage.
     const attachedBlobsRef = useRef<Blob[]>([]);
 
-    const dismissEvictionToast = useCallback(() => {
-        setEvictionToast(false);
+    const dismissEvictionToast = useCallback(() => setEvictionToast(false), []);
+    const dismissImageTooLargeToast = useCallback(() => setImageTooLargeToast(false), []);
+    const dismissVideoTooLargeToast = useCallback(() => setVideoTooLargeToast(false), []);
+    const dismissVideoUploadFailedToast = useCallback(() => setVideoUploadFailedToast(false), []);
+
+    const processImage = useCallback(async (file: File): Promise<{ preview: string; blob: Blob } | null> => {
+        try {
+            const webpBlob = await convertImageToWebP(file);
+            const preview = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(webpBlob);
+            });
+            return { blob: webpBlob, preview };
+        } catch (e) {
+            if (e instanceof ImageTooLargeError) {
+                setImageTooLargeToast(true);
+            } else {
+                console.error('Image conversion failed', e);
+            }
+            return null;
+        }
     }, []);
 
-    const dismissImageTooLargeToast = useCallback(() => {
-        setImageTooLargeToast(false);
+    const processVideo = useCallback(async (file: File): Promise<string | null> => {
+        if (file.size > VIDEO_MAX_BYTES) {
+            setVideoTooLargeToast(true);
+            return null;
+        }
+        try {
+            const supabase = createClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                console.error('Cannot upload video: no authenticated user');
+                setVideoUploadFailedToast(true);
+                return null;
+            }
+            const extension = extensionFromFile(file);
+            const { publicUrl } = await uploadImageToStorage(file, user.id, supabase, {
+                extension,
+                contentType: file.type || `video/${extension}`,
+            });
+            return publicUrl;
+        } catch (e) {
+            console.error('Video upload failed', e);
+            setVideoUploadFailedToast(true);
+            return null;
+        }
     }, []);
 
     const handleImageFiles = useCallback(async (files: FileList | null) => {
         if (!files || files.length === 0) return;
 
-        const promises = Array.from(files).map(async (file) => {
+        const processed = await Promise.all(Array.from(files).map(async (file) => {
             if (file.type.startsWith('image/')) {
-                try {
-                    const webpBlob = await convertImageToWebP(file);
-                    const preview = await new Promise<string>((resolve) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result as string);
-                        reader.readAsDataURL(webpBlob);
-                    });
-                    return { blob: webpBlob, preview };
-                } catch (e) {
-                    if (e instanceof ImageTooLargeError) {
-                        setImageTooLargeToast(true);
-                    } else {
-                        console.error("Image conversion failed", e);
-                    }
-                    return null;
-                }
+                const result = await processImage(file);
+                return result ? { kind: 'image' as const, preview: result.preview, blob: result.blob } : null;
+            }
+            if (file.type.startsWith('video/')) {
+                const url = await processVideo(file);
+                return url ? { kind: 'video' as const, preview: url } : null;
             }
             return null;
-        });
+        }));
 
-        const results = await Promise.all(promises);
-        const validResults = results.filter((r): r is { blob: Blob, preview: string } => r !== null);
-
-        if (validResults.length === 0) return;
+        const valid = processed.filter((p): p is NonNullable<typeof p> => p !== null);
+        if (valid.length === 0) return;
 
         let evicted = false;
         setAttachedImages(prev => {
-            const combined = [...prev, ...validResults.map(r => r.preview)];
-            if (combined.length > IMAGE_CAP) {
+            const combined = [...prev, ...valid.map(v => v.preview)];
+            if (combined.length > ATTACHMENT_CAP) {
                 evicted = true;
-                return combined.slice(combined.length - IMAGE_CAP);
+                return combined.slice(combined.length - ATTACHMENT_CAP);
             }
             return combined;
         });
 
-        // Keep blobs in sync with images (oldest-first eviction mirrors the state logic above)
-        const combinedBlobs = [...attachedBlobsRef.current, ...validResults.map(r => r.blob)];
-        if (combinedBlobs.length > IMAGE_CAP) {
-            attachedBlobsRef.current = combinedBlobs.slice(combinedBlobs.length - IMAGE_CAP);
+        const newBlobs: Blob[] = valid.map(v => v.kind === 'image' ? v.blob : new Blob());
+        const combinedBlobs = [...attachedBlobsRef.current, ...newBlobs];
+        if (combinedBlobs.length > ATTACHMENT_CAP) {
+            attachedBlobsRef.current = combinedBlobs.slice(combinedBlobs.length - ATTACHMENT_CAP);
             evicted = true;
         } else {
             attachedBlobsRef.current = combinedBlobs;
         }
 
-        if (evicted) {
-            setEvictionToast(true);
-        }
-    }, []);
+        if (evicted) setEvictionToast(true);
+    }, [processImage, processVideo]);
 
     const handleChatDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -124,5 +174,11 @@ export function useFileUpload() {
         imageTooLargeToast,
         imageTooLargeToastMessage: IMAGE_TOO_LARGE_TOAST_MSG,
         dismissImageTooLargeToast,
+        videoTooLargeToast,
+        videoTooLargeToastMessage: VIDEO_TOO_LARGE_TOAST_MSG,
+        dismissVideoTooLargeToast,
+        videoUploadFailedToast,
+        videoUploadFailedToastMessage: VIDEO_UPLOAD_FAILED_TOAST_MSG,
+        dismissVideoUploadFailedToast,
     };
 }

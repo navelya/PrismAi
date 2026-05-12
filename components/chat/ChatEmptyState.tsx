@@ -40,6 +40,12 @@ interface ChatEmptyStateProps {
     imageTooLargeToast?: boolean;
     imageTooLargeToastMessage?: string;
     onDismissImageTooLargeToast?: () => void;
+    videoTooLargeToast?: boolean;
+    videoTooLargeToastMessage?: string;
+    onDismissVideoTooLargeToast?: () => void;
+    videoUploadFailedToast?: boolean;
+    videoUploadFailedToastMessage?: string;
+    onDismissVideoUploadFailedToast?: () => void;
 }
 
 export function ChatEmptyState({
@@ -61,6 +67,12 @@ export function ChatEmptyState({
     imageTooLargeToast,
     imageTooLargeToastMessage,
     onDismissImageTooLargeToast,
+    videoTooLargeToast,
+    videoTooLargeToastMessage,
+    onDismissVideoTooLargeToast,
+    videoUploadFailedToast,
+    videoUploadFailedToastMessage,
+    onDismissVideoUploadFailedToast,
 }: ChatEmptyStateProps) {
     if (!isMobile) {
         return (
@@ -204,6 +216,20 @@ export function ChatEmptyState({
                     message={imageTooLargeToastMessage ?? ''}
                     duration={4000}
                     onClose={onDismissImageTooLargeToast ?? (() => {})}
+                />
+            )}
+            {videoTooLargeToast && (
+                <Toast
+                    message={videoTooLargeToastMessage ?? ''}
+                    duration={4000}
+                    onClose={onDismissVideoTooLargeToast ?? (() => {})}
+                />
+            )}
+            {videoUploadFailedToast && (
+                <Toast
+                    message={videoUploadFailedToastMessage ?? ''}
+                    duration={4000}
+                    onClose={onDismissVideoUploadFailedToast ?? (() => {})}
                 />
             )}
         </div>

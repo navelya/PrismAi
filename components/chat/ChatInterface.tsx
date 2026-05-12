@@ -106,6 +106,12 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         imageTooLargeToast,
         imageTooLargeToastMessage,
         dismissImageTooLargeToast,
+        videoTooLargeToast,
+        videoTooLargeToastMessage,
+        dismissVideoTooLargeToast,
+        videoUploadFailedToast,
+        videoUploadFailedToastMessage,
+        dismissVideoUploadFailedToast,
     } = useFileUpload();
 
     const { createNewSession } = useSession();
@@ -363,6 +369,12 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 imageTooLargeToast={imageTooLargeToast}
                 imageTooLargeToastMessage={imageTooLargeToastMessage}
                 onDismissImageTooLargeToast={dismissImageTooLargeToast}
+                videoTooLargeToast={videoTooLargeToast}
+                videoTooLargeToastMessage={videoTooLargeToastMessage}
+                onDismissVideoTooLargeToast={dismissVideoTooLargeToast}
+                videoUploadFailedToast={videoUploadFailedToast}
+                videoUploadFailedToastMessage={videoUploadFailedToastMessage}
+                onDismissVideoUploadFailedToast={dismissVideoUploadFailedToast}
             />
         );
     }
@@ -472,6 +484,20 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     message={imageTooLargeToastMessage}
                     duration={4000}
                     onClose={dismissImageTooLargeToast}
+                />
+            )}
+            {videoTooLargeToast && (
+                <Toast
+                    message={videoTooLargeToastMessage}
+                    duration={4000}
+                    onClose={dismissVideoTooLargeToast}
+                />
+            )}
+            {videoUploadFailedToast && (
+                <Toast
+                    message={videoUploadFailedToastMessage}
+                    duration={4000}
+                    onClose={dismissVideoUploadFailedToast}
                 />
             )}
         </div>
