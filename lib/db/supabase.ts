@@ -1,7 +1,16 @@
 import { createClient } from '../supabase/client';
 
-// Shared instance from @/lib/supabase/client (handles singleton/HMR)
-export const supabase = createClient();
+type SupabaseClient = ReturnType<typeof createClient>;
+
+let _client: SupabaseClient | undefined;
+
+export const supabase = new Proxy({} as SupabaseClient, {
+    get(_target, prop) {
+        if (!_client) _client = createClient();
+        const value = Reflect.get(_client, prop);
+        return typeof value === 'function' ? value.bind(_client) : value;
+    },
+});
 
 /**
  * Database types matching our schema

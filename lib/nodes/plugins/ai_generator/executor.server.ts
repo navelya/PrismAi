@@ -1,13 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
 import { NodeExecutor, NodeExecutionResult, ExecutionContext } from '../../types';
 import { replicate, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
 import { isOutputEnvelope } from '@/lib/workflow/result-format';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-// Create a service-role client for DB lookups
-const adminSupabase = createClient(supabaseUrl, supabaseServiceKey);
+import { createServiceClient } from '@/lib/supabase/service';
 
 /**
  * AI Generator Executor
@@ -18,6 +12,8 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         const { model_id, control_values } = config || {};
 
         if (!model_id) throw new Error('No model selected');
+
+        const adminSupabase = createServiceClient();
 
         // 1. Fetch model configuration from DB
         const { data: model, error: dbError } = await adminSupabase
