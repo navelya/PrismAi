@@ -27,8 +27,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
     const images = data.config?.images || [];
 
-    // Use AppStore for safe config updates instead of ReactFlow's setNodes
-    const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
     const [isUploading, setIsUploading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
 
@@ -37,40 +35,57 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         return img?.url;
     };
 
-    // Update node config with new images
-    const updateImages = useCallback((newImages: Array<{ url: string; path: string } | string>) => {
-        updateNodeConfig(id, {
-            ...data.config,
-            images: newImages,
-        });
-    }, [id, data.config, updateNodeConfig]);
+    // All writes go through here so that concurrent uploads / drops / removes
+    // can't clobber each other. The mapper sees the latest images straight
+    // from the store at write time — never a stale closure snapshot from the
+    // render that scheduled the operation. Return the same `current` array
+    // reference to signal a no-op (skips the write).
+    const mutateImages = useCallback(
+        (mapper: (current: Array<{ url: string; path: string } | string>) => Array<{ url: string; path: string } | string>) => {
+            const state = useAppStore.getState();
+            const node = state.currentWorkflow?.nodes.find(n => n.id === id);
+            const latestConfig: any = (node?.data as any)?.config || {};
+            const latestImages: Array<{ url: string; path: string } | string> = Array.isArray(latestConfig.images) ? latestConfig.images : [];
+            const next = mapper(latestImages);
+            if (next === latestImages) return;
+            state.updateNodeConfig(id, { ...latestConfig, images: next });
+        },
+        [id]
+    );
 
     const appendUniqueUrls = useCallback(
         (incomingUrls: string[]) => {
             if (incomingUrls.length === 0) return;
 
-            const existingUrlSet = new Set(images.map(getMediaUrl).filter(Boolean));
-            const dedupedIncoming = incomingUrls.filter((url) => !!url && !existingUrlSet.has(url));
-            if (dedupedIncoming.length === 0) return;
-
-            updateImages([...images, ...dedupedIncoming]);
+            mutateImages(curr => {
+                const existingUrlSet = new Set(curr.map(getMediaUrl).filter(Boolean));
+                const dedupedIncoming = incomingUrls.filter((url) => !!url && !existingUrlSet.has(url));
+                if (dedupedIncoming.length === 0) return curr;
+                return [...curr, ...dedupedIncoming];
+            });
             setActiveImageIndex((prev) => (images.length > 0 ? prev : 0));
         },
-        [images, updateImages]
+        [images, mutateImages]
     );
 
     // Handle file upload
     const handleFiles = useCallback(async (files: FileList | null) => {
-        if (!files || files.length === 0 || !activeSessionId) return;
+        if (!files || files.length === 0) return;
+
+        // Snapshot the FileList synchronously: handleInputChange clears
+        // fileInputRef.current.value right after this call returns, which
+        // empties the live FileList. Any post-await Array.from(files) sees
+        // zero entries and the upload silently drops.
+        const filesArr = Array.from(files);
 
         setIsUploading(true);
         try {
             const { uploadApi } = await import('@/lib/api/client');
 
-            const uploadPromises = Array.from(files).map(async (file) => {
+            const uploadPromises = filesArr.map(async (file) => {
                 if (file.type.startsWith('image/')) {
                     const result = await uploadApi.upload(file, {
-                        sessionId: activeSessionId,
+                        sessionId: activeSessionId ?? undefined,
                         nodeId: id
                     });
                     return { url: result.publicUrl, path: result.path };
@@ -82,14 +97,14 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             const validResults = results.filter((r): r is { url: string; path: string } => r !== null);
 
             if (validResults.length > 0) {
-                updateImages([...images, ...validResults]);
+                mutateImages(curr => [...curr, ...validResults]);
             }
         } catch (err) {
             console.error('Upload failed:', err);
         } finally {
             setIsUploading(false);
         }
-    }, [activeSessionId, id, images, updateImages]);
+    }, [activeSessionId, id, mutateImages]);
 
     // Handle file input change
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,18 +164,26 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         e.preventDefault();
 
         const imageToRemove = images[index];
+        if (!imageToRemove) return;
 
-        if (typeof imageToRemove === 'object' && 'path' in imageToRemove) {
+        // Identify the target by URL/path, not array index — by the time the
+        // delete RPC resolves, other appends may have shifted indices.
+        const urlToRemove = getMediaUrl(imageToRemove);
+        const pathToRemove =
+            typeof imageToRemove === 'object' && imageToRemove !== null && 'path' in imageToRemove
+                ? imageToRemove.path
+                : null;
+
+        if (pathToRemove) {
             try {
                 const { uploadApi } = await import('@/lib/api/client');
-                await uploadApi.delete(imageToRemove.path);
+                await uploadApi.delete(pathToRemove);
             } catch (err) {
                 console.error('Failed to delete image from storage:', err);
             }
         }
 
-        const newImages = images.filter((_, i) => i !== index);
-        updateImages(newImages);
+        mutateImages(curr => curr.filter(img => getMediaUrl(img) !== urlToRemove));
     };
 
     return (
@@ -182,7 +205,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         >
             <div
                 className={cn(
-                    "relative w-full min-h-[160px] rounded-xl overflow-hidden border-2 border-dashed bg-white/5",
+                    "relative w-full min-h-[200px] rounded-xl overflow-hidden border-2 border-dashed bg-white/5",
                     isDragOver ? "border-accent-primary bg-accent-primary/10" : "border-white/10 hover:border-white/20",
                     "transition-all duration-500"
                 )}

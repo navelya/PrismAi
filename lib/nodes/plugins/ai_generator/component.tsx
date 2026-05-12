@@ -217,7 +217,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         minWidth: 320,
         maxWidth: 420,
     };
-    const textMinHeightClass = "min-h-[140px]";
+    const textMinHeightClass = "min-h-[170px]";
 
     return (
         <BaseNode
@@ -239,7 +239,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                     "relative w-full rounded-xl overflow-hidden shadow-inner group/node",
                     activeType === 'text' ? "bg-transparent border-none" : "border border-white/10 bg-white/5",
                     !isDragging && "transition-all duration-500",
-                    activeType === 'text' ? textMinHeightClass : "min-h-[200px]"
+                    activeType === 'text' ? textMinHeightClass : "min-h-[240px]"
                 )}
             >
                 {/* Frosty Placeholder background */}
