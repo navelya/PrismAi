@@ -102,24 +102,23 @@ export function useFileUpload() {
         const valid = processed.filter((p): p is NonNullable<typeof p> => p !== null);
         if (valid.length === 0) return;
 
-        let evicted = false;
-        setAttachedImages(prev => {
-            const combined = [...prev, ...valid.map(v => v.preview)];
-            if (combined.length > ATTACHMENT_CAP) {
-                evicted = true;
-                return combined.slice(combined.length - ATTACHMENT_CAP);
-            }
-            return combined;
-        });
-
+        // Use the blob ref as the canonical synchronous length source — it mirrors
+        // attachedImages 1:1 but, unlike state, can be read without waiting on a
+        // setState updater to be flushed.
         const newBlobs: Blob[] = valid.map(v => v.kind === 'image' ? v.blob : new Blob());
         const combinedBlobs = [...attachedBlobsRef.current, ...newBlobs];
-        if (combinedBlobs.length > ATTACHMENT_CAP) {
-            attachedBlobsRef.current = combinedBlobs.slice(combinedBlobs.length - ATTACHMENT_CAP);
-            evicted = true;
-        } else {
-            attachedBlobsRef.current = combinedBlobs;
-        }
+        const evicted = combinedBlobs.length > ATTACHMENT_CAP;
+
+        attachedBlobsRef.current = evicted
+            ? combinedBlobs.slice(combinedBlobs.length - ATTACHMENT_CAP)
+            : combinedBlobs;
+
+        setAttachedImages(prev => {
+            const combined = [...prev, ...valid.map(v => v.preview)];
+            return combined.length > ATTACHMENT_CAP
+                ? combined.slice(combined.length - ATTACHMENT_CAP)
+                : combined;
+        });
 
         if (evicted) setEvictionToast(true);
     }, [processImage, processVideo]);

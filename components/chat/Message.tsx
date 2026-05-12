@@ -244,6 +244,9 @@ export const Message = React.memo(function Message({
                     {message.type === 'user' && message.images && message.images.length > 0 && (
                         <div className="flex gap-2 flex-wrap mb-1">
                             {message.images.map((src, index) => {
+                                // Videos always arrive as https:// URLs (direct-uploaded in useFileUpload);
+                                // images can be data:image/... URLs or https URLs. detectMediaTypeFromUrl
+                                // returns 'video' only for known video extensions, defaulting to image otherwise.
                                 const isVideo = detectMediaTypeFromUrl(src) === 'video';
                                 return (
                                     <div key={index} className="w-20 h-20 rounded-lg overflow-hidden bg-black/20 border border-white/10 shadow-sm">

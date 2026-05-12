@@ -110,10 +110,13 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
     }, []);
 
     const handleVideoDownload = useCallback(async () => {
+        // Derive extension from the URL so .mov/.webm files don't get a wrong .mp4 suffix.
+        const match = mediaSrc.match(/\.([a-z0-9]{2,5})(?:\?|#|$)/i);
+        const ext = match ? match[1].toLowerCase() : 'mp4';
         try {
             const response = await fetch(mediaSrc);
             const blob = await response.blob();
-            triggerBlobDownload(blob, `output_${currentIndex + 1}.mp4`);
+            triggerBlobDownload(blob, `output_${currentIndex + 1}.${ext}`);
         } catch {
             window.open(mediaSrc, '_blank');
         }

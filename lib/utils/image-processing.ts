@@ -71,10 +71,11 @@ async function encodeAtNaturalSize(img: HTMLImageElement): Promise<Blob | null> 
 
 async function encodeAtScaledSize(img: HTMLImageElement): Promise<Blob | null> {
     const longest = Math.max(img.width, img.height);
-    if (longest <= MAX_LONGEST_EDGE) return null; // no point resizing
-    const scale = MAX_LONGEST_EDGE / longest;
-    const w = Math.round(img.width * scale);
-    const h = Math.round(img.height * scale);
+    // Cap to MAX_LONGEST_EDGE if larger; otherwise halve so small-but-dense images
+    // (line art, dense screenshots) still get a meaningful compression pass.
+    const scale = longest > MAX_LONGEST_EDGE ? MAX_LONGEST_EDGE / longest : 0.5;
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
     const canvas = drawToCanvas(img, w, h);
     for (const quality of QUALITY_LADDER) {
         const blob = await encodeCanvasToWebP(canvas, quality);
