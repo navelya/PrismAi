@@ -10,6 +10,12 @@ export const NODE_DIMENSIONS: Record<string, { width: number; height: number }> 
     compositor:   { width: 210, height: 280 },
     blur:         { width: 210, height: 220 },
     ai_generator: { width: 210, height: 380 },
+    // group_container is treated as a minimum-size hint to ELK; nodeSize
+    // constraints let ELK grow it to fit children. We declare a generous
+    // size so the disconnected-component packer reserves enough room when
+    // multiple groups sit on the same canvas — too-small minimums cause
+    // packed groups to overlap once they expand to fit children.
+    group_container: { width: 600, height: 500 },
 };
 
 const DEFAULT_NODE_DIM = { width: 220, height: 380 };

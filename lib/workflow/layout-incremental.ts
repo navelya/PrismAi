@@ -27,6 +27,10 @@ const GROUP_LAYOUT_OPTIONS = {
     // get a smaller value so the group hugs its children.
     'elk.padding': '[top=56,left=24,bottom=24,right=24]',
     'elk.spacing.nodeNode': '60',
+    // Explicit so children inside a group don't accidentally inherit a
+    // different direction from the root layout. Inside a group, the flow
+    // is always left-to-right (prompt → ai_generator etc.).
+    'elk.direction': 'RIGHT',
 };
 
 // Horizontal gap between the existing canvas's right edge and the new
