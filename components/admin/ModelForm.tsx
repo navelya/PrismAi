@@ -839,24 +839,56 @@ export function ModelForm({
                                 <p className="text-[10px] font-black uppercase tracking-widest text-accent-primary mb-4 opacity-80">Pricing Modifiers</p>
                                 
                                 {ctrl.component === 'select' && ctrl.options && (
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                                        {ctrl.options.map(opt => (
-                                            <NumberInput
-                                                key={opt}
-                                                label={`Cost for "${opt}"`}
-                                                value={ctrl.cost_modifiers?.[opt] || 0}
-                                                onChange={e => {
-                                                    const val = Number(e.target.value);
-                                                    setVisualControls(prev => prev.map(c => 
-                                                        c.id === ctrl.id ? { 
-                                                            ...c, 
-                                                            cost_modifiers: { ...(c.cost_modifiers || {}), [opt]: val } 
-                                                        } : c
-                                                    ));
-                                                }}
-                                                suffix="CR"
-                                            />
-                                        ))}
+                                    <div className="space-y-2">
+                                        {ctrl.options.map(opt => {
+                                            const isHidden = (ctrl.disabled_options ?? []).includes(opt);
+                                            return (
+                                                <div
+                                                    key={opt}
+                                                    className={cn(
+                                                        "flex items-center gap-3 p-2 rounded-xl bg-white/5 border border-white/10 transition-all",
+                                                        isHidden && "opacity-50"
+                                                    )}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setVisualControls(prev => prev.map(c => {
+                                                                if (c.id !== ctrl.id) return c;
+                                                                const current = c.disabled_options ?? [];
+                                                                const next = isHidden ? current.filter(x => x !== opt) : [...current, opt];
+                                                                return { ...c, disabled_options: next };
+                                                            }));
+                                                        }}
+                                                        title={isHidden ? "Click to show this option to users" : "Click to hide this option from users"}
+                                                        className={cn(
+                                                            "shrink-0 w-7 h-7 rounded-lg flex items-center justify-center border transition-colors",
+                                                            isHidden
+                                                                ? "bg-white/5 border-white/10 text-content-tertiary"
+                                                                : "bg-green-500/10 border-green-500/30 text-green-500"
+                                                        )}
+                                                    >
+                                                        {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                                    </button>
+                                                    <div className="flex-1 min-w-0">
+                                                        <NumberInput
+                                                            label={`Cost for "${opt}"`}
+                                                            value={ctrl.cost_modifiers?.[opt] || 0}
+                                                            onChange={e => {
+                                                                const val = Number(e.target.value);
+                                                                setVisualControls(prev => prev.map(c =>
+                                                                    c.id === ctrl.id ? {
+                                                                        ...c,
+                                                                        cost_modifiers: { ...(c.cost_modifiers || {}), [opt]: val }
+                                                                    } : c
+                                                                ));
+                                                            }}
+                                                            suffix="CR"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 )}
 
