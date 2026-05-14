@@ -28,11 +28,15 @@ export interface Control {
     is_visible: boolean;
     label?: string;
     options?: string[];
+    /** Option values to hide from the end-user picker. Admin still sees them. Absent or empty = all visible. */
+    disabled_options?: string[];
     min?: number;
     max?: number;
     step?: number;
     cost_modifiers?: Record<string, number>;
     cost_per_unit?: number;
+    /** When true on a numeric control, multiplies the total node cost by this control's value (e.g. video duration). */
+    is_cost_multiplier?: boolean;
 }
 
 export interface InputsSchema {
