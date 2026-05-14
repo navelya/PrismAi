@@ -122,6 +122,9 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
         ? Number(computeAiNodeCost(config.control_values, selectedModel).toFixed(2))
         : 0;
 
+    const hasMultiplier = (selectedModel?.inputs_schema?.controls ?? [])
+        .some(c => c.is_cost_multiplier === true);
+
     // Aspect-ratio link: when an aspect_ratio control exists and is NOT in custom
     // mode, hide sibling width/height controls — picking a preset means letting the
     // model choose the dimensions.
@@ -280,7 +283,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                         {totalCost}
                     </span>
                     <span className="text-[9px] font-bold text-accent-primary/60 uppercase tracking-tight leading-none whitespace-nowrap">
-                        CR{selectedModel?.is_per_second ? '/s' : ''}
+                        CR{!hasMultiplier && selectedModel?.is_per_second ? '/s' : ''}
                     </span>
                 </div>
 
