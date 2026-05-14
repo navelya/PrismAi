@@ -348,19 +348,29 @@ function ControlRenderer({
             );
         case 'select':
         case 'resolution':
-        case 'format':
+        case 'format': {
+            const allOptions = control.options || [];
+            const disabled = new Set(control.disabled_options ?? []);
+            const visibleOptions = allOptions.filter(opt => !disabled.has(opt));
+            const stored = value ?? control.default_value ?? '';
+            // If the saved value points at a now-hidden option, fall back to the first
+            // visible option for display only — do NOT mutate stored config.
+            const effective = disabled.has(String(stored)) && visibleOptions.length > 0
+                ? visibleOptions[0]
+                : stored;
             return (
                 <Select
                     label={label}
-                    value={value ?? control.default_value ?? ''}
+                    value={effective}
                     onChange={e => onChange(control.api_mapping_key, e.target.value)}
-                    options={(control.options || []).map(opt => ({
+                    options={visibleOptions.map(opt => ({
                         id: opt,
                         display_name: formatDisplayName(opt.toString())
                     }))}
                     variant="minimal"
                 />
             );
+        }
         case 'slider':
         case 'threshold': {
             const current = value ?? control.default_value ?? 0.5;
