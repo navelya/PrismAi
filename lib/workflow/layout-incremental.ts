@@ -105,11 +105,20 @@ export async function layoutPatchAsync(
     // ── Pass 2: top-level layout + dock ──────────────────────────────────
     if (topLevelNew.length > 0) {
         const topLevelIds = new Set(topLevelNew.map((n) => n.id));
+        // child → parent lookup for cross-hierarchy edge remap. An edge
+        // pointing AT or FROM a child of a new group needs to be lifted to
+        // the parent group at the top-level layout pass, so ELK sees the
+        // group-level topology (e.g. "scene1 → final-cut") and can stack
+        // parallel scenes vertically with the sink to the right.
+        const childToParent = new Map<string, string>();
+        for (const n of newNodes) {
+            if (n.parentNode) childToParent.set(n.id, n.parentNode);
+        }
         const topLevelPositions = await layoutTopLevel(
             topLevelNew,
             computedGroupSizes,
             newEdges,
-            newIds,
+            childToParent,
             topLevelIds,
         );
 
@@ -253,11 +262,9 @@ async function layoutTopLevel(
     topLevelNew: WorkflowNode[],
     computedGroupSizes: Map<string, { width: number; height: number }>,
     allNewEdges: WorkflowEdge[],
-    newIds: Set<string>,
+    childToParent: Map<string, string>,
     topLevelIds: Set<string>,
 ): Promise<Map<string, { x: number; y: number }>> {
-    void newIds; // currently only needed if we ever do parent-remapping here
-
     const sizeOf = (n: WorkflowNode) => computedGroupSizes.get(n.id) ?? effectiveSize(n);
 
     const elkChildren = topLevelNew.map((n) => {
@@ -270,24 +277,43 @@ async function layoutTopLevel(
         };
     });
 
-    // Only keep edges where BOTH endpoints are top-level new nodes. Edges
-    // between grouped children already drove their group's interior layout
-    // in Pass 1; edges crossing the group boundary don't constrain top-level
-    // packing meaningfully (the connected-component packer separates groups
-    // by default). Dedup after filtering.
+    // Walk up the parentNode chain until we hit a top-level id, or run
+    // out of parents (endpoint is outside the new top-level set —
+    // e.g. an existing canvas node or a child of one). Visited set
+    // prevents infinite loops in case of a cyclic parent chain.
+    const remapToTopLevel = (id: string): string | null => {
+        let cur = id;
+        const visited = new Set<string>();
+        while (!visited.has(cur)) {
+            if (topLevelIds.has(cur)) return cur;
+            visited.add(cur);
+            const parent = childToParent.get(cur);
+            if (!parent) return null;
+            cur = parent;
+        }
+        return null;
+    };
+
+    // Remap each edge endpoint to its top-level ancestor, then drop
+    // self-loops (intra-group edges collapse to source==target after
+    // remap) and dedupe (multiple cross-group edges between the same
+    // pair, e.g. two children of g1 both pointing at c1, collapse to
+    // one g1→c1 edge). Mirrors the pattern in autoLayoutNodesAsync.
     const seen = new Set<string>();
     const elkEdges: any[] = [];
     for (let i = 0; i < allNewEdges.length; i++) {
         const e = allNewEdges[i];
-        if (!topLevelIds.has(e.source) || !topLevelIds.has(e.target)) continue;
-        if (e.source === e.target) continue;
-        const key = `${e.source}→${e.target}`;
+        const src = remapToTopLevel(e.source);
+        const tgt = remapToTopLevel(e.target);
+        if (!src || !tgt) continue;
+        if (src === tgt) continue;
+        const key = `${src}→${tgt}`;
         if (seen.has(key)) continue;
         seen.add(key);
         elkEdges.push({
-            id: e.id ?? `__elk_top_edge_${i}_${e.source}_${e.target}`,
-            sources: [e.source],
-            targets: [e.target],
+            id: e.id ?? `__elk_top_edge_${i}_${src}_${tgt}`,
+            sources: [src],
+            targets: [tgt],
         });
     }
 
