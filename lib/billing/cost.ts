@@ -35,9 +35,16 @@ export const COST_DRIFT_TOLERANCE = 0.05;
 
 /**
  * Cost of a single ai_generator node:
- *   model.credit_cost
- *   + sum of cost_modifiers[selected_value]   (for select/checkbox controls)
- *   + sum of value × cost_per_unit            (for slider/number controls)
+ *   1. additive total = model.credit_cost
+ *                     + sum of cost_modifiers[selected_value]   (select/checkbox controls)
+ *                     + sum of value × cost_per_unit            (slider/number controls)
+ *   2. multiplier     = product of every numeric control with is_cost_multiplier === true,
+ *                       coercing each value to Number. Values that are NaN or < 1 contribute 1
+ *                       (so an empty/zero/non-numeric input cannot zero out a charge).
+ *   3. result         = additive total × multiplier
+ *
+ * Same code runs on client and server, so the modal estimate and the
+ * authoritative server debit cannot drift apart.
  */
 export function computeAiNodeCost(
     controlValues: Record<string, any> | undefined,
@@ -49,6 +56,7 @@ export function computeAiNodeCost(
     const controls: Control[] = model.inputs_schema?.controls ?? [];
     const values = controlValues ?? {};
 
+    // Pass 1: additive (existing behavior, preserved verbatim).
     for (const ctrl of controls) {
         const val = values[ctrl.api_mapping_key] ?? ctrl.default_value;
 
@@ -65,7 +73,17 @@ export function computeAiNodeCost(
         }
     }
 
-    return Math.max(0, total);
+    // Pass 2: multiplier. Every is_cost_multiplier control multiplies the running total.
+    let multiplier = 1;
+    for (const ctrl of controls) {
+        if (!ctrl.is_cost_multiplier) continue;
+        const val = values[ctrl.api_mapping_key] ?? ctrl.default_value;
+        const n = Number(val);
+        if (!Number.isFinite(n) || n < 1) continue; // clamp guards against zeroing the charge
+        multiplier *= n;
+    }
+
+    return Math.max(0, total * multiplier);
 }
 
 export interface ExecutionCostResult {
