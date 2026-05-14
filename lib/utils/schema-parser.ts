@@ -11,6 +11,12 @@ export function formatDisplayName(name: string): string {
 }
 
 /**
+ * Property keys that, when seen on a numeric control, are auto-flagged as
+ * cost multipliers. Mirrors scripts/verify-multiplier-autodetect.mjs.
+ */
+const MULTIPLIER_KEY_REGEX = /^(duration|num_frames|frames|length|seconds|num_seconds)$/i;
+
+/**
  * Parses icon names: 
  * - image-upscale -> ImageUpscaleIcon
  * - Boxes -> Boxes (no touch if no dash)
@@ -232,6 +238,9 @@ export function parseReplicateSchema(schema: any) {
             defaultValue = defaultValue ?? '';
         }
 
+        const isMultiplierKey = MULTIPLIER_KEY_REGEX.test(key);
+        const isNumeric = prop.type === 'number' || prop.type === 'integer';
+
         controls.push({
             api_mapping_key: key,
             type: prop.type === 'integer' ? 'number' : (prop.type || 'string'),
@@ -243,7 +252,8 @@ export function parseReplicateSchema(schema: any) {
             min: prop.minimum,
             max: prop.maximum,
             step: prop.type === 'integer' ? 1 : 0.01,
-            is_mandatory: isMandatory
+            is_mandatory: isMandatory,
+            ...(isMultiplierKey && isNumeric ? { is_cost_multiplier: true } : {}),
         });
     });
 
