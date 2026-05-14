@@ -663,19 +663,61 @@ export function ModelForm({
                                         && typeof ctrl.min === 'number'
                                         && typeof ctrl.max === 'number';
 
-                                    if (!isRanged) {
-                                        return (
+                                    const renderRangeFields = () => (
+                                        <div className="grid grid-cols-2 gap-3">
                                             <NumberInput
-                                                label="Default Value"
-                                                min={ctrl.min}
-                                                max={ctrl.max}
+                                                label="Min"
                                                 step={step}
-                                                value={current}
+                                                value={typeof ctrl.min === 'number' ? ctrl.min : ''}
                                                 onChange={e => {
-                                                    const val = Number(e.target.value);
-                                                    setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? val : fallback });
+                                                    const raw = e.target.value;
+                                                    const next = raw === '' ? undefined : Number(raw);
+                                                    setVisualControls(prev => prev.map(c => {
+                                                        if (c.id !== ctrl.id) return c;
+                                                        const updated: Control & { id: string } = { ...c, min: Number.isFinite(next as number) ? (next as number) : undefined };
+                                                        if (typeof updated.min === 'number' && typeof updated.default_value === 'number' && updated.default_value < updated.min) {
+                                                            updated.default_value = updated.min;
+                                                        }
+                                                        return updated;
+                                                    }));
                                                 }}
                                             />
+                                            <NumberInput
+                                                label="Max"
+                                                step={step}
+                                                value={typeof ctrl.max === 'number' ? ctrl.max : ''}
+                                                onChange={e => {
+                                                    const raw = e.target.value;
+                                                    const next = raw === '' ? undefined : Number(raw);
+                                                    setVisualControls(prev => prev.map(c => {
+                                                        if (c.id !== ctrl.id) return c;
+                                                        const updated: Control & { id: string } = { ...c, max: Number.isFinite(next as number) ? (next as number) : undefined };
+                                                        if (typeof updated.max === 'number' && typeof updated.default_value === 'number' && updated.default_value > updated.max) {
+                                                            updated.default_value = updated.max;
+                                                        }
+                                                        return updated;
+                                                    }));
+                                                }}
+                                            />
+                                        </div>
+                                    );
+
+                                    if (!isRanged) {
+                                        return (
+                                            <div className="space-y-3">
+                                                {renderRangeFields()}
+                                                <NumberInput
+                                                    label="Default Value"
+                                                    min={ctrl.min}
+                                                    max={ctrl.max}
+                                                    step={step}
+                                                    value={current}
+                                                    onChange={e => {
+                                                        const val = Number(e.target.value);
+                                                        setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? val : fallback });
+                                                    }}
+                                                />
+                                            </div>
                                         );
                                     }
 
@@ -685,41 +727,44 @@ export function ModelForm({
                                     const display = clamp(current);
 
                                     return (
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 opacity-80 block">
-                                                Default Value
-                                            </label>
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex-1 space-y-1.5">
-                                                    <input
-                                                        type="range"
-                                                        min={min}
-                                                        max={max}
-                                                        step={step}
-                                                        value={display}
-                                                        onChange={e => {
-                                                            const val = parseFloat(e.target.value);
-                                                            setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? clamp(val) : min });
-                                                        }}
-                                                        className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
-                                                    />
-                                                    <div className="flex justify-between text-[9px] font-mono text-content-tertiary/50 px-0.5 tabular-nums">
-                                                        <span>{min}</span>
-                                                        <span>{max}</span>
+                                        <div className="space-y-3">
+                                            {renderRangeFields()}
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 opacity-80 block">
+                                                    Default Value
+                                                </label>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="flex-1 space-y-1.5">
+                                                        <input
+                                                            type="range"
+                                                            min={min}
+                                                            max={max}
+                                                            step={step}
+                                                            value={display}
+                                                            onChange={e => {
+                                                                const val = parseFloat(e.target.value);
+                                                                setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? clamp(val) : min });
+                                                            }}
+                                                            className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
+                                                        />
+                                                        <div className="flex justify-between text-[9px] font-mono text-content-tertiary/50 px-0.5 tabular-nums">
+                                                            <span>{min}</span>
+                                                            <span>{max}</span>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div className="w-28 shrink-0">
-                                                    <NumberInput
-                                                        min={min}
-                                                        max={max}
-                                                        step={step}
-                                                        value={display}
-                                                        onChange={e => {
-                                                            const raw = Number(e.target.value);
-                                                            if (!Number.isFinite(raw)) return;
-                                                            setControlPatch(ctrl.id, { default_value: clamp(raw) });
-                                                        }}
-                                                    />
+                                                    <div className="w-28 shrink-0">
+                                                        <NumberInput
+                                                            min={min}
+                                                            max={max}
+                                                            step={step}
+                                                            value={display}
+                                                            onChange={e => {
+                                                                const raw = Number(e.target.value);
+                                                                if (!Number.isFinite(raw)) return;
+                                                                setControlPatch(ctrl.id, { default_value: clamp(raw) });
+                                                            }}
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
