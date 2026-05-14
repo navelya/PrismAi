@@ -926,18 +926,38 @@ export function ModelForm({
                                 )}
 
                                 {(ctrl.component === 'slider' || ctrl.component === 'number_input' || ctrl.component === 'threshold') && (
-                                    <div className="max-w-[200px]">
-                                        <NumberInput
-                                            label="Cost Per Unit"
-                                            value={ctrl.cost_per_unit || 0}
-                                            onChange={e => {
-                                                const val = Number(e.target.value);
-                                                setVisualControls(prev => prev.map(c =>
-                                                    c.id === ctrl.id ? { ...c, cost_per_unit: val } : c
-                                                ));
-                                            }}
-                                            suffix="CR"
-                                        />
+                                    <div className="space-y-3">
+                                        <div className="max-w-[200px]">
+                                            <NumberInput
+                                                label="Cost Per Unit"
+                                                value={ctrl.cost_per_unit || 0}
+                                                onChange={e => {
+                                                    const val = Number(e.target.value);
+                                                    setVisualControls(prev => prev.map(c =>
+                                                        c.id === ctrl.id ? { ...c, cost_per_unit: val } : c
+                                                    ));
+                                                }}
+                                                suffix="CR"
+                                            />
+                                        </div>
+                                        <div className="flex items-start justify-between gap-4 p-3 rounded-xl bg-white/5 border border-white/10">
+                                            <div className="min-w-0">
+                                                <p className="text-[10px] font-black uppercase tracking-wider text-content-secondary">
+                                                    Multiply Total by Value
+                                                </p>
+                                                <p className="text-[10px] text-content-tertiary opacity-70 mt-1 leading-relaxed">
+                                                    e.g. video duration — total cost × this control&apos;s value. Empty / zero / non-numeric values are treated as 1.
+                                                </p>
+                                            </div>
+                                            <Switch
+                                                checked={Boolean(ctrl.is_cost_multiplier)}
+                                                onCheckedChange={(checked) => {
+                                                    setVisualControls(prev => prev.map(c =>
+                                                        c.id === ctrl.id ? { ...c, is_cost_multiplier: Boolean(checked) } : c
+                                                    ));
+                                                }}
+                                            />
+                                        </div>
                                     </div>
                                 )}
                             </div>
