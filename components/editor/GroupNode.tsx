@@ -8,6 +8,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
 import { GROUP_RESIZE_HANDLE_SIZE, GROUP_PADDING } from '@/lib/nodes/group-constants';
 import { GroupHeaderToolbar } from './GroupHeaderToolbar';
+import { useWireDrag } from '@/lib/editor/wire-drag-context';
 
 interface GroupNodeData {
     label: string;
@@ -51,6 +52,9 @@ const HANDLES: Array<{ dir: ResizeDir; cursor: string; style: React.CSSPropertie
 ];
 
 export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeData>) {
+    const wireDrag = useWireDrag();
+    const isWireDragging = wireDrag !== null;
+
     // Stored size — set at creation (AI synthesis or manual group action) and
     // updated by the resize handles. Acts as the FLOOR for our rendered size.
     const storedWidth = data.config?.width ?? 400;
@@ -309,6 +313,13 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     // routed inside the group remain clickable. Interactive bits
                     // (resize handles, title bubble) opt back in below.
                     pointerEvents: 'none',
+                    // Wire-drag dimming: group containers have no connection handles
+                    // so they are always incompatible during any active wire drag.
+                    opacity: isWireDragging ? 0.3 : undefined,
+                    filter: isWireDragging ? 'grayscale(0.6)' : undefined,
+                    transition: isWireDragging
+                        ? 'opacity 150ms, filter 150ms, border-color 150ms'
+                        : undefined,
                 }}
                 data-group-id={id}
                 data-group-selected={selected ? 'true' : 'false'}
