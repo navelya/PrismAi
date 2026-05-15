@@ -260,3 +260,52 @@ export function getNodeHandleType(
         isArray: h.is_array,
     };
 }
+
+/**
+ * Like `findHandleForNode`, but returns ALL handles on the node compatible
+ * with the pending wire (not just the first match). Used to drive the
+ * "reveal labels for compatible handles" UX while a wire is being dragged.
+ */
+export function findAllCompatibleHandlesForNode(
+    node: { type: string; data?: { config?: any } } | undefined,
+    pending: PendingConnection,
+    models: AiModel[],
+    sharedRegistry: Record<string, NodeSharedDef<any>>
+): ResolvedHandle[] {
+    if (!node) return [];
+
+    if (node.type === 'ai_generator') {
+        const modelId = node.data?.config?.model_id;
+        const model = modelId ? models.find((m) => m.id === modelId) : null;
+        if (!model) return [];
+        const rawHandles =
+            pending.handleType === 'source'
+                ? model.inputs_schema?.handles || []
+                : model.outputs_schema?.handles || [];
+        return rawHandles
+            .filter((h) => h.is_visible !== false)
+            .filter((h) => typesAreCompatible(pending.dataType, h.type))
+            .map((h) => ({
+                id: h.api_mapping_key || h.name || (pending.handleType === 'source' ? '' : 'output'),
+                label: h.name,
+                type: h.type,
+                isArray: h.is_array,
+            }));
+    }
+
+    const def = sharedRegistry[node.type];
+    if (!def) return [];
+    const rawHandles =
+        pending.handleType === 'source' ? def.handles?.inputs || [] : def.handles?.outputs || [];
+    return (rawHandles as any[])
+        .filter((h) => {
+            const t = pending.handleType === 'source' ? h.expectedType : h.dataType;
+            return typesAreCompatible(pending.dataType, t);
+        })
+        .map((h) => ({
+            id: h.id,
+            label: h.label,
+            type: pending.handleType === 'source' ? h.expectedType : h.dataType,
+            isArray: h.is_array,
+        }));
+}
