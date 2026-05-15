@@ -291,8 +291,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     type="target"
                                     position={Position.Left}
                                     id={input.id}
+                                    // transition allowlist excludes `top` on purpose: dynamic-handle nodes
+                                    // (ai_generator) shift `top` when the handle count changes, and
+                                    // transitioning it makes React Flow's updateNodeInternals measure the
+                                    // handle mid-animation — the wrong bounds get cached and never refresh.
                                     className={cn(
-                                        "w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center",
+                                        "w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center",
                                         "before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]",
                                         isMissing && "animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.4)]"
                                     )}
@@ -327,7 +331,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
-                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center
+                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center
                                   before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
                         style={{
                             borderWidth: `${b2}px`,
@@ -392,7 +396,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 type="source"
                                 position={Position.Right}
                                 id={output.id}
-                                className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center
+                                className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center
                                           before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
                                 style={{
                                     borderWidth: `${b2}px`,
@@ -414,7 +418,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="source"
                         position={Position.Right}
                         id={defaultOutputId}
-                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-all duration-200 z-50 translate-y-[-50%] origin-center
+                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center
                                   before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
                         style={{
                             borderWidth: `${b2}px`,

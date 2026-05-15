@@ -137,10 +137,16 @@ export function useChatScroll({
         if (messages.length > prevMessagesLengthRef.current) {
             let newUserMessageId: string | null = null;
             for (let i = messages.length - 1; i >= prevMessagesLengthRef.current; i--) {
-                if (messages[i]?.type === 'user') {
-                    newUserMessageId = messages[i].id;
-                    break;
-                }
+                const m = messages[i];
+                if (!m || m.type !== 'user') continue;
+                // Skip the synthetic 'Approved' marker added by handlePlanApprove.
+                // Message.tsx suppresses it (returns null), so its [data-message-id]
+                // element never exists — pinning it would leave the spacer stuck at
+                // the initial clientHeight, creating empty scrollable space below
+                // the plan card.
+                if (m.content === 'Approved' && m.planAnswer?.action === 'approve') continue;
+                newUserMessageId = m.id;
+                break;
             }
             if (newUserMessageId) {
                 const container = scrollContainerRef.current;
