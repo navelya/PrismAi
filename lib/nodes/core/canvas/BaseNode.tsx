@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { NodeStatus } from '@/lib/nodes/types';
+import { useWireDrag } from '@/lib/editor/wire-drag-context';
+import { findHandleForNode, findAllCompatibleHandlesForNode } from '@/lib/editor/handle-compatibility';
 import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
 import { motion } from 'framer-motion';
 
@@ -56,6 +58,13 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // by each per-type wrapper. Disables animations/transitions only on the node
     // actually moving — never the whole canvas.
     dragging?: boolean;
+    /**
+     * Node data (forwarded by per-type wrappers from React Flow's NodeProps.data).
+     * Used by the wire-drag compatibility check on ai_generator nodes, which read
+     * `data.config.model_id`. Optional — falling back to `undefined` is safe; the
+     * compatibility helper treats a missing model as "no compatible handles".
+     */
+    nodeData?: any;
 }
 
 const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
@@ -77,6 +86,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     hideStatus = false,
     isNew,
     dragging = false,
+    nodeData,
     onDrag,
     onDragStart,
     onDragEnd,
@@ -103,6 +113,44 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     //   3. Else: 'idle' (no badge).
     const rawStatus = useAppStore((state) => state.nodeStatuses[id]);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+    const wireDrag = useWireDrag();
+    const models = useAppStore((s) => s.models);
+
+    const dragRole: 'none' | 'origin' | 'compatible' | 'incompatible' = useMemo(() => {
+        if (!wireDrag) return 'none';
+        if (wireDrag.originNodeId === id) return 'origin';
+        const pending = {
+            nodeId: wireDrag.originNodeId,
+            handleId: wireDrag.originHandleId,
+            handleType: wireDrag.originHandleType,
+            dataType: wireDrag.dataType,
+        };
+        const match = findHandleForNode(
+            { type, data: { config: nodeData?.config } },
+            pending,
+            models,
+            sharedRegistry,
+        );
+        return match ? 'compatible' : 'incompatible';
+    }, [wireDrag, id, type, nodeData?.config, models]);
+
+    const compatibleHandleIds = useMemo(() => {
+        if (dragRole !== 'compatible' || !wireDrag) return null;
+        const pending = {
+            nodeId: wireDrag.originNodeId,
+            handleId: wireDrag.originHandleId,
+            handleType: wireDrag.originHandleType,
+            dataType: wireDrag.dataType,
+        };
+        const handles = findAllCompatibleHandlesForNode(
+            { type, data: { config: nodeData?.config } },
+            pending,
+            models,
+            sharedRegistry,
+        );
+        return new Set(handles.map((h) => h.id));
+    }, [dragRole, wireDrag, type, nodeData?.config, models]);
+
     const status: NodeStatus = rawStatus ?? (isLoadingSession ? 'pending' : 'idle');
     const updateNodeLabel = useAppStore((state) => state.updateNodeLabel);
     const setNodeLabelDraft = useAppStore((state) => state.setNodeLabelDraft);
@@ -212,6 +260,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // Shadow stays constant on hover/drag/click — only the border
                 // is allowed to indicate interaction state.
                 "hover:border-stroke-strong hover:bg-surface-elevated/20",
+                dragRole === 'incompatible' && "opacity-30 grayscale-[0.6] transition-[opacity,filter] duration-150",
                 typeof width === 'string' ? width : '',
                 className
             )}

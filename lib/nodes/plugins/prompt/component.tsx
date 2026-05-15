@@ -103,6 +103,7 @@ function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
             type="prompt"
             label={data.label}
             selected={selected}
+            nodeData={data}
             isNew={(data as any).isNew}
             renderInputs={false}
             hideStatus={true}

@@ -137,6 +137,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             label={data.label}
             selected={selected}
             dragging={dragging}
+            nodeData={data}
             isNew={(data as any).isNew}
             hideStatus={true}
             width=""

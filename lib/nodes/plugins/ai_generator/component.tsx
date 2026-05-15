@@ -227,6 +227,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             icon={selectedNodeType?.icon_reference}
             selected={selected}
             dragging={dragging}
+            nodeData={data}
             customInputs={customInputs}
             customOutputs={customOutputs}
             width={isFixedWidth ? fixedWidth : ""}

@@ -273,6 +273,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 type="compositor"
                 label={data.label}
                 selected={selected}
+                nodeData={data}
                 isNew={(data as any).isNew}
                 badgeCount={renderable.length}
                 width={320}
