@@ -142,8 +142,19 @@ export interface WorkflowSlice {
     /**
      * Resize a group container. Clamps width/height so the group never shrinks
      * past the bounding box of current children + GROUP_PADDING.
+     *
+     * `opts.anchorRight` keeps the RIGHT edge fixed (i.e., the user grabbed the
+     * left/W handle). `opts.anchorBottom` keeps the BOTTOM edge fixed (top/N).
+     * On an anchored axis the group's position shifts by -deltaSize and each
+     * child's relative position shifts by +deltaSize so children stay pinned in
+     * world space. Default (both false) anchors at the top-left as before.
      */
-    resizeGroup: (groupId: string, width: number, height: number) => void;
+    resizeGroup: (
+        groupId: string,
+        width: number,
+        height: number,
+        opts?: { anchorRight?: boolean; anchorBottom?: boolean }
+    ) => void;
     /**
      * Rename a group's title (stored in data.label).
      */

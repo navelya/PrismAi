@@ -922,43 +922,102 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         });
     },
 
-    resizeGroup: (groupId, width, height) => {
+    resizeGroup: (groupId, width, height, opts) => {
+        const anchorRight = !!opts?.anchorRight;
+        const anchorBottom = !!opts?.anchorBottom;
+
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;
 
         const group = currentWorkflow.nodes.find((n) => n.id === groupId && n.type === 'group_container');
         if (!group) return;
 
-        // Clamp to children bbox + padding so user can't shrink past content.
-        const children = currentWorkflow.nodes.filter((n) => n.parentNode === groupId);
-        const minWidth = children.reduce((acc, c) => {
-            const w = c.measured?.width ?? c.width ?? 200;
-            return Math.max(acc, c.position.x + w + GROUP_PADDING);
-        }, GROUP_PADDING * 2);
-        const minHeight = children.reduce((acc, c) => {
-            const h = c.measured?.height ?? c.height ?? 100;
-            return Math.max(acc, c.position.y + h + GROUP_PADDING);
-        }, GROUP_PADDING * 2);
-
-        const clampedW = Math.max(width, minWidth);
-        const clampedH = Math.max(height, minHeight);
-
         const cfg = (group.data?.config as any) || {};
+        const oldW = cfg.width ?? width;
+        const oldH = cfg.height ?? height;
+
+        const children = currentWorkflow.nodes.filter((n) => n.parentNode === groupId);
+
+        // Per-axis clamp. When an edge is anchored (the OPPOSITE edge is being
+        // dragged), the rightmost/bottommost-child clamp is auto-satisfied
+        // because that edge isn't moving — instead, the constraint is that the
+        // child closest to the dragged edge can't end up outside the group's
+        // padding zone after the compensating shift.
+        let clampedW: number;
+        if (anchorRight) {
+            // User is dragging the LEFT edge. After resize, every child's
+            // relative x becomes (oldX + (newW - oldW)). Require ≥ GROUP_PADDING.
+            const minChildX = children.length
+                ? Math.min(...children.map((c) => c.position.x))
+                : Number.POSITIVE_INFINITY;
+            const minNewW = Number.isFinite(minChildX)
+                ? oldW + GROUP_PADDING - minChildX
+                : GROUP_PADDING * 2;
+            clampedW = Math.max(width, minNewW, GROUP_PADDING * 2);
+        } else {
+            const minWidth = children.reduce((acc, c) => {
+                const w = c.measured?.width ?? c.width ?? 200;
+                return Math.max(acc, c.position.x + w + GROUP_PADDING);
+            }, GROUP_PADDING * 2);
+            clampedW = Math.max(width, minWidth);
+        }
+
+        let clampedH: number;
+        if (anchorBottom) {
+            const minChildY = children.length
+                ? Math.min(...children.map((c) => c.position.y))
+                : Number.POSITIVE_INFINITY;
+            const minNewH = Number.isFinite(minChildY)
+                ? oldH + GROUP_PADDING - minChildY
+                : GROUP_PADDING * 2;
+            clampedH = Math.max(height, minNewH, GROUP_PADDING * 2);
+        } else {
+            const minHeight = children.reduce((acc, c) => {
+                const h = c.measured?.height ?? c.height ?? 100;
+                return Math.max(acc, c.position.y + h + GROUP_PADDING);
+            }, GROUP_PADDING * 2);
+            clampedH = Math.max(height, minHeight);
+        }
+
         if (cfg.width === clampedW && cfg.height === clampedH) return;
+
+        // Anchored axes: shift the group origin by -delta and inverse-shift
+        // each child by +delta so children stay world-pinned. Mirrors the
+        // left/top expansion in setNodeParent.
+        const deltaW = clampedW - oldW;
+        const deltaH = clampedH - oldH;
+        const groupShiftX = anchorRight ? -deltaW : 0;
+        const groupShiftY = anchorBottom ? -deltaH : 0;
+        const childShiftX = anchorRight ? deltaW : 0;
+        const childShiftY = anchorBottom ? deltaH : 0;
 
         get().takeSnapshot();
 
-        const updatedNodes = currentWorkflow.nodes.map((n) =>
-            n.id === groupId
-                ? {
-                      ...n,
-                      data: {
-                          ...n.data,
-                          config: { ...cfg, width: clampedW, height: clampedH },
-                      },
-                  }
-                : n
-        );
+        const updatedNodes = currentWorkflow.nodes.map((n) => {
+            if (n.id === groupId) {
+                return {
+                    ...n,
+                    position:
+                        groupShiftX !== 0 || groupShiftY !== 0
+                            ? { x: n.position.x + groupShiftX, y: n.position.y + groupShiftY }
+                            : n.position,
+                    data: {
+                        ...n.data,
+                        config: { ...cfg, width: clampedW, height: clampedH },
+                    },
+                };
+            }
+            if ((childShiftX !== 0 || childShiftY !== 0) && n.parentNode === groupId) {
+                return {
+                    ...n,
+                    position: {
+                        x: n.position.x + childShiftX,
+                        y: n.position.y + childShiftY,
+                    },
+                };
+            }
+            return n;
+        });
 
         set({
             currentWorkflow: { ...currentWorkflow, nodes: updatedNodes },

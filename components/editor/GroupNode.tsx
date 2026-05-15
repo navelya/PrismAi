@@ -196,8 +196,14 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
         if (s.dir.includes('s')) newH = s.startH + dy;
         if (s.dir.includes('n')) newH = s.startH - dy;
 
+        // W/N drags need to ANCHOR the opposite edge so the dragged edge moves
+        // visually. Without this the slice would only resize from the top-left
+        // and the user-visible result is the wrong edge moving.
+        const anchorRight = s.dir.includes('w');
+        const anchorBottom = s.dir.includes('n');
+
         // The slice clamps min size; we don't double-clamp here.
-        resizeGroup(id, newW, newH);
+        resizeGroup(id, newW, newH, { anchorRight, anchorBottom });
     }, [id, resizeGroup]);
 
     const onResizePointerUp = useCallback((e: React.PointerEvent) => {
