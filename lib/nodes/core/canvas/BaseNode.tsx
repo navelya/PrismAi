@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { NodeStatus } from '@/lib/nodes/types';
+import { useWireDrag } from '@/lib/editor/wire-drag-context';
+import { findHandleForNode, findAllCompatibleHandlesForNode } from '@/lib/editor/handle-compatibility';
 import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
 import { motion } from 'framer-motion';
 
@@ -56,6 +58,13 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // by each per-type wrapper. Disables animations/transitions only on the node
     // actually moving — never the whole canvas.
     dragging?: boolean;
+    /**
+     * Node data (forwarded by per-type wrappers from React Flow's NodeProps.data).
+     * Used by the wire-drag compatibility check on ai_generator nodes, which read
+     * `data.config.model_id`. Optional — falling back to `undefined` is safe; the
+     * compatibility helper treats a missing model as "no compatible handles".
+     */
+    nodeData?: any;
 }
 
 const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
@@ -77,6 +86,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     hideStatus = false,
     isNew,
     dragging = false,
+    nodeData,
     onDrag,
     onDragStart,
     onDragEnd,
@@ -103,6 +113,70 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     //   3. Else: 'idle' (no badge).
     const rawStatus = useAppStore((state) => state.nodeStatuses[id]);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+    const wireDrag = useWireDrag();
+    const models = useAppStore((s) => s.models);
+
+    const dragRole: 'none' | 'origin' | 'compatible' | 'incompatible' = useMemo(() => {
+        if (!wireDrag) return 'none';
+        if (wireDrag.originNodeId === id) return 'origin';
+        const pending = {
+            nodeId: wireDrag.originNodeId,
+            handleId: wireDrag.originHandleId,
+            handleType: wireDrag.originHandleType,
+            dataType: wireDrag.dataType,
+        };
+        const match = findHandleForNode(
+            { type, data: { config: nodeData?.config } },
+            pending,
+            models,
+            sharedRegistry,
+        );
+        return match ? 'compatible' : 'incompatible';
+    }, [wireDrag, id, type, nodeData?.config, models]);
+
+    const compatibleHandleIds = useMemo(() => {
+        if (dragRole !== 'compatible' || !wireDrag) return null;
+        const pending = {
+            nodeId: wireDrag.originNodeId,
+            handleId: wireDrag.originHandleId,
+            handleType: wireDrag.originHandleType,
+            dataType: wireDrag.dataType,
+        };
+        const handles = findAllCompatibleHandlesForNode(
+            { type, data: { config: nodeData?.config } },
+            pending,
+            models,
+            sharedRegistry,
+        );
+        return new Set(handles.map((h) => h.id));
+    }, [dragRole, wireDrag, type, nodeData?.config, models]);
+
+    /**
+     * Decide whether this handle's label should be force-visible because a wire is being dragged.
+     *
+     * - On the ORIGIN node: the originating handle (matching side + id) is force-visible.
+     *   For default-handle nodes (no explicit id) we match when originHandleId is null
+     *   AND the handle's resolved id equals the registry's default handle id.
+     * - On a COMPATIBLE node: any handle whose id is in `compatibleHandleIds` is force-visible.
+     *   (The compatibility helper already restricts to the opposite side of the origin, so we
+     *   don't need to gate on side here — the id-set is already side-correct.)
+     * - Otherwise: not force-visible.
+     */
+    const isHandleLabelForced = (handleSide: 'source' | 'target', handleId: string): boolean => {
+        if (!wireDrag) return false;
+        if (dragRole === 'origin') {
+            if (handleSide !== wireDrag.originHandleType) return false;
+            // Default-handle case: originHandleId can be null. Treat any handle on
+            // the originating side as the origin when the node has no explicit ids.
+            if (wireDrag.originHandleId === null) return true;
+            return handleId === wireDrag.originHandleId;
+        }
+        if (dragRole === 'compatible' && compatibleHandleIds) {
+            return compatibleHandleIds.has(handleId);
+        }
+        return false;
+    };
+
     const status: NodeStatus = rawStatus ?? (isLoadingSession ? 'pending' : 'idle');
     const updateNodeLabel = useAppStore((state) => state.updateNodeLabel);
     const setNodeLabelDraft = useAppStore((state) => state.setNodeLabelDraft);
@@ -212,6 +286,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // Shadow stays constant on hover/drag/click — only the border
                 // is allowed to indicate interaction state.
                 "hover:border-stroke-strong hover:bg-surface-elevated/20",
+                dragRole === 'incompatible' && "opacity-30 grayscale-[0.6] transition-[border-color,background-color,opacity,filter] duration-150",
                 typeof width === 'string' ? width : '',
                 className
             )}
@@ -313,10 +388,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 >
                                     {input.label && (() => {
                                         const isErrorState = !hideStatus && status === 'error' && isMissing;
+                                        const forced = isHandleLabelForced('target', input.id);
 
                                         return (
                                             <div className={cn(
-                                                "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
+                                                "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
+                                                forced ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                                                 isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
                                             )} style={!isErrorState ? { color: input.color || nodeColor } : undefined}>
                                                 {input.label}{(input as any).isMandatory ? ' *' : ''}
@@ -348,10 +425,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 connectedTargetHandles.has('__default__')
                             );
                             const isErrorState = !hideStatus && status === 'error' && isMissing;
+                            const forced = isHandleLabelForced('target', defaultInput?.id ?? '');
 
                             return (
                                 <div className={cn(
-                                    "absolute bottom-full right-1/2 mb-1 mr-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
+                                    "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
+                                    forced ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                                     isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
                                 )} style={!isErrorState ? { color: nodeColor } : undefined}>
                                     {defaultInputLabel}{defaultInput?.isMandatory ? ' *' : ''}
@@ -407,9 +486,17 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     top: `calc(50% + ${offset}px)`
                                 }}
                             >
-                                <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]" style={{ color: output.color || nodeColor }}>
-                                    {output.label}
-                                </div>
+                                {(() => {
+                                    const forced = isHandleLabelForced('source', output.id);
+                                    return (
+                                        <div className={cn(
+                                            "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]",
+                                            forced ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                        )} style={{ color: output.color || nodeColor }}>
+                                            {output.label}
+                                        </div>
+                                    );
+                                })()}
                             </Handle>
                         );
                     })
@@ -428,11 +515,17 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                             right: -5,
                         }}
                     >
-                        {defaultOutputLabel && (
-                            <div className="absolute bottom-full left-1/2 mb-1 ml-1 opacity-0 group-hover:opacity-100 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]" style={{ color: nodeColor }}>
-                                {defaultOutputLabel}
-                            </div>
-                        )}
+                        {defaultOutputLabel && (() => {
+                            const forced = isHandleLabelForced('source', defaultOutputId);
+                            return (
+                                <div className={cn(
+                                    "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]",
+                                    forced ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                )} style={{ color: nodeColor }}>
+                                    {defaultOutputLabel}
+                                </div>
+                            );
+                        })()}
                     </Handle>
                 )
             )}
