@@ -34,7 +34,9 @@ import {
     PendingConnection,
     getNodeHandleType,
     typesAreCompatible,
+    findHandleForNode,
 } from '@/lib/editor/handle-compatibility';
+import { WireDragProvider, type WireDragState } from '@/lib/editor/wire-drag-context';
 
 // Stable references for <ReactFlow> object props — see
 // https://reactflow.dev/learn/advanced-use/performance. Hoisted to module
@@ -106,6 +108,7 @@ const EditorCanvasInner = ({
     const [positioningNodeId, setPositioningNodeId] = useState<string | null>(null);
     // Holds the in-flight connection origin between onConnectStart and onConnectEnd.
     const connectStartRef = useRef<{ nodeId: string; handleId: string | null; handleType: 'source' | 'target' } | null>(null);
+    const [wireDrag, setWireDrag] = useState<WireDragState>(null);
     // Timestamp of the last wire-drop menu open. React Flow can fire onPaneClick
     // right after a wire drop on the pane — ignore those clicks for a short window
     // so they don't immediately close the menu we just opened.
@@ -131,13 +134,6 @@ const EditorCanvasInner = ({
         stroke: 'rgb(var(--canvas-edge))',
         cursor: 'pointer',
     }), [resolvedTheme]);
-
-    const memoizedEdges = useMemo(() => edges.map(e => ({
-        ...e,
-        type: 'default',
-        animated: false,
-        style: edgeStyle,
-    })), [edges, edgeStyle]);
 
     // Stable id array for the multi-select toolbar's nodeId prop. Recomputed only
     // when the selected set changes — without this, every render of localNodes
@@ -291,6 +287,43 @@ const EditorCanvasInner = ({
 
     const setIsDragging = useAppStore((state) => state.setIsDragging);
     const models = useAppStore((state) => state.models);
+
+    const dimmedNodeIds = useMemo(() => {
+        if (!wireDrag) return null;
+        const set = new Set<string>();
+        const nodes = reactFlowInstance?.getNodes() ?? localNodes;
+        const pendingFromDrag: PendingConnection = {
+            nodeId: wireDrag.originNodeId,
+            handleId: wireDrag.originHandleId,
+            handleType: wireDrag.originHandleType,
+            dataType: wireDrag.dataType,
+        };
+        for (const n of nodes) {
+            if (n.id === wireDrag.originNodeId) continue;
+            const compatible = findHandleForNode(
+                n as any,
+                pendingFromDrag,
+                models,
+                sharedRegistry,
+            );
+            if (!compatible) set.add(n.id);
+        }
+        return set;
+    }, [wireDrag, reactFlowInstance, localNodes, models]);
+
+    const memoizedEdges = useMemo(() => edges.map(e => {
+        const isDimmed = dimmedNodeIds && (
+            dimmedNodeIds.has(e.source) || dimmedNodeIds.has(e.target)
+        );
+        return {
+            ...e,
+            type: 'default',
+            animated: false,
+            style: isDimmed
+                ? { ...edgeStyle, opacity: 0.3, filter: 'grayscale(0.6)', transition: 'opacity 150ms, filter 150ms' }
+                : edgeStyle,
+        };
+    }), [edges, edgeStyle, dimmedNodeIds]);
 
     const { getRFNode, getRFNodes, getRFEdges } = {
         getRFNode: (id: string) => reactFlowInstance?.getNode(id),
@@ -563,13 +596,32 @@ const EditorCanvasInner = ({
             handleId: params.handleId,
             handleType: params.handleType,
         };
-    }, []);
+
+        if (!reactFlowInstance) return;
+        const originNode = reactFlowInstance.getNode(params.nodeId);
+        if (!originNode) return;
+        const resolved = getNodeHandleType(
+            originNode as any,
+            params.handleId,
+            params.handleType,
+            models,
+            sharedRegistry,
+        );
+        if (!resolved) return;
+        setWireDrag({
+            originNodeId: params.nodeId,
+            originHandleId: params.handleId,
+            originHandleType: params.handleType,
+            dataType: resolved.type,
+        });
+    }, [reactFlowInstance, models]);
 
     // Wire dropped on canvas (not on a handle/node) → open the filtered context
     // menu so the user can pick a compatible node and have it auto-wired.
     const handleConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
         const start = connectStartRef.current;
         connectStartRef.current = null;
+        setWireDrag(null);
         if (!start) return;
 
         const clientX = 'clientX' in event
@@ -715,6 +767,7 @@ const EditorCanvasInner = ({
             onMouseMove={handleMouseMove}
             onMouseLeave={() => setIsMouseActive(false)}
         >
+            <WireDragProvider value={wireDrag}>
             <ReactFlow
                 nodes={localNodes}
                 edges={memoizedEdges}
@@ -874,6 +927,7 @@ const EditorCanvasInner = ({
                     isNodesEmpty={localNodes.length === 0}
                 />
             </ReactFlow>
+            </WireDragProvider>
 
             {/* Hide the just-placed wire-drop node on its first commit, until we
                 measure its handle and shift the node so the handle lands exactly
