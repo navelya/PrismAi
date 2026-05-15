@@ -260,7 +260,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // Shadow stays constant on hover/drag/click — only the border
                 // is allowed to indicate interaction state.
                 "hover:border-stroke-strong hover:bg-surface-elevated/20",
-                dragRole === 'incompatible' && "opacity-30 grayscale-[0.6] transition-[opacity,filter] duration-150",
+                dragRole === 'incompatible' && "opacity-30 grayscale-[0.6] transition-[border-color,background-color,opacity,filter] duration-150",
                 typeof width === 'string' ? width : '',
                 className
             )}
