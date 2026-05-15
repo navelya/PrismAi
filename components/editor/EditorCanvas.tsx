@@ -14,6 +14,7 @@ import ReactFlow, {
     Connection,
     Panel,
     useReactFlow,
+    useNodesInitialized,
     applyNodeChanges,
     NodeToolbar,
     Position,
@@ -75,6 +76,10 @@ interface EditorCanvasProps {
     onDelete?: (nodeIds: string[]) => void;
     onCopy?: (nodeId: string) => void;
     onPaste?: () => void;
+    // Fires once after React Flow has measured all nodes AND the first paint
+    // has committed — used by the parent to dismiss a covering loader so the
+    // user never sees the canvas pop in unfurnished.
+    onCanvasReady?: () => void;
 }
 
 const EditorCanvasInner = ({
@@ -94,6 +99,7 @@ const EditorCanvasInner = ({
     onNodeDragStop,
     onDuplicate,
     onDelete,
+    onCanvasReady,
 }: EditorCanvasProps) => {
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
@@ -126,6 +132,25 @@ const EditorCanvasInner = ({
             setLocalNodes(propNodes);
         }
     }, [propNodes]);
+
+    // ── Canvas-ready signal ──────────────────────────────────────────────
+    // useNodesInitialized() flips true once every node has been measured by
+    // RF's resize observer (width/height set on the internal node record).
+    // That's the canonical "nodes have a real layout" signal — it covers the
+    // gap between data-loaded and visually-rendered that a plain isLoading
+    // flag misses. Combined with one rAF afterwards to guarantee the first
+    // paint has actually committed before we tell the parent to dismiss the
+    // covering loader. Fires at most once per mount.
+    const nodesInitialized = useNodesInitialized();
+    const hasFiredReadyRef = useRef(false);
+    useEffect(() => {
+        if (hasFiredReadyRef.current) return;
+        if (!reactFlowInstance) return;
+        if (!nodesInitialized) return;
+        hasFiredReadyRef.current = true;
+        const raf = requestAnimationFrame(() => onCanvasReady?.());
+        return () => cancelAnimationFrame(raf);
+    }, [nodesInitialized, reactFlowInstance, onCanvasReady]);
 
     const { resolvedTheme } = useTheme();
 

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import EditorToolbar from './EditorToolbar';
 import EditorCanvas from './EditorCanvas';
+import CanvasLoader from './CanvasLoader';
 import PropertyPanel from './PropertyPanel';
 import ResultsPanel from './ResultsPanel';
 import { useWorkflowEditor } from '@/hooks/useWorkflowEditor';
@@ -44,6 +45,10 @@ export default function SharedWorkflowEditor({
     const fetchDataTypes = useAppStore(state => state.fetchDataTypes);
 
     const [isBooting, setIsBooting] = useState(true);
+    // Flips true once React Flow has measured all nodes AND committed the
+    // first paint — bridges the gap between catalog-loaded and canvas-visible
+    // so the Lottie loader doesn't disappear before nodes paint in.
+    const [isCanvasReady, setIsCanvasReady] = useState(false);
 
     useEffect(() => {
         const initializeCatalogs = async () => {
@@ -524,14 +529,11 @@ export default function SharedWorkflowEditor({
 
                 <div className="flex-1 relative bg-surface-primary flex flex-col overflow-hidden">
                     <div className="flex-1 relative z-10">
-                        {(isModelsLoading || isBooting) ? (
-                            <div className="w-full h-full flex flex-col items-center justify-center bg-surface-primary gap-4">
-                                <div className="w-12 h-12 border-4 border-accent-primary/20 border-t-accent-primary rounded-full animate-spin" />
-                                <div className="text-xs font-bold tracking-[0.2em] uppercase text-white/30 animate-pulse">
-                                    Loading...
-                                </div>
-                            </div>
-                        ) : (
+                        {/* Mount the canvas as soon as catalog data is in so
+                            React Flow can start measuring nodes behind the
+                            loader overlay. The loader covers it until the
+                            onCanvasReady callback fires post-first-paint. */}
+                        {!(isModelsLoading || isBooting) && (
                             <EditorCanvas
                                 nodes={nodes}
                                 edges={edges}
@@ -550,8 +552,23 @@ export default function SharedWorkflowEditor({
                                 onDelete={deleteNodes}
                                 onCopy={handleCopy}
                                 onPaste={handlePaste}
+                                onCanvasReady={() => setIsCanvasReady(true)}
                             />
                         )}
+                        <AnimatePresence>
+                            {(isModelsLoading || isBooting || !isCanvasReady) && (
+                                <motion.div
+                                    key="canvas-loader"
+                                    initial={{ opacity: 1 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.35, ease: 'easeOut' }}
+                                    className="absolute inset-0 z-30"
+                                >
+                                    <CanvasLoader />
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
 
                     {showResultsPanel && showResults && (
