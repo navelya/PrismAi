@@ -110,7 +110,12 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode }),
     clearRunFromNode: () => set({ runFromNodeId: null, runMode: null }),
 
-    setDragHoverGroupId: (id) => set({ dragHoverGroupId: id }),
+    setDragHoverGroupId: (id) => {
+        // Drag handlers call this on every frame; skip the store write (and
+        // its subscriber-notify loop) when the value is unchanged.
+        if (get().dragHoverGroupId === id) return;
+        set({ dragHoverGroupId: id });
+    },
 
     fetchMenuData: async (force = false) => {
         if (!force && get().menuTree.length > 0) return;
