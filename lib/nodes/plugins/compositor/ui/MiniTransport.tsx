@@ -39,7 +39,16 @@ const MiniTransport = memo(function MiniTransport({
     const trackRef = useRef<HTMLDivElement>(null);
     const draggingRef = useRef(false);
 
-    const seekFromClientX = useCallback((clientX: number) => {
+    // Scrub coalescing: pointermove can fire faster than the display refresh.
+    // We buffer the latest X and flush exactly one onSeek per animation frame.
+    const pendingXRef = useRef<number | null>(null);
+    const rafRef = useRef<number | null>(null);
+
+    const flushSeek = useCallback(() => {
+        rafRef.current = null;
+        const clientX = pendingXRef.current;
+        pendingXRef.current = null;
+        if (clientX === null) return;
         const el = trackRef.current;
         if (!el) return;
         const rect = el.getBoundingClientRect();
@@ -47,28 +56,50 @@ const MiniTransport = memo(function MiniTransport({
         onSeek(ratio * totalDuration);
     }, [onSeek, totalDuration]);
 
+    const scheduleSeek = useCallback((clientX: number) => {
+        pendingXRef.current = clientX;
+        if (rafRef.current === null) {
+            rafRef.current = requestAnimationFrame(flushSeek);
+        }
+    }, [flushSeek]);
+
     const onPointerDown = useCallback((e: React.PointerEvent) => {
         e.preventDefault();
         e.stopPropagation();
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
         draggingRef.current = true;
-        seekFromClientX(e.clientX);
-    }, [seekFromClientX]);
+        scheduleSeek(e.clientX);
+    }, [scheduleSeek]);
 
     useEffect(() => {
         const onMoveEvt = (e: PointerEvent) => {
             if (!draggingRef.current) return;
             e.preventDefault();
-            seekFromClientX(e.clientX);
+            scheduleSeek(e.clientX);
         };
-        const onUp = () => { draggingRef.current = false; };
+        const onUp = () => {
+            draggingRef.current = false;
+            // Cancel any frame still queued so it can't fire on an unmounted
+            // component; we commit the final position synchronously instead.
+            if (rafRef.current !== null) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = null;
+            }
+            // Make sure the final pointer position is committed even if it
+            // arrived between frames.
+            if (pendingXRef.current !== null) flushSeek();
+        };
         window.addEventListener('pointermove', onMoveEvt);
         window.addEventListener('pointerup', onUp);
         return () => {
             window.removeEventListener('pointermove', onMoveEvt);
             window.removeEventListener('pointerup', onUp);
+            if (rafRef.current !== null) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = null;
+            }
         };
-    }, [seekFromClientX]);
+    }, [scheduleSeek, flushSeek]);
 
     const progress = totalDuration > 0 ? (playhead / totalDuration) * 100 : 0;
 
