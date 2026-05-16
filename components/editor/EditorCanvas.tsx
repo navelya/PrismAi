@@ -145,16 +145,30 @@ const EditorCanvasInner = ({
     // flag misses. Combined with one rAF afterwards to guarantee the first
     // paint has actually committed before we tell the parent to dismiss the
     // covering loader. Fires at most once per mount.
+    //
+    // Two subtleties that bit us before:
+    //   1. onCanvasReady is inlined by the parent so its identity changes
+    //      every render. Keeping it out of the deps (via a latest-ref) stops
+    //      unrelated parent re-renders from re-running this effect and
+    //      cancelling the pending rAF.
+    //   2. The "fired" flag flips inside the rAF, not before it. If something
+    //      (e.g. a node added/removed mid-flight) does invalidate the rAF,
+    //      we want a subsequent run to retry — locking before the call could
+    //      strand us with the flag set but the callback never actually fired.
     const nodesInitialized = useNodesInitialized();
     const hasFiredReadyRef = useRef(false);
+    const onCanvasReadyRef = useRef(onCanvasReady);
+    onCanvasReadyRef.current = onCanvasReady;
     useEffect(() => {
         if (hasFiredReadyRef.current) return;
         if (!reactFlowInstance) return;
         if (!nodesInitialized) return;
-        hasFiredReadyRef.current = true;
-        const raf = requestAnimationFrame(() => onCanvasReady?.());
+        const raf = requestAnimationFrame(() => {
+            hasFiredReadyRef.current = true;
+            onCanvasReadyRef.current?.();
+        });
         return () => cancelAnimationFrame(raf);
-    }, [nodesInitialized, reactFlowInstance, onCanvasReady]);
+    }, [nodesInitialized, reactFlowInstance]);
 
     const { resolvedTheme } = useTheme();
 

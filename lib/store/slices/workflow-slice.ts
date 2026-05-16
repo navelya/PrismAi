@@ -506,14 +506,89 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     },
 
     updateNodeConfig: (nodeId, config) => {
-        const { currentWorkflow, nodeOutputs } = get();
+        const { currentWorkflow, nodeOutputs, models } = get();
         if (!currentWorkflow) return;
 
-        const updatedNodes = currentWorkflow.nodes.map((node) =>
+        const oldNode = currentWorkflow.nodes.find((n) => n.id === nodeId);
+        if (!oldNode) return;
+
+        const oldConfig = (oldNode.data?.config as any) || {};
+        const newConfig = (config as any) || {};
+
+        // When an ai_generator switches model, the handle id set changes. Edges
+        // pointing at handles that no longer exist must be removed from state in
+        // the SAME action — RF only hides them visually, so without this the
+        // edges resurface as soon as the user switches back. Doing it here (one
+        // set(), one snapshot) makes a single Undo revert config + edges
+        // together. We bypass this for plain control edits (no model_id change)
+        // so config keystrokes don't spam the undo stack.
+        const isAiModelSwitch =
+            oldNode.type === 'ai_generator' &&
+            oldConfig.model_id !== newConfig.model_id;
+
+        let edgeIdsToRemove: Set<string> = new Set();
+        if (isAiModelSwitch && newConfig.model_id != null) {
+            const newModel = models.find((m) => m.id === newConfig.model_id);
+            if (newModel) {
+                const validInputIds = new Set<string>(
+                    (newModel.inputs_schema?.handles || [])
+                        .filter((h) => h.is_visible !== false)
+                        .map((h) => h.api_mapping_key || h.name)
+                );
+                const validOutputIds = new Set<string>(
+                    (newModel.outputs_schema?.handles || [])
+                        .filter((h) => h.is_visible !== false)
+                        .map((h) => h.api_mapping_key || h.name || 'output')
+                );
+                for (const e of currentWorkflow.edges || []) {
+                    if (e.target === nodeId && e.targetHandle && !validInputIds.has(e.targetHandle)) {
+                        edgeIdsToRemove.add(e.id);
+                    } else if (e.source === nodeId && e.sourceHandle && !validOutputIds.has(e.sourceHandle)) {
+                        edgeIdsToRemove.add(e.id);
+                    }
+                }
+            }
+        }
+
+        if (edgeIdsToRemove.size > 0) get().takeSnapshot();
+
+        let updatedNodes = currentWorkflow.nodes.map((node) =>
             node.id === nodeId
                 ? { ...node, data: { ...node.data, config } }
                 : node
         );
+
+        let updatedEdges = currentWorkflow.edges || [];
+        if (edgeIdsToRemove.size > 0) {
+            const removedEdges = updatedEdges.filter((e) => edgeIdsToRemove.has(e.id));
+            updatedEdges = updatedEdges.filter((e) => !edgeIdsToRemove.has(e.id));
+
+            // Mirror the compositor-layer strip from onEdgesChange so a layer
+            // doesn't outlive the edge that materialized it.
+            const compositorEdgesByTarget = new Map<string, string[]>();
+            removedEdges.forEach((edge) => {
+                const targetNode = updatedNodes.find((n) => n.id === edge.target);
+                if (targetNode?.type !== 'compositor') return;
+                if (!compositorEdgesByTarget.has(edge.target)) {
+                    compositorEdgesByTarget.set(edge.target, []);
+                }
+                compositorEdgesByTarget.get(edge.target)!.push(edge.id);
+            });
+            if (compositorEdgesByTarget.size > 0) {
+                updatedNodes = updatedNodes.map((node) => {
+                    const lostEdgeIds = compositorEdgesByTarget.get(node.id);
+                    if (!lostEdgeIds || node.type !== 'compositor') return node;
+                    const cfg: CompositorConfig = (node.data?.config as CompositorConfig) || ({} as CompositorConfig);
+                    const layers = (cfg.layers || []).filter(
+                        (l) => !lostEdgeIds.includes(l.sourceHandleId)
+                    );
+                    return {
+                        ...node,
+                        data: { ...node.data, config: { ...cfg, layers } },
+                    };
+                });
+            }
+        }
 
         // For source nodes (Prompt, MediaInput), push the derived envelope into
         // the resolved-value store in the SAME set() so we get one render pass
@@ -531,7 +606,11 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             : nodeOutputs;
 
         set({
-            currentWorkflow: { ...currentWorkflow, nodes: updatedNodes },
+            currentWorkflow: {
+                ...currentWorkflow,
+                nodes: updatedNodes,
+                edges: updatedEdges as any[],
+            },
             nodeOutputs: nextOutputs,
             isWorkflowDirty: true,
         });

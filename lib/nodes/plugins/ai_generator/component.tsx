@@ -108,48 +108,6 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     }, [id, inputHandlesSig, outputHandlesSig, updateNodeInternals]);
 
 
-    // ✅ PHASE 1 FIX: Edge cleanup logic removed
-    // ISSUE: Direct setEdges() manipulation bypassed editor state, causing sync mismatches
-    // SOLUTION: Let ReactFlow handle invalid connections naturally through its validation
-    // Edge validation should happen at the connection level, not post-hoc cleanup
-    // If invalid edges become a problem, implement validation in onConnect handler instead
-
-    // Original edge cleanup logic commented out to prevent wire disappearance issues:
-    /*
-    const { getEdges, setEdges } = useReactFlow();
-    const lastModelIdRef = React.useRef(data.config?.model_id);
-
-    useEffect(() => {
-        if (!selectedModel || lastModelIdRef.current === data.config?.model_id) {
-            return;
-        }
-
-        lastModelIdRef.current = data.config?.model_id;
-
-        const currentEdges = getEdges();
-        const validInputHandles = new Set(selectedModel.inputs_schema?.handles?.map(h => h.api_mapping_key) || []);
-        const validOutputHandles = new Set(selectedModel.outputs_schema?.handles?.map(h => h.api_mapping_key || 'output') || []);
-
-        const invalidEdges = currentEdges.filter(edge => {
-            if (edge.target === id) {
-                if (!edge.targetHandle) return false;
-                return !validInputHandles.has(edge.targetHandle);
-            }
-            if (edge.source === id) {
-                if (!edge.sourceHandle || edge.sourceHandle === 'output') return false; 
-                return !validOutputHandles.has(edge.sourceHandle);
-            }
-            return false;
-        });
-
-        if (invalidEdges.length > 0) {
-            console.warn(`[AIGeneratorNode] Cleaning up ${invalidEdges.length} dangling edges after model switch`);
-            const invalidIds = new Set(invalidEdges.map(e => e.id));
-            setEdges(eds => eds.filter(e => !invalidIds.has(e.id)));
-        }
-    }, [id, selectedModel, getEdges, setEdges, data.config?.model_id]);
-    */
-
     const customInputs = inputHandles
         .filter(h => h.is_visible !== false)
         .map(h => ({

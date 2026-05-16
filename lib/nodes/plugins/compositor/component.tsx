@@ -139,6 +139,16 @@ function LivePreview({
         const tick = (now: number) => {
             const dt = (now - last) / 1000;
             last = now;
+            // Honor external playhead resets (e.g., the lightbox forcing
+            // playback to t=0 before it starts recording). Without this snap,
+            // the local `live` accumulator ignores the prop change and the
+            // canvas keeps advancing from wherever playback already was —
+            // which made the recorded video start mid-timeline and look
+            // truncated at the end.
+            if (Math.abs(playheadRef.current - live) > 0.5) {
+                live = playheadRef.current;
+                lastCommit = now;
+            }
             live += dt;
             if (live >= totalDuration) live = 0;
             if (now - lastCommit >= THROTTLE_MS) {
@@ -181,34 +191,28 @@ function LivePreview({
             }}
         >
             {/*
-             * The Konva Stage renders at FULL canvas resolution internally
-             * (canvasWidth × canvasHeight) and is CSS-scaled to fit the card
-             * container. This keeps `canvas.captureStream(fps)` producing
-             * full-resolution frames, which the lightbox plays back through
-             * a native <video> element. If we instead sized the Stage to
-             * the card display (~320px wide), the stream would be tiny and
-             * the lightbox playback would look blurry.
+             * Stage is sized to the card's display size; the Layer's
+             * `pixelRatio` upsamples the internal canvas to FULL canvas
+             * resolution. This keeps `canvas.captureStream(fps)` producing
+             * crisp full-resolution frames (so the lightbox's native <video>
+             * isn't blurry) without CSS-transforming the Stage — Konva
+             * manages width/height styling on its own container, and
+             * layering a `transform: scale` on top of that has been
+             * brittle in practice.
              *
-             * pixelRatio={1} on the Layer disables retina oversampling — we
-             * already render at full canvas pixels, doubling on retina would
-             * waste a lot of GPU work for no visible gain.
+             * pixelRatio = canvasWidth / displayWidth means the Layer
+             * draws at (canvasWidth × canvasHeight) pixels internally,
+             * downsampled to display via the Stage's CSS box.
              */}
             {scale > 0 && (
                 <Stage
                     ref={stageRef}
-                    width={canvasWidth}
-                    height={canvasHeight}
+                    width={size.width}
+                    height={size.height}
                     listening={false}
-                    style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        transformOrigin: '0 0',
-                        transform: `scale(${scale})`,
-                    }}
                 >
-                    <Layer listening={false} pixelRatio={1}>
-                        <Group>
+                    <Layer listening={false} pixelRatio={1 / scale}>
+                        <Group scaleX={scale} scaleY={scale}>
                             <CompositorLayerNodes
                                 layers={renderable}
                                 interactive={false}
@@ -229,16 +233,17 @@ function LivePreview({
 /**
  * Lightbox for video compositor output.
  *
- * Shows the live captureStream from the card's Konva canvas in a native
- * `<video srcObject>` — same UI vocabulary as ImageLightbox (close + download
- * buttons, dim background, fixed inset overlay), but with a live stream
- * instead of a static URL. There is no second Konva mount inside the
- * lightbox — the card's canvas is the only renderer; this component is a
- * pure consumer.
+ * Plays the live captureStream from the card's Konva canvas via a native
+ * `<video srcObject>` with native controls visible. Browsers treat a
+ * MediaStream as a live broadcast, so scrubbing and duration display don't
+ * fully work — that's the trade-off for instant playback with no recording
+ * delay. The compositor's own transport bar remains the source of truth
+ * for seeking the timeline.
  *
- * Download uses MediaRecorder for one timeline duration to produce a webm
- * blob. webm/vp9 is universally supported and small; if someone needs mp4
- * specifically we can pipe through ffmpeg-wasm later.
+ * Download is on-demand: clicking the button rewinds card playback to t=0,
+ * records one full timeline duration via MediaRecorder, then saves a webm.
+ * No second Konva mount; this component is a pure consumer of the card's
+ * canvas / stream.
  */
 function VideoStreamLightbox({
     stream,
@@ -251,75 +256,76 @@ function VideoStreamLightbox({
     duration: number;
     resolution: { width: number; height: number };
     onClose: () => void;
-    /** Called before recording starts so the parent can rewind playback to t=0. */
+    /** Called before download recording starts so the parent can rewind playback to t=0. */
     onRequireRestart: () => void;
 }) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const [recording, setRecording] = useState(false);
     const [recordProgress, setRecordProgress] = useState(0);
 
+    // Bind the live MediaStream to the <video> via `srcObject`. The stream
+    // is produced by the card's Konva canvas; this element is a pure
+    // consumer, so closing the lightbox doesn't stop the stream — the next
+    // open re-binds the same source.
     useEffect(() => {
         const el = videoRef.current;
         if (!el || !stream) return;
         el.srcObject = stream;
-        // Live MediaStream playback: <video> treats it as a "live broadcast"
-        // and won't expose a scrub bar — that's fine; the lightbox is for
-        // viewing, the timeline below the editor is the scrub control.
-        el.play().catch(() => { /* autoplay may be blocked until user gesture */ });
+        el.play().catch(() => { /* autoplay may be blocked, user can press play */ });
         return () => { el.srcObject = null; };
     }, [stream]);
 
     const handleDownload = useCallback(async () => {
-        if (!stream || recording) return;
-        if (duration <= 0) return;
+        if (!stream || recording || duration <= 0) return;
 
-        // MediaRecorder mime negotiation. vp9 is universal in modern Chrome
-        // / Firefox / Edge; Safari only got it recently. Falling back through
-        // a list keeps the recorder working everywhere captureStream does.
         const candidates = [
             'video/webm;codecs=vp9',
             'video/webm;codecs=vp8',
             'video/webm',
         ];
-        const mimeType = candidates.find((m) =>
-            typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(m)
-        ) || '';
+        const mimeType =
+            typeof MediaRecorder !== 'undefined'
+                ? (candidates.find((m) => MediaRecorder.isTypeSupported?.(m)) || '')
+                : '';
 
         setRecording(true);
         setRecordProgress(0);
-        // Ask the parent to rewind so the recording starts at t=0.
+        // Rewind the card so the recording captures a clean loop from t=0.
         onRequireRestart();
 
         try {
             const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
             const chunks: BlobPart[] = [];
-            recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+            recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
-            const done = new Promise<void>((resolve) => {
+            const stopped = new Promise<void>((resolve) => {
                 recorder.onstop = () => resolve();
             });
 
-            // Small lead-in (200ms) so the canvas actually shows the t=0
-            // frame before recording starts. Without this the first ~3
-            // frames are whatever the canvas was showing before the rewind.
-            await new Promise((r) => setTimeout(r, 200));
+            // Lead-in so the canvas actually shows the t=0 frame before
+            // capturing starts. Without this, the first frames are
+            // whatever the canvas was showing before the rewind.
+            await new Promise((r) => setTimeout(r, 500));
             recorder.start();
 
             const recordMs = Math.ceil(duration * 1000);
             const startedAt = performance.now();
+            let progressRaf: number | null = null;
             const tick = () => {
                 const elapsed = performance.now() - startedAt;
                 setRecordProgress(Math.min(1, elapsed / recordMs));
                 if (elapsed < recordMs && recorder.state === 'recording') {
-                    requestAnimationFrame(tick);
+                    progressRaf = requestAnimationFrame(tick);
                 }
             };
-            requestAnimationFrame(tick);
+            progressRaf = requestAnimationFrame(tick);
 
             setTimeout(() => {
                 if (recorder.state === 'recording') recorder.stop();
             }, recordMs);
-            await done;
+
+            await stopped;
+            if (progressRaf !== null) cancelAnimationFrame(progressRaf);
 
             const blob = new Blob(chunks, { type: 'video/webm' });
             const url = URL.createObjectURL(blob);
@@ -378,6 +384,8 @@ function VideoStreamLightbox({
                     autoPlay
                     playsInline
                     muted
+                    loop
+                    controls
                     className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl bg-black"
                     style={{ aspectRatio: `${resolution.width} / ${resolution.height}` }}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -735,6 +743,15 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         setLightboxOpen(true);
     };
 
+    // Stable references for the lightbox. Inline arrows would re-fire the
+    // VideoStreamLightbox's recording effect every parent render — which
+    // means the recording would never finish before being aborted.
+    const handleLightboxClose = useCallback(() => setLightboxOpen(false), []);
+    const handleLightboxRestart = useCallback(() => {
+        setCardPlayhead(0);
+        setCardIsPlaying(true);
+    }, []);
+
     return (
         <>
             <BaseNode
@@ -836,13 +853,8 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                             stream={liveStream}
                             duration={cardTotalDuration}
                             resolution={{ width: canvasW, height: canvasH }}
-                            onClose={() => setLightboxOpen(false)}
-                            onRequireRestart={() => {
-                                // The user clicked download; rewind so the
-                                // recording captures a clean loop from t=0.
-                                setCardPlayhead(0);
-                                setCardIsPlaying(true);
-                            }}
+                            onClose={handleLightboxClose}
+                            onRequireRestart={handleLightboxRestart}
                         />
                     );
                 }
