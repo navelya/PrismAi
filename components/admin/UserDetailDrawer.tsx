@@ -22,6 +22,9 @@ import {
     Copy,
     Check,
     UserX,
+    Film,
+    Music,
+    Box,
 } from 'lucide-react';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { AdjustTokensModal } from './AdjustTokensModal';
@@ -71,14 +74,12 @@ function formatDateTime(iso: string | null): string {
     return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-function formatBytes(bytes: number): string {
-    if (!bytes) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let i = 0;
-    let v = bytes;
-    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-    return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
-}
+const ASSET_TYPE_ICON: Record<AdminAssetRow['result_type'], React.ComponentType<{ className?: string }>> = {
+    image: ImageIcon,
+    video: Film,
+    audio: Music,
+    '3d': Box,
+};
 
 function humanizeReason(row: AdminLedgerRow): string {
     if (row.reason === 'admin_adjustment') {
@@ -544,33 +545,44 @@ function TokensTab({ rows, loading }: { rows: AdminLedgerRow[]; loading: boolean
 
 function AssetsTab({ rows, loading }: { rows: AdminAssetRow[]; loading: boolean }) {
     if (loading) return <LoadingBlock />;
-    if (rows.length === 0) return <EmptyBlock message="No uploaded assets." />;
+    if (rows.length === 0) return <EmptyBlock message="No generated assets yet." />;
     return (
         <div className="grid grid-cols-3 gap-2">
             {rows.map(row => {
-                const isImage = (row.mime_type ?? '').startsWith('image/');
+                const TypeIcon = ASSET_TYPE_ICON[row.result_type] ?? FileText;
                 return (
                     <a
-                        key={row.path}
-                        href={row.url}
+                        key={row.id}
+                        href={row.result_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="group relative aspect-square rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:border-white/20 transition-all"
-                        title={`${row.name} · ${formatBytes(row.size)}`}
+                        title={`${row.result_type} · ${formatDateTime(row.created_at)}`}
                     >
-                        {isImage ? (
+                        {row.result_type === 'image' ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={row.url} alt={row.name} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                            <img src={row.result_url} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                        ) : row.result_type === 'video' ? (
+                            <video
+                                src={row.result_url}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                muted
+                                preload="metadata"
+                                playsInline
+                            />
                         ) : (
                             <div className="absolute inset-0 flex items-center justify-center text-content-tertiary">
-                                <FileText className="w-8 h-8" />
+                                <TypeIcon className="w-8 h-8" />
                             </div>
                         )}
-                        <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent">
-                            <p className="text-[9px] font-mono text-white/90 truncate">{row.name}</p>
-                            <p className="text-[8px] font-bold text-white/60">{formatBytes(row.size)}</p>
+                        <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 bg-black/70 backdrop-blur rounded-md flex items-center gap-1 text-white text-[8px] font-black uppercase tracking-widest">
+                            <TypeIcon className="w-2.5 h-2.5" />
+                            {row.result_type}
                         </div>
                         <ExternalLink className="absolute top-1.5 right-1.5 w-3 h-3 text-white/70 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent">
+                            <p className="text-[8px] font-mono text-white/70 truncate">{formatDateTime(row.created_at)}</p>
+                        </div>
                     </a>
                 );
             })}

@@ -41,13 +41,14 @@ export interface AdminSessionRow {
 }
 
 export interface AdminAssetRow {
-    name: string;
-    path: string;
-    size: number;
-    mime_type: string | null;
-    created_at: string | null;
-    updated_at: string | null;
-    url: string;
+    id: string;
+    source_result_id: string;
+    node_id: string;
+    result_type: 'image' | 'video' | 'audio' | '3d';
+    result_url: string;
+    session_id: string | null;
+    execution_id: string | null;
+    created_at: string;
 }
 
 export interface AdminUsersStats {
@@ -72,7 +73,7 @@ export interface ListUsersParams {
     pageSize?: number;
 }
 
-function buildQuery(params: Record<string, unknown> | ListUsersParams | { page?: number; pageSize?: number }): string {
+function buildQuery<T extends object>(params: T): string {
     const usp = new URLSearchParams();
     for (const [k, v] of Object.entries(params as Record<string, unknown>)) {
         if (v === undefined || v === null || v === '') continue;
