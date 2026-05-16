@@ -45,6 +45,10 @@ import { WireDragProvider, type WireDragState } from '@/lib/editor/wire-drag-con
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 0.8 } as const;
 const FIT_VIEW_OPTIONS = { padding: 0.3, maxZoom: 0.8 } as const;
 const PRO_OPTIONS = { hideAttribution: true } as const;
+// Hoisted so the panOnDrag prop is reference-stable across renders — React
+// Flow re-binds pointer handlers when this prop changes identity.
+const PAN_ON_DRAG_PAN: number[] = [0, 1];
+const PAN_ON_DRAG_SELECT: number[] = [1];
 const preventDefault = (e: React.DragEvent) => e.preventDefault();
 
 interface EditorCanvasProps {
@@ -825,7 +829,7 @@ const EditorCanvasInner = ({
                 panOnScroll={true}
                 zoomOnScroll={false}
                 zoomOnPinch={true}
-                panOnDrag={isPanMode ? [0, 1] : [1]}
+                panOnDrag={isPanMode ? PAN_ON_DRAG_PAN : PAN_ON_DRAG_SELECT}
                 selectionOnDrag={!isPanMode}
                 selectNodesOnDrag={!isPanMode}
                 nodesDraggable={!isPanMode}
