@@ -128,15 +128,33 @@ function LivePreview({
         if (totalDuration <= 0) return;
         let raf: number | null = null;
         let last = performance.now();
+        // The accumulator advances every frame so playback timing stays
+        // exact. We only push it into React state every THROTTLE_MS — the
+        // Konva <Stage> redraws video frames itself via Konva.Animation, so
+        // a 60Hz React commit was pure waste. 10Hz keeps activity gating
+        // (clip appear/disappear) within 100ms, which is imperceptible.
+        const THROTTLE_MS = 100;
+        let live = playheadRef.current;
+        let lastCommit = last;
         const tick = (now: number) => {
             const dt = (now - last) / 1000;
             last = now;
-            const next = playheadRef.current + dt;
-            onPlayheadChange(next >= totalDuration ? 0 : next);
+            live += dt;
+            if (live >= totalDuration) live = 0;
+            if (now - lastCommit >= THROTTLE_MS) {
+                lastCommit = now;
+                onPlayheadChange(live);
+            }
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
-        return () => { if (raf !== null) cancelAnimationFrame(raf); };
+        return () => {
+            if (raf !== null) cancelAnimationFrame(raf);
+            // Commit the final position so React state matches where
+            // playback actually stopped (otherwise the preview can freeze up
+            // to THROTTLE_MS behind the real playhead on pause).
+            onPlayheadChange(live);
+        };
     }, [isPlaying, totalDuration, onPlayheadChange]);
 
     // After the Stage mounts, grab its first Layer's live `<canvas>` element
