@@ -149,11 +149,24 @@ const ClipBlock = memo(function ClipBlock({
                 const trailing = raw + drag.duration;
                 const snappedLeading = snap(raw, targets, pps);
                 const snappedTrailing = snap(trailing, targets, pps);
+                const leadingSnapped = snappedLeading !== raw;
+                const trailingSnapped = snappedTrailing !== trailing;
                 let finalStart = raw;
-                if (snappedLeading !== raw && Math.abs(snappedLeading - raw) <= Math.abs(snappedTrailing - trailing)) {
+                // Three cases handled independently — the earlier single
+                // `<=` comparison rejected a leading-only snap because it
+                // compared against the trailing edge's snap-distance of 0.
+                if (leadingSnapped && trailingSnapped) {
+                    if (Math.abs(snappedLeading - raw) <= Math.abs(snappedTrailing - trailing)) {
+                        finalStart = snappedLeading;
+                        activeSnap = snappedLeading;
+                    } else {
+                        finalStart = Math.max(0, snappedTrailing - drag.duration);
+                        activeSnap = snappedTrailing;
+                    }
+                } else if (leadingSnapped) {
                     finalStart = snappedLeading;
                     activeSnap = snappedLeading;
-                } else if (snappedTrailing !== trailing) {
+                } else if (trailingSnapped) {
                     finalStart = Math.max(0, snappedTrailing - drag.duration);
                     activeSnap = snappedTrailing;
                 }
