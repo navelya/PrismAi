@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { CompositorLayer } from '../definition';
 import { LayerSourceKind } from '../shared';
@@ -12,6 +12,13 @@ interface ClipBlockProps {
     effectiveDuration: number;
     /** Pixels per second — scale factor from the parent timeline. */
     pixelsPerSecond: number;
+    /**
+     * Hard upper bound on `duration` when the user drags the right edge.
+     * `null` means unbounded (image / text). For video layers this is the
+     * intrinsic source length minus trim-in — you can't show more of the
+     * clip than the source contains.
+     */
+    maxDuration: number | null;
     isSelected: boolean;
     onSelect: () => void;
     onMove: (newStartTime: number) => void;
@@ -19,7 +26,7 @@ interface ClipBlockProps {
     /**
      * Other layers' edge times (start and end) the user can snap to when
      * dragging this clip. Always includes `0` (timeline start). Snap fires
-     * within a 0.25s threshold to either end.
+     * within a fixed pixel threshold to either end.
      */
     snapTargets?: number[];
     /**
@@ -32,18 +39,10 @@ interface ClipBlockProps {
 /**
  * Pixel threshold for snap. Converted to seconds at runtime against the
  * caller's current `pixelsPerSecond` — keeps snap "feel" constant as the
- * user zooms the timeline. 12px is a common value in pro editors (Premiere,
- * Resolve) and gives a clear "click" without being so generous you can't
- * place clips intentionally.
+ * user zooms the timeline.
  */
 const SNAP_THRESHOLD_PX = 12;
 
-/**
- * If `value` is within the snap threshold of any target, return the closest
- * target; otherwise return `value` unchanged. The threshold is in pixels at
- * the current zoom level so it feels the same regardless of how far in/out
- * the user has zoomed.
- */
 function snap(value: number, targets: number[], pixelsPerSecond: number): number {
     const threshold = SNAP_THRESHOLD_PX / Math.max(1, pixelsPerSecond);
     let bestDelta = threshold;
@@ -61,22 +60,21 @@ function snap(value: number, targets: number[], pixelsPerSecond: number): number
 /**
  * A single clip on a timeline track.
  *
- * Stage 1 interactions:
- *  - Click → select
- *  - Drag body → moves `startTime` (clamped to ≥ 0)
- *  - Drag right edge → adjusts the visible window (`duration`); for video this
- *    is currently visibility-only (Stage 1 doesn't re-encode), for image/text
- *    it sets a finite window
- *
- * We deliberately don't expose a left-edge handle yet — that's "trim from the
- * start of the source", a Stage 2 concern that requires re-encoding on the
- * server.
+ * Drag implementation note: the cursor-following position is written
+ * directly to the element's inline style during `pointermove`. No React
+ * state is updated during the drag, so the clip moves 1:1 with the cursor
+ * regardless of how many parent re-renders happen. The committed value is
+ * pushed to the store only on `pointerup`. The listeners are added once
+ * per drag inside `onPointerDown`'s closure (NOT via `useEffect`) so they
+ * stay installed for the lifetime of the drag without listener-gap from
+ * parent re-renders.
  */
 const ClipBlock = memo(function ClipBlock({
     layer,
     sourceKind,
     effectiveDuration,
     pixelsPerSecond,
+    maxDuration,
     isSelected,
     onSelect,
     onMove,
@@ -84,138 +82,118 @@ const ClipBlock = memo(function ClipBlock({
     snapTargets = [],
     onSnapChange,
 }: ClipBlockProps) {
-    // During a drag, we hold the visual position in component-local state and
-    // do NOT push to the store on each pointermove. Committing to Zustand per
-    // tick triggers a full workflow re-render and tanks frame rate, especially
-    // when several Konva-driven nodes are mounted. Pattern mirrors the
-    // local-buffering used for Reorder in the layer side-panel.
-    const [bufferedStart, setBufferedStart] = useState<number | null>(null);
-    const [bufferedDuration, setBufferedDuration] = useState<number | null>(null);
+    const elRef = useRef<HTMLDivElement>(null);
 
-    const visibleStart = bufferedStart ?? Math.max(0, layer.startTime || 0);
-    const visibleDuration = bufferedDuration ?? effectiveDuration;
+    // Refs for callbacks/params used inside the long-lived pointer handlers
+    // — keeps them fresh across the drag without re-installing listeners
+    // every render (the previous useEffect-deps approach had a listener gap
+    // on every Timeline re-render, which silently dropped snap detection).
+    const snapTargetsRef = useRef(snapTargets);
+    snapTargetsRef.current = snapTargets;
+    const onSnapChangeRef = useRef(onSnapChange);
+    onSnapChangeRef.current = onSnapChange;
+    const onMoveRef = useRef(onMove);
+    onMoveRef.current = onMove;
+    const onResizeRightRef = useRef(onResizeRight);
+    onResizeRightRef.current = onResizeRight;
+    const onSelectRef = useRef(onSelect);
+    onSelectRef.current = onSelect;
+    const maxDurationRef = useRef(maxDuration);
+    maxDurationRef.current = maxDuration;
+    const pixelsPerSecondRef = useRef(pixelsPerSecond);
+    pixelsPerSecondRef.current = pixelsPerSecond;
 
-    const left = visibleStart * pixelsPerSecond;
-    const width = Math.max(8, visibleDuration * pixelsPerSecond);
+    const baseStart = Math.max(0, layer.startTime || 0);
+    const left = baseStart * pixelsPerSecond;
+    const width = Math.max(8, effectiveDuration * pixelsPerSecond);
 
-    // Drag state ref — survives the rAF loop without re-renders.
     const dragRef = useRef<{
         kind: 'move' | 'resize';
         startX: number;
         startTime: number;
         duration: number;
+        lastStartTime: number;
+        lastDuration: number;
     } | null>(null);
-    const [isDragging, setIsDragging] = useState(false);
 
     const onPointerDown = useCallback((e: React.PointerEvent, kind: 'move' | 'resize') => {
         if (layer.locked) return;
         e.preventDefault();
         e.stopPropagation();
-        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        const target = e.target as HTMLElement;
+        target.setPointerCapture?.(e.pointerId);
+        const start = Math.max(0, layer.startTime || 0);
         dragRef.current = {
             kind,
             startX: e.clientX,
-            startTime: layer.startTime || 0,
+            startTime: start,
             duration: effectiveDuration,
+            lastStartTime: start,
+            lastDuration: effectiveDuration,
         };
-        setIsDragging(true);
-        if (kind === 'move') onSelect();
-    }, [layer.locked, layer.startTime, effectiveDuration, onSelect]);
+        if (kind === 'move') onSelectRef.current?.();
 
-    useEffect(() => {
-        if (!isDragging) return;
-
-        // Throttle visual updates to rAF so we don't churn React state at the
-        // pointer event rate (often 1000Hz on high-refresh devices). Each
-        // pointermove just updates a ref; the rAF tick reads it and writes
-        // to component state at ~60Hz.
-        let pendingStart: number | null = null;
-        let pendingDuration: number | null = null;
-        let rafHandle: number | null = null;
-
-        const flush = () => {
-            rafHandle = null;
-            if (pendingStart !== null) {
-                setBufferedStart(pendingStart);
-                pendingStart = null;
-            }
-            if (pendingDuration !== null) {
-                setBufferedDuration(pendingDuration);
-                pendingDuration = null;
-            }
-        };
-
-        const onMoveEvt = (e: PointerEvent) => {
+        const onMoveEvt = (ev: PointerEvent) => {
             const drag = dragRef.current;
-            if (!drag) return;
-            const deltaPx = e.clientX - drag.startX;
-            const deltaT = deltaPx / Math.max(1, pixelsPerSecond);
+            const node = elRef.current;
+            if (!drag || !node) return;
+            const pps = pixelsPerSecondRef.current;
+            const targets = snapTargetsRef.current ?? [];
+            const max = maxDurationRef.current;
+            const deltaPx = ev.clientX - drag.startX;
+            const deltaT = deltaPx / Math.max(1, pps);
             let activeSnap: number | null = null;
 
             if (drag.kind === 'move') {
                 const raw = Math.max(0, drag.startTime + deltaT);
-                // Snap the leading edge of the clip to neighbour edges. Also
-                // try snapping the trailing edge (`raw + duration`) — this
-                // catches the "drop new clip at the end of an existing one"
-                // case where the user is sliding from the right.
                 const trailing = raw + drag.duration;
-                const snappedLeading = snap(raw, snapTargets, pixelsPerSecond);
-                const snappedTrailing = snap(trailing, snapTargets, pixelsPerSecond);
-                // Prefer whichever snap moved less (closer to raw).
+                const snappedLeading = snap(raw, targets, pps);
+                const snappedTrailing = snap(trailing, targets, pps);
+                let finalStart = raw;
                 if (snappedLeading !== raw && Math.abs(snappedLeading - raw) <= Math.abs(snappedTrailing - trailing)) {
-                    pendingStart = snappedLeading;
+                    finalStart = snappedLeading;
                     activeSnap = snappedLeading;
                 } else if (snappedTrailing !== trailing) {
-                    pendingStart = Math.max(0, snappedTrailing - drag.duration);
+                    finalStart = Math.max(0, snappedTrailing - drag.duration);
                     activeSnap = snappedTrailing;
-                } else {
-                    pendingStart = raw;
                 }
+                drag.lastStartTime = finalStart;
+                node.style.left = `${finalStart * pps}px`;
             } else {
-                const raw = Math.max(0.1, drag.duration + deltaT);
-                // For resize: snap the trailing edge (`startTime + duration`).
-                const trailing = (drag.startTime || 0) + raw;
-                const snappedTrailing = snap(trailing, snapTargets, pixelsPerSecond);
-                pendingDuration = Math.max(0.1, snappedTrailing - (drag.startTime || 0));
-                if (snappedTrailing !== trailing) activeSnap = snappedTrailing;
+                let raw = Math.max(0.1, drag.duration + deltaT);
+                if (max !== null) raw = Math.min(raw, max);
+                const trailing = drag.startTime + raw;
+                const snappedTrailing = snap(trailing, targets, pps);
+                let finalDuration = raw;
+                if (snappedTrailing !== trailing) {
+                    finalDuration = Math.max(0.1, snappedTrailing - drag.startTime);
+                    if (max !== null) finalDuration = Math.min(finalDuration, max);
+                    activeSnap = snappedTrailing;
+                }
+                drag.lastDuration = finalDuration;
+                node.style.width = `${Math.max(8, finalDuration * pps)}px`;
             }
 
-            onSnapChange?.(activeSnap);
-            if (rafHandle === null) rafHandle = requestAnimationFrame(flush);
+            onSnapChangeRef.current?.(activeSnap);
         };
 
         const onUp = () => {
             const drag = dragRef.current;
+            window.removeEventListener('pointermove', onMoveEvt);
+            window.removeEventListener('pointerup', onUp);
+            onSnapChangeRef.current?.(null);
+            if (!drag) return;
             dragRef.current = null;
-            setIsDragging(false);
-            onSnapChange?.(null);
-            if (rafHandle !== null) cancelAnimationFrame(rafHandle);
-            // Commit final value to the store. Using the most recent pending
-            // value if present; otherwise the buffered state (set by the last
-            // rAF flush before pointerup).
-            if (drag) {
-                if (drag.kind === 'move') {
-                    const final = pendingStart ?? bufferedStart ?? drag.startTime;
-                    onMove(final);
-                } else {
-                    const final = pendingDuration ?? bufferedDuration ?? drag.duration;
-                    onResizeRight(final);
-                }
+            if (drag.kind === 'move') {
+                onMoveRef.current?.(drag.lastStartTime);
+            } else {
+                onResizeRightRef.current?.(drag.lastDuration);
             }
-            // Clear the buffer so the next render reads from the (now updated)
-            // layer prop.
-            setBufferedStart(null);
-            setBufferedDuration(null);
         };
 
         window.addEventListener('pointermove', onMoveEvt);
         window.addEventListener('pointerup', onUp);
-        return () => {
-            window.removeEventListener('pointermove', onMoveEvt);
-            window.removeEventListener('pointerup', onUp);
-            if (rafHandle !== null) cancelAnimationFrame(rafHandle);
-        };
-    }, [isDragging, pixelsPerSecond, onMove, onResizeRight, bufferedStart, bufferedDuration, snapTargets, onSnapChange]);
+    }, [layer.locked, layer.startTime, effectiveDuration]);
 
     const colorClass =
         sourceKind === 'video' ? 'bg-rose-400/70 border-rose-300/40' :
@@ -225,8 +203,9 @@ const ClipBlock = memo(function ClipBlock({
 
     return (
         <div
+            ref={elRef}
             className={cn(
-                'absolute top-1 bottom-1 rounded-md border select-none flex items-center px-2 overflow-hidden transition-shadow',
+                'absolute top-1 bottom-1 rounded-md border select-none flex items-center px-2 overflow-hidden',
                 colorClass,
                 isSelected ? 'ring-2 ring-white/70 ring-offset-1 ring-offset-transparent shadow-lg' : 'shadow-sm',
                 layer.locked ? 'cursor-not-allowed opacity-60' : 'cursor-grab active:cursor-grabbing',

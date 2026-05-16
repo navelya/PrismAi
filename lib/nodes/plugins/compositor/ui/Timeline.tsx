@@ -89,6 +89,26 @@ const Timeline = memo(function Timeline({
         return marks;
     }, [rulerLengthSeconds]);
 
+    // Per-layer snap targets, memoized so the array reference is stable across
+    // Timeline re-renders. ClipBlock keeps a ref to this; reusing the same
+    // reference means no churn inside the drag handler.
+    const snapTargetsByLayerId = useMemo<Record<string, number[]>>(() => {
+        const map: Record<string, number[]> = {};
+        for (const layer of layers) {
+            const targets: number[] = [0];
+            for (const other of layers) {
+                if (other.id === layer.id) continue;
+                const otherKind = sourceKindByLayerId[other.id] ?? 'unknown';
+                const otherIntrinsic = intrinsicDurations[other.id] ?? null;
+                const otherEff = getEffectiveDuration(other, otherKind, otherIntrinsic, total);
+                const start = Math.max(0, other.startTime || 0);
+                targets.push(start, start + otherEff);
+            }
+            map[layer.id] = targets;
+        }
+        return map;
+    }, [layers, sourceKindByLayerId, intrinsicDurations, total]);
+
     const labelScrollRef = useRef<HTMLDivElement>(null);
     const laneScrollRef = useRef<HTMLDivElement>(null);
 
@@ -236,19 +256,12 @@ const Timeline = memo(function Timeline({
                                 const intrinsic = intrinsicDurations[layer.id] ?? null;
                                 const eff = getEffectiveDuration(layer, kind, intrinsic, total);
                                 const isSelected = selectedLayerId === layer.id;
-                                // Snap targets = start + end of every OTHER layer, plus 0.
-                                // Excluding self avoids the dragged clip snapping to its own
-                                // current position and feeling sticky.
-                                const snapTargets: number[] = [0];
-                                for (const other of layers) {
-                                    if (other.id === layer.id) continue;
-                                    const otherKind = sourceKindByLayerId[other.id] ?? 'unknown';
-                                    const otherIntrinsic = intrinsicDurations[other.id] ?? null;
-                                    const otherEff = getEffectiveDuration(other, otherKind, otherIntrinsic, total);
-                                    const start = Math.max(0, other.startTime || 0);
-                                    snapTargets.push(start);
-                                    snapTargets.push(start + otherEff);
-                                }
+                                // Cap right-edge resize at the source's available material.
+                                // Video: intrinsic length minus any trim-in. Image/text:
+                                // unbounded (null) — they can display for arbitrary durations.
+                                const maxDuration = kind === 'video' && intrinsic !== null
+                                    ? Math.max(0.1, intrinsic - (layer.trimIn || 0))
+                                    : null;
                                 return (
                                     <div
                                         key={layer.id}
@@ -264,11 +277,12 @@ const Timeline = memo(function Timeline({
                                             sourceKind={kind}
                                             effectiveDuration={eff}
                                             pixelsPerSecond={PIXELS_PER_SECOND}
+                                            maxDuration={maxDuration}
                                             isSelected={isSelected}
                                             onSelect={() => onSelectLayer(layer.id)}
                                             onMove={(startTime) => onUpdateLayer(layer.id, { startTime })}
                                             onResizeRight={(duration) => onUpdateLayer(layer.id, { duration })}
-                                            snapTargets={snapTargets}
+                                            snapTargets={snapTargetsByLayerId[layer.id] || [0]}
                                             onSnapChange={setActiveSnap}
                                         />
                                     </div>

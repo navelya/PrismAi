@@ -189,6 +189,7 @@ const LayerVideo = memo(function LayerVideo({
     onInteractEnd,
     localTime,
     isPlaying,
+    visible = true,
 }: {
     layer: CompositorLayer;
     videoUrl: string;
@@ -201,6 +202,15 @@ const LayerVideo = memo(function LayerVideo({
     /** Layer-local time in seconds; clamped to [0, video.duration] by the component. */
     localTime: number | undefined;
     isPlaying: boolean;
+    /**
+     * Konva visibility flag — when false, the layer's frame isn't drawn but
+     * the underlying HTMLVideoElement stays mounted and pre-seeked. This is
+     * the crucial bit that prevents the "black flash on clip activation"
+     * symptom: if we unmounted instead, releasing the pooled video element
+     * would force a full re-decode the next time the playhead entered the
+     * clip's window.
+     */
+    visible?: boolean;
 }) {
     // Acquire a pooled element on mount; pool returns the shared element and
     // a unique consumer id so this instance can vote on play state without
@@ -250,15 +260,21 @@ const LayerVideo = memo(function LayerVideo({
         setPlayState(videoUrl, consumerId, !!isPlaying);
     }, [isPlaying, consumerId, videoUrl]);
 
-    // Seek when paused and the playhead moves (scrub). When playing we let
-    // the pooled video advance naturally — manual seeks would stutter. Frame
-    // redraws are handled by the shared CompositorAnimator (one
-    // Konva.Animation per Stage) so we don't run a per-component rAF here.
+    // Seek when not playing (covers two cases: paused & user scrubs; inactive
+    // clip that the parent is keeping mounted so the decoder stays warm).
+    // While playing we let the pooled video advance naturally — manual seeks
+    // would stutter. Prefer `fastSeek` when available — it jumps to the
+    // nearest keyframe rather than the exact PTS, which paints a frame much
+    // sooner during a scrub (Chrome/Firefox/Safari all support it).
     useEffect(() => {
         if (!videoEl || !ready || isPlaying) return;
         if (typeof localTime !== 'number') return;
         const clamped = Math.max(0, Math.min(localTime, Math.max(0, videoEl.duration || 0)));
         if (Math.abs(videoEl.currentTime - clamped) > 0.05) {
+            const fastSeek = (videoEl as any).fastSeek;
+            if (typeof fastSeek === 'function') {
+                try { fastSeek.call(videoEl, clamped); return; } catch { /* fall through */ }
+            }
             videoEl.currentTime = clamped;
         }
     }, [localTime, ready, isPlaying, videoEl]);
@@ -268,6 +284,7 @@ const LayerVideo = memo(function LayerVideo({
     const commonProps: any = {
         image: videoEl,
         ref: shapeRef,
+        visible,
         x: t.x,
         y: t.y,
         width: t.width,
@@ -289,7 +306,7 @@ const LayerVideo = memo(function LayerVideo({
         <KonvaImage
             {...commonProps}
             name={`img-${layer.id}`}
-            draggable={!layer.locked}
+            draggable={!layer.locked && visible}
             onClick={onSelect}
             onTap={onSelect}
             onDragStart={() => {
@@ -512,15 +529,16 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                 if (asText !== null) kind = 'text';
                 else if (url) kind = detectSourceKindFromUrl(url);
 
-                // Activity gating: only applied when the caller is driving a
-                // playhead (modal transport or card auto-play). Without a
-                // playhead, the legacy "show everything" still-composite
-                // behavior is preserved.
+                // Activity gating. Video layers stay mounted even when
+                // inactive — we just toggle Konva visibility — so the pooled
+                // HTMLVideoElement remains decoded and pre-seeked, killing
+                // the "black flash on clip activation" symptom. Image / text
+                // layers can safely unmount when inactive (no decoder to
+                // warm up).
+                let isActive = true;
                 if (typeof playhead === 'number') {
                     const intrinsic = intrinsicDurations?.[layer.id] ?? null;
-                    if (!isLayerActiveAt(layer, kind, intrinsic, playhead)) {
-                        return null;
-                    }
+                    isActive = isLayerActiveAt(layer, kind, intrinsic, playhead);
                 }
 
                 if (kind === 'video' && url) {
@@ -548,9 +566,14 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             onInteractStart={onInteractStart}
                             onInteractEnd={onInteractEnd}
                             localTime={localTime}
-                            isPlaying={isPlaying}
+                            isPlaying={isPlaying && isActive}
+                            visible={isActive}
                         />
                     );
+                }
+
+                if (typeof playhead === 'number' && !isActive) {
+                    return null;
                 }
 
                 if (kind === 'image' && url) {
