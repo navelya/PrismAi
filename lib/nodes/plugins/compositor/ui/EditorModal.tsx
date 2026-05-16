@@ -17,9 +17,11 @@ import { useShallow } from 'zustand/react/shallow';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Select } from '@/components/ui/Select';
 import { ToolbarButton } from '@/components/editor/canvas/CanvasToolbar';
-import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform } from '../definition';
+import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform, calculateFirstLayerFitToCanvas } from '../definition';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
+import Timeline from './Timeline';
+import { detectSourceKind, LayerSourceKind, computeTimelineDuration } from '../shared';
 
 const VIEWPORT_PADDING = 1000;
 
@@ -196,6 +198,8 @@ export default function CompositorEditorModal({
             outputFormat: 'png',
             outputQuality: 1.0,
             layers: [],
+            fps: 30,
+            timelineDuration: null,
         };
         return { ...defaults, ...liveConfig };
     }, [liveConfig]);
@@ -421,22 +425,47 @@ export default function CompositorEditorModal({
         updateTransform(layerId, { rotation: 0, flipX: false, flipY: false, opacity: 1 });
     }, [updateTransform, pushSnapshot]);
 
-    const handleImageLoad = useCallback((layerId: string, img: HTMLImageElement) => {
-        // Auto-center an image layer the first time we see its true dimensions
-        // (only if it still has placeholder dimensions).
+    /**
+     * One-shot auto-fit when a layer's intrinsic dimensions first become known.
+     * First-layer (only layer on the compositor) → canvas resizes to match the
+     * layer, layer fills it. Layer 2+ → legacy auto-center inside whatever
+     * canvas dims the user/first-layer already set.
+     */
+    const applyIntrinsicFit = useCallback((layerId: string, intrinsicW: number, intrinsicH: number) => {
+        if (!intrinsicW || !intrinsicH) return;
         const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
         const cfg = node?.data?.config as CompositorConfig | undefined;
-        const layer = cfg?.layers?.find((l) => l.id === layerId);
+        if (!cfg) return;
+        const layer = cfg.layers?.find((l) => l.id === layerId);
         if (!layer) return;
         if (layer.transform.isAutoCentered) return;
         const t = layer.transform;
         const isPlaceholder = (t.width === 400 && t.height === 300) || (t.width === 600 && t.height === 200);
         if (!isPlaceholder) return;
-        const newT = calculateInitialTransform(img.width, img.height, canvasWidth, canvasHeight);
+
+        const isFirstLayer = (cfg.layers?.length ?? 0) === 1;
+        if (isFirstLayer) {
+            const fit = calculateFirstLayerFitToCanvas(intrinsicW, intrinsicH);
+            updateNodeConfig(nodeId, {
+                ...cfg,
+                canvasWidth: fit.canvasWidth,
+                canvasHeight: fit.canvasHeight,
+                layers: (cfg.layers || []).map((l) =>
+                    l.id === layerId ? { ...l, transform: fit.transform } : l
+                ),
+            });
+            return;
+        }
+
+        const newT = calculateInitialTransform(intrinsicW, intrinsicH, cfg.canvasWidth || 1920, cfg.canvasHeight || 1080);
         updateLayers((prev) => prev.map((l) =>
             l.id === layerId ? { ...l, transform: { ...newT, isAutoCentered: true } } : l
         ));
-    }, [nodeId, canvasWidth, canvasHeight, updateLayers]);
+    }, [nodeId, updateNodeConfig, updateLayers]);
+
+    const handleImageLoad = useCallback((layerId: string, img: HTMLImageElement) => {
+        applyIntrinsicFit(layerId, img.width, img.height);
+    }, [applyIntrinsicFit]);
 
     // ---------- Selection / viewport (purely local UI state) ----------
 
@@ -467,6 +496,64 @@ export default function CompositorEditorModal({
     const [stagePan, setStagePan] = useState({ x: VIEWPORT_PADDING, y: VIEWPORT_PADDING });
     const [isPanning, setIsPanning] = useState(false);
     const [spaceHeld, setSpaceHeld] = useState(false);
+
+    // ---------- Timeline playback state (purely local) ----------
+    //
+    // Playhead drives the Konva renderer's activity gating + video seeks. The
+    // rAF loop below advances `playhead` while `isPlaying`. Intrinsic durations
+    // are reported by `LayerVideo` via `onLayerVideoLoad`.
+    const [playhead, setPlayhead] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [audioMuted, setAudioMuted] = useState(true);
+    const [intrinsicDurations, setIntrinsicDurations] = useState<Record<string, number | null>>({});
+
+    const handleLayerVideoLoad = useCallback(
+        (layerId: string, meta: { duration: number; width: number; height: number }) => {
+            setIntrinsicDurations((prev) =>
+                prev[layerId] === meta.duration ? prev : { ...prev, [layerId]: meta.duration || null }
+            );
+            applyIntrinsicFit(layerId, meta.width, meta.height);
+        },
+        [applyIntrinsicFit],
+    );
+
+    // Per-layer source kind derived from renderable.resolved; the timeline
+    // and renderer both want this so we compute once.
+    const sourceKindByLayerId = useMemo(() => {
+        const out: Record<string, LayerSourceKind> = {};
+        renderable.forEach(({ layer, resolved }) => {
+            out[layer.id] = detectSourceKind(resolved);
+        });
+        return out;
+    }, [renderable]);
+
+    const totalDuration = useMemo(
+        () => computeTimelineDuration(layers, config.timelineDuration ?? null, intrinsicDurations),
+        [layers, config.timelineDuration, intrinsicDurations],
+    );
+
+    // rAF playback loop. Halts when paused, when the modal closes, or when the
+    // playhead would step past the end (we wrap to 0 so playback feels looping).
+    useEffect(() => {
+        if (!isPlaying) return;
+        let raf: number | null = null;
+        let last = performance.now();
+        const tick = (now: number) => {
+            const dt = (now - last) / 1000;
+            last = now;
+            setPlayhead((p) => {
+                const next = p + dt;
+                return next >= totalDuration ? 0 : next;
+            });
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => { if (raf !== null) cancelAnimationFrame(raf); };
+    }, [isPlaying, totalDuration]);
+
+    const handleUpdateLayer = useCallback((layerId: string, patch: Partial<CompositorLayer>) => {
+        updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, ...patch } : l));
+    }, [updateLayers]);
 
     // Wire the Konva Transformer to the currently-selected Konva node by name.
     useEffect(() => {
@@ -586,8 +673,8 @@ export default function CompositorEditorModal({
                     </div>
                 </div>
 
-                {/* Main Content */}
-                <div className="flex-1 flex overflow-hidden">
+                {/* Main Content (canvas + side panels) */}
+                <div className="flex-1 flex overflow-hidden min-h-0">
                     {/* Left Panel - Layers */}
                     <div className="w-56 border-r border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl">
                         <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
@@ -663,8 +750,12 @@ export default function CompositorEditorModal({
                                     onSelectLayer={setSelectedLayerId}
                                     onTransformLayer={updateTransform}
                                     onLayerImageLoad={handleImageLoad}
+                                    onLayerVideoLoad={handleLayerVideoLoad}
                                     onInteractStart={handleInteractStart}
                                     onInteractEnd={handleInteractEnd}
+                                    playhead={playhead}
+                                    isPlaying={isPlaying}
+                                    intrinsicDurations={intrinsicDurations}
                                 />
                                 <Path data={dimmerPathData} fill="rgba(0,0,0,0.7)" fillRule="evenodd" listening={false} />
                                 {selectedLayer && !selectedLayer.locked && (
@@ -823,6 +914,26 @@ export default function CompositorEditorModal({
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* Timeline panel (Stage 1: temporal compositor surface) */}
+                <div className="h-[260px] flex-shrink-0 border-t border-white/10">
+                    <Timeline
+                        layers={layers}
+                        sourceKindByLayerId={sourceKindByLayerId}
+                        intrinsicDurations={intrinsicDurations}
+                        configuredTotalDuration={config.timelineDuration ?? null}
+                        fps={config.fps || 30}
+                        playhead={playhead}
+                        isPlaying={isPlaying}
+                        audioMuted={audioMuted}
+                        selectedLayerId={selectedLayerId}
+                        onTogglePlay={() => setIsPlaying((p) => !p)}
+                        onSeek={(t) => { setIsPlaying(false); setPlayhead(t); }}
+                        onToggleAudioMute={() => setAudioMuted((m) => !m)}
+                        onSelectLayer={setSelectedLayerId}
+                        onUpdateLayer={handleUpdateLayer}
+                    />
                 </div>
             </div>
         </div>

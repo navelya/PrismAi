@@ -1,0 +1,312 @@
+'use client';
+
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { Eye, EyeOff, Lock, Unlock, Volume2, VolumeX, Play } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { CompositorLayer } from '../definition';
+import { LayerSourceKind, computeTimelineDuration, getEffectiveDuration } from '../shared';
+import Transport from './Transport';
+import ClipBlock from './ClipBlock';
+
+interface TimelineProps {
+    /** Array order: array[0] = bottom of visual stack. We display TOP of stack
+     *  at the TOP of the timeline (so we reverse for display), matching the
+     *  compositor's left-side layer list and the After Effects convention. */
+    layers: CompositorLayer[];
+    sourceKindByLayerId: Record<string, LayerSourceKind>;
+    intrinsicDurations: Record<string, number | null>;
+    configuredTotalDuration: number | null;
+    fps: number;
+    playhead: number;
+    isPlaying: boolean;
+    audioMuted: boolean;
+    selectedLayerId: string | null;
+    onTogglePlay: () => void;
+    onSeek: (t: number) => void;
+    onToggleAudioMute: () => void;
+    onSelectLayer: (layerId: string) => void;
+    onUpdateLayer: (layerId: string, patch: Partial<CompositorLayer>) => void;
+}
+
+/** Pixels per second of the ruler. Stage 1 fixed; zoom slider is Stage 2. */
+const PIXELS_PER_SECOND = 40;
+/** Per-row height — kept in sync with TimelineTrack visuals. */
+const ROW_HEIGHT = 36;
+/** Width of the fixed label column on the left. */
+const LABEL_COLUMN_WIDTH = 180;
+/** Height of the ruler row at the top of the lane. */
+const RULER_HEIGHT = 24;
+
+/**
+ * Bottom-panel timeline.
+ *
+ * Layout (after the ruler-alignment fix):
+ *
+ *   ┌───────────────┬─────────────────────────────────────┐
+ *   │  Transport (full-width bar above everything)        │
+ *   ├───────────────┼─────────────────────────────────────┤
+ *   │ <empty>       │  Ruler (0s ──── 5s ──── 10s ──── )  │
+ *   │               │ ─────────────────────────────────── │
+ *   │ Track label 1 │ [Clip block]                        │
+ *   │ Track label 2 │           [Clip block]              │
+ *   │ Track label 3 │                                     │
+ *   │               │   ← Playhead overlay                │
+ *   └───────────────┴─────────────────────────────────────┘
+ *
+ * Labels and clip rows scroll vertically together; ruler + clips share the
+ * horizontal scroll. The 0s mark on the ruler aligns exactly with the left
+ * edge of the clip lane.
+ */
+const Timeline = memo(function Timeline({
+    layers,
+    sourceKindByLayerId,
+    intrinsicDurations,
+    configuredTotalDuration,
+    fps,
+    playhead,
+    isPlaying,
+    audioMuted,
+    selectedLayerId,
+    onTogglePlay,
+    onSeek,
+    onToggleAudioMute,
+    onSelectLayer,
+    onUpdateLayer,
+}: TimelineProps) {
+    const total = useMemo(
+        () => computeTimelineDuration(layers, configuredTotalDuration, intrinsicDurations),
+        [layers, configuredTotalDuration, intrinsicDurations],
+    );
+
+    const rulerLengthSeconds = Math.max(total, 5);
+
+    const displayLayers = useMemo(() => [...layers].reverse(), [layers]);
+
+    const tickMarks = useMemo(() => {
+        const marks: number[] = [];
+        const stepMajor = 5;
+        for (let t = 0; t <= rulerLengthSeconds + stepMajor; t += stepMajor) marks.push(t);
+        return marks;
+    }, [rulerLengthSeconds]);
+
+    const labelScrollRef = useRef<HTMLDivElement>(null);
+    const laneScrollRef = useRef<HTMLDivElement>(null);
+
+    // Snap guide: a child `<ClipBlock>` reports a snap value while the user
+    // drags; we render a vertical line across all tracks at that x-position
+    // so the snap point is visible (matches the visual feedback in
+    // professional video editors).
+    const [activeSnap, setActiveSnap] = useState<number | null>(null);
+
+    // Sync vertical scroll between label gutter and lane so rows always line
+    // up across the divider.
+    const onLabelScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+        const lane = laneScrollRef.current;
+        if (lane && lane.scrollTop !== e.currentTarget.scrollTop) {
+            lane.scrollTop = e.currentTarget.scrollTop;
+        }
+    }, []);
+    const onLaneScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+        const label = labelScrollRef.current;
+        if (label && label.scrollTop !== e.currentTarget.scrollTop) {
+            label.scrollTop = e.currentTarget.scrollTop;
+        }
+    }, []);
+
+    const onRulerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const t = Math.max(0, Math.min(rulerLengthSeconds, x / PIXELS_PER_SECOND));
+        onSeek(t);
+    }, [rulerLengthSeconds, onSeek]);
+
+    const playheadX = playhead * PIXELS_PER_SECOND;
+    const totalWidth = rulerLengthSeconds * PIXELS_PER_SECOND;
+
+    return (
+        <div className="h-full flex flex-col bg-black/30 backdrop-blur-md">
+            <Transport
+                playhead={playhead}
+                totalDuration={total}
+                fps={fps}
+                isPlaying={isPlaying}
+                audioMuted={audioMuted}
+                onTogglePlay={onTogglePlay}
+                onSeek={onSeek}
+                onToggleAudioMute={onToggleAudioMute}
+            />
+
+            <div className="flex-1 flex overflow-hidden">
+                {/* ── LABEL COLUMN ────────────────────────────────────────── */}
+                <div
+                    className="flex-shrink-0 border-r border-white/5 bg-white/[0.02] flex flex-col"
+                    style={{ width: LABEL_COLUMN_WIDTH }}
+                >
+                    {/* Empty spacer to match ruler height — keeps row N's label
+                        aligned with row N's clip lane. */}
+                    <div
+                        className="flex-shrink-0 border-b border-white/5"
+                        style={{ height: RULER_HEIGHT }}
+                    />
+                    <div
+                        ref={labelScrollRef}
+                        className="flex-1 overflow-y-auto custom-scrollbar"
+                        onScroll={onLabelScroll}
+                    >
+                        {displayLayers.map((layer) => {
+                            const kind = sourceKindByLayerId[layer.id] ?? 'unknown';
+                            const isSelected = selectedLayerId === layer.id;
+                            return (
+                                <div
+                                    key={layer.id}
+                                    className={cn(
+                                        'flex items-center gap-1.5 px-2 border-b border-white/[0.03]',
+                                        isSelected && 'bg-white/[0.04]',
+                                    )}
+                                    style={{ height: ROW_HEIGHT }}
+                                    onClick={() => onSelectLayer(layer.id)}
+                                >
+                                    <Play className="w-3 h-3 text-white/40 flex-shrink-0" />
+                                    <span className="text-[11px] text-white/70 truncate flex-1 cursor-default select-none">
+                                        {layer.name}
+                                    </span>
+                                    {kind === 'video' && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { muted: !layer.muted }); }}
+                                            className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
+                                            title={layer.muted ? 'Unmute layer' : 'Mute layer'}
+                                        >
+                                            {layer.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { visible: !layer.visible }); }}
+                                        className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
+                                        title={layer.visible ? 'Hide layer' : 'Show layer'}
+                                    >
+                                        {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { locked: !layer.locked }); }}
+                                        className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
+                                        title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+                                    >
+                                        {layer.locked
+                                            ? <Lock className="w-3 h-3 text-amber-500" />
+                                            : <Unlock className="w-3 h-3" />}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* ── LANE (ruler + clip rows + playhead) ─────────────────── */}
+                <div
+                    ref={laneScrollRef}
+                    className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar relative"
+                    onScroll={onLaneScroll}
+                >
+                    <div className="relative" style={{ width: totalWidth, minHeight: '100%' }}>
+                        {/* Ruler — left=0 here aligns with the lane's left edge,
+                            which is the right side of the label column. So 0s
+                            visually sits exactly where clip startTime=0 sits. */}
+                        <div
+                            className="relative cursor-pointer select-none border-b border-white/5 sticky top-0 bg-black/40 backdrop-blur-md z-10"
+                            style={{ height: RULER_HEIGHT }}
+                            onClick={onRulerClick}
+                        >
+                            {tickMarks.map((t) => (
+                                <div
+                                    key={t}
+                                    className="absolute top-0 bottom-0 border-l border-white/10"
+                                    style={{ left: t * PIXELS_PER_SECOND }}
+                                >
+                                    <span className="absolute top-0.5 left-1 text-[9px] text-white/40 tabular-nums">
+                                        {t}s
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Clip rows — one per layer, height-matched to label rows */}
+                        <div className="relative">
+                            {displayLayers.map((layer) => {
+                                const kind = sourceKindByLayerId[layer.id] ?? 'unknown';
+                                const intrinsic = intrinsicDurations[layer.id] ?? null;
+                                const eff = getEffectiveDuration(layer, kind, intrinsic, total);
+                                const isSelected = selectedLayerId === layer.id;
+                                // Snap targets = start + end of every OTHER layer, plus 0.
+                                // Excluding self avoids the dragged clip snapping to its own
+                                // current position and feeling sticky.
+                                const snapTargets: number[] = [0];
+                                for (const other of layers) {
+                                    if (other.id === layer.id) continue;
+                                    const otherKind = sourceKindByLayerId[other.id] ?? 'unknown';
+                                    const otherIntrinsic = intrinsicDurations[other.id] ?? null;
+                                    const otherEff = getEffectiveDuration(other, otherKind, otherIntrinsic, total);
+                                    const start = Math.max(0, other.startTime || 0);
+                                    snapTargets.push(start);
+                                    snapTargets.push(start + otherEff);
+                                }
+                                return (
+                                    <div
+                                        key={layer.id}
+                                        className={cn(
+                                            'relative border-b border-white/[0.03]',
+                                            isSelected && 'bg-white/[0.04]',
+                                        )}
+                                        style={{ height: ROW_HEIGHT }}
+                                        onClick={() => onSelectLayer(layer.id)}
+                                    >
+                                        <ClipBlock
+                                            layer={layer}
+                                            sourceKind={kind}
+                                            effectiveDuration={eff}
+                                            pixelsPerSecond={PIXELS_PER_SECOND}
+                                            isSelected={isSelected}
+                                            onSelect={() => onSelectLayer(layer.id)}
+                                            onMove={(startTime) => onUpdateLayer(layer.id, { startTime })}
+                                            onResizeRight={(duration) => onUpdateLayer(layer.id, { duration })}
+                                            snapTargets={snapTargets}
+                                            onSnapChange={setActiveSnap}
+                                        />
+                                    </div>
+                                );
+                            })}
+                            {displayLayers.length === 0 && (
+                                <div className="h-12 flex items-center justify-center text-[10px] text-white/30">
+                                    Connect layers to see them on the timeline.
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Snap guide — visible only while a clip drag is hitting a
+                            snap target. Sits below the playhead's z-index so the
+                            playhead always wins visually if they overlap. */}
+                        {activeSnap !== null && (
+                            <div
+                                className="absolute top-0 bottom-0 w-px bg-amber-300 pointer-events-none z-10 shadow-[0_0_4px_rgba(252,211,77,0.7)]"
+                                style={{ left: activeSnap * PIXELS_PER_SECOND }}
+                            />
+                        )}
+
+                        {/* Playhead overlay — pointer-events-none so clicks pass
+                            through to ruler/clips. */}
+                        <div
+                            className="absolute top-0 bottom-0 w-px bg-accent-primary pointer-events-none z-20"
+                            style={{ left: playheadX }}
+                        >
+                            <div
+                                className="absolute -top-1 -left-[5px] w-[11px] h-3 bg-accent-primary"
+                                style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+});
+
+export default Timeline;

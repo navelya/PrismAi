@@ -1,0 +1,173 @@
+/**
+ * Pure helpers shared between the compositor's client renderer, editor modal,
+ * server executor, and timeline UI. NO React, NO Sharp, NO ffmpeg imports —
+ * this module must be safely importable from any of those surfaces.
+ */
+
+import { CompositorLayer } from './definition';
+
+export type LayerSourceKind = 'image' | 'video' | 'text' | 'unknown';
+
+/**
+ * Best-effort detection of a layer's source kind from its resolved upstream
+ * value. The renderer hands us either:
+ *   - a string (text from Prompt nodes)
+ *   - an object with `.url` (image or video media object)
+ *   - null/undefined when the upstream hasn't produced anything yet
+ */
+export function detectSourceKind(resolved: any): LayerSourceKind {
+    if (resolved === null || resolved === undefined) return 'unknown';
+    if (typeof resolved === 'string') return 'text';
+    if (typeof resolved !== 'object') return 'unknown';
+
+    const url: string | undefined =
+        typeof (resolved as any).url === 'string' ? (resolved as any).url : undefined;
+    if (!url) return 'unknown';
+    return detectSourceKindFromUrl(url);
+}
+
+export function detectSourceKindFromUrl(url: string): LayerSourceKind {
+    const normalized = url.toLowerCase();
+    if (/\.(mp4|webm|mov|avi|mkv|m4v)(\?|$)/.test(normalized)) return 'video';
+    if (/\.(png|jpe?g|webp|gif|bmp|svg|avif)(\?|$)/.test(normalized)) return 'image';
+    if (/^data:video/.test(normalized)) return 'video';
+    if (/^data:image/.test(normalized)) return 'image';
+    return 'unknown';
+}
+
+/**
+ * "Effective duration" for a single layer given:
+ *   - its configured `duration` (may be null)
+ *   - its source kind (video knows its own length; image/text don't)
+ *   - the source's intrinsic length (only known for video; in seconds)
+ *   - the resolved timeline total (used as the fallback length for layers
+ *     whose `duration` is null and which have no intrinsic length)
+ *
+ * Returns the visible length in seconds. For image/text layers with no
+ * configured duration, this falls back to `fallbackTimeline` so they're
+ * "always on" by default.
+ */
+export function getEffectiveDuration(
+    layer: CompositorLayer,
+    sourceKind: LayerSourceKind,
+    intrinsicDuration: number | null,
+    fallbackTimeline: number,
+): number {
+    if (typeof layer.duration === 'number' && layer.duration > 0) {
+        return layer.duration;
+    }
+    if (sourceKind === 'video' && intrinsicDuration && intrinsicDuration > 0) {
+        return intrinsicDuration;
+    }
+    return Math.max(0.1, fallbackTimeline);
+}
+
+/**
+ * Compute the timeline's total duration in seconds.
+ *
+ * - If `config.timelineDuration` is a positive number, that wins.
+ * - Otherwise we resolve it as the max layer end (startTime + effective
+ *   duration). Image/text layers without configured durations contribute
+ *   0 here so they don't artificially extend the timeline.
+ * - Falls back to a small positive number so callers can divide safely.
+ *
+ * `intrinsicByLayerId` maps layer.id → its source's natural duration in
+ * seconds. Callers (editor + server executor) populate it from probed
+ * video metadata; layers absent from the map are treated as having no
+ * intrinsic length.
+ */
+export function computeTimelineDuration(
+    layers: CompositorLayer[],
+    configuredDuration: number | null,
+    intrinsicByLayerId: Record<string, number | null> = {},
+): number {
+    if (typeof configuredDuration === 'number' && configuredDuration > 0) {
+        return configuredDuration;
+    }
+
+    let maxEnd = 0;
+    for (const l of layers) {
+        const start = Math.max(0, l.startTime || 0);
+        const intrinsic = intrinsicByLayerId[l.id] ?? null;
+        let dur = 0;
+        if (typeof l.duration === 'number' && l.duration > 0) {
+            dur = l.duration;
+        } else if (intrinsic && intrinsic > 0) {
+            dur = intrinsic;
+        }
+        const end = start + dur;
+        if (end > maxEnd) maxEnd = end;
+    }
+    return maxEnd > 0 ? maxEnd : 1;
+}
+
+/**
+ * Is the layer "active" (within its visibility window) at timeline time `t`?
+ *
+ * For layers with a finite effective duration (video, or anything with a
+ * configured duration): active when `startTime <= t < startTime + duration`.
+ *
+ * For layers with no finite duration (image/text without configured duration):
+ * active whenever `t >= startTime` — they stay on until the end of the
+ * timeline. This matches the "logo always on" UX default.
+ */
+export function isLayerActiveAt(
+    layer: CompositorLayer,
+    sourceKind: LayerSourceKind,
+    intrinsicDuration: number | null,
+    t: number,
+): boolean {
+    if (!layer.visible) return false;
+    const start = Math.max(0, layer.startTime || 0);
+    if (t < start) return false;
+
+    // Has a finite duration → time-bounded
+    if (typeof layer.duration === 'number' && layer.duration > 0) {
+        return t < start + layer.duration;
+    }
+    // Video with known intrinsic length and no overridden duration
+    if (sourceKind === 'video' && intrinsicDuration && intrinsicDuration > 0) {
+        return t < start + intrinsicDuration;
+    }
+    // Image/text with null duration → always on after startTime
+    return true;
+}
+
+/**
+ * Has any layer been positioned on the timeline OR is sourced from a video?
+ * The server executor uses this to decide between the still-image path and
+ * the video render path. The client UI uses it to decide whether to surface
+ * the transport bar.
+ */
+export function hasTemporalContent(
+    layers: CompositorLayer[],
+    sourceKindByLayerId: Record<string, LayerSourceKind>,
+): boolean {
+    for (const l of layers) {
+        const kind = sourceKindByLayerId[l.id] ?? 'unknown';
+        if (kind === 'video') return true;
+        if ((l.startTime || 0) > 0) return true;
+        if (typeof l.duration === 'number' && l.duration > 0) return true;
+    }
+    return false;
+}
+
+/** Frame index for a given time and framerate. */
+export function timeToFrame(t: number, fps: number): number {
+    return Math.max(0, Math.floor(t * fps));
+}
+
+/** Format `12.345` seconds as `00:12:10` (mm:ss:ff) given a framerate. */
+export function formatTimecode(seconds: number, fps: number): string {
+    const safe = Math.max(0, seconds);
+    const totalFrames = Math.floor(safe * fps);
+    const ff = totalFrames % fps;
+    const totalSeconds = Math.floor(safe);
+    const ss = totalSeconds % 60;
+    const mm = Math.floor(totalSeconds / 60);
+    return `${pad2(mm)}:${pad2(ss)}:${pad2(ff)}`;
+}
+
+function pad2(n: number): string {
+    return n < 10 ? `0${n}` : String(n);
+}

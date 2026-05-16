@@ -34,7 +34,19 @@ export interface LayerTransform {
 }
 
 /**
- * Single layer definition within the Compositor
+ * Per-clip transition spec. Stored at Stage 1 but ignored by the executor.
+ */
+export interface ClipTransition {
+    type: 'none' | 'crossfade' | 'fade';
+    duration: number;           // seconds
+}
+
+/**
+ * Single layer definition within the Compositor.
+ *
+ * Temporal fields (startTime, duration, trimIn, trimOut, speed, muted, transition)
+ * are forward-compat. Stage 1 only acts on startTime/duration to gate visibility
+ * over the timeline; the rest are stored and ignored until Stage 2+.
  */
 export interface CompositorLayer {
     id: string;                 // Unique layer ID (e.g., "layer_0")
@@ -44,26 +56,83 @@ export interface CompositorLayer {
     transform: LayerTransform;  // Position/scale/rotation data
     visible: boolean;           // Toggle visibility
     locked: boolean;            // Prevent edits
+
+    // --- Temporal (Stage 1 active) ---
+    /** When this layer first appears on the timeline (seconds). Default 0. */
+    startTime: number;
+    /** How long it stays. null = "full source" for video, "full timeline" for image/text. */
+    duration: number | null;
+
+    // --- Forward-compat (Stage 1 ignored) ---
+    /** Trim seconds from the start of the source clip (Stage 2). */
+    trimIn: number;
+    /** Trim point measured from source start; null = end of source (Stage 2). */
+    trimOut: number | null;
+    /** Playback rate multiplier (Stage 2). */
+    speed: number;
+    /** Mute the layer's audio (Stage 2). */
+    muted: boolean;
+    /** Outgoing transition into the next layer (Stage 3). */
+    transition: ClipTransition;
 }
 
 /**
- * Compositor Cube Configuration
- * Client-side image compositing with full layer control
+ * Compositor Configuration.
+ *
+ * Was image-only; now also drives a temporal composite when any layer has
+ * video content or a non-default time range. See [executor.server.ts](executor.server.ts)
+ * for the hybrid path.
  */
 export interface CompositorConfig {
     /** Canvas dimensions */
-    canvasWidth: number;        // Default: 1080
+    canvasWidth: number;        // Default: 1920 in modal, but 1080 in legacy default
     canvasHeight: number;       // Default: 1080
 
     /** Background color (if no base image) */
     backgroundColor: string;    // Default: '#00000000' (transparent)
 
-    /** Ordered array of layers (bottom to top) */
+    /** Ordered array of layers (array[0] = bottom of stack; renderer reverses for draw order) */
     layers: CompositorLayer[];
 
-    /** Output quality */
+    /** Image output format (used when output is still image) */
     outputFormat: 'png' | 'webp' | 'jpeg';
     outputQuality: number;      // 0.0 - 1.0 (for jpeg/webp)
+
+    // --- Temporal config (Stage 1) ---
+    /** Output framerate when rendering a video. Default 30. */
+    fps: number;
+    /** Hard timeline length in seconds. null = auto = max(layer.startTime + effectiveDuration). */
+    timelineDuration: number | null;
+}
+
+/**
+ * When the first layer connects, the canvas resizes to match the layer's
+ * intrinsic dimensions and the layer fills it edge-to-edge. After this fires
+ * once, the layer's `isAutoCentered` flag prevents re-firing — subsequent
+ * dimension changes are user-driven via the editor's canvas controls.
+ */
+export function calculateFirstLayerFitToCanvas(
+    itemWidth: number,
+    itemHeight: number
+): { canvasWidth: number; canvasHeight: number; transform: LayerTransform } {
+    const w = Math.max(1, Math.round(itemWidth));
+    const h = Math.max(1, Math.round(itemHeight));
+    return {
+        canvasWidth: w,
+        canvasHeight: h,
+        transform: {
+            x: 0,
+            y: 0,
+            width: w,
+            height: h,
+            rotation: 0,
+            opacity: 1,
+            flipX: false,
+            flipY: false,
+            isAutoCentered: true,
+            crop: null,
+        },
+    };
 }
 
 /**
@@ -109,16 +178,23 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
     category: 'utility',
     meta: {
         label: 'Compositor',
-        description: 'Layer-based image compositing',
+        description: 'Layer-based image and video compositing on a timeline',
         color: '#8b5cf6',
         icon: 'Layers2',
         ephemeral: true,
     },
     handles: {
         inputs: [
-            { id: 'layers', label: 'Layers', expectedType: ['image', 'text'], is_array: true, color: '#f8fafc' }
+            { id: 'layers', label: 'Layers', expectedType: ['image', 'video', 'text'], is_array: true, color: '#f8fafc' }
         ],
-        outputs: [{ id: 'image_out', label: '', dataType: 'image' }],
+        // Two outputs: when any layer is temporal, the executor emits a video
+        // envelope; otherwise an image envelope. Today both source-handle edges
+        // receive the same envelope at runtime — wire the handle that matches
+        // your content. See executor.server.ts for the branch logic.
+        outputs: [
+            { id: 'image_out', label: '', dataType: 'image' },
+            { id: 'video_out', label: '', dataType: 'video' },
+        ],
     },
     defaultConfig: {
         canvasWidth: 1080,
@@ -127,6 +203,8 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
         layers: [],
         outputFormat: 'png',
         outputQuality: 1.0,
+        fps: 30,
+        timelineDuration: null,
     },
     aiSchema: {
         type: 'object',
@@ -134,12 +212,13 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
             canvasWidth: { type: 'number', description: 'Width of the canvas in pixels' },
             canvasHeight: { type: 'number', description: 'Height of the canvas in pixels' },
             backgroundColor: { type: 'string', description: 'Hex color code with alpha (e.g., #00000000)' },
-            outputFormat: { type: 'string', enum: ['png', 'webp', 'jpeg'] },
+            outputFormat: { type: 'string', enum: ['png', 'webp', 'jpeg'], description: 'Image output format. Ignored when timeline has video content.' },
             outputQuality: { type: 'number', minimum: 0, maximum: 1 },
-            // 👑 הוספנו את השכבות כדי שה-AI יידע שהן קיימות ואיך לקנפג אותן!
+            fps: { type: 'number', default: 30, description: 'Output framerate for video rendering.' },
+            timelineDuration: { type: ['number', 'null'], default: null, description: 'Total timeline length in seconds. null = auto = longest layer end.' },
             layers: {
                 type: 'array',
-                description: 'CRITICAL: Array of layers. You MUST generate one layer object for every image you connect to this compositor.',
+                description: 'CRITICAL: Array of layers. You MUST generate one layer object for every image OR video you connect to this compositor. Layer at array[0] is the BOTTOM of the visual stack. Layers can be still (no duration on timeline) or temporal (startTime + duration). When any layer is temporal, the compositor outputs video via video_out; otherwise it outputs an image via image_out.',
                 items: {
                     type: 'object',
                     required: ['id', 'name', 'sourceHandleId', 'transform'],
@@ -150,6 +229,20 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
                         selectedIndex: { type: 'number', default: 0 },
                         visible: { type: 'boolean', default: true },
                         locked: { type: 'boolean', default: false },
+                        startTime: { type: 'number', default: 0, description: 'When this layer starts on the timeline, in seconds.' },
+                        duration: { type: ['number', 'null'], default: null, description: 'How long the layer is active. null = full source for video, full timeline for image/text.' },
+                        trimIn: { type: 'number', default: 0, description: 'Forward-compat (Stage 2). Seconds trimmed from source start.' },
+                        trimOut: { type: ['number', 'null'], default: null, description: 'Forward-compat (Stage 2). Source-relative end time; null = full source.' },
+                        speed: { type: 'number', default: 1, description: 'Forward-compat (Stage 2). Playback rate.' },
+                        muted: { type: 'boolean', default: false, description: 'Forward-compat (Stage 2). Mute layer audio.' },
+                        transition: {
+                            type: 'object',
+                            description: 'Forward-compat (Stage 3). Outgoing transition.',
+                            properties: {
+                                type: { type: 'string', enum: ['none', 'crossfade', 'fade'], default: 'none' },
+                                duration: { type: 'number', default: 0 },
+                            },
+                        },
                         transform: {
                             type: 'object',
                             required: ['x', 'y', 'width', 'height'],

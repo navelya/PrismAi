@@ -31,6 +31,16 @@ function buildAutoLayerForEdge(
         transform: { ...transform, isAutoCentered: false },
         visible: true,
         locked: false,
+        // Temporal defaults: layer starts at t=0 and stays visible for the full
+        // timeline. User drags on the timeline to position. See compositor's
+        // shared.ts for how runtime resolves effective duration per source kind.
+        startTime: 0,
+        duration: null,
+        trimIn: 0,
+        trimOut: null,
+        speed: 1,
+        muted: false,
+        transition: { type: 'none', duration: 0 },
     };
 }
 

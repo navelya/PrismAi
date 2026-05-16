@@ -1,18 +1,46 @@
 import sharp from 'sharp';
 import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types';
-import { CompositorConfig } from './definition';
+import { CompositorConfig, CompositorLayer } from './definition';
 import { createServiceClient } from '@/lib/supabase/service';
+import {
+    detectSourceKindFromUrl,
+    LayerSourceKind,
+    computeTimelineDuration,
+    hasTemporalContent,
+} from './shared';
 
 /**
- * Compositor server executor.
+ * Compositor server executor (Stage 1 temporal-aware).
  *
- * Behavior preserved from the previous lib/workflow/handlers.ts handleCompositor:
- *   - Reads each layer's source URL from inputs[layer.sourceHandleId] (NOT an array index)
- *   - Layers processed in parallel via Promise.all
- *   - Skips invisible layers and layers with no input mapped
- *   - Per-layer fetch + resize/rotate/flip pipeline
- *   - Output format from config.outputFormat (png/jpg/jpeg/webp), default png
- *   - Uploads result to workflow-ephemeral-tmp (NOT chat-assets — that was the dead plugin executor path)
+ * Two code paths under one entrypoint:
+ *
+ *   1. **Still composite** — when no layer has a video source and no layer has
+ *      a non-default time range. Identical to the legacy behavior: Sharp
+ *      resize/rotate/flip/composite per layer, upload one image. Returns an
+ *      `image` envelope. This path is byte-identical for workflows that
+ *      pre-date the temporal fields.
+ *
+ *   2. **Temporal render** — when any layer is sourced from video, has a
+ *      non-zero `startTime`, or sets a finite `duration`. Uses ffmpeg-wasm
+ *      to:
+ *        - Probe each video's intrinsic duration
+ *        - Build a `-filter_complex` graph that scales each layer to its
+ *          transform's W×H, time-gates it via `enable='between(t,...)'`, and
+ *          overlays it onto a black canvas in array order (array[0] = bottom,
+ *          matching the still-composite z-order).
+ *        - Encodes the result as H.264 mp4 and uploads to `workflow-ephemeral-tmp`.
+ *      Returns a `video` envelope.
+ *
+ *   The runtime keys outputs per-node, not per-handle (see lib/workflow/orchestrator.ts).
+ *   Both `image_out` and `video_out` source edges receive whichever envelope
+ *   this executor emits — wire the handle that matches your content.
+ *
+ *   Known Stage 1 limitations on the temporal path:
+ *     - Layer rotation, opacity, flip, blendMode, and crop are ignored on
+ *       video output (these are still respected on still-composite output).
+ *     - Audio is omitted from Stage 1 video output. amix scaffolding is
+ *       planned for Stage 2 alongside per-layer muted/transition handling.
+ *     - Server may exceed Vercel's 60s function budget for long timelines.
  */
 export const compositorExecutor = async (
     config: CompositorConfig,
@@ -20,102 +48,363 @@ export const compositorExecutor = async (
     context: ExecutionContext,
 ): Promise<NodeExecutionResult> => {
     try {
-        const width = Math.round(config?.canvasWidth || 1080);
-        const height = Math.round(config?.canvasHeight || 1080);
-        const layers = (config?.layers || []) as any[];
-        const outputFormat = (config?.outputFormat || 'png') as string;
-        const outputQuality = config?.outputQuality ?? 1.0;
+        const layers = (config?.layers || []) as CompositorLayer[];
 
-        console.log(
-            `[CompositorExecutor] Canvas ${width}x${height}, ${layers.length} layers, inputs keys: [${Object.keys(inputs).join(', ')}]`,
-        );
-
-        let baseCanvas = sharp({
-            create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-        });
-
-        const layerResults = await Promise.all(
-            layers.map(async (layer: any) => {
-                if (!layer.visible) {
-                    console.log(`[CompositorExecutor] Skipping layer "${layer.name}" — not visible`);
-                    return null;
-                }
-                const imageUrl = inputs[layer.sourceHandleId];
-                if (!imageUrl || typeof imageUrl !== 'string') {
-                    console.log(
-                        `[CompositorExecutor] Skipping layer "${layer.name}" — no input for sourceHandleId="${layer.sourceHandleId}" (got ${typeof imageUrl})`,
-                    );
-                    return null;
-                }
-                console.log(`[CompositorExecutor] Processing layer "${layer.name}" from ${imageUrl}`);
-                try {
-                    const response = await fetch(imageUrl);
-                    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-                    const inputBuffer = Buffer.from(await response.arrayBuffer());
-                    const tf = layer.transform || {};
-                    const targetW = Math.max(1, Math.round(tf.width || width));
-                    const targetH = Math.max(1, Math.round(tf.height || height));
-                    const rotation = tf.rotation || 0;
-
-                    let imgSharp = sharp(inputBuffer).resize(targetW, targetH, { fit: 'fill' });
-                    if (tf.flipX) imgSharp = imgSharp.flop();
-                    if (tf.flipY) imgSharp = imgSharp.flip();
-                    if (rotation !== 0) {
-                        imgSharp = imgSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
-                    }
-
-                    const processedBuffer = await imgSharp.toBuffer();
-                    return {
-                        input: processedBuffer,
-                        left: Math.round(tf.x || 0),
-                        top: Math.round(tf.y || 0),
-                    };
-                } catch (err) {
-                    console.error(`[CompositorExecutor] Layer ${layer.name} failed:`, err);
-                    return null;
-                }
-            }),
-        );
-
-        const overlays = layerResults.filter(
-            (o): o is { input: Buffer; left: number; top: number } => o !== null,
-        );
-        if (overlays.length > 0) baseCanvas = baseCanvas.composite(overlays);
-
-        let finalBuffer: Buffer;
-        let contentType: string;
-        if (outputFormat === 'jpg' || outputFormat === 'jpeg') {
-            finalBuffer = await baseCanvas.jpeg({ quality: Math.round(outputQuality * 100) }).toBuffer();
-            contentType = 'image/jpeg';
-        } else if (outputFormat === 'webp') {
-            finalBuffer = await baseCanvas.webp({ quality: Math.round(outputQuality * 100) }).toBuffer();
-            contentType = 'image/webp';
-        } else {
-            finalBuffer = await baseCanvas.png().toBuffer();
-            contentType = 'image/png';
+        const sourceKindByLayerId: Record<string, LayerSourceKind> = {};
+        for (const layer of layers) {
+            const url = inputs[layer.sourceHandleId];
+            sourceKindByLayerId[layer.id] =
+                typeof url === 'string' ? detectSourceKindFromUrl(url) : 'unknown';
         }
 
-        const supabase = createServiceClient();
-        const ext = outputFormat === 'jpg' ? 'jpg' : outputFormat === 'jpeg' ? 'jpeg' : outputFormat === 'webp' ? 'webp' : 'png';
-        const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.${ext}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from('workflow-ephemeral-tmp')
-            .upload(filename, finalBuffer, { contentType, cacheControl: '3600' });
-        if (uploadError) {
-            return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
+        if (hasTemporalContent(layers, sourceKindByLayerId)) {
+            return await runTemporalRender(config, inputs, context, sourceKindByLayerId);
         }
-
-        const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
-
-        const result: ImageObject = {
-            url: urlData.publicUrl,
-            resolution: { width, height },
-            metadata: { format: outputFormat, source: 'Compositor', processedBy: 'ServerSharp' },
-        };
-
-        return { success: true, data: [result] };
+        return await runStillComposite(config, inputs, context);
     } catch (err) {
         return { success: false, data: null, error: err instanceof Error ? err.message : 'Compositor failed' };
     }
 };
+
+// ───────────────────────────────────────────────────────────────────────────
+// Still-composite path (Sharp). Preserves the pre-temporal behavior exactly.
+// ───────────────────────────────────────────────────────────────────────────
+
+async function runStillComposite(
+    config: CompositorConfig,
+    inputs: Record<string, any>,
+    context: ExecutionContext,
+): Promise<NodeExecutionResult> {
+    const width = Math.round(config?.canvasWidth || 1080);
+    const height = Math.round(config?.canvasHeight || 1080);
+    const layers = (config?.layers || []) as CompositorLayer[];
+    const outputFormat = (config?.outputFormat || 'png') as string;
+    const outputQuality = config?.outputQuality ?? 1.0;
+
+    console.log(
+        `[CompositorExecutor:still] Canvas ${width}x${height}, ${layers.length} layers`,
+    );
+
+    let baseCanvas = sharp({
+        create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    });
+
+    const layerResults = await Promise.all(
+        layers.map(async (layer) => {
+            if (!layer.visible) return null;
+            const imageUrl = inputs[layer.sourceHandleId];
+            if (!imageUrl || typeof imageUrl !== 'string') return null;
+
+            try {
+                const response = await fetch(imageUrl);
+                if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+                const inputBuffer = Buffer.from(await response.arrayBuffer());
+                const tf = layer.transform || ({} as any);
+                const targetW = Math.max(1, Math.round(tf.width || width));
+                const targetH = Math.max(1, Math.round(tf.height || height));
+                const rotation = tf.rotation || 0;
+
+                let imgSharp = sharp(inputBuffer).resize(targetW, targetH, { fit: 'fill' });
+                if (tf.flipX) imgSharp = imgSharp.flop();
+                if (tf.flipY) imgSharp = imgSharp.flip();
+                if (rotation !== 0) {
+                    imgSharp = imgSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+                }
+                const processedBuffer = await imgSharp.toBuffer();
+                return {
+                    input: processedBuffer,
+                    left: Math.round(tf.x || 0),
+                    top: Math.round(tf.y || 0),
+                };
+            } catch (err) {
+                console.error(`[CompositorExecutor:still] Layer ${layer.name} failed:`, err);
+                return null;
+            }
+        }),
+    );
+
+    const overlays = layerResults.filter(
+        (o): o is { input: Buffer; left: number; top: number } => o !== null,
+    );
+    if (overlays.length > 0) baseCanvas = baseCanvas.composite(overlays);
+
+    let finalBuffer: Buffer;
+    let contentType: string;
+    if (outputFormat === 'jpg' || outputFormat === 'jpeg') {
+        finalBuffer = await baseCanvas.jpeg({ quality: Math.round(outputQuality * 100) }).toBuffer();
+        contentType = 'image/jpeg';
+    } else if (outputFormat === 'webp') {
+        finalBuffer = await baseCanvas.webp({ quality: Math.round(outputQuality * 100) }).toBuffer();
+        contentType = 'image/webp';
+    } else {
+        finalBuffer = await baseCanvas.png().toBuffer();
+        contentType = 'image/png';
+    }
+
+    const supabase = createServiceClient();
+    const ext = outputFormat === 'jpg' ? 'jpg' : outputFormat === 'jpeg' ? 'jpeg' : outputFormat === 'webp' ? 'webp' : 'png';
+    const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+        .from('workflow-ephemeral-tmp')
+        .upload(filename, finalBuffer, { contentType, cacheControl: '3600' });
+    if (uploadError) {
+        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
+    }
+
+    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
+
+    const result: ImageObject = {
+        url: urlData.publicUrl,
+        resolution: { width, height },
+        metadata: { format: outputFormat, source: 'Compositor', processedBy: 'ServerSharp' },
+    };
+
+    return { success: true, data: [result] };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Temporal-render path (ffmpeg-wasm). Built lazily — keeps the still path
+// free from a 30MB import.
+// ───────────────────────────────────────────────────────────────────────────
+
+interface ProcessedLayer {
+    layer: CompositorLayer;
+    inputFilename: string;
+    sourceKind: LayerSourceKind;
+    intrinsicDuration: number; // seconds; 0 if unknown
+    effectiveDuration: number; // seconds; what we actually render
+    startTime: number;         // seconds
+}
+
+async function runTemporalRender(
+    config: CompositorConfig,
+    inputs: Record<string, any>,
+    context: ExecutionContext,
+    sourceKindByLayerId: Record<string, LayerSourceKind>,
+): Promise<NodeExecutionResult> {
+    const width = Math.round(config?.canvasWidth || 1080);
+    const height = Math.round(config?.canvasHeight || 1080);
+    const fps = Math.max(1, Math.min(60, Math.round(config?.fps || 30)));
+    const allLayers = (config?.layers || []) as CompositorLayer[];
+
+    // Lazy import — keeps the still path from pulling 30MB into the bundle on
+    // cold start for workflows that never hit the temporal branch.
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
+
+    const ffmpeg = new FFmpeg();
+    try {
+        await ffmpeg.load();
+    } catch (err) {
+        return {
+            success: false,
+            data: null,
+            error: `ffmpeg-wasm failed to load on this deployment. Video output unavailable. (${err instanceof Error ? err.message : 'unknown'})`,
+        };
+    }
+
+    // Stage videos and images that have a usable source URL and are visible.
+    // Layers are processed in array order so the resulting overlay chain
+    // produces array[0] = bottom of stack (matches still-composite z-order).
+    const visibleLayers = allLayers.filter((l) => l.visible);
+
+    const processed: ProcessedLayer[] = [];
+    for (let i = 0; i < visibleLayers.length; i++) {
+        const layer = visibleLayers[i];
+        const url = inputs[layer.sourceHandleId];
+        if (!url || typeof url !== 'string') continue;
+        const kind = sourceKindByLayerId[layer.id] ?? detectSourceKindFromUrl(url);
+        if (kind !== 'video' && kind !== 'image') {
+            // Stage 1: text-only layers are skipped on the temporal path. Sharp
+            // renders text via fonts; bridging that to ffmpeg is Stage 2 work.
+            continue;
+        }
+
+        const ext = kind === 'video' ? 'mp4' : 'png';
+        const inputFilename = `in_${i}.${ext}`;
+        try {
+            const data = await fetchFile(url);
+            await ffmpeg.writeFile(inputFilename, data);
+        } catch (err) {
+            console.error(`[CompositorExecutor:temporal] Skipping layer ${layer.name}: fetch failed`, err);
+            continue;
+        }
+
+        let intrinsicDuration = 0;
+        if (kind === 'video') {
+            intrinsicDuration = await probeVideoDuration(ffmpeg, inputFilename);
+        }
+
+        processed.push({
+            layer,
+            inputFilename,
+            sourceKind: kind,
+            intrinsicDuration,
+            effectiveDuration: 0, // filled below once we know the timeline total
+            startTime: Math.max(0, layer.startTime || 0),
+        });
+    }
+
+    if (processed.length === 0) {
+        return { success: false, data: null, error: 'No renderable layers on temporal compositor.' };
+    }
+
+    // Resolve total timeline duration. computeTimelineDuration honors
+    // config.timelineDuration; otherwise max(startTime + effective duration).
+    const intrinsicMap: Record<string, number | null> = {};
+    for (const p of processed) intrinsicMap[p.layer.id] = p.intrinsicDuration || null;
+    const total = computeTimelineDuration(
+        processed.map((p) => p.layer),
+        config?.timelineDuration ?? null,
+        intrinsicMap,
+    );
+
+    // Effective duration per layer (must come after `total` since image/text
+    // layers without configured duration fall back to the total).
+    for (const p of processed) {
+        if (typeof p.layer.duration === 'number' && p.layer.duration > 0) {
+            p.effectiveDuration = p.layer.duration;
+        } else if (p.sourceKind === 'video' && p.intrinsicDuration > 0) {
+            p.effectiveDuration = p.intrinsicDuration;
+        } else {
+            p.effectiveDuration = Math.max(0.1, total - p.startTime);
+        }
+    }
+
+    // ── Build the filter graph ──
+    // [bg]                           color=black, size=WxH, duration=total
+    // For each input i:
+    //   - image: [i:v]loop=-1:1:0,trim=duration=eff,setpts=PTS-STARTPTS,scale=w:h,format=rgba[L_i]
+    //   - video: [i:v]trim=duration=eff,setpts=PTS-STARTPTS,scale=w:h,format=rgba[L_i]
+    // Overlay each [L_i] onto the running canvas with time gating + x/y.
+    const filters: string[] = [];
+    filters.push(`color=c=black:s=${width}x${height}:r=${fps}:d=${total}[bg]`);
+
+    let currentChain = 'bg';
+    processed.forEach((p, idx) => {
+        const tf = p.layer.transform || ({} as any);
+        const w = Math.max(2, Math.round(tf.width || width));
+        const h = Math.max(2, Math.round(tf.height || height));
+        const x = Math.round(tf.x || 0);
+        const y = Math.round(tf.y || 0);
+        const eff = p.effectiveDuration;
+        const startT = p.startTime;
+        const endT = startT + eff;
+
+        const layerLabel = `L${idx}`;
+        if (p.sourceKind === 'image') {
+            filters.push(
+                `[${idx}:v]loop=loop=-1:size=1:start=0,trim=duration=${eff.toFixed(3)},setpts=PTS-STARTPTS,scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
+            );
+        } else {
+            filters.push(
+                `[${idx}:v]trim=duration=${eff.toFixed(3)},setpts=PTS-STARTPTS,scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
+            );
+        }
+
+        const nextChain = idx === processed.length - 1 ? 'out' : `s${idx}`;
+        filters.push(
+            `[${currentChain}][${layerLabel}]overlay=x=${x}:y=${y}:enable='between(t,${startT.toFixed(3)},${endT.toFixed(3)})':format=auto[${nextChain}]`,
+        );
+        currentChain = nextChain;
+    });
+
+    const filterComplex = filters.join(';');
+
+    const args: string[] = [];
+    for (const p of processed) {
+        // Image inputs: pre-decode them as a still source (-loop 1 done in filter).
+        if (p.sourceKind === 'image') {
+            args.push('-loop', '1', '-i', p.inputFilename);
+        } else {
+            args.push('-i', p.inputFilename);
+        }
+    }
+    args.push('-filter_complex', filterComplex);
+    args.push('-map', '[out]');
+    args.push('-t', total.toFixed(3));
+    args.push('-r', String(fps));
+    args.push('-c:v', 'libx264');
+    args.push('-preset', 'veryfast');
+    args.push('-pix_fmt', 'yuv420p');
+    args.push('-movflags', '+faststart');
+    args.push('-an'); // No audio on Stage 1 temporal output (see header note).
+    args.push('out.mp4');
+
+    console.log(`[CompositorExecutor:temporal] filter_complex: ${filterComplex}`);
+    console.log(`[CompositorExecutor:temporal] running ffmpeg: ${args.join(' ')}`);
+
+    try {
+        await ffmpeg.exec(args);
+    } catch (err) {
+        return {
+            success: false,
+            data: null,
+            error: `ffmpeg render failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        };
+    }
+
+    let outputBuffer: Uint8Array;
+    try {
+        outputBuffer = (await ffmpeg.readFile('out.mp4')) as Uint8Array;
+    } catch (err) {
+        return {
+            success: false,
+            data: null,
+            error: `ffmpeg produced no output: ${err instanceof Error ? err.message : 'unknown error'}`,
+        };
+    }
+
+    const supabase = createServiceClient();
+    const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.mp4`;
+    const { error: uploadError } = await supabase.storage
+        .from('workflow-ephemeral-tmp')
+        .upload(filename, Buffer.from(outputBuffer), { contentType: 'video/mp4', cacheControl: '3600' });
+    if (uploadError) {
+        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
+    }
+
+    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
+
+    return {
+        success: true,
+        data: [
+            {
+                url: urlData.publicUrl,
+                resolution: { width, height },
+                metadata: {
+                    format: 'mp4',
+                    source: 'Compositor',
+                    processedBy: 'ServerFFmpegWasm',
+                },
+            },
+        ],
+    };
+}
+
+/**
+ * Read a video's duration by running `ffmpeg -i <file>` and parsing the
+ * Duration line out of the log stream. ffmpeg-wasm has no ffprobe so this
+ * is the canonical workaround.
+ */
+async function probeVideoDuration(ffmpeg: any, filename: string): Promise<number> {
+    let parsed = 0;
+    const onLog = (entry: any) => {
+        const msg: string = entry?.message || '';
+        const m = msg.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        if (m) {
+            parsed = parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]);
+        }
+    };
+    ffmpeg.on('log', onLog);
+    try {
+        // -i without an output makes ffmpeg exit with code 1 but still print Duration.
+        await ffmpeg.exec(['-i', filename]);
+    } catch {
+        // Expected — ffmpeg errors on missing output. Duration is already parsed.
+    } finally {
+        ffmpeg.off('log', onLog);
+    }
+    return parsed;
+}

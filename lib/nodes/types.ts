@@ -88,10 +88,19 @@ export interface AiModel {
 export type NodeStatus = 'idle' | 'pending' | 'running' | 'success' | 'error';
 
 /**
- * Image object structure
+ * Image object structure.
+ *
+ * `url` is the canonical, serializable representation. `canvas` is an optional
+ * LIVE reference used by client-side ephemeral nodes that render directly into
+ * a `<canvas>` (compositor with video content, future live-blur, etc.) — it
+ * lets downstream consumers draw frames in real time without round-tripping
+ * through a dataURL on every tick. Anything that persists or serializes
+ * `nodeOutputs` MUST ignore the `canvas` field.
  */
 export interface ImageObject {
     url: string;
+    /** Live canvas surface. Present on outputs from canvas-driven ephemeral nodes; consume with `drawImage` per frame. */
+    canvas?: HTMLCanvasElement;
     resolution: {
         width: number;
         height: number;
