@@ -101,6 +101,15 @@ export interface ImageObject {
     url: string;
     /** Live canvas surface. Present on outputs from canvas-driven ephemeral nodes; consume with `drawImage` per frame. */
     canvas?: HTMLCanvasElement;
+    /**
+     * Live MediaStream captured from the canvas (`canvas.captureStream(fps)`).
+     * Present on video-producing nodes whose output is meant to be played
+     * directly in a `<video>` element or recorded with MediaRecorder.
+     * Consumers can pick whichever surface fits their pipeline:
+     *   - canvas → per-frame drawImage (sync, cheap)
+     *   - stream → <video srcObject> / MediaStreamTrackProcessor (async, audio-capable later)
+     */
+    stream?: MediaStream;
     resolution: {
         width: number;
         height: number;

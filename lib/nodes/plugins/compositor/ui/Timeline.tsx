@@ -111,6 +111,14 @@ const Timeline = memo(function Timeline({
 
     const labelScrollRef = useRef<HTMLDivElement>(null);
     const laneScrollRef = useRef<HTMLDivElement>(null);
+    // Ref to the inner content div (the one whose width equals the ruler's
+    // total pixel length). Drag-to-scrub uses its bounding rect to convert
+    // pointer clientX into a timeline second.
+    const contentRef = useRef<HTMLDivElement>(null);
+    // Ref to the playhead line — direct-DOM updates during a scrub drag
+    // bypass React's render path so the line follows the cursor 1:1 even
+    // when the surrounding tree is slow to re-render.
+    const playheadOverlayRef = useRef<HTMLDivElement>(null);
 
     // Snap guide: a child `<ClipBlock>` reports a snap value while the user
     // drags; we render a vertical line across all tracks at that x-position
@@ -133,11 +141,67 @@ const Timeline = memo(function Timeline({
         }
     }, []);
 
-    const onRulerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const t = Math.max(0, Math.min(rulerLengthSeconds, x / PIXELS_PER_SECOND));
-        onSeek(t);
+    /**
+     * Click-and-drag scrub. Replaces the previous `onClick` (which couldn't
+     * fire until pointer release — that's why the playhead used to "jump" to
+     * the drop point instead of following the cursor).
+     *
+     * The pointer position is converted to a timeline second once per
+     * animation frame (rAF-coalesced, so 1000Hz mice don't flood React with
+     * setState calls), AND the playhead line's `style.left` is written
+     * directly to the DOM every move so the user sees it follow the cursor
+     * even if React's re-render is slow.
+     */
+    const startScrub = useCallback((e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const captureTarget = e.currentTarget as Element;
+        captureTarget.setPointerCapture?.(e.pointerId);
+
+        let pending: number | null = null;
+        let rafHandle: number | null = null;
+
+        const flush = () => {
+            rafHandle = null;
+            if (pending === null) return;
+            const el = contentRef.current;
+            if (!el) { pending = null; return; }
+            const rect = el.getBoundingClientRect();
+            const x = pending - rect.left;
+            const t = Math.max(0, Math.min(rulerLengthSeconds, x / PIXELS_PER_SECOND));
+            onSeek(t);
+            pending = null;
+        };
+
+        const apply = (clientX: number) => {
+            // 1. Instant visual feedback via direct-DOM. The line follows the
+            //    cursor at native pointer rate.
+            const el = contentRef.current;
+            const overlay = playheadOverlayRef.current;
+            if (el && overlay) {
+                const rect = el.getBoundingClientRect();
+                const x = Math.max(0, Math.min(rulerLengthSeconds * PIXELS_PER_SECOND, clientX - rect.left));
+                overlay.style.left = `${x}px`;
+            }
+            // 2. rAF-coalesced React state update so the video / transport
+            //    catch up at 60Hz max.
+            pending = clientX;
+            if (rafHandle === null) rafHandle = requestAnimationFrame(flush);
+        };
+
+        apply(e.clientX);
+
+        const onMove = (ev: PointerEvent) => apply(ev.clientX);
+        const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+            // Ensure the final position is committed to state (otherwise a
+            // very fast click-and-release could leave `pending` unflushed).
+            flush();
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
     }, [rulerLengthSeconds, onSeek]);
 
     const playheadX = playhead * PIXELS_PER_SECOND;
@@ -227,14 +291,14 @@ const Timeline = memo(function Timeline({
                     className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar relative"
                     onScroll={onLaneScroll}
                 >
-                    <div className="relative" style={{ width: totalWidth, minHeight: '100%' }}>
+                    <div ref={contentRef} className="relative" style={{ width: totalWidth, minHeight: '100%' }}>
                         {/* Ruler — left=0 here aligns with the lane's left edge,
                             which is the right side of the label column. So 0s
                             visually sits exactly where clip startTime=0 sits. */}
                         <div
                             className="relative cursor-pointer select-none border-b border-white/5 sticky top-0 bg-black/40 backdrop-blur-md z-10"
                             style={{ height: RULER_HEIGHT }}
-                            onClick={onRulerClick}
+                            onPointerDown={startScrub}
                         >
                             {tickMarks.map((t) => (
                                 <div
@@ -305,15 +369,19 @@ const Timeline = memo(function Timeline({
                             />
                         )}
 
-                        {/* Playhead overlay — pointer-events-none so clicks pass
-                            through to ruler/clips. */}
+                        {/* Playhead overlay — the line itself is pointer-events-none so
+                            clicks pass through to clips. The triangle handle at the top
+                            re-enables pointer events so the user can grab the playhead
+                            directly and drag it. */}
                         <div
+                            ref={playheadOverlayRef}
                             className="absolute top-0 bottom-0 w-px bg-accent-primary pointer-events-none z-20"
                             style={{ left: playheadX }}
                         >
                             <div
-                                className="absolute -top-1 -left-[5px] w-[11px] h-3 bg-accent-primary"
+                                className="absolute -top-1 -left-2 w-4 h-3 bg-accent-primary cursor-ew-resize pointer-events-auto"
                                 style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }}
+                                onPointerDown={startScrub}
                             />
                         </div>
                     </div>

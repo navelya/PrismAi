@@ -233,35 +233,68 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
 }
 
 export function runUpdateNode(state: ToolHandlerState, args: any): ToolResult {
-  if (!args?.id || typeof args.id !== 'string') {
-    return { success: false, error: 'update_node requires an "id" string.' };
+  const updates = Array.isArray(args?.updates) ? args.updates : null;
+  if (!updates || updates.length === 0) {
+    return { success: false, error: 'update_node requires a non-empty "updates" array.' };
   }
 
-  // Validate replace_inputs edges against the existing node's target handles,
-  // merging in any incoming config override for dynamic handle resolution.
-  if (Array.isArray(args.replace_inputs) && args.replace_inputs.length > 0) {
-    const existing = state.workflow.nodes.find((n: any) => n.id === args.id || state.idMap.get(args.id) === n.id);
-    if (existing) {
-      const merged = { ...existing, data: { ...(existing.data || {}), config: args.data?.config ?? existing.data?.config } } as any;
-      const err = validateEdgeHandles({ ...merged, id: args.id, inputs: args.replace_inputs }, state.aiModelHandles);
-      if (err) return { success: false, error: err };
+  const patches: WorkflowPatch[] = [];
+
+  for (let i = 0; i < updates.length; i++) {
+    const u = updates[i];
+    if (!u || typeof u !== 'object') {
+      return { success: false, error: `update_node updates[${i}] must be an object.` };
     }
+    if (!u.id || typeof u.id !== 'string') {
+      return { success: false, error: `update_node updates[${i}] requires an "id" string.` };
+    }
+
+    // Validate replace_inputs edges against the existing node's target handles,
+    // merging in any incoming config override for dynamic handle resolution.
+    if (Array.isArray(u.replace_inputs) && u.replace_inputs.length > 0) {
+      const existing = state.workflow.nodes.find((n: any) => n.id === u.id || state.idMap.get(u.id) === n.id);
+      if (existing) {
+        const merged = { ...existing, data: { ...(existing.data || {}), config: u.data?.config ?? existing.data?.config } } as any;
+        const err = validateEdgeHandles({ ...merged, id: u.id, inputs: u.replace_inputs }, state.aiModelHandles);
+        if (err) return { success: false, error: `update_node updates[${i}]: ${err}` };
+      }
+    }
+
+    const result = applyUpdateNodeOp(state.workflow, u, state.idMap);
+    if (!result.success) {
+      return { success: false, error: `update_node updates[${i}] (id "${u.id}"): ${result.error || 'failed.'}` };
+    }
+    state.workflow = result.workflow;
+    if (result.patch) patches.push(result.patch);
   }
 
-  const result = applyUpdateNodeOp(state.workflow, args, state.idMap);
-  if (!result.success) return { success: false, error: result.error || 'update_node failed.' };
-  state.workflow = result.workflow;
-  return { success: true, patch: result.patch ?? undefined };
+  const merged = patches.reduce<WorkflowPatch | null>((acc, p) => mergeWorkflowPatches(acc, p), null);
+  return { success: true, patch: merged ?? undefined };
 }
 
 export function runRemoveNode(state: ToolHandlerState, args: any): ToolResult {
-  if (!args?.id || typeof args.id !== 'string') {
-    return { success: false, error: 'remove_node requires an "id" string.' };
+  const ids = Array.isArray(args?.ids) ? args.ids : null;
+  if (!ids || ids.length === 0) {
+    return { success: false, error: 'remove_node requires a non-empty "ids" array.' };
   }
-  const result = applyRemoveNodeOp(state.workflow, args, state.idMap);
-  if (!result.success) return { success: false, error: result.error || 'remove_node failed.' };
-  state.workflow = result.workflow;
-  return { success: true, patch: result.patch ?? undefined };
+
+  const patches: WorkflowPatch[] = [];
+
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    if (!id || typeof id !== 'string') {
+      return { success: false, error: `remove_node ids[${i}] must be a string.` };
+    }
+    const result = applyRemoveNodeOp(state.workflow, { id }, state.idMap);
+    if (!result.success) {
+      return { success: false, error: `remove_node ids[${i}] ("${id}"): ${result.error || 'failed.'}` };
+    }
+    state.workflow = result.workflow;
+    if (result.patch) patches.push(result.patch);
+  }
+
+  const merged = patches.reduce<WorkflowPatch | null>((acc, p) => mergeWorkflowPatches(acc, p), null);
+  return { success: true, patch: merged ?? undefined };
 }
 
 export async function dispatchTool(state: ToolHandlerState, name: ToolName, args: any): Promise<ToolResult> {

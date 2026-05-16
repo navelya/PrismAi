@@ -1,3 +1,4 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import type { Workflow } from '@/lib/nodes/types';
 import { createEmptyWorkflow, applyWorkflowPatch, mergeWorkflowPatches, type WorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { buildSystemPrompt } from './prompt/system';
@@ -5,7 +6,7 @@ import type { RegistryContextInput } from './prompt/registry-context';
 import { TOOLS, type ToolName } from './tools/definitions';
 import { dispatchTool, validateBlueprint, validateTaskList, type ToolHandlerState } from './tools/handlers';
 import type { PlanPayload } from './streaming/protocol';
-import { streamAnthropicTurn, type ChatTurn } from './provider/anthropic';
+import { streamAnthropicTurn, toAnthropicMessages, type ChatTurn } from './provider/anthropic';
 import type { StreamEncoder } from './streaming/encoder';
 
 export interface BrainResult {
@@ -28,6 +29,15 @@ export interface BrainInput {
   /** Which Claude model to use. Defaults to 'sonnet' for backwards-compat. */
   model?: 'haiku' | 'sonnet';
 }
+
+/**
+ * Continuation loop bound. After each Anthropic turn that called workflow
+ * tools, the brain echoes the assistant message + tool_result back and
+ * re-prompts. This cap prevents runaway loops; 6 is enough for the
+ * largest realistic ask (plan → add → batch-update → batch-remove → cleanup)
+ * and small enough that a confused model can't burn dollars.
+ */
+const MAX_ITERATIONS = 6;
 
 export async function runBrain(input: BrainInput): Promise<BrainResult> {
   const baseWorkflow: Workflow =
@@ -76,193 +86,279 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   const lastUserText = lastTurn && lastTurn.role === 'user' ? lastTurn.text : '';
   const lastUserImages = lastTurn && lastTurn.role === 'user' ? (lastTurn.images?.length ?? 0) : 0;
   const ACTION_VERBS = /\b(make|build|add|create|change|fix|update|remove|use|switch|replace|generate|set up|wire|connect|delete|rewire|swap|configure|customize)\b/i;
-  const disableThinking =
+  const disableThinkingFirstTurn =
     lastUserText.length > 0 &&
     lastUserText.length <= 80 &&
     lastUserImages === 0 &&
     !ACTION_VERBS.test(lastUserText);
 
-  try {
-    const stream = streamAnthropicTurn({ system, messages: input.turns, tools: TOOLS, disableThinking, model: input.model });
+  // Build the Anthropic message array once. We MUTATE this array across
+  // continuation iterations by appending the assistant's response and a
+  // synthetic user message carrying tool_result blocks. The original
+  // input.turns is never modified.
+  const messages: Anthropic.MessageParam[] = toAnthropicMessages(input.turns);
 
-    for await (const event of stream) {
-      if (!input.encoder.isConnected()) break;
-      hadAnyOutput = true;
+  let iteration = 0;
+  let continueLoop = true;
 
-      switch (event.kind) {
-        case 'thinking_start':
-          input.encoder.send({ type: 'thinking_start' });
-          break;
+  while (continueLoop && iteration < MAX_ITERATIONS) {
+    if (!input.encoder.isConnected()) break;
+    iteration++;
+    continueLoop = false;
 
-        case 'thinking_delta':
-          finalThinking += event.text;
-          input.encoder.send({ type: 'thinking_delta', text: event.text });
-          break;
+    // Track this iteration's workflow tool results so we can build the
+    // synthetic tool_result user message that re-prompts Claude. Terminal
+    // tools (ask_clarification, propose_plan) end the loop and do not need
+    // a tool_result — the brain returns and the next user turn restarts.
+    type PendingTool = { id: string; success: boolean; error?: string };
+    const pendingTools: PendingTool[] = [];
+    let calledWorkflowTool = false;
+    let calledTerminalTool = false;
+    let turnAssistantContent: Anthropic.ContentBlock[] | null = null;
 
-        case 'thinking_end':
-          input.encoder.send({ type: 'thinking_end' });
-          break;
+    // Iteration 1 uses the user's thinking heuristic; iterations 2+ always
+    // disable thinking. Without the interleaved-thinking-2025-05-14 beta
+    // header, thinking can only happen before the first tool use anyway —
+    // and tool-result follow-ups don't benefit from a fresh think pass for
+    // our use case (deterministic workflow mutations).
+    const iterationDisableThinking = iteration === 1 ? disableThinkingFirstTurn : true;
 
-        case 'text_delta':
-          finalText += event.text;
-          input.encoder.send({ type: 'text', text: event.text });
-          break;
+    try {
+      const stream = streamAnthropicTurn({
+        system,
+        messages,
+        tools: TOOLS,
+        disableThinking: iterationDisableThinking,
+        model: input.model,
+      });
 
-        case 'tool_call': {
-          const name = event.name as ToolName;
+      for await (const event of stream) {
+        if (!input.encoder.isConnected()) break;
+        hadAnyOutput = true;
 
-          if (name === 'ask_clarification') {
-            // Validate options: must be an array of 2-4 strings (clip to 4 if more).
-            const raw = Array.isArray(event.args?.options) ? event.args.options : [];
-            const options = raw
-              .filter((o: unknown): o is string => typeof o === 'string' && o.trim().length > 0)
-              .slice(0, 4);
-            if (options.length < 2) {
-              input.encoder.send({
-                type: 'error',
-                message: 'ask_clarification needs 2-4 string options.',
-                recoverable: true
-              });
-              break;
-            }
-            // First valid clarification wins; ignore any additional ones in this turn.
-            if (!clarification) {
-              clarification = { options };
-              input.encoder.send({ type: 'clarification', options });
-            }
+        switch (event.kind) {
+          case 'thinking_start':
+            input.encoder.send({ type: 'thinking_start' });
             break;
-          }
 
-          if (name === 'propose_plan') {
-            const args = (event.args ?? {}) as Record<string, unknown>;
+          case 'thinking_delta':
+            finalThinking += event.text;
+            input.encoder.send({ type: 'thinking_delta', text: event.text });
+            break;
 
-            const requireString = (key: string): string | null => {
-              const v = args[key];
-              if (typeof v !== 'string' || v.trim().length === 0) {
-                return `propose_plan requires non-empty string field "${key}".`;
-              }
-              return null;
-            };
-            for (const key of ['title', 'summary', 'arrows', 'detail']) {
-              const err = requireString(key);
-              if (err) {
-                input.encoder.send({ type: 'error', message: err, recoverable: true });
-                break;
-              }
-            }
-            const rawModels = args.models;
-            if (!Array.isArray(rawModels) || !rawModels.every(m => typeof m === 'string')) {
-              input.encoder.send({
-                type: 'error',
-                message: 'propose_plan.models must be an array of strings (may be empty).',
-                recoverable: true,
-              });
-              break;
-            }
+          case 'thinking_end':
+            input.encoder.send({ type: 'thinking_end' });
+            break;
 
-            const hasTasks = Array.isArray(args.tasks) && (args.tasks as any[]).length > 0;
-            const hasBlueprint = !!args.blueprint && typeof args.blueprint === 'object';
+          case 'text_delta':
+            finalText += event.text;
+            input.encoder.send({ type: 'text', text: event.text });
+            break;
 
-            const blueprintObj: { nodes?: any[]; edges?: any[] } | null = hasBlueprint
-              ? (args.blueprint as { nodes?: any[]; edges?: any[] })
-              : null;
+          case 'tool_call': {
+            const name = event.name as ToolName;
 
-            if (hasTasks && hasBlueprint) {
-              input.encoder.send({
-                type: 'error',
-                message: 'propose_plan must use EITHER blueprint OR tasks — never both.',
-                recoverable: true,
-              });
-              break;
-            }
-            if (!hasTasks && !hasBlueprint) {
-              input.encoder.send({
-                type: 'error',
-                message: 'propose_plan requires either a blueprint or a non-empty tasks[] array.',
-                recoverable: true,
-              });
-              break;
-            }
-
-            if (hasTasks) {
-              const validation = validateTaskList(state, args.tasks as any[]);
-              if (!validation.ok) {
+            if (name === 'ask_clarification') {
+              calledTerminalTool = true;
+              // Validate options: must be an array of 2-4 strings (clip to 4 if more).
+              const raw = Array.isArray(event.args?.options) ? event.args.options : [];
+              const options = raw
+                .filter((o: unknown): o is string => typeof o === 'string' && o.trim().length > 0)
+                .slice(0, 4);
+              if (options.length < 2) {
                 input.encoder.send({
                   type: 'error',
-                  message: `propose_plan tasks invalid (task ${validation.taskIndex}): ${validation.error}`,
-                  recoverable: true,
+                  message: 'ask_clarification needs 2-4 string options.',
+                  recoverable: true
                 });
                 break;
               }
-            } else {
-              const validation = validateBlueprint(state, blueprintObj);
-              if (!validation.ok) {
-                input.encoder.send({
-                  type: 'error',
-                  message: `propose_plan blueprint invalid: ${validation.error}`,
-                  recoverable: true,
-                });
-                break;
+              // First valid clarification wins; ignore any additional ones in this turn.
+              if (!clarification) {
+                clarification = { options };
+                input.encoder.send({ type: 'clarification', options });
               }
+              break;
             }
 
-            if (!plan) {
-              plan = {
-                title: String(args.title).trim(),
-                summary: String(args.summary).trim(),
-                arrows: String(args.arrows).trim(),
-                models: rawModels as string[],
-                detail: String(args.detail).trim(),
-                blueprint: hasBlueprint
-                  ? {
-                      nodes: Array.isArray(blueprintObj?.nodes) ? blueprintObj.nodes : [],
-                      edges: Array.isArray(blueprintObj?.edges) ? blueprintObj.edges : [],
-                    }
-                  : undefined,
-                tasks: hasTasks ? (args.tasks as any[]) : undefined,
+            if (name === 'propose_plan') {
+              calledTerminalTool = true;
+              const args = (event.args ?? {}) as Record<string, unknown>;
+
+              const requireString = (key: string): string | null => {
+                const v = args[key];
+                if (typeof v !== 'string' || v.trim().length === 0) {
+                  return `propose_plan requires non-empty string field "${key}".`;
+                }
+                return null;
               };
-              input.encoder.send({ type: 'plan', plan });
+              for (const key of ['title', 'summary', 'arrows', 'detail']) {
+                const err = requireString(key);
+                if (err) {
+                  input.encoder.send({ type: 'error', message: err, recoverable: true });
+                  break;
+                }
+              }
+              const rawModels = args.models;
+              if (!Array.isArray(rawModels) || !rawModels.every(m => typeof m === 'string')) {
+                input.encoder.send({
+                  type: 'error',
+                  message: 'propose_plan.models must be an array of strings (may be empty).',
+                  recoverable: true,
+                });
+                break;
+              }
+
+              const hasTasks = Array.isArray(args.tasks) && (args.tasks as any[]).length > 0;
+              const hasBlueprint = !!args.blueprint && typeof args.blueprint === 'object';
+
+              const blueprintObj: { nodes?: any[]; edges?: any[] } | null = hasBlueprint
+                ? (args.blueprint as { nodes?: any[]; edges?: any[] })
+                : null;
+
+              if (hasTasks && hasBlueprint) {
+                input.encoder.send({
+                  type: 'error',
+                  message: 'propose_plan must use EITHER blueprint OR tasks — never both.',
+                  recoverable: true,
+                });
+                break;
+              }
+              if (!hasTasks && !hasBlueprint) {
+                input.encoder.send({
+                  type: 'error',
+                  message: 'propose_plan requires either a blueprint or a non-empty tasks[] array.',
+                  recoverable: true,
+                });
+                break;
+              }
+
+              if (hasTasks) {
+                const validation = validateTaskList(state, args.tasks as any[]);
+                if (!validation.ok) {
+                  input.encoder.send({
+                    type: 'error',
+                    message: `propose_plan tasks invalid (task ${validation.taskIndex}): ${validation.error}`,
+                    recoverable: true,
+                  });
+                  break;
+                }
+              } else {
+                const validation = validateBlueprint(state, blueprintObj);
+                if (!validation.ok) {
+                  input.encoder.send({
+                    type: 'error',
+                    message: `propose_plan blueprint invalid: ${validation.error}`,
+                    recoverable: true,
+                  });
+                  break;
+                }
+              }
+
+              if (!plan) {
+                plan = {
+                  title: String(args.title).trim(),
+                  summary: String(args.summary).trim(),
+                  arrows: String(args.arrows).trim(),
+                  models: rawModels as string[],
+                  detail: String(args.detail).trim(),
+                  blueprint: hasBlueprint
+                    ? {
+                        nodes: Array.isArray(blueprintObj?.nodes) ? blueprintObj.nodes : [],
+                        edges: Array.isArray(blueprintObj?.edges) ? blueprintObj.edges : [],
+                      }
+                    : undefined,
+                  tasks: hasTasks ? (args.tasks as any[]) : undefined,
+                };
+                input.encoder.send({ type: 'plan', plan });
+              }
+              break;
             }
+
+            if (name !== 'add_node' && name !== 'update_node' && name !== 'remove_node') {
+              input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
+              pendingTools.push({ id: event.id, success: false, error: `Unknown tool ${name}` });
+              break;
+            }
+
+            calledWorkflowTool = true;
+            const result = await dispatchTool(state, name, event.args);
+            if (!result.success) {
+              input.encoder.send({ type: 'error', message: result.error || `${name} failed`, recoverable: true });
+              // Surface the error to Claude on the next iteration so it can
+              // self-correct rather than the user seeing a half-applied edit.
+              pendingTools.push({ id: event.id, success: false, error: result.error || `${name} failed` });
+              break;
+            }
+            if (result.patch) {
+              accumulatedPatch = mergeWorkflowPatches(accumulatedPatch, result.patch);
+              input.encoder.send({ type: 'tool', name, patch: result.patch });
+            }
+            pendingTools.push({ id: event.id, success: true });
             break;
           }
 
-          if (name !== 'add_node' && name !== 'update_node' && name !== 'remove_node') {
-            input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
+          case 'turn_end':
+            turnAssistantContent = event.assistantContent;
+            break;
+
+          case 'usage': {
+            // Accumulate usage across iterations. The cost UI in the client
+            // reads the LAST usage event, so we sum manually and re-emit the
+            // running total each iteration.
+            const prev: BrainResult['usage'] = usage;
+            const newInputTokens: number = (prev ? prev.inputTokens : 0) + event.inputTokens;
+            const newOutputTokens: number = (prev ? prev.outputTokens : 0) + event.outputTokens;
+            const newThinkingTokens: number = (prev ? prev.thinkingTokens : 0) + event.thinkingTokens;
+            const newCostUsd: number = (prev ? prev.costUsd : 0) + event.costUsd;
+            usage = {
+              inputTokens: newInputTokens,
+              outputTokens: newOutputTokens,
+              thinkingTokens: newThinkingTokens,
+              costUsd: newCostUsd,
+            };
+            input.encoder.send({
+              type: 'usage',
+              inputTokens: newInputTokens,
+              outputTokens: newOutputTokens,
+              thinkingTokens: newThinkingTokens,
+              costUsd: newCostUsd,
+            });
             break;
           }
-          const result = await dispatchTool(state, name, event.args);
-          if (!result.success) {
-            input.encoder.send({ type: 'error', message: result.error || `${name} failed`, recoverable: true });
-            break;
-          }
-          if (result.patch) {
-            accumulatedPatch = mergeWorkflowPatches(accumulatedPatch, result.patch);
-            input.encoder.send({ type: 'tool', name, patch: result.patch });
-          }
-          break;
         }
-
-        case 'usage':
-          usage = {
-            inputTokens: event.inputTokens,
-            outputTokens: event.outputTokens,
-            thinkingTokens: event.thinkingTokens,
-            costUsd: event.costUsd
-          };
-          input.encoder.send({
-            type: 'usage',
-            inputTokens: event.inputTokens,
-            outputTokens: event.outputTokens,
-            thinkingTokens: event.thinkingTokens,
-            costUsd: event.costUsd
-          });
-          break;
       }
+    } catch (err: any) {
+      const message = err?.message || 'Anthropic stream failed.';
+      const recoverable = !/auth|api[_ ]?key|invalid request/i.test(message);
+      input.encoder.send({ type: 'error', message, recoverable });
+      break;
     }
-  } catch (err: any) {
-    const message = err?.message || 'Anthropic stream failed.';
-    const recoverable = !/auth|api[_ ]?key|invalid request/i.test(message);
-    input.encoder.send({ type: 'error', message, recoverable });
+
+    // Decide whether to continue iterating. Continue only when:
+    //   1. A workflow tool was called this turn (there's something to react to)
+    //   2. No terminal tool was called (terminal tools = wait for the user)
+    //   3. We captured the assistant content (needed to echo back)
+    //   4. We have headroom under MAX_ITERATIONS
+    if (
+      calledWorkflowTool &&
+      !calledTerminalTool &&
+      turnAssistantContent &&
+      iteration < MAX_ITERATIONS &&
+      pendingTools.length > 0
+    ) {
+      messages.push({ role: 'assistant', content: turnAssistantContent as Anthropic.ContentBlockParam[] });
+      messages.push({
+        role: 'user',
+        content: pendingTools.map(t => ({
+          type: 'tool_result' as const,
+          tool_use_id: t.id,
+          content: t.success ? 'ok' : (t.error || 'tool failed'),
+          is_error: !t.success,
+        })),
+      });
+      continueLoop = true;
+    }
   }
 
   // Safety net: if the model used tools but emitted no text, the message

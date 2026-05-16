@@ -130,38 +130,62 @@ Topological order is mandatory for nodes: a node's inputs may only reference IDs
   },
   {
     name: 'update_node',
-    description: 'Update one existing node. Can also replace all inbound edges via replace_inputs.',
+    description: `Update one or more existing nodes in a single call. Always batch every update for a request into ONE call — do not emit multiple update_node calls when one will do.
+Each item in updates[] targets one node by id and may change data.config, position, and/or replace_inputs (the full inbound edge list for that node).`,
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Existing node ID (canvas UUID or previously used temporary ID).' },
-        data: {
-          type: 'object',
-          properties: { config: { type: 'object', additionalProperties: true } }
-        },
-        position: {
-          type: 'object',
-          properties: { x: { type: 'number' }, y: { type: 'number' } },
-          required: ['x', 'y']
-        },
-        replace_inputs: {
+        updates: {
           type: 'array',
-          items: inputEdgeSchema
-        }
+          minItems: 1,
+          description: 'One entry per node to update. Bundle every update for this turn into this single array.',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Existing node ID (canvas UUID or previously used temporary ID).' },
+              data: {
+                type: 'object',
+                properties: {
+                  label: {
+                    type: 'string',
+                    maxLength: 40,
+                    description: 'Optional custom label override (same rules as add_node).',
+                  },
+                  config: { type: 'object', additionalProperties: true },
+                },
+              },
+              position: {
+                type: 'object',
+                properties: { x: { type: 'number' }, y: { type: 'number' } },
+                required: ['x', 'y'],
+              },
+              replace_inputs: {
+                type: 'array',
+                items: inputEdgeSchema,
+              },
+            },
+            required: ['id'],
+          },
+        },
       },
-      required: ['id']
-    }
+      required: ['updates'],
+    },
   },
   {
     name: 'remove_node',
-    description: 'Remove one node and all connected edges.',
+    description: 'Remove one or more nodes and all their connected edges. Always batch every removal for a request into ONE call.',
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Existing node ID (canvas UUID or previously used temporary ID).' }
+        ids: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string' },
+          description: 'Node IDs to remove (canvas UUIDs or previously used temporary IDs). Bundle every removal for this turn into this single array.',
+        },
       },
-      required: ['id']
-    }
+      required: ['ids'],
+    },
   },
   {
     name: 'ask_clarification',

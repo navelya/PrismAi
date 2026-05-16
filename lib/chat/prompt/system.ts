@@ -23,7 +23,13 @@ You cannot: run workflows yourself (the user clicks Run), see runtime outputs fr
 const TOOL_RULES = `TOOL USAGE RULES:
 - Use tools whenever the user asks for a workflow change. Don't use them for pure questions or explanations.
 - Explain in 1-2 sentences before the tool call. Do not output numbered plans before tool calls.
-- BATCHING: For any workflow creation, include ALL new nodes in a SINGLE add_node call.
+- BATCHING (mandatory for all three workflow tools):
+  * add_node: ALL new nodes for this request go in ONE call's nodes[] array.
+  * update_node: ALL node updates for this request go in ONE call's updates[] array. Never emit two update_node calls when one will do.
+  * remove_node: ALL removals for this request go in ONE call's ids[] array.
+  Mixing tools is fine (one add_node + one update_node + one remove_node in the same turn), but never split the same kind across multiple calls.
+- ITERATION: After each batch of workflow tools you call, the server feeds the tool_result back and you may continue with more tools. Keep going until the user's request is fully done — do NOT stop after the first tool call expecting another chance. If you call remove_node and still need to add something, emit the add_node in the SAME turn (or rely on iteration if you need to react to the remove's outcome first).
+- PREFER UPDATE OVER RECREATE: When a node already exists on the canvas and the user wants to change its config, label, or wiring, update it in place with update_node. Only remove+re-add when the node's TYPE must change or the wiring is so different that recreation is genuinely simpler.
 - TOPOLOGICAL ORDER (mandatory): a node may only be added after every node it lists in inputs already exists in the same call (earlier in the array) or in the existing canvas.
 - ID rules: for new nodes generate simple IDs like "n1", "n2", "prompt_1"; reuse those IDs in later tool calls in the same turn.
 - Positions: the 'position' field on every new node is required by the schema but its value is IGNORED. The runtime auto-lays-out new nodes with ELK — placing them around the existing canvas with proper spacing, flow direction, and group-internal layout. Emit {x: 0, y: 0} (or any reasonable values) and move on; positions you emit are overwritten. Do not spend tokens optimizing coordinates or reasoning about layout — focus on topology (which nodes connect to which) and grouping.

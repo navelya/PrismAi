@@ -41,17 +41,24 @@ export type ProviderEvent =
   | { kind: 'thinking_delta'; text: string }
   | { kind: 'thinking_end' }
   | { kind: 'text_delta'; text: string }
-  | { kind: 'tool_call'; name: string; args: any }
+  | { kind: 'tool_call'; id: string; name: string; args: any }
+  | { kind: 'turn_end'; assistantContent: Anthropic.ContentBlock[]; stopReason: string | null }
   | { kind: 'usage'; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number; costUsd: number };
 
 export interface StreamArgs {
   system: SystemBlock[];
-  messages: ChatTurn[];
+  /**
+   * Pre-built Anthropic message array. The brain converts its ChatTurn[]
+   * once via toAnthropicMessages and then appends assistant + tool_result
+   * messages across continuation iterations.
+   */
+  messages: Anthropic.MessageParam[];
   tools: AnthropicTool[];
   /**
    * Disable extended thinking for this turn. Used by the brain to make
    * trivial messages ("hi", short Q&A, simple updates) respond instantly
-   * without the ~700ms thinking floor.
+   * without the ~700ms thinking floor. Continuation iterations also set
+   * this true — thinking belongs on iteration 1 only.
    */
   disableThinking?: boolean;
   /** Which Claude model to use. Defaults to 'sonnet'. */
@@ -68,7 +75,7 @@ function getClient(): Anthropic {
   return client;
 }
 
-function toAnthropicMessages(turns: ChatTurn[]): Anthropic.MessageParam[] {
+export function toAnthropicMessages(turns: ChatTurn[]): Anthropic.MessageParam[] {
   return turns.map(turn => {
     if (turn.role === 'assistant') {
       return { role: 'assistant', content: turn.text };
@@ -104,15 +111,16 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
     thinking,
     system: args.system as any,
     tools: args.tools as any,
-    messages: toAnthropicMessages(args.messages)
+    messages: args.messages
   });
 
   /**
-   * Per-block accumulator: index → { type, name?, jsonBuffer }
+   * Per-block accumulator: index → { type, name?, id?, jsonBuffer }
    * Tool calls arrive as input_json_delta strings; we concatenate then
-   * JSON.parse on content_block_stop.
+   * JSON.parse on content_block_stop. The id is needed so the brain can
+   * pair tool_use blocks with their tool_result on the next iteration.
    */
-  const blockState = new Map<number, { type: string; name?: string; jsonBuffer: string }>();
+  const blockState = new Map<number, { type: string; name?: string; id?: string; jsonBuffer: string }>();
 
   for await (const event of stream) {
     if (event.type === 'content_block_start') {
@@ -125,7 +133,7 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
       } else if (block.type === 'text') {
         blockState.set(idx, { type: 'text', jsonBuffer: '' });
       } else if (block.type === 'tool_use') {
-        blockState.set(idx, { type: 'tool_use', name: block.name, jsonBuffer: '' });
+        blockState.set(idx, { type: 'tool_use', name: block.name, id: block.id, jsonBuffer: '' });
       }
     } else if (event.type === 'content_block_delta') {
       const idx = event.index;
@@ -147,14 +155,14 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
 
       if (state.type === 'thinking') {
         yield { kind: 'thinking_end' };
-      } else if (state.type === 'tool_use' && state.name) {
+      } else if (state.type === 'tool_use' && state.name && state.id) {
         let parsed: any = {};
         try {
           parsed = state.jsonBuffer ? JSON.parse(state.jsonBuffer) : {};
         } catch (err) {
           parsed = { __json_parse_error: String(err) };
         }
-        yield { kind: 'tool_call', name: state.name, args: parsed };
+        yield { kind: 'tool_call', id: state.id, name: state.name, args: parsed };
       }
 
       blockState.delete(idx);
@@ -162,6 +170,12 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
   }
 
   const final = await stream.finalMessage();
+  // Yield the full assistant content (thinking + text + tool_use blocks)
+  // so the brain can echo it back verbatim on continuation iterations.
+  // Signatures on thinking blocks are preserved by passing final.content
+  // through without modification.
+  yield { kind: 'turn_end', assistantContent: final.content, stopReason: final.stop_reason };
+
   const usage = final.usage;
   const inputTokens = usage.input_tokens ?? 0;
   const outputTokens = usage.output_tokens ?? 0;
