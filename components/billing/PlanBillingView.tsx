@@ -35,6 +35,11 @@ const REASON_LABELS: Record<string, string> = {
 };
 
 function humanizeReason(row: LedgerRow): string {
+    if (row.reason === 'admin_adjustment') {
+        const note = typeof row.metadata?.note === 'string' ? row.metadata.note.trim() : '';
+        if (note) return note;
+        return row.amount > 0 ? 'Prisfol Gift' : 'Adjustment';
+    }
     return REASON_LABELS[row.reason] ?? row.reason;
 }
 

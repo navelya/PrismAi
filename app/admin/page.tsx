@@ -29,8 +29,6 @@ import {
     Download,
     Edit2,
     Users,
-    Sparkles,
-    Lock,
     Calculator,
     Video,
     Settings,
@@ -46,6 +44,7 @@ import { cn } from '@/lib/utils';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { ModelForm } from '@/components/admin/ModelForm';
 import { ContextMenuBuilder } from '@/components/admin/ContextMenuBuilder';
+import { UsersAdminContent } from '@/components/admin/UsersAdminContent';
 import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
 
 // =============================================================================
@@ -63,40 +62,8 @@ interface SectionNavItem {
 
 const sectionNavItems: SectionNavItem[] = [
     { id: 'models', label: 'Models', icon: <Database className="w-4 h-4" /> },
-    { id: 'users', label: 'Users', icon: <Users className="w-4 h-4" />, comingSoon: true },
+    { id: 'users', label: 'Users', icon: <Users className="w-4 h-4" /> },
 ];
-
-// =============================================================================
-// USERS PLACEHOLDER VIEW
-// =============================================================================
-
-function UsersComingSoonView({ onMobileBack }: { onMobileBack: () => void }) {
-    return (
-        <div className="max-w-4xl mx-auto py-12 md:py-20 px-8 md:px-12 relative z-10">
-            <button
-                onClick={onMobileBack}
-                className="md:hidden flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-content-tertiary hover:text-content-primary mb-6 transition-all"
-            >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Return to Admin</span>
-            </button>
-            <div className="flex flex-col items-center justify-center py-24 text-center animate-in fade-in zoom-in-95 duration-500">
-                <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center mb-8 border border-white/10 shadow-2xl relative group">
-                    <div className="absolute inset-0 bg-accent-primary/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                    <Users className="w-8 h-8 text-content-tertiary relative z-10" />
-                </div>
-                <h3 className="text-2xl font-black text-content-primary mb-3 uppercase tracking-tighter">Users</h3>
-                <p className="text-content-tertiary text-xs max-w-sm leading-relaxed font-medium opacity-70">
-                    Manage user accounts, permissions, and access controls. Coming soon.
-                </p>
-                <div className="mt-8 flex items-center gap-3 px-4 py-2 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black text-content-tertiary uppercase tracking-widest">
-                    <Sparkles className="w-3 h-3 text-accent-primary" />
-                    Feature Roadmap
-                </div>
-            </div>
-        </div>
-    );
-}
 
 // =============================================================================
 // ADMIN SHELL (sidebar + section routing)
@@ -216,7 +183,7 @@ function AdminShell() {
                 ${mobileShowContent ? 'block' : 'hidden md:block'}
             `}>
                 {activeSection === 'models' && <ModelsAdminContent onMobileBack={() => setMobileShowContent(false)} />}
-                {activeSection === 'users' && <UsersComingSoonView onMobileBack={() => setMobileShowContent(false)} />}
+                {activeSection === 'users' && <UsersAdminContent onMobileBack={() => setMobileShowContent(false)} />}
             </main>
         </div>
     );
