@@ -503,14 +503,18 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
     // Detect if any visible layer is video-sourced — drives whether we mount
     // the shared CompositorAnimator. Image-only compositors don't need an
     // active rAF loop.
-    const hasVideo = layers.some(({ layer, resolved }) => {
-        if (!layer.visible) return false;
-        const url =
-            resolved && typeof resolved === 'object' && typeof (resolved as any).url === 'string'
-                ? ((resolved as any).url as string)
-                : null;
-        return !!(url && detectSourceKindFromUrl(url) === 'video');
-    });
+    const hasVideo = useMemo(
+        () =>
+            layers.some(({ layer, resolved }) => {
+                if (!layer.visible) return false;
+                const url =
+                    resolved && typeof resolved === 'object' && typeof (resolved as any).url === 'string'
+                        ? ((resolved as any).url as string)
+                        : null;
+                return !!(url && detectSourceKindFromUrl(url) === 'video');
+            }),
+        [layers],
+    );
 
     return (
         <>
