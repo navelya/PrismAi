@@ -339,7 +339,11 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             {lightboxOpen && previewOutput && (
                 <ImageLightbox
                     media={previewOutput}
-                    type={previewType as any}
+                    // Same reason as OutputPreview above: use the data-derived
+                    // activeType, not the schema-derived previewType. If we
+                    // hand the lightbox 'image' for a .mp4 it forces the <img>
+                    // branch and the lightbox renders blank.
+                    type={activeType as any}
                     initialIndex={lightboxIndex}
                     onClose={() => setLightboxOpen(false)}
                 />
