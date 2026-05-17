@@ -200,19 +200,20 @@ export function useChatRealtime({
                         workflow,
                     });
 
-                    store.resetNodeStatuses();
-                    store.clearExecutionResults();
-                    store.clearNodeOutputs();
-                    // Re-seed source-node outputs so any compositor in the new
-                    // workflow can immediately preview its inputs without
-                    // waiting on a server execution.
-                    store.reseedSourceNodeOutputs();
-
-                    if (executionError && !processedResult) {
-                        workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'error'));
-                    } else {
-                        workflow.nodes?.forEach((node: any) => store.setNodeStatus(node.id, 'success'));
-                    }
+                    // Per-node state (nodeOutputs, nodeStatuses) is owned by
+                    // use-execution-channel, which listens on the node_results
+                    // table. We deliberately do NOT touch it here. The previous
+                    // teardown wiped nodeOutputs and force-marked every node
+                    // 'success' on every chat completion, which was correct only
+                    // under the legacy auto-execute-on-completion flow that
+                    // surfaced results in metadata.execution_result — a field no
+                    // code in this repo writes anymore. The current brain emits
+                    // canvas patches, executes nothing, and lets the user run
+                    // nodes manually. Wiping outputs here destroyed live results
+                    // (most visibly video AI previews) on every chat turn until
+                    // the next page refresh reloaded them from node_results.
+                    // Source-node outputs are seeded by setCurrentWorkflow via
+                    // onWorkflowGenerated, so no extra reseed is needed.
 
                     store.setIsLoading(false);
                     store.setStatusMessage(null);

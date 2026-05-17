@@ -424,12 +424,24 @@ function AssetCard({
                         <video
                             ref={videoRef}
                             src={asset.result_url}
-                            className={`w-full h-full object-cover transition-all duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-                            onLoadedData={() => setLoaded(true)}
+                            className="w-full h-full object-cover"
+                            // preload="auto" + onLoadedMetadata reveal: with
+                            // preload="metadata" + onLoadedData, the card stays
+                            // invisible forever for any mp4 whose moov atom is
+                            // at the END of the file (Replicate outputs aren't
+                            // muxed with +faststart). The browser stops after
+                            // the head, never finds the index, and neither
+                            // event fires. preload="auto" keeps fetching until
+                            // the index is found; onLoadedMetadata fires as
+                            // soon as it does. We also drop the opacity gate
+                            // entirely so the user at least sees a black tile
+                            // (with the Play badge overlay below) while bytes
+                            // are still arriving — never a phantom blank card.
+                            onLoadedMetadata={() => setLoaded(true)}
                             muted
                             loop
                             playsInline
-                            preload="metadata"
+                            preload="auto"
                         />
                         <div className="absolute top-1.5 left-1.5 z-[1] flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm border border-white/15 shadow-sm pointer-events-none">
                             <Play className="w-2.5 h-2.5 text-white fill-white" />

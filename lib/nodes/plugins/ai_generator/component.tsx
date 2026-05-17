@@ -227,7 +227,17 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                     <OutputPreview
                         nodeId={id}
                         output={previewOutput}
-                        type={previewType}
+                        // Use activeType (derived from the actual data via
+                        // inferResultTypeFromValue) instead of previewType
+                        // (derived from the model's outputs_schema). When the
+                        // store entry is a raw array — which use-session.ts
+                        // still writes on initial hydration — isTypedOutput is
+                        // false and previewType falls back to whatever the
+                        // first output handle declares, often 'any' or 'image'.
+                        // OutputPreview then routes a .mp4 URL into <img> and
+                        // the preview renders empty. activeType reads the URL
+                        // extension and always picks the right branch.
+                        type={activeType}
                         previewMode={previewMode}
                         activeImageIndex={activeImageIndex}
                         onImageLoad={() => setImageLoaded(true)}
@@ -238,7 +248,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                         }}
                         onPreviewClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
-                            if (previewType === 'image' || previewType === 'video') {
+                            if (activeType === 'image' || activeType === 'video') {
                                 openLightbox(activeImageIndex);
                             }
                         }}
@@ -498,8 +508,22 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                         muted
                         loop
                         playsInline
+                        // preload="auto": match the compositor's video-pool.
+                        // With the default ('metadata') the browser only pulls
+                        // the head; Replicate outputs frequently place the moov
+                        // atom at the END (no +faststart), so the head request
+                        // never resolves metadata and the element stays blank.
+                        preload="auto"
+                        // width=320 + w-full + h-auto + min-h: replaces the old
+                        // intrinsic-sizing (block + max-w/max-h with no width),
+                        // which collapsed the <video> to 0x0 whenever metadata
+                        // hadn't parsed yet — invisible element in the DOM with
+                        // a valid src. Now the element has real layout
+                        // dimensions from the start; object-contain + max-h
+                        // keep aspect ratio once the first frame paints.
+                        width={320}
                         className={cn(
-                            "block object-contain max-w-[420px] max-h-[420px]",
+                            "w-full h-auto object-contain max-h-[420px] min-h-[200px] bg-black/40",
                             !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                         )}
                     />
