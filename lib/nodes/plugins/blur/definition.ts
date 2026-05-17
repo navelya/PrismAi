@@ -12,17 +12,24 @@ export const blurSharedDef: NodeSharedDef<BlurConfig> = {
     category: 'utility',
     meta: {
         label: 'Blur',
-        description: 'Apply Gaussian blur to an image',
+        description: 'Apply Gaussian blur to an image or video',
         color: '#3b82f6',
         icon: 'Droplets',
         ephemeral: true,
     },
     handles: {
         inputs: [
-            { id: 'image', label: 'Image', expectedType: 'image' }
+            // Polymorphic input: accepts either image or video. The component
+            // narrows the visible label/color to match what's actually flowing.
+            { id: 'image', label: 'Media', expectedType: ['image', 'video'] }
         ],
+        // Single polymorphic output. The id stays `image_out` so saved workflows
+        // (which only ever had `image_out` historically) keep their downstream
+        // edges. The dataType is the union of types this node may emit —
+        // typesAreCompatible() resolves it against the consumer's expectedType.
+        // The component narrows the visible label/color based on input kind.
         outputs: [
-            { id: 'image_out', label: '', dataType: 'image' }
+            { id: 'image_out', label: 'Media', dataType: ['image', 'video'] },
         ],
     },
     defaultConfig: {
@@ -33,7 +40,7 @@ export const blurSharedDef: NodeSharedDef<BlurConfig> = {
         properties: {
             radius: {
                 type: 'number',
-                description: 'Blur radius in pixels (0-50)',
+                description: 'Blur radius in pixels (0-50). Works on both image and video inputs.',
                 minimum: 0,
                 maximum: 50,
                 default: 5

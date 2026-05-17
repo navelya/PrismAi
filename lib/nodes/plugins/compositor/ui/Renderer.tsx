@@ -181,6 +181,7 @@ const LayerImage = memo(function LayerImage({
 const LayerVideo = memo(function LayerVideo({
     layer,
     videoUrl,
+    cssFilter,
     interactive,
     onSelect,
     onTransform,
@@ -193,6 +194,15 @@ const LayerVideo = memo(function LayerVideo({
 }: {
     layer: CompositorLayer;
     videoUrl: string;
+    /**
+     * Optional CSS filter string from the upstream envelope (e.g. from a
+     * Blur node: `"blur(8px)"`). When present, frames are drawn through a
+     * per-layer offscreen canvas with `ctx.filter = cssFilter` before Konva
+     * picks them up. Chained filters compose by string concatenation. When
+     * null, the raw pooled HTMLVideoElement is passed to Konva directly —
+     * zero-overhead path for unfiltered video.
+     */
+    cssFilter?: string | null;
     interactive: boolean;
     onSelect?: () => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
@@ -220,11 +230,63 @@ const LayerVideo = memo(function LayerVideo({
         () => (typeof document !== 'undefined' ? acquireVideo(videoUrl) : null),
         [videoUrl],
     );
-    const videoEl = handle?.el ?? null;
+    const pooledEl = handle?.el ?? null;
     const consumerId = handle?.id ?? null;
     const shapeRef = useRef<any>(null);
-    const [ready, setReady] = useState(() => !!videoEl && (videoEl as any).readyState >= 1);
+    const [ready, setReady] = useState(() => !!pooledEl && (pooledEl as any).readyState >= 1);
     const t = layer.transform;
+
+    // Per-layer offscreen canvas for filtered video. Created lazily on first
+    // need; sized to match the pooled video's natural resolution; redrawn
+    // every animator tick (only while playing) with the upstream cssFilter
+    // applied. Konva uses this canvas as its image source instead of the raw
+    // video, picking up the blurred frame on each batchDraw.
+    const filterCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    if (cssFilter && !filterCanvasRef.current && typeof document !== 'undefined') {
+        filterCanvasRef.current = document.createElement('canvas');
+    }
+    const filterCanvas = cssFilter ? filterCanvasRef.current : null;
+
+    // rAF loop for the filter draw. Runs only while the pooled video is
+    // actively playing OR was just scrubbed; pauses cleanly so we don't burn
+    // CPU on a static frame. The compositor's CompositorAnimator handles
+    // konva.batchDraw on its own rhythm — this loop's job is only to keep
+    // the offscreen canvas's pixels current.
+    useEffect(() => {
+        if (!cssFilter) return;
+        const video = pooledEl;
+        const canvas = filterCanvasRef.current;
+        if (!video || !canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        let stopped = false;
+        let raf = 0;
+        const draw = () => {
+            if (stopped) return;
+            if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+                if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+                if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+                ctx.filter = cssFilter;
+                try {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                } catch {
+                    // CORS-tainted draw can throw; ignore — Konva will keep
+                    // using the last good frame.
+                }
+            }
+            raf = requestAnimationFrame(draw);
+        };
+        raf = requestAnimationFrame(draw);
+        return () => {
+            stopped = true;
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [cssFilter, pooledEl]);
+
+    // The image source Konva renders: filtered canvas if cssFilter is set,
+    // otherwise the raw pooled video element.
+    const videoEl = filterCanvas || pooledEl;
 
     // Keep onLoad in a ref so we don't refire the metadata subscription when
     // the parent (CompositorLayerNodes) hands us a fresh arrow callback per
@@ -235,7 +297,7 @@ const LayerVideo = memo(function LayerVideo({
     onLoadRef.current = onLoad;
 
     useEffect(() => {
-        if (!videoEl || consumerId === null) return;
+        if (!pooledEl || consumerId === null) return;
         const unsub = onVideoMetadata(videoUrl, (el) => {
             setReady(true);
             onLoadRef.current?.({
@@ -248,7 +310,7 @@ const LayerVideo = memo(function LayerVideo({
             unsub();
             releaseVideo(videoUrl, consumerId);
         };
-    }, [videoUrl, videoEl, consumerId]);
+    }, [videoUrl, pooledEl, consumerId]);
 
     // Vote on play state. The pool plays if any consumer wants play, pauses
     // if none do. When this LayerVideo unmounts, releaseVideo removes the
@@ -267,17 +329,20 @@ const LayerVideo = memo(function LayerVideo({
     // nearest keyframe rather than the exact PTS, which paints a frame much
     // sooner during a scrub (Chrome/Firefox/Safari all support it).
     useEffect(() => {
-        if (!videoEl || !ready || isPlaying) return;
+        // Always seek on the underlying pooled HTMLVideoElement, even when
+        // we're rendering the offscreen filter canvas — only the real video
+        // element has meaningful duration/currentTime/fastSeek.
+        if (!pooledEl || !ready || isPlaying) return;
         if (typeof localTime !== 'number') return;
-        const clamped = Math.max(0, Math.min(localTime, Math.max(0, videoEl.duration || 0)));
-        if (Math.abs(videoEl.currentTime - clamped) > 0.05) {
-            const fastSeek = (videoEl as any).fastSeek;
+        const clamped = Math.max(0, Math.min(localTime, Math.max(0, pooledEl.duration || 0)));
+        if (Math.abs(pooledEl.currentTime - clamped) > 0.05) {
+            const fastSeek = (pooledEl as any).fastSeek;
             if (typeof fastSeek === 'function') {
-                try { fastSeek.call(videoEl, clamped); return; } catch { /* fall through */ }
+                try { fastSeek.call(pooledEl, clamped); return; } catch { /* fall through */ }
             }
-            videoEl.currentTime = clamped;
+            pooledEl.currentTime = clamped;
         }
-    }, [localTime, ready, isPlaying, videoEl]);
+    }, [localTime, ready, isPlaying, pooledEl]);
 
     if (!ready || !videoEl) return null;
 
@@ -527,6 +592,14 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                     resolved && typeof resolved === 'object' && typeof (resolved as any).url === 'string'
                         ? ((resolved as any).url as string)
                         : null;
+                // Filter descriptor carried from an upstream effect node
+                // (e.g. Blur). When present, the LayerVideo routes frames
+                // through an offscreen canvas with `ctx.filter = cssFilter`
+                // before Konva renders them.
+                const cssFilter =
+                    resolved && typeof resolved === 'object' && typeof (resolved as any).cssFilter === 'string'
+                        ? ((resolved as any).cssFilter as string)
+                        : null;
                 const asText = typeof resolved === 'string' ? resolved : null;
 
                 let kind: LayerSourceKind = 'unknown';
@@ -555,6 +628,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             key={layer.id}
                             layer={layer}
                             videoUrl={url}
+                            cssFilter={cssFilter}
                             interactive={interactive}
                             onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
                             onTransform={

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { memo, useState, useMemo, useCallback, useEffect } from 'react';
-import { NodeProps } from 'reactflow';
+import React, { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { NodeProps, useUpdateNodeInternals } from 'reactflow';
 import { motion } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
@@ -10,13 +10,14 @@ import BlurryImage from '@/components/ui/BlurryImage';
 import { BlurConfig } from './definition';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { useAppStore } from '@/lib/store/app-store';
-import { ImageObject } from '@/lib/nodes/types';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { NodeClientDef } from '../../core/types';
 import { blurSharedDef } from './definition';
 import { blurClientExecutor } from './executor.client';
+import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
+import { radiusToSigma } from './shared';
 
 interface BlurNodeData {
     label: string;
@@ -36,6 +37,7 @@ const blurTypeOptions = [
 
 function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeData>) {
     const updateNodeConfig = useAppStore(state => state.updateNodeConfig);
+    const updateNodeInternals = useUpdateNodeInternals();
     const isDragging = dragging;
     const [lightboxOpen, setLightboxOpen] = useState(false);
 
@@ -94,16 +96,83 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         return liveSourceOutput ?? sourceFallbackOutput ?? null;
     }, [connectedInputId, liveSourceOutput, sourceFallbackOutput]);
 
-    // Extract image URL
-    const imageUrl = useMemo(() => {
+    // Extract media URL (image or video)
+    const mediaUrl = useMemo(() => {
         if (!sourceOutput) return null;
-        let imageInput = Array.isArray(sourceOutput) ? sourceOutput[0] : sourceOutput;
-        if (imageInput && typeof imageInput === 'object') {
-            imageInput = (imageInput as any).url || (Array.isArray((imageInput as any).data) ? (imageInput as any).data[0] : imageInput);
+        let mediaInput = Array.isArray(sourceOutput) ? sourceOutput[0] : sourceOutput;
+        if (mediaInput && typeof mediaInput === 'object') {
+            mediaInput = (mediaInput as any).url || (Array.isArray((mediaInput as any).data) ? (mediaInput as any).data[0] : mediaInput);
         }
-        if (!imageInput) return null;
-        return typeof imageInput === 'string' ? imageInput : (imageInput as any)?.url || (imageInput as any)?.previewUrl;
+        if (!mediaInput) return null;
+        return typeof mediaInput === 'string' ? mediaInput : (mediaInput as any)?.url || (mediaInput as any)?.previewUrl;
     }, [sourceOutput]);
+
+    const mediaKind = useMemo<'image' | 'video' | null>(() => {
+        if (!mediaUrl) return null;
+        if (mediaUrl.startsWith('data:video/')) return 'video';
+        if (mediaUrl.startsWith('data:image/')) return 'image';
+        return (detectMediaTypeFromUrl(mediaUrl) as 'image' | 'video' | null) ?? 'image';
+    }, [mediaUrl]);
+
+    // If the upstream already carries a cssFilter (e.g. another Blur upstream),
+    // grab it so we can compose our own filter on top in the visible preview.
+    // The client executor handles the same composition for the propagated
+    // envelope; we mirror it here so the in-card preview matches.
+    const upstreamCssFilter = useMemo<string | null>(() => {
+        if (!sourceOutput) return null;
+        const visit = (v: any): string | null => {
+            if (!v) return null;
+            if (typeof v === 'string') return null;
+            if (Array.isArray(v)) {
+                for (const item of v) {
+                    const found = visit(item);
+                    if (found) return found;
+                }
+                return null;
+            }
+            if (typeof v === 'object') {
+                if (typeof v.cssFilter === 'string') return v.cssFilter;
+                if (v.data !== undefined) return visit(v.data);
+            }
+            return null;
+        };
+        return visit(sourceOutput);
+    }, [sourceOutput]);
+
+    // Both input and output are single polymorphic handles. The static
+    // dataType in definition.ts is the broad union (['image','video']); here
+    // we narrow the user-visible LABEL and COLOR based on whatever media kind
+    // is currently flowing into the node. Connection validation stays on the
+    // broader registry def — the visible state communicates the runtime reality
+    // without restricting wiring.
+    const handleLabel = useMemo(() => {
+        if (mediaKind === 'video') return 'Video';
+        if (mediaKind === 'image') return 'Image';
+        return 'Media';
+    }, [mediaKind]);
+
+    const handleColor = useMemo(() => {
+        if (mediaKind === 'video') return 'rgb(139, 92, 246)';
+        if (mediaKind === 'image') return 'rgb(59, 130, 246)';
+        return '#f8fafc';
+    }, [mediaKind]);
+
+    const customInputs = useMemo(
+        () => [{ id: 'image', label: handleLabel, color: handleColor }],
+        [handleLabel, handleColor],
+    );
+
+    const customOutputs = useMemo(
+        () => [{ id: 'image_out', label: handleLabel, color: handleColor }],
+        [handleLabel, handleColor],
+    );
+
+    // Trigger a ReactFlow re-measure when handle shape/color changes — cheap
+    // and ensures wires stay aligned in case the rendered handle position
+    // shifts during a label transition.
+    useEffect(() => {
+        updateNodeInternals(id);
+    }, [id, mediaKind, updateNodeInternals]);
 
     // Sync to global state
     const handleSync = useCallback((updates: Partial<typeof config>) => {
@@ -113,22 +182,87 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         });
     }, [id, config, updateNodeConfig]);
 
-    const MAX_VISUAL_BLUR = 20; // 100% slider = 20px blur
+    // Hover-to-play for the in-card video preview. We hold a ref on the
+    // <video> element and toggle play/pause on mouse enter/leave. On leave
+    // we also reset currentTime to 0 so each subsequent hover starts the
+    // clip fresh — cleaner UX for short preview loops than "resume from
+    // wherever you left off." Doesn't affect downstream consumers: the
+    // compositor and other readers have their own <video> elements
+    // attached to the same URL.
+    const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+    const handlePreviewEnter = useCallback(() => {
+        const v = previewVideoRef.current;
+        if (!v) return;
+        v.play().catch(() => { /* autoplay can be blocked pre-gesture; ignore */ });
+    }, []);
+    const handlePreviewLeave = useCallback(() => {
+        const v = previewVideoRef.current;
+        if (!v) return;
+        try { v.pause(); } catch { /* noop */ }
+        try { v.currentTime = 0; } catch { /* noop */ }
+    }, []);
 
-    // Derived blur style based on type
+    // Derived blur style. Composes our own blur with any cssFilter the
+    // upstream already declared, so a chained Blur → Blur card preview shows
+    // the same cumulative effect that the propagated envelope describes.
+    // Pixel values here are at NATIVE source resolution — they get scaled
+    // for display by `previewBlurStyle` below.
     const blurStyle = useMemo(() => {
-        const pxValue = (localRadius / 100) * MAX_VISUAL_BLUR;
-        const base = `blur(${pxValue}px)`;
-        if (config.type === 'box') {
-            // Box blur approximation: rougher, higher contrast
-            return `${base} contrast(1.15) brightness(1.05) saturate(1.1)`;
-        }
-        if (config.type === 'stack') {
-            // Stack blur approximation: softer, slightly desaturated
-            return `${base} saturate(0.8) opacity(0.9)`;
-        }
-        return base;
-    }, [localRadius, config.type]);
+        const sigma = radiusToSigma(localRadius);
+        const base = `blur(${sigma}px)`;
+        const ownFilter =
+            config.type === 'box'
+                ? `${base} contrast(1.15) brightness(1.05) saturate(1.1)`
+                : config.type === 'stack'
+                ? `${base} saturate(0.8) opacity(0.9)`
+                : base;
+        return upstreamCssFilter ? `${upstreamCssFilter} ${ownFilter}` : ownFilter;
+    }, [localRadius, config.type, upstreamCssFilter]);
+
+    // The compositor's LayerVideo applies its filter on a canvas sized to the
+    // source's native pixels, then Konva downscales for display — so visible
+    // blur ∝ (displayWidth / nativeWidth). The server's sharp/ffmpeg pipeline
+    // also operates at native resolution. We replicate that math here so the
+    // in-card preview shows the same effective blur as both other surfaces.
+    // Without this, a 1920px source previewed at ~380px in the card would
+    // look ~5× more blurred than its final output.
+    const previewWrapperRef = useRef<HTMLDivElement | null>(null);
+    const [nativeMediaWidth, setNativeMediaWidth] = useState(0);
+    const [displayWidth, setDisplayWidth] = useState(0);
+
+    useEffect(() => {
+        const wrapper = previewWrapperRef.current;
+        if (!wrapper || typeof ResizeObserver === 'undefined') return;
+        setDisplayWidth(wrapper.clientWidth);
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) setDisplayWidth(entry.contentRect.width);
+        });
+        observer.observe(wrapper);
+        return () => observer.disconnect();
+    }, [mediaKind, mediaUrl]);
+
+    const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+        setNativeMediaWidth(e.currentTarget.videoWidth || 0);
+    }, []);
+
+    // For images we don't get a direct onLoad event (BlurryImage doesn't
+    // forward the DOM event), so we measure via a throwaway Image preload
+    // whenever the image URL changes.
+    useEffect(() => {
+        if (mediaKind !== 'image' || !mediaUrl) return;
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const onLoad = () => setNativeMediaWidth(img.naturalWidth || 0);
+        img.addEventListener('load', onLoad);
+        img.src = mediaUrl;
+        return () => img.removeEventListener('load', onLoad);
+    }, [mediaKind, mediaUrl]);
+
+    const previewBlurStyle = useMemo(() => {
+        if (!displayWidth || !nativeMediaWidth) return blurStyle;
+        const ratio = displayWidth / nativeMediaWidth;
+        return blurStyle.replace(/blur\(([\d.]+)px\)/g, (_, n) => `blur(${parseFloat(n) * ratio}px)`);
+    }, [blurStyle, displayWidth, nativeMediaWidth]);
 
     return (
         <BaseNode
@@ -138,6 +272,8 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             selected={selected}
             dragging={dragging}
             nodeData={data}
+            customInputs={customInputs}
+            customOutputs={customOutputs}
             isNew={(data as any).isNew}
             hideStatus={true}
             width=""
@@ -152,21 +288,40 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             >
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
 
-                {imageUrl ? (
+                {mediaUrl ? (
                     <div
+                        ref={previewWrapperRef}
                         className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
                         onClick={() => setLightboxOpen(true)}
-                        style={{ filter: blurStyle }}
+                        onMouseEnter={mediaKind === 'video' ? handlePreviewEnter : undefined}
+                        onMouseLeave={mediaKind === 'video' ? handlePreviewLeave : undefined}
+                        style={{ filter: previewBlurStyle }}
                     >
-                        <BlurryImage
-                            src={imageUrl}
-                            fallbackSrc={imageUrl}
-                            alt="Blur preview"
-                            className={cn(
-                                "relative z-10",
-                                !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
-                            )}
-                        />
+                        {mediaKind === 'video' ? (
+                            <video
+                                ref={previewVideoRef}
+                                src={mediaUrl}
+                                loop
+                                muted
+                                playsInline
+                                preload="metadata"
+                                onLoadedMetadata={handleVideoMetadata}
+                                className={cn(
+                                    "relative z-10 w-full h-full object-cover",
+                                    !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                                )}
+                            />
+                        ) : (
+                            <BlurryImage
+                                src={mediaUrl}
+                                fallbackSrc={mediaUrl}
+                                alt="Blur preview"
+                                className={cn(
+                                    "relative z-10",
+                                    !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                                )}
+                            />
+                        )}
                     </div>
                 ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 opacity-30 group-hover/node:opacity-50 transition-opacity duration-500">
@@ -231,12 +386,18 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                 </div>
             </div>
 
-            {/* Image Lightbox */}
-            {lightboxOpen && imageUrl && (
+            {/* Media Lightbox — passes the blur filter at native-resolution
+                pixel scale, plus the source's native width so the lightbox
+                can apply the same displayWidth/nativeWidth scaling the card
+                preview and the compositor use. Result: same effective blur
+                strength on every surface. */}
+            {lightboxOpen && mediaUrl && (
                 <ImageLightbox
-                    media={imageUrl}
-                    type="image"
+                    media={mediaUrl}
+                    type={mediaKind === 'video' ? 'video' : 'image'}
                     initialIndex={0}
+                    cssFilter={blurStyle}
+                    nativeMediaWidth={nativeMediaWidth || undefined}
                     onClose={() => setLightboxOpen(false)}
                 />
             )}

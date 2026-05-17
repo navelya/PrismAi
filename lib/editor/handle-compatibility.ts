@@ -1,11 +1,101 @@
 import { NodeSharedDef } from '@/lib/nodes/core/types';
 import { AiModel } from '@/lib/nodes/types';
+import { useAppStore } from '@/lib/store/app-store';
+import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 
 export interface ResolvedHandle {
     id: string;
     label: string;
     type: string | string[];
     isArray?: boolean;
+}
+
+/**
+ * Resolve the runtime output kind ('image' | 'video') for a blur node by
+ * inspecting whatever media is currently flowing into its `image` input.
+ *
+ * Why this exists: blur's static output dataType is the broad union
+ * ['image','video'] — that's the right wiring contract when nothing is
+ * connected. But once a video is wired in, blur emits a video, and trying
+ * to wire its output into an image-only consumer would produce a runtime
+ * mismatch. This resolver lets the connection validator narrow blur's
+ * output type to match the live input so the wire-drop UI rejects
+ * incompatible targets.
+ *
+ * Walks: edge → upstream node → live nodeOutputs (preferred) or saved data
+ * fallback → first URL → detectMediaTypeFromUrl. Returns null when no input
+ * is wired, or when the kind can't be determined (treat as broad).
+ *
+ * Recursion-safe via depth limit — defends against cyclic graphs.
+ */
+function resolveBlurOutputKind(nodeId: string, depth: number = 0): 'image' | 'video' | null {
+    if (depth > 8) return null;
+    const wf = useAppStore.getState().currentWorkflow;
+    if (!wf) return null;
+
+    const inputEdge = wf.edges.find((e) => e.target === nodeId && (e.targetHandle === 'image' || !e.targetHandle));
+    if (!inputEdge) return null;
+
+    const upstream = wf.nodes.find((n) => n.id === inputEdge.source);
+    if (!upstream) return null;
+
+    // If the upstream is itself a blur, recurse so chained blur nodes carry
+    // the narrowed type forward.
+    if (upstream.type === 'blur') {
+        return resolveBlurOutputKind(upstream.id, depth + 1);
+    }
+
+    const liveOutput = useAppStore.getState().nodeOutputs[upstream.id];
+    const dataOutput = (upstream.data as any)?.output;
+    const cfgImages = (upstream.data as any)?.config?.images;
+    const cfgLast = (upstream.data as any)?.config?.last_output;
+    const candidate = liveOutput ?? dataOutput ?? cfgImages ?? cfgLast;
+
+    const url = extractFirstUrl(candidate);
+    if (!url) return null;
+
+    if (url.startsWith('data:video/')) return 'video';
+    if (url.startsWith('data:image/')) return 'image';
+    const detected = detectMediaTypeFromUrl(url);
+    if (detected === 'image' || detected === 'video') return detected;
+    return null;
+}
+
+function extractFirstUrl(value: any): string | null {
+    if (!value) return null;
+    if (typeof value === 'string') return value.startsWith('http') || value.startsWith('data:') ? value : null;
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const u = extractFirstUrl(item);
+            if (u) return u;
+        }
+        return null;
+    }
+    if (typeof value === 'object') {
+        if (typeof value.url === 'string') return value.url;
+        if (typeof value.previewUrl === 'string') return value.previewUrl;
+        if (value.data !== undefined) return extractFirstUrl(value.data);
+        if (value.output !== undefined) return extractFirstUrl(value.output);
+    }
+    return null;
+}
+
+/**
+ * For nodes whose output dataType is dynamic (currently just blur), return
+ * the narrowed runtime type — or null to fall back to the static registry
+ * dataType. Centralizes the per-node-type carve-outs so the handle-compat
+ * helpers stay generic.
+ */
+function resolveDynamicOutputType(
+    node: { type: string; id?: string } | undefined,
+    handleId: string | null,
+): string | null {
+    if (!node || !node.id) return null;
+    if (node.type === 'blur') {
+        const kind = resolveBlurOutputKind(node.id);
+        return kind; // 'image' | 'video' | null
+    }
+    return null;
 }
 
 export interface PendingConnection {
@@ -208,15 +298,21 @@ export function findHandleForNode(
     if (!def) return null;
     const rawHandles =
         pending.handleType === 'source' ? def.handles?.inputs || [] : def.handles?.outputs || [];
+    const dynamicOutputType =
+        pending.handleType === 'target' ? resolveDynamicOutputType(node as any, null) : null;
     const match = (rawHandles as any[]).find((h) => {
-        const t = pending.handleType === 'source' ? h.expectedType : h.dataType;
+        const t = pending.handleType === 'source'
+            ? h.expectedType
+            : (dynamicOutputType ?? h.dataType);
         return typesAreCompatible(pending.dataType, t);
     });
     if (!match) return null;
     return {
         id: match.id,
         label: match.label,
-        type: pending.handleType === 'source' ? match.expectedType : match.dataType,
+        type: pending.handleType === 'source'
+            ? match.expectedType
+            : (dynamicOutputType ?? match.dataType),
         isArray: match.is_array,
     };
 }
@@ -255,8 +351,15 @@ export function getNodeHandleType(
     const handles = handleType === 'source' ? def.handles?.outputs : def.handles?.inputs;
     const h = (handles as any[])?.find((x) => x.id === handleId) || (handles as any[])?.[0];
     if (!h) return null;
+    if (handleType === 'source') {
+        const dynamicType = resolveDynamicOutputType(node as any, handleId);
+        return {
+            type: dynamicType ?? h.dataType,
+            isArray: h.is_array,
+        };
+    }
     return {
-        type: handleType === 'source' ? h.dataType : h.expectedType,
+        type: h.expectedType,
         isArray: h.is_array,
     };
 }
@@ -297,15 +400,21 @@ export function findAllCompatibleHandlesForNode(
     if (!def) return [];
     const rawHandles =
         pending.handleType === 'source' ? def.handles?.inputs || [] : def.handles?.outputs || [];
+    const dynamicOutputType =
+        pending.handleType === 'target' ? resolveDynamicOutputType(node as any, null) : null;
     return (rawHandles as any[])
         .filter((h) => {
-            const t = pending.handleType === 'source' ? h.expectedType : h.dataType;
+            const t = pending.handleType === 'source'
+                ? h.expectedType
+                : (dynamicOutputType ?? h.dataType);
             return typesAreCompatible(pending.dataType, t);
         })
         .map((h) => ({
             id: h.id,
             label: h.label,
-            type: pending.handleType === 'source' ? h.expectedType : h.dataType,
+            type: pending.handleType === 'source'
+                ? h.expectedType
+                : (dynamicOutputType ?? h.dataType),
             isArray: h.is_array,
         }));
 }

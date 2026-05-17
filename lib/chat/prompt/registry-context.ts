@@ -126,7 +126,7 @@ export function formatRegistryContext(input: RegistryContextInput): string {
       block += `\n\nREQUIRED CONFIG for ai_generator:`;
       block += `\n- \`model_id\` (number): REQUIRED. Pick from "AI GENERATOR MODELS" list below. Set both at the top level (model_id field) AND inside data.config.model_id.`;
       block += `\n- \`node_type_id\` (string): REQUIRED. Must match the type bucket the chosen model belongs to.`;
-      block += `\n- Optional config keys: the chosen model's "config keys" line in the AI GENERATOR MODELS section lists every key you can set inside data.config (length, resolution, aspect_ratio, negative_prompt, etc.). Use the EXACT api_mapping_key shown. Skip keys you don't need — defaults are shown.`;
+      block += `\n- Optional config keys: the chosen model's "config keys" line in the AI GENERATOR MODELS section lists every key you can set inside \`data.config.control_values\` (length, resolution, aspect_ratio, negative_prompt, etc.). These keys go INSIDE the nested \`control_values\` object — NOT as siblings of \`model_id\`. Use the EXACT api_mapping_key shown. Skip keys you don't need — defaults are shown.`;
       block += `\n- Without model_id, this node cannot run.`;
     } else if (type === 'compositor') {
       // Override the misleading aiSchema docs. The canvas reads edges that
@@ -223,7 +223,7 @@ export function formatRegistryContext(input: RegistryContextInput): string {
         : '';
       modelLines.push(`      • model_id ${m.id}: ${m.display_name}${provider}${handlesPart}`);
       if (controls.length > 0) {
-        modelLines.push(`          config keys (set inside data.config): ${controls.map(c => c.summary).join('; ')}`);
+        modelLines.push(`          config keys (set inside data.config.control_values): ${controls.map(c => c.summary).join('; ')}`);
       }
     }
   }

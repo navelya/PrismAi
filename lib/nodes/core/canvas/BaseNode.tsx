@@ -126,7 +126,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             dataType: wireDrag.dataType,
         };
         const match = findHandleForNode(
-            { type, data: { config: nodeData?.config } },
+            { id, type, data: { config: nodeData?.config } } as any,
             pending,
             models,
             sharedRegistry,
@@ -143,13 +143,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             dataType: wireDrag.dataType,
         };
         const handles = findAllCompatibleHandlesForNode(
-            { type, data: { config: nodeData?.config } },
+            { id, type, data: { config: nodeData?.config } } as any,
             pending,
             models,
             sharedRegistry,
         );
         return new Set(handles.map((h) => h.id));
-    }, [dragRole, wireDrag, type, nodeData?.config, models]);
+    }, [dragRole, wireDrag, id, type, nodeData?.config, models]);
 
     /**
      * Decide whether this handle's label should be force-visible because a wire is being dragged.

@@ -1,19 +1,22 @@
 import { ImageObject } from '../../types';
 import { ClientExecutor } from '../../core/types';
-import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
+import { toLegacyRenderableOutput, detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import { BlurConfig } from './definition';
+import { radiusToSigma, blurFilterString } from './shared';
 
 /**
- * Browser-only Blur Executor
- * Uses Canvas API + CSS filters for instant live previews.
+ * Browser-only Blur Executor (image branch)
+ * Uses Canvas API + CSS filters to bake the blur into a static data URL.
+ * For images this is a one-shot transform — downstream consumers render
+ * the data URL via <img src=...> with no further work.
  */
 export const clientBlurExecutor = async (
     config: BlurConfig,
-    imageUrl: string
+    imageUrl: string,
 ): Promise<string | null> => {
     if (typeof window === 'undefined') return null;
 
-    const { radius = 5 } = config;
+    const sigma = radiusToSigma(config?.radius ?? 5);
 
     return new Promise((resolve) => {
         const canvas = document.createElement('canvas');
@@ -26,16 +29,12 @@ export const clientBlurExecutor = async (
 
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        
+
         img.onload = () => {
             canvas.width = img.width;
             canvas.height = img.height;
-
-            // Apply CSS blur filter to canvas
-            ctx.filter = `blur(${radius}px)`;
+            ctx.filter = `blur(${sigma}px)`;
             ctx.drawImage(img, 0, 0);
-
-            // Convert to data URL
             try {
                 const dataUrl = canvas.toDataURL('image/png');
                 resolve(dataUrl);
@@ -50,11 +49,10 @@ export const clientBlurExecutor = async (
             resolve(null);
         };
 
-        // Add cache-busting for CORS
-        const safeUrl = imageUrl.startsWith('data:') 
-            ? imageUrl 
+        const safeUrl = imageUrl.startsWith('data:')
+            ? imageUrl
             : imageUrl + (imageUrl.includes('?') ? '&' : '?') + 'notaint=1';
-        
+
         img.src = safeUrl;
     });
 };
@@ -62,10 +60,13 @@ export const clientBlurExecutor = async (
 /**
  * Generic-shape adapter for the auto-compute pipeline.
  *
- * Pulls the first image URL from whatever the upstream produced (envelope,
- * legacy ImageObject, raw string), runs the blur, and wraps the result back
- * into an envelope so downstream consumers can read it via the same
- * `nodeOutputs[id]` interface they use for source/server-executed nodes.
+ * IMAGE → bake the blur into a data URL (one-shot canvas transform).
+ * VIDEO → pass the upstream URL through with a `cssFilter` descriptor.
+ *   Downstream consumers (chained Blur, Compositor LayerVideo, the Blur card's
+ *   own preview, etc.) attach their own <video src={url}> and apply the
+ *   filter at render time. This preserves duration, seek, and play/pause
+ *   semantics — the video is a real seekable resource, not a live signal.
+ *   Chained filters compose naturally by concatenating filter strings.
  */
 export const blurClientExecutor: ClientExecutor<BlurConfig> = async (config, inputs) => {
     const upstream = inputs.image;
@@ -73,14 +74,28 @@ export const blurClientExecutor: ClientExecutor<BlurConfig> = async (config, inp
 
     const normalized = toLegacyRenderableOutput(upstream);
     const first = Array.isArray(normalized) ? normalized[0] : normalized;
-    let imageUrl: string | null = null;
-    if (typeof first === 'string') imageUrl = first;
+    let url: string | null = null;
+    let upstreamCssFilter: string | null = null;
+    if (typeof first === 'string') url = first;
     else if (first && typeof first === 'object' && typeof (first as any).url === 'string') {
-        imageUrl = (first as any).url;
+        url = (first as any).url;
+        if (typeof (first as any).cssFilter === 'string') {
+            upstreamCssFilter = (first as any).cssFilter;
+        }
     }
-    if (!imageUrl) return null;
+    if (!url) return null;
 
-    const dataUrl = await clientBlurExecutor(config, imageUrl);
+    const kind = detectMediaTypeFromUrl(url) ?? 'image';
+
+    if (kind === 'video') {
+        const ownFilter = blurFilterString(config?.radius ?? 5);
+        const cssFilter = upstreamCssFilter
+            ? `${upstreamCssFilter} ${ownFilter}`
+            : ownFilter;
+        return { type: 'video', data: [{ url, cssFilter }] } as any;
+    }
+
+    const dataUrl = await clientBlurExecutor(config, url);
     if (!dataUrl) return null;
 
     return { type: 'image', data: [{ url: dataUrl }] as ImageObject[] };

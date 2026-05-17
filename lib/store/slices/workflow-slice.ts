@@ -257,7 +257,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     },
 
     onConnect: (connection) => {
-        const { currentWorkflow } = get();
+        const { currentWorkflow, models } = get();
         if (!currentWorkflow) return;
 
         get().takeSnapshot();
@@ -275,7 +275,39 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             animated: true,
         };
 
-        const updatedEdges = addEdge(newEdge, currentWorkflow.edges || []);
+        // Single-input enforcement: most input handles accept exactly one
+        // incoming wire. Drop any pre-existing edges targeting the same
+        // (target, targetHandle) so the new wire replaces the old one — the
+        // friendlier "swap" UX rather than refusing the drop. Multi-input
+        // handles (those declaring `is_array: true`, e.g. compositor.layers)
+        // skip this so users can keep stacking wires.
+        const targetNodeForArity = currentWorkflow.nodes.find((n) => n.id === connection.target);
+        const isArrayHandle = (() => {
+            if (!targetNodeForArity) return false;
+            if (targetNodeForArity.type === 'ai_generator') {
+                const modelId = (targetNodeForArity.data?.config as any)?.model_id;
+                const model = modelId ? models.find((m) => m.id === modelId) : null;
+                const h = model?.inputs_schema?.handles?.find(
+                    (x) => (x.api_mapping_key || x.name) === connection.targetHandle,
+                );
+                return h?.is_array === true;
+            }
+            const def = sharedRegistry[targetNodeForArity.type as keyof typeof sharedRegistry];
+            const h = (def?.handles?.inputs as any[])?.find((x) => x.id === connection.targetHandle);
+            return h?.is_array === true;
+        })();
+
+        const baseEdges = isArrayHandle
+            ? (currentWorkflow.edges || [])
+            : (currentWorkflow.edges || []).filter(
+                  (e) =>
+                      !(
+                          e.target === connection.target &&
+                          (e.targetHandle || null) === (connection.targetHandle || null)
+                      ),
+              );
+
+        const updatedEdges = addEdge(newEdge, baseEdges);
 
         // If this edge lands on a compositor, materialize a CompositorLayer in
         // its config.layers right now. Keeps the layer's identity (transforms,

@@ -11,9 +11,24 @@ interface ImageLightboxProps {
     type: 'image' | 'video' | 'any';
     initialIndex: number;
     onClose: () => void;
+    /**
+     * Optional CSS filter applied to the rendered media (e.g. `"blur(8px)"`
+     * for a Blur node's lightbox view). Pixel values inside `blur(...)` are
+     * interpreted in NATIVE-source-resolution units — they get scaled here
+     * by `displayWidth / nativeMediaWidth` so the lightbox visual matches
+     * the card preview and the eventual server render. Other filter
+     * functions (saturate, contrast, etc.) pass through unscaled.
+     */
+    cssFilter?: string | null;
+    /**
+     * Natural pixel width of the rendered source. Used together with
+     * `cssFilter` to scale `blur(Npx)` values by the lightbox's display
+     * ratio. When omitted, `cssFilter` is applied as-is.
+     */
+    nativeMediaWidth?: number;
 }
 
-export default function ImageLightbox({ media, type, initialIndex, onClose }: ImageLightboxProps) {
+export default function ImageLightbox({ media, type, initialIndex, onClose, cssFilter, nativeMediaWidth }: ImageLightboxProps) {
     const [currentIndex, setCurrentIndex] = React.useState(initialIndex);
     // Portal mount guard — prevents SSR mismatch
     const [mounted, setMounted] = useState(false);
@@ -39,6 +54,25 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
         if (type === 'image') return false;
         return detectMediaTypeFromUrl(mediaSrc) === 'video';
     }, [type, mediaSrc]);
+
+    // Scale any blur(Npx) inside cssFilter by displayWidth / nativeMediaWidth
+    // so the lightbox visual matches the card preview and the server render.
+    // The displayed width changes when the media element loads (since size
+    // is determined by `object-contain` + max-w/h constraints); read it on
+    // load via the element ref and recompute the filter then.
+    const mediaElRef = React.useRef<HTMLImageElement | HTMLVideoElement | null>(null);
+    const [mediaDisplayWidth, setMediaDisplayWidth] = useState(0);
+    const handleMediaLoaded = useCallback(() => {
+        const el = mediaElRef.current;
+        if (!el) return;
+        setMediaDisplayWidth((el as any).clientWidth || 0);
+    }, []);
+    const scaledFilter = React.useMemo(() => {
+        if (!cssFilter) return undefined;
+        if (!nativeMediaWidth || !mediaDisplayWidth) return cssFilter;
+        const ratio = mediaDisplayWidth / nativeMediaWidth;
+        return cssFilter.replace(/blur\(([\d.]+)px\)/g, (_, n) => `blur(${parseFloat(n) * ratio}px)`);
+    }, [cssFilter, mediaDisplayWidth, nativeMediaWidth]);
 
     const goToPrevious = useCallback(() => {
         setCurrentIndex((prev) => (prev > 0 ? prev - 1 : normalizedMedia.length - 1));
@@ -132,19 +166,25 @@ export default function ImageLightbox({ media, type, initialIndex, onClose }: Im
             {/* Image / Video */}
             {isVideo ? (
                 <video
+                    ref={(el) => { mediaElRef.current = el; }}
                     src={mediaSrc}
                     controls
                     autoPlay
+                    onLoadedMetadata={handleMediaLoaded}
                     className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                    style={scaledFilter ? { filter: scaledFilter } : undefined}
                     onMouseDown={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                 />
             ) : (
                 <img
+                    ref={(el) => { mediaElRef.current = el; }}
                     src={mediaSrc}
                     alt={`Media ${currentIndex + 1}`}
+                    onLoad={handleMediaLoaded}
                     className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                    style={scaledFilter ? { filter: scaledFilter } : undefined}
                     onMouseDown={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}

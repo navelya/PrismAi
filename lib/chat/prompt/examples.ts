@@ -78,7 +78,7 @@ Assistant: One generator + one blur — straightforward. Renaming the generator 
 [calls add_node with:
   nodes=[
     { type="prompt",       label="Sports car hero prompt",   config={ prompt="Hero shot of a metallic-red sports car, studio light, high detail." } },
-    { type="ai_generator", label="Hero shot — studio light", node_type_id="imagen_4", config={ model_id=17, aspect_ratio="16:9" } },
+    { type="ai_generator", label="Hero shot — studio light", node_type_id="imagen_4", config={ model_id=17, control_values={ aspect_ratio: "16:9" } } },
     { type="blur",                                           config={ radius=6 } }
   ]
   edges=[prompt→generator via prompt handle, generator→blur via image handle]]
