@@ -31,6 +31,7 @@ import { AdjustTokensModal } from './AdjustTokensModal';
 import {
     adminUsersApi,
     type AdminUserDetail,
+    type AdminUserListRow,
     type AdminLedgerRow,
     type AdminSessionRow,
     type AdminAssetRow,
@@ -39,9 +40,27 @@ import {
 
 interface Props {
     userId: string | null;
+    initialUser?: AdminUserListRow | null;
     currentAdminId: string;
     onClose: () => void;
     onMutated: () => void;
+}
+
+function rowToDetail(row: AdminUserListRow): AdminUserDetail {
+    return {
+        ...row,
+        email_confirmed_at: null,
+        phone: null,
+        subscription: row.plan_id
+            ? {
+                plan_id: row.plan_id,
+                status: row.subscription_status,
+                next_topup_at: null,
+                current_period_end: null,
+                cancel_at_period_end: null,
+            }
+            : null,
+    };
 }
 
 type TabId = 'overview' | 'tokens' | 'assets' | 'sessions';
@@ -104,10 +123,10 @@ function humanizeReason(row: AdminLedgerRow): string {
     return labels[row.reason] ?? row.reason;
 }
 
-export function UserDetailDrawer({ userId, currentAdminId, onClose, onMutated }: Props) {
+export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose, onMutated }: Props) {
     const [tab, setTab] = useState<TabId>('overview');
     const [user, setUser] = useState<AdminUserDetail | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [detailLoading, setDetailLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const [ledger, setLedger] = useState<AdminLedgerRow[]>([]);
@@ -130,7 +149,7 @@ export function UserDetailDrawer({ userId, currentAdminId, onClose, onMutated }:
 
     const fetchDetail = useCallback(async () => {
         if (!userId) return;
-        setLoading(true);
+        setDetailLoading(true);
         setError(null);
         try {
             const { user } = await adminUsersApi.detail(userId);
@@ -138,7 +157,7 @@ export function UserDetailDrawer({ userId, currentAdminId, onClose, onMutated }:
         } catch (err: any) {
             setError(err.message || 'Failed to load user');
         } finally {
-            setLoading(false);
+            setDetailLoading(false);
         }
     }, [userId]);
 
@@ -146,6 +165,7 @@ export function UserDetailDrawer({ userId, currentAdminId, onClose, onMutated }:
         if (open) {
             setTab('overview');
             setActionMessage(null);
+            setUser(initialUser ? rowToDetail(initialUser) : null);
             fetchDetail();
         } else {
             setUser(null);
@@ -153,34 +173,36 @@ export function UserDetailDrawer({ userId, currentAdminId, onClose, onMutated }:
             setAssets([]);
             setSessions([]);
         }
-    }, [open, fetchDetail]);
+    }, [open, fetchDetail, initialUser]);
 
+    // Prefetch all tabs in parallel when the drawer opens. Subsequent tab
+    // switches are instant — data stays in state for the lifetime of this
+    // drawer-open. Closing the drawer resets everything (see the open effect).
     useEffect(() => {
-        if (!userId || tab !== 'tokens') return;
+        if (!userId) return;
+        let cancelled = false;
+
         setLedgerLoading(true);
-        adminUsersApi.ledger(userId, 0, 50)
-            .then(res => setLedger(res.rows))
-            .catch(err => setActionMessage({ type: 'error', text: err.message || 'Failed to load ledger' }))
-            .finally(() => setLedgerLoading(false));
-    }, [userId, tab]);
-
-    useEffect(() => {
-        if (!userId || tab !== 'assets') return;
         setAssetsLoading(true);
-        adminUsersApi.assets(userId, 0, 36)
-            .then(res => setAssets(res.rows))
-            .catch(err => setActionMessage({ type: 'error', text: err.message || 'Failed to load assets' }))
-            .finally(() => setAssetsLoading(false));
-    }, [userId, tab]);
-
-    useEffect(() => {
-        if (!userId || tab !== 'sessions') return;
         setSessionsLoading(true);
+
+        adminUsersApi.ledger(userId, 0, 50)
+            .then(res => { if (!cancelled) setLedger(res.rows); })
+            .catch(err => { if (!cancelled) setActionMessage({ type: 'error', text: err.message || 'Failed to load ledger' }); })
+            .finally(() => { if (!cancelled) setLedgerLoading(false); });
+
+        adminUsersApi.assets(userId, 0, 36)
+            .then(res => { if (!cancelled) setAssets(res.rows); })
+            .catch(err => { if (!cancelled) setActionMessage({ type: 'error', text: err.message || 'Failed to load assets' }); })
+            .finally(() => { if (!cancelled) setAssetsLoading(false); });
+
         adminUsersApi.sessions(userId, 0, 50)
-            .then(res => setSessions(res.rows))
-            .catch(err => setActionMessage({ type: 'error', text: err.message || 'Failed to load sessions' }))
-            .finally(() => setSessionsLoading(false));
-    }, [userId, tab]);
+            .then(res => { if (!cancelled) setSessions(res.rows); })
+            .catch(err => { if (!cancelled) setActionMessage({ type: 'error', text: err.message || 'Failed to load sessions' }); })
+            .finally(() => { if (!cancelled) setSessionsLoading(false); });
+
+        return () => { cancelled = true; };
+    }, [userId]);
 
     const banned = user ? isBanned(user.banned_until) : false;
     const isSelf = user?.id === currentAdminId;
@@ -252,7 +274,7 @@ export function UserDetailDrawer({ userId, currentAdminId, onClose, onMutated }:
                         <RadixDialog.Description className="sr-only">Manage tokens, ban status, and view this user's content.</RadixDialog.Description>
 
                         <header className="flex items-start justify-between gap-4 px-6 py-5 border-b border-white/5">
-                            {loading ? (
+                            {!user && detailLoading ? (
                                 <div className="flex items-center gap-2 text-content-tertiary">
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                     <span className="text-xs font-medium">Loading…</span>

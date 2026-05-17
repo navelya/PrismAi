@@ -89,6 +89,7 @@ export function UsersAdminContent({ onMobileBack }: Props) {
     const [page, setPage] = useState(0);
 
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+    const [selectedUserRow, setSelectedUserRow] = useState<AdminUserListRow | null>(null);
 
     const [exporting, setExporting] = useState(false);
 
@@ -301,7 +302,7 @@ export function UsersAdminContent({ onMobileBack }: Props) {
                                     return (
                                         <tr
                                             key={u.id}
-                                            onClick={() => setSelectedUserId(u.id)}
+                                            onClick={() => { setSelectedUserId(u.id); setSelectedUserRow(u); }}
                                             className="border-b border-white/5 last:border-b-0 hover:bg-white/5 cursor-pointer transition-colors"
                                         >
                                             <td className="px-4 py-3">
@@ -385,8 +386,9 @@ export function UsersAdminContent({ onMobileBack }: Props) {
 
             <UserDetailDrawer
                 userId={selectedUserId}
+                initialUser={selectedUserRow}
                 currentAdminId={currentAdminId}
-                onClose={() => setSelectedUserId(null)}
+                onClose={() => { setSelectedUserId(null); setSelectedUserRow(null); }}
                 onMutated={refresh}
             />
         </div>
