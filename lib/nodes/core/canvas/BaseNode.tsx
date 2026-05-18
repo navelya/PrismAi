@@ -1,14 +1,14 @@
 'use client';
 
-import React, { memo, useMemo } from 'react';
-import { Handle, Position, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
+import React, { memo, useEffect, useMemo, useState } from 'react';
+import { Handle, Position, NodeToolbar, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
 import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { NodeStatus } from '@/lib/nodes/types';
 import { useWireDrag } from '@/lib/editor/wire-drag-context';
-import { findHandleForNode, findAllCompatibleHandlesForNode } from '@/lib/editor/handle-compatibility';
+import { findHandleForNode, findAllCompatibleHandlesForNode, wouldCreateCycle } from '@/lib/editor/handle-compatibility';
 import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
 import { motion } from 'framer-motion';
 
@@ -115,6 +115,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
     const wireDrag = useWireDrag();
     const models = useAppStore((s) => s.models);
+    const edges = useEdges();
 
     const dragRole: 'none' | 'origin' | 'compatible' | 'incompatible' = useMemo(() => {
         if (!wireDrag) return 'none';
@@ -133,6 +134,37 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         );
         return match ? 'compatible' : 'incompatible';
     }, [wireDrag, id, type, nodeData?.config, models]);
+
+    // True when the prospective edge from the wire-drag origin to THIS node
+    // (or the reverse, depending on which side originated) would close a
+    // directed cycle. Drives the hover toast below; also flips the visual
+    // state to 'incompatible' so cycle targets dim the same as type-bad ones.
+    const isCycleTarget = useMemo(() => {
+        if (!wireDrag) return false;
+        if (wireDrag.originNodeId === id) return false;
+        // 'source' origin (output handle) → prospective edge is origin → this.
+        // 'target' origin (input handle)  → prospective edge is this → origin.
+        const src = wireDrag.originHandleType === 'source' ? wireDrag.originNodeId : id;
+        const tgt = wireDrag.originHandleType === 'source' ? id : wireDrag.originNodeId;
+        return wouldCreateCycle(src, tgt, edges);
+    }, [wireDrag, id, edges]);
+
+    // Cycle targets visually read the same as type-incompatible targets — the
+    // hover toast (rendered below) is what distinguishes the two cases for
+    // the user. We deliberately do NOT fold isCycleTarget into `dragRole`
+    // itself: label-reveal logic (compatibleHandleIds, isHandleLabelForced)
+    // is type-driven and should keep reading the original dragRole.
+    const effectiveDragRole = isCycleTarget ? 'incompatible' : dragRole;
+
+    // Hover gate for the cycle toast. We only show the toast while the user's
+    // cursor is over this node AND a cycle-forming wire is in flight — exiting
+    // the node clears it ("gone when the user is moving away").
+    const [isHoveredDuringWireDrag, setIsHoveredDuringWireDrag] = useState(false);
+    useEffect(() => {
+        // If the wire drag ends while the cursor is still inside the card,
+        // onPointerLeave won't fire — reset eagerly.
+        if (!wireDrag) setIsHoveredDuringWireDrag(false);
+    }, [wireDrag]);
 
     const compatibleHandleIds = useMemo(() => {
         if (dragRole !== 'compatible' || !wireDrag) return null;
@@ -183,7 +215,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const touchInteraction = useAppStore((state) => state.touchInteraction);
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
-    const edges = useEdges();
 
     // Precompute the set of this node's connected target handles once per
     // render so the per-handle "missing mandatory" check is O(1) instead of
@@ -273,6 +304,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             onAnimationComplete={() => {
                 if (isNew) updateNodeInternals(id);
             }}
+            onPointerEnter={() => { if (wireDrag) setIsHoveredDuringWireDrag(true); }}
+            onPointerLeave={() => setIsHoveredDuringWireDrag(false)}
             transition={isDragging ? DRAG_TRANSITION : SHARED_TRANSITION}
             className={cn(
                 // CSS transitions on border/shadow/background are kept enabled
@@ -286,7 +319,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // Shadow stays constant on hover/drag/click — only the border
                 // is allowed to indicate interaction state.
                 "hover:border-stroke-strong hover:bg-surface-elevated/20",
-                dragRole === 'incompatible' && "opacity-30 grayscale-[0.6] transition-[border-color,background-color,opacity,filter] duration-150",
+                effectiveDragRole === 'incompatible' && "opacity-30 grayscale-[0.6] transition-[border-color,background-color,opacity,filter] duration-150",
                 typeof width === 'string' ? width : '',
                 className
             )}
@@ -303,6 +336,24 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             }}
             {...props}
         >
+            {/* Cycle-rejection toast. Rendered via NodeToolbar so it sits
+                OUTSIDE this card's DOM tree and is unaffected by the
+                opacity-30 dim applied to incompatible targets. Only visible
+                while the user's cursor is on this node during an in-flight
+                wire drag that would close a cycle. */}
+            <NodeToolbar
+                nodeId={id}
+                isVisible={!!wireDrag && isCycleTarget && isHoveredDuringWireDrag}
+                position={Position.Top}
+                align="start"
+            >
+                <div className="px-2 py-1 rounded-md bg-bg-primary/90 border border-accent-error/50
+                                text-[10px] font-medium text-accent-error whitespace-nowrap shadow-lg
+                                pointer-events-none">
+                    Circular connections are not allowed
+                </div>
+            </NodeToolbar>
+
             {/* Action Buttons — suppressed in multi-select mode (the floating
                 toolbar above the selection handles bulk actions). */}
             {!isMultiSelectActive && (
