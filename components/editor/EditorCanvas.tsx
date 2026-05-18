@@ -36,6 +36,7 @@ import {
     getNodeHandleType,
     typesAreCompatible,
     findHandleForNode,
+    wouldCreateCycle,
 } from '@/lib/editor/handle-compatibility';
 import { WireDragProvider, type WireDragState } from '@/lib/editor/wire-drag-context';
 
@@ -754,7 +755,15 @@ const EditorCanvasInner = ({
         // model row) — better to allow a connection we can't classify than to
         // silently block legitimate ones.
         if (!src || !tgt) return true;
-        return typesAreCompatible(src.type, tgt.type);
+        if (!typesAreCompatible(src.type, tgt.type)) return false;
+
+        // Refuse drops that would close a directed cycle in the graph. React
+        // Flow paints the wire red and silently discards on `false`; the
+        // BaseNode toast (rendered separately) explains the rejection.
+        if (wouldCreateCycle(connection.source!, connection.target!, reactFlowInstance.getEdges())) {
+            return false;
+        }
+        return true;
     }, [reactFlowInstance, models]);
 
     const handlePaneClick = useCallback(() => {
