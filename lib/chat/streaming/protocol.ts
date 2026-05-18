@@ -60,7 +60,7 @@ export type StreamEvent =
   | { type: 'thinking_delta'; text: string }
   | { type: 'thinking_end' }
   | { type: 'text'; text: string }
-  | { type: 'tool'; name: 'add_node' | 'update_node' | 'remove_node'; patch: WorkflowPatch }
+  | { type: 'tool'; name: 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node'; patch: WorkflowPatch }
   | { type: 'clarification'; options: string[] }
   | { type: 'plan'; plan: PlanPayload }
   | { type: 'task_start'; taskId: string; index: number; total: number }

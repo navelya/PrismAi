@@ -172,6 +172,89 @@ Each item in updates[] targets one node by id and may change data.config, positi
     },
   },
   {
+    name: 'update_compositor_layer',
+    description: `Update one or more existing layers on one or more compositor nodes. Use this AFTER the canvas has auto-created layers (every edge into a compositor produces one layer with the edge's id as layer.sourceHandleId and a layer id like \`layer_<edge-uuid>\`). Do NOT use update_node to set config.layers — that does a shallow replace and silently drops fields. This tool is the ONLY safe way to mutate compositor layers.
+Patches are deep-merged on the server: top-level fields you omit stay unchanged; \`transform\` and \`transition\` get one level of deep-merge so changing transform.x doesn't wipe transform.opacity/blendMode/etc.
+Always batch every layer update for this request into ONE call's updates[] array.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        updates: {
+          type: 'array',
+          minItems: 1,
+          description: 'One entry per (compositor, layer) pair to update. Bundle every update for this turn into this single array.',
+          items: {
+            type: 'object',
+            properties: {
+              nodeId: { type: 'string', description: 'Compositor node ID (existing canvas UUID).' },
+              layerId: { type: 'string', description: 'Layer ID inside that compositor. Read from the workflow context — each layer has a stable id in config.layers[*].id.' },
+              patch: {
+                type: 'object',
+                additionalProperties: true,
+                description: 'Partial layer fields to set. Only `transform` and `transition` get one-level deep-merge; every other key is a full replace at the layer level.',
+                properties: {
+                  name:          { type: 'string', description: 'User-facing layer name (shown in the editor).' },
+                  visible:       { type: 'boolean' },
+                  locked:        { type: 'boolean' },
+                  selectedIndex: { type: 'number', description: 'Which item to pick when the source emits an array.' },
+                  startTime:     { type: 'number', description: 'Seconds from t=0 when the layer first appears on the timeline.' },
+                  duration:      { type: ['number', 'null'], description: 'How long the layer stays visible. null = full source for video, full timeline for image/text.' },
+                  trimIn:        { type: 'number', description: 'Seconds trimmed from the start of the source clip (stored; not yet executed).' },
+                  trimOut:       { type: ['number', 'null'], description: 'Source-relative end time; null = full source (stored; not yet executed).' },
+                  speed:         { type: 'number', description: 'Playback rate multiplier (stored; not yet executed).' },
+                  muted:         { type: 'boolean', description: 'Mute the layer audio (stored; not yet executed).' },
+                  transition: {
+                    type: 'object',
+                    description: 'Outgoing transition into the next layer (stored; not yet executed).',
+                    properties: {
+                      type:     { type: 'string', enum: ['none', 'crossfade', 'fade'] },
+                      duration: { type: 'number', description: 'Transition duration in seconds.' },
+                    },
+                  },
+                  transform: {
+                    type: 'object',
+                    description: 'Visual placement on the compositor canvas. Deep-merged: omit fields to keep them.',
+                    properties: {
+                      x:        { type: 'number', description: 'Left position in pixels (canvas coordinates, 0 = left edge).' },
+                      y:        { type: 'number', description: 'Top position in pixels (canvas coordinates, 0 = top edge).' },
+                      width:    { type: 'number', description: 'Rendered width in pixels.' },
+                      height:   { type: 'number', description: 'Rendered height in pixels.' },
+                      rotation: { type: 'number', description: 'Degrees, 0–360.' },
+                      opacity:  { type: 'number', description: '0.0 (fully transparent) to 1.0 (fully opaque).' },
+                      flipX:    { type: 'boolean' },
+                      flipY:    { type: 'boolean' },
+                      blendMode: { type: 'string', description: 'Konva GlobalCompositeOperation. Valid values: source-over (default), multiply, screen, overlay, darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, exclusion, hue, saturation, color, luminosity.' },
+                      fontFamily:    { type: 'string', description: 'Text layer typography.' },
+                      fontWeight:    { type: 'string' },
+                      fontStyle:     { type: 'string' },
+                      fontSize:      { type: 'number' },
+                      lineHeight:    { type: 'number' },
+                      letterSpacing: { type: 'number' },
+                      textAlign:     { type: 'string', enum: ['left', 'center', 'right', 'justify'] },
+                      fillColor:     { type: 'string', description: 'Hex color for text fill (e.g. #ffffff).' },
+                      crop: {
+                        type: ['object', 'null'],
+                        description: 'Source-side crop box, or null for no crop. Provide all four numbers when setting; the whole crop value is replaced (not merged).',
+                        properties: {
+                          x:      { type: 'number' },
+                          y:      { type: 'number' },
+                          width:  { type: 'number' },
+                          height: { type: 'number' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            required: ['nodeId', 'layerId', 'patch'],
+          },
+        },
+      },
+      required: ['updates'],
+    },
+  },
+  {
     name: 'remove_node',
     description: 'Remove one or more nodes and all their connected edges. Always batch every removal for a request into ONE call.',
     input_schema: {
@@ -255,4 +338,4 @@ Each item in updates[] targets one node by id and may change data.config, positi
   },
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'remove_node' | 'ask_clarification' | 'propose_plan';
+export type ToolName = 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan';

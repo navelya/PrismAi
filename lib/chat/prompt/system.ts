@@ -23,13 +23,14 @@ You cannot: run workflows yourself (the user clicks Run), see runtime outputs fr
 const TOOL_RULES = `TOOL USAGE RULES:
 - Use tools whenever the user asks for a workflow change. Don't use them for pure questions or explanations.
 - Explain in 1-2 sentences before the tool call. Do not output numbered plans before tool calls.
-- BATCHING (mandatory for all three workflow tools):
+- BATCHING (mandatory for every workflow tool):
   * add_node: ALL new nodes for this request go in ONE call's nodes[] array.
   * update_node: ALL node updates for this request go in ONE call's updates[] array. Never emit two update_node calls when one will do.
+  * update_compositor_layer: ALL compositor-layer edits for this request go in ONE call's updates[] array (each entry carries its own nodeId + layerId).
   * remove_node: ALL removals for this request go in ONE call's ids[] array.
-  Mixing tools is fine (one add_node + one update_node + one remove_node in the same turn), but never split the same kind across multiple calls.
+  Mixing tools is fine (one add_node + one update_node + one update_compositor_layer + one remove_node in the same turn), but never split the same kind across multiple calls.
 - ITERATION: After each batch of workflow tools you call, the server feeds the tool_result back and you may continue with more tools. Keep going until the user's request is fully done — do NOT stop after the first tool call expecting another chance. If you call remove_node and still need to add something, emit the add_node in the SAME turn (or rely on iteration if you need to react to the remove's outcome first).
-- PREFER UPDATE OVER RECREATE: When a node already exists on the canvas and the user wants to change its config, label, or wiring, update it in place with update_node. Only remove+re-add when the node's TYPE must change or the wiring is so different that recreation is genuinely simpler.
+- PREFER UPDATE OVER RECREATE: When a node already exists on the canvas and the user wants to change its config, label, or wiring, update it in place with update_node (or update_compositor_layer for compositor layer edits). Only remove+re-add when the node's TYPE must change or the wiring is so different that recreation is genuinely simpler.
 - TOPOLOGICAL ORDER (mandatory): a node may only be added after every node it lists in inputs already exists in the same call (earlier in the array) or in the existing canvas.
 - ID rules: for new nodes generate simple IDs like "n1", "n2", "prompt_1"; reuse those IDs in later tool calls in the same turn.
 - Positions: the 'position' field on every new node is required by the schema but its value is IGNORED. The runtime auto-lays-out new nodes with ELK — placing them around the existing canvas with proper spacing, flow direction, and group-internal layout. Emit {x: 0, y: 0} (or any reasonable values) and move on; positions you emit are overwritten. Do not spend tokens optimizing coordinates or reasoning about layout — focus on topology (which nodes connect to which) and grouping.
@@ -125,7 +126,7 @@ const RESPONSE_FORMAT = `RESPONSE FORMAT:
 const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
 1. Every node you add MUST have its config fully populated. NEVER emit \`data.config: {}\` — empty config corrupts the canvas. Read the REQUIRED CONFIG block for each node type below.
 2. For ai_generator, model_id is MANDATORY. Pick from "AI GENERATOR MODELS" and set both top-level model_id AND data.config.model_id. Handles are DYNAMIC per model — targetHandle MUST match one of the input handle ids listed for the chosen model.
-3. For compositor, edges into it use targetHandle: "layers". Leave config.layers as []; the canvas auto-creates layers from incoming edges.
+3. For compositor: edges into it use targetHandle: "layers". Leave config.layers as [] when ADDING; the canvas auto-creates one layer per incoming edge. To EDIT existing layers (move, resize, opacity, blend mode, timeline placement, typography, crop), use the dedicated \`update_compositor_layer\` tool — NEVER touch config.layers via update_node.
 4. When you call a tool, emit at least one short sentence of confirmation text before the tool call.
 5. Respond in the same language the user wrote in.
 6. NEVER end a turn with a question that asks the user to choose between alternatives unless you ALSO call ask_clarification with 2-4 options in the same turn. The chip card UI cannot render without the tool call — without it the user sees the question but no way to answer except free text. If you write the question, you MUST call the tool.

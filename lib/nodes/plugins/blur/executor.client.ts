@@ -61,12 +61,21 @@ export const clientBlurExecutor = async (
  * Generic-shape adapter for the auto-compute pipeline.
  *
  * IMAGE → bake the blur into a data URL (one-shot canvas transform).
- * VIDEO → pass the upstream URL through with a `cssFilter` descriptor.
- *   Downstream consumers (chained Blur, Compositor LayerVideo, the Blur card's
- *   own preview, etc.) attach their own <video src={url}> and apply the
- *   filter at render time. This preserves duration, seek, and play/pause
- *   semantics — the video is a real seekable resource, not a live signal.
- *   Chained filters compose naturally by concatenating filter strings.
+ * VIDEO (static URL) → pass the upstream URL through with a `cssFilter`
+ *   descriptor. Downstream consumers attach their own <video src={url}> and
+ *   apply the filter at render time. Preserves duration, seek, and play/pause
+ *   semantics — the video is a real seekable resource.
+ * VIDEO (live source) → upstream is a Compositor (or another pass-through
+ *   filter) whose envelope carries a MediaStream / live HTMLCanvasElement
+ *   instead of a finished URL. We propagate the same reference forward,
+ *   concatenating our `cssFilter` onto the chain. Downstream consumers
+ *   attach via `<video srcObject={stream}>` and the accumulated cssFilter
+ *   composes as CSS layered filters at render time — same chaining contract
+ *   as the static-URL case, just with a live signal as the source.
+ *
+ * In all video cases the upstream's pixel data is NEVER re-encoded by this
+ * executor — filters are descriptors, not bakes. That's what makes the
+ * pipeline truly live (vs. record-then-display).
  */
 export const blurClientExecutor: ClientExecutor<BlurConfig> = async (config, inputs) => {
     const upstream = inputs.image;
@@ -76,26 +85,48 @@ export const blurClientExecutor: ClientExecutor<BlurConfig> = async (config, inp
     const first = Array.isArray(normalized) ? normalized[0] : normalized;
     let url: string | null = null;
     let upstreamCssFilter: string | null = null;
-    if (typeof first === 'string') url = first;
-    else if (first && typeof first === 'object' && typeof (first as any).url === 'string') {
-        url = (first as any).url;
-        if (typeof (first as any).cssFilter === 'string') {
-            upstreamCssFilter = (first as any).cssFilter;
-        }
-    }
-    if (!url) return null;
+    let stream: MediaStream | undefined;
+    let liveCanvas: HTMLCanvasElement | undefined;
+    let resolution: { width: number; height: number } | undefined;
 
-    const kind = detectMediaTypeFromUrl(url) ?? 'image';
+    if (typeof first === 'string') url = first;
+    else if (first && typeof first === 'object') {
+        if (typeof (first as any).url === 'string') url = (first as any).url;
+        if (typeof (first as any).cssFilter === 'string') upstreamCssFilter = (first as any).cssFilter;
+        if ((first as any).stream) stream = (first as any).stream;
+        if ((first as any).canvas) liveCanvas = (first as any).canvas;
+        if ((first as any).resolution) resolution = (first as any).resolution;
+    }
+
+    // Detect live signal: a video coming from Compositor (or another upstream
+    // pass-through filter) carries stream/canvas with an empty URL. Treat it
+    // as a video for filter-chaining purposes — don't try to fetch the empty
+    // URL or run the image canvas branch.
+    const hasLiveSource = !!(stream || liveCanvas);
+    if (!url && !hasLiveSource) return null;
+
+    const kind: 'image' | 'video' = hasLiveSource
+        ? 'video'
+        : (detectMediaTypeFromUrl(url!) === 'video' ? 'video' : 'image');
 
     if (kind === 'video') {
         const ownFilter = blurFilterString(config?.radius ?? 5);
         const cssFilter = upstreamCssFilter
             ? `${upstreamCssFilter} ${ownFilter}`
             : ownFilter;
-        return { type: 'video', data: [{ url, cssFilter }] } as any;
+        return {
+            type: 'video',
+            data: [{
+                url: url ?? '',
+                stream,
+                canvas: liveCanvas,
+                cssFilter,
+                resolution,
+            }],
+        } as any;
     }
 
-    const dataUrl = await clientBlurExecutor(config, url);
+    const dataUrl = await clientBlurExecutor(config, url!);
     if (!dataUrl) return null;
 
     return { type: 'image', data: [{ url: dataUrl }] as ImageObject[] };

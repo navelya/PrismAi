@@ -21,12 +21,12 @@ import { radiusToSigma } from './shared';
 
 interface BlurNodeData {
     label: string;
-    config: BlurConfig & { type?: 'gaussian' | 'box' | 'stack' };
+    config: BlurConfig;
 }
 
-const defaultConfig: BlurConfig & { type?: 'gaussian' | 'box' | 'stack' } = {
+const defaultConfig: BlurConfig = {
     radius: 5,
-    type: 'gaussian'
+    type: 'gaussian',
 };
 
 const blurTypeOptions = [
@@ -96,23 +96,66 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         return liveSourceOutput ?? sourceFallbackOutput ?? null;
     }, [connectedInputId, liveSourceOutput, sourceFallbackOutput]);
 
-    // Extract media URL (image or video)
-    const mediaUrl = useMemo(() => {
+    // Extract the first item from the upstream envelope. Three shapes flow
+    // in here: a raw string URL, a single object {url,...}, or an envelope
+    // {type, data: [...]}. The previous code peeled url-then-data-then-url
+    // in one expression; splitting it into "first item" + "extract fields"
+    // makes the live-stream branch tractable.
+    const upstreamItem = useMemo<any>(() => {
         if (!sourceOutput) return null;
-        let mediaInput = Array.isArray(sourceOutput) ? sourceOutput[0] : sourceOutput;
-        if (mediaInput && typeof mediaInput === 'object') {
-            mediaInput = (mediaInput as any).url || (Array.isArray((mediaInput as any).data) ? (mediaInput as any).data[0] : mediaInput);
+        const candidate = Array.isArray(sourceOutput) ? sourceOutput[0] : sourceOutput;
+        if (!candidate) return null;
+        if (typeof candidate === 'string') return candidate;
+        if (typeof candidate === 'object') {
+            // Envelope: {type, data: [first, ...]}
+            const data = (candidate as any).data;
+            if (Array.isArray(data) && data.length > 0) return data[0];
+            // Already the inner item.
+            return candidate;
         }
-        if (!mediaInput) return null;
-        return typeof mediaInput === 'string' ? mediaInput : (mediaInput as any)?.url || (mediaInput as any)?.previewUrl;
+        return null;
     }, [sourceOutput]);
 
+    // Extract media URL (image or video). May be empty when upstream is a
+    // live-stream source (e.g. Compositor's live canvas).
+    const mediaUrl = useMemo<string | null>(() => {
+        if (!upstreamItem) return null;
+        if (typeof upstreamItem === 'string') return upstreamItem;
+        const u = (upstreamItem as any).url || (upstreamItem as any).previewUrl;
+        return typeof u === 'string' && u.length > 0 ? u : null;
+    }, [upstreamItem]);
+
+    // Live-signal references published by upstream nodes (currently
+    // Compositor). When present, we render the preview via
+    // `<video srcObject={stream}>` instead of `<video src={url}>` — the CSS
+    // filter stack composes the same way either way.
+    const liveStream = useMemo<MediaStream | null>(() => {
+        if (!upstreamItem || typeof upstreamItem !== 'object') return null;
+        return (upstreamItem as any).stream ?? null;
+    }, [upstreamItem]);
+
+    const liveCanvas = useMemo<HTMLCanvasElement | null>(() => {
+        if (!upstreamItem || typeof upstreamItem !== 'object') return null;
+        return (upstreamItem as any).canvas ?? null;
+    }, [upstreamItem]);
+
+    // Upstream-provided resolution (preferred over loading the URL to
+    // measure). Lets the preview-blur scaling math kick in immediately for
+    // live sources where there's no <img> load event.
+    const upstreamResolution = useMemo<{ width: number; height: number } | null>(() => {
+        if (!upstreamItem || typeof upstreamItem !== 'object') return null;
+        const r = (upstreamItem as any).resolution;
+        if (r && typeof r.width === 'number' && typeof r.height === 'number') return r;
+        return null;
+    }, [upstreamItem]);
+
     const mediaKind = useMemo<'image' | 'video' | null>(() => {
+        if (liveStream || liveCanvas) return 'video';
         if (!mediaUrl) return null;
         if (mediaUrl.startsWith('data:video/')) return 'video';
         if (mediaUrl.startsWith('data:image/')) return 'image';
         return (detectMediaTypeFromUrl(mediaUrl) as 'image' | 'video' | null) ?? 'image';
-    }, [mediaUrl]);
+    }, [liveStream, liveCanvas, mediaUrl]);
 
     // If the upstream already carries a cssFilter (e.g. another Blur upstream),
     // grab it so we can compose our own filter on top in the visible preview.
@@ -174,6 +217,17 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         updateNodeInternals(id);
     }, [id, mediaKind, updateNodeInternals]);
 
+    // When the effective output type narrows (image / video resolved from
+    // the upstream), prune any outgoing edge whose downstream target
+    // doesn't accept the new type. Without this, swapping the upstream
+    // from image to video (or vice versa) leaves orphaned-but-still-rendered
+    // edges; the connection validator already refuses NEW drops, but old
+    // edges from before the swap would otherwise linger.
+    useEffect(() => {
+        if (!mediaKind) return; // broad polymorphic — nothing to prune
+        useAppStore.getState().pruneIncompatibleOutgoingEdges(id, mediaKind);
+    }, [id, mediaKind]);
+
     // Sync to global state
     const handleSync = useCallback((updates: Partial<typeof config>) => {
         updateNodeConfig(id, {
@@ -201,6 +255,24 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         try { v.pause(); } catch { /* noop */ }
         try { v.currentTime = 0; } catch { /* noop */ }
     }, []);
+
+    // Bind the live MediaStream when upstream is a live source (Compositor).
+    // `srcObject` can't be set declaratively in JSX, so the effect handles it.
+    // We also flip the element back to `src`-mode if the upstream changes to a
+    // static URL, so dropping the Compositor and wiring a regular MediaInput
+    // video keeps working without remounting the node.
+    useEffect(() => {
+        const v = previewVideoRef.current;
+        if (!v) return;
+        if (liveStream) {
+            if (v.srcObject !== liveStream) {
+                v.srcObject = liveStream;
+                v.play().catch(() => { /* autoplay may be blocked pre-gesture */ });
+            }
+        } else if (v.srcObject) {
+            v.srcObject = null;
+        }
+    }, [liveStream]);
 
     // Derived blur style. Composes our own blur with any cssFilter the
     // upstream already declared, so a chained Blur → Blur card preview shows
@@ -239,11 +311,19 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         });
         observer.observe(wrapper);
         return () => observer.disconnect();
-    }, [mediaKind, mediaUrl]);
+    }, [mediaKind, mediaUrl, liveStream]);
 
     const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
         setNativeMediaWidth(e.currentTarget.videoWidth || 0);
     }, []);
+
+    // Live sources can publish their native resolution up front (the
+    // Compositor knows its canvas dimensions immediately). Seed
+    // nativeMediaWidth from that so the preview-blur scaling math kicks in
+    // before any onLoadedMetadata fires.
+    useEffect(() => {
+        if (upstreamResolution?.width) setNativeMediaWidth(upstreamResolution.width);
+    }, [upstreamResolution]);
 
     // For images we don't get a direct onLoad event (BlurryImage doesn't
     // forward the DOM event), so we measure via a throwaway Image preload
@@ -288,22 +368,23 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             >
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
 
-                {mediaUrl ? (
+                {(mediaUrl || liveStream) ? (
                     <div
                         ref={previewWrapperRef}
                         className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
                         onClick={() => setLightboxOpen(true)}
-                        onMouseEnter={mediaKind === 'video' ? handlePreviewEnter : undefined}
-                        onMouseLeave={mediaKind === 'video' ? handlePreviewLeave : undefined}
+                        onMouseEnter={mediaKind === 'video' && !liveStream ? handlePreviewEnter : undefined}
+                        onMouseLeave={mediaKind === 'video' && !liveStream ? handlePreviewLeave : undefined}
                         style={{ filter: previewBlurStyle }}
                     >
                         {mediaKind === 'video' ? (
                             <video
                                 ref={previewVideoRef}
-                                src={mediaUrl}
+                                {...(liveStream ? {} : { src: mediaUrl as string })}
                                 loop
                                 muted
                                 playsInline
+                                autoPlay={!!liveStream}
                                 preload="metadata"
                                 onLoadedMetadata={handleVideoMetadata}
                                 className={cn(
@@ -313,8 +394,8 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                             />
                         ) : (
                             <BlurryImage
-                                src={mediaUrl}
-                                fallbackSrc={mediaUrl}
+                                src={mediaUrl ?? undefined}
+                                fallbackSrc={mediaUrl ?? undefined}
                                 alt="Blur preview"
                                 className={cn(
                                     "relative z-10",

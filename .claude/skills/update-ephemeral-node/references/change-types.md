@@ -126,6 +126,35 @@ Tighten or expand what the chat brain understands about this node. Pure document
 - "The brain keeps generating blurs with radius 100 when the user says 'subtle blur' — fix the schema descriptions"
 - "Add an enum constraint on output format so the brain only picks valid values"
 
+## Cross-plugin — video live-signal contract
+
+A change to a node that produces or consumes `video`. Video has two envelope shapes (see [live-data-flow.md](../../create-ephemeral-node/references/live-data-flow.md)): static URL (a finished file) and live `MediaStream` / `HTMLCanvasElement` from a producer like compositor. Many "innocent" updates break one shape while keeping the other working — e.g. tightening an upstream-URL guard, adding a `canvas.toDataURL()` step, or assuming `first.url` is always non-empty.
+
+**Risk:** High. Failure mode is silent: workflows still load and the UI looks fine, but the live preview goes blank or chains stop propagating.
+
+**Files to touch:** depends on the role this node plays in the video chain.
+
+- **If this node CONSUMES video (filter, transform, preview):**
+  - `executor.client.ts` — extraction must read `stream`, `canvas`, AND `url` from the upstream envelope item; the "no input" check is `if (!url && !stream && !canvas) return null`. Filters propagate references forward unchanged with `cssFilter` appended; they do NOT re-encode pixels.
+  - `component.tsx` — preview JSX uses `srcObject` (set via effect, not JSX prop) when `stream` is present; falls back to `src` for static URLs. `mediaKind` returns `'video'` whenever a stream/canvas is present, regardless of URL.
+  - If the node is a chained filter, it must accept `upstreamCssFilter` and concatenate its own onto it.
+
+- **If this node PRODUCES video (compositor-like live producer):**
+  - `executor.server.ts` — emits a real URL (Shape A). Server has no canvas; uses ffmpeg/Sharp/Replicate and uploads.
+  - `component.tsx` — publishes `{ type: 'video', data: [{ url: '', stream, canvas, cssFilter: '', resolution, metadata }] }` into `nodeOutputs[id]` via `setNodeOutput`. The `cssFilter: ''` is required as the "chain root" marker.
+  - If the node has a fullscreen lightbox, the video path records the stream into a blob URL once on open and feeds that to `ImageLightbox` (a live MediaStream can't be scrubbed). See compositor's `lightboxBlobUrl` flow.
+
+- **If this node's output dataType is the polymorphic union `['image','video']`:** add or update a `resolve<NodeName>OutputKind` helper in `lib/editor/handle-compatibility.ts` and dispatch from `resolveDynamicOutputType`. The helper should trust the envelope's `.type` field over URL detection — live producers have empty URLs. The component should call `pruneIncompatibleOutgoingEdges(id, newKind)` from a `useEffect` when the kind narrows.
+
+**Backwards compat:** verify both shapes still work after the change. Smoke test must include:
+- Static-URL upstream: `media_input` video → this node → downstream. Confirm live preview.
+- Live-signal upstream: `compositor` with a video layer → this node → downstream. Confirm live preview AND that filter chains continue past this node.
+
+**Example user requests that hit this:**
+- "Make blur work on video too" — adds `stream`/`canvas` consumer logic to blur.
+- "The compositor's output isn't reaching downstream filters" — likely a producer-side envelope shape bug.
+- "Add a contrast node" — must follow the same filter pattern as blur (pass-through with cssFilter) to compose with the existing video chain.
+
 ## Cross-plugin — output shape change
 
 You're changing what this node outputs in a way downstream nodes might notice. E.g. switching the output from `image` to `image_array`, adding a new field to `ImageObject.metadata` that downstream nodes might or might not expect.

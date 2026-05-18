@@ -19,16 +19,47 @@ import type { Workflow } from '@/lib/nodes/types';
  *   - node.data.isNew           internal UI flag
  *   - edge.id                   uuid never referenced by the model
  */
+
+// ai_generator stores dynamic controls (duration, resolution, aspect_ratio,
+// negative_prompt, ...) under data.config.control_values.<key>. Older saved
+// workflows — and a brain bug fixed in this same change — could leave those
+// keys flat in data.config alongside model_id. The UI doesn't read flat keys,
+// so they're invisible state. If we send them to the AI it sees a populated
+// value and replies "already set" while the property panel shows defaults.
+// Stripping them forces the AI to re-emit the value into control_values,
+// where the UI and executor actually look.
+const AI_GENERATOR_META_KEYS = new Set([
+  'model_id',
+  'node_type_id',
+  'control_values',
+  'ui_state',
+  'last_output',
+]);
+
+function sanitizeNodeConfigForBrain(type: string, config: any): any {
+  if (type !== 'ai_generator' || !config || typeof config !== 'object') return config;
+  const cleaned: Record<string, any> = {};
+  for (const [key, val] of Object.entries(config)) {
+    if (AI_GENERATOR_META_KEYS.has(key)) cleaned[key] = val;
+  }
+  return cleaned;
+}
+
 export function formatWorkflowContext(workflow: Workflow | null | undefined): string {
   if (!workflow || !Array.isArray(workflow.nodes) || workflow.nodes.length === 0) {
     return 'EXISTING WORKFLOW: empty canvas.';
   }
 
-  const nodes = workflow.nodes.map((n: any) => ({
-    id: n.id,
-    type: n.type,
-    data: n.data?.config !== undefined ? { config: n.data.config } : (n.data ?? {}),
-  }));
+  const nodes = workflow.nodes.map((n: any) => {
+    const sanitizedConfig = n.data?.config !== undefined
+      ? sanitizeNodeConfigForBrain(n.type, n.data.config)
+      : undefined;
+    return {
+      id: n.id,
+      type: n.type,
+      data: sanitizedConfig !== undefined ? { config: sanitizedConfig } : (n.data ?? {}),
+    };
+  });
 
   const edges = (Array.isArray(workflow.edges) ? workflow.edges : []).map((e: any) => {
     const out: Record<string, any> = { source: e.source, target: e.target };

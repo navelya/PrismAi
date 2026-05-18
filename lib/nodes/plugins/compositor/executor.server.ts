@@ -31,9 +31,12 @@ import {
  *        - Encodes the result as H.264 mp4 and uploads to `workflow-ephemeral-tmp`.
  *      Returns a `video` envelope.
  *
- *   The runtime keys outputs per-node, not per-handle (see lib/workflow/orchestrator.ts).
- *   Both `image_out` and `video_out` source edges receive whichever envelope
- *   this executor emits — wire the handle that matches your content.
+ *   The compositor exposes a single polymorphic output handle (`image_out`)
+ *   whose static dataType is the union ['image','video']. The connection
+ *   validator narrows it to 'video' at runtime whenever any wired layer is a
+ *   video — so downstream image-only consumers reject the wire while video
+ *   consumers accept it. This executor's emitted envelope (`image` vs
+ *   `video`) matches that narrowing.
  *
  *   Known Stage 1 limitations on the temporal path:
  *     - Layer rotation, opacity, flip, blendMode, and crop are ignored on

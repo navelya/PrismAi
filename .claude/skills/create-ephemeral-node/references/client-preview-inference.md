@@ -38,14 +38,22 @@ Same as image but loop over the array. The preview can show a grid (CSS `grid-co
 
 ### `video` outputs
 
+**STOP. Read [live-data-flow.md](live-data-flow.md) first.** Video is the one data type with two distinct envelope shapes (static URL vs live MediaStream/canvas), and most video-related bugs come from treating one as the other. The rules below are the abbreviated version.
+
 **→ `<video>` element + MediaSource API or canvas frame extraction.**
 
-For video transforms (trim, scale, color):
-- Load source via `<video src={url}>`.
-- For lightweight effects (CSS filters on play): set `style.filter = 'brightness(1.2)'` on the video element directly — no executor needed for that case.
-- For frame-by-frame manipulation: draw video frames to canvas with `ctx.drawImage(videoEl, 0, 0)` on each `requestVideoFrameCallback`.
+Video transforms (blur, brightness, contrast, etc.) are **filter-shaped** — they should NOT re-encode the pixels:
+- Load source via `<video src={url}>` for static-URL upstreams, or `<video srcObject={stream}>` for live-stream upstreams (e.g. compositor output). `srcObject` can't be set declaratively in JSX — bind it via a `useEffect` on a ref.
+- Apply CSS filters at render time: `style={{ filter: cssFilter }}` on the video element. No canvas, no executor work on pixels.
+- Propagate forward: your executor returns the upstream `url` AND `stream` AND `canvas` unchanged, with your filter string appended to the accumulated `cssFilter`. Chained filters compose by string concatenation. This is what `lib/nodes/plugins/blur/executor.client.ts` does — read it.
+- DO NOT do `ctx.drawImage(videoEl, 0, 0)` + `canvas.toDataURL()` for live video. That captures one frame, not a video, and breaks the chain.
 
-Live preview of complex video edits in browser is often impractical (CPU-bound). For those:
+Live video producers (compositor, future timeline/mixer nodes):
+- Render into an HTMLCanvasElement.
+- Publish `{ type: 'video', data: [{ url: '', stream, canvas, cssFilter: '', resolution, metadata }] }` into `nodeOutputs[id]` directly from the component (not the client executor).
+- Server-side, your `executor.server.ts` produces a real MP4 with a real URL (Shape A) — see live-data-flow.md.
+
+For genuinely heavy frame-by-frame transforms that CAN'T be expressed as a CSS filter (custom shader, ML inference, etc.):
 - `executor.client.ts` returns `null` (no preview).
 - Document why in a comment.
 - The user sees only the canvas card + a "running on server" indicator.

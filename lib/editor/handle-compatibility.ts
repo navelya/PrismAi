@@ -51,6 +51,14 @@ function resolveBlurOutputKind(nodeId: string, depth: number = 0): 'image' | 'vi
     const cfgLast = (upstream.data as any)?.config?.last_output;
     const candidate = liveOutput ?? dataOutput ?? cfgImages ?? cfgLast;
 
+    // Envelope shape: {type: 'image'|'video', data: [...]}. Trust the type
+    // field over URL detection — it's authoritative for live-stream sources
+    // (Compositor's live video output has no URL until the server renders).
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        const t = (candidate as any).type;
+        if (t === 'video' || t === 'image') return t;
+    }
+
     const url = extractFirstUrl(candidate);
     if (!url) return null;
 
@@ -81,10 +89,52 @@ function extractFirstUrl(value: any): string | null {
 }
 
 /**
- * For nodes whose output dataType is dynamic (currently just blur), return
- * the narrowed runtime type — or null to fall back to the static registry
- * dataType. Centralizes the per-node-type carve-outs so the handle-compat
- * helpers stay generic.
+ * Resolve the runtime output kind for a compositor node by inspecting its
+ * wired layer inputs. Compositor has a single polymorphic output handle whose
+ * static dataType is ['image','video']; the narrowing rule is:
+ *   - Any video layer → 'video' (temporal render emits mp4).
+ *   - Otherwise any image layer → 'image' (still composite emits raster).
+ *   - No wired media (only text, or nothing) → null = broad union applies.
+ *
+ * Layer edges all target `layers` (or no targetHandle), so we walk every
+ * incoming edge that hits that handle.
+ */
+function resolveCompositorOutputKind(nodeId: string): 'image' | 'video' | null {
+    const wf = useAppStore.getState().currentWorkflow;
+    if (!wf) return null;
+
+    const layerEdges = wf.edges.filter(
+        (e) => e.target === nodeId && (e.targetHandle === 'layers' || !e.targetHandle),
+    );
+    if (layerEdges.length === 0) return null;
+
+    let sawImage = false;
+    for (const edge of layerEdges) {
+        const upstream = wf.nodes.find((n) => n.id === edge.source);
+        if (!upstream) continue;
+
+        const liveOutput = useAppStore.getState().nodeOutputs[upstream.id];
+        const dataOutput = (upstream.data as any)?.output;
+        const cfgImages = (upstream.data as any)?.config?.images;
+        const cfgLast = (upstream.data as any)?.config?.last_output;
+        const candidate = liveOutput ?? dataOutput ?? cfgImages ?? cfgLast;
+
+        const url = extractFirstUrl(candidate);
+        if (!url) continue;
+
+        if (url.startsWith('data:video/')) return 'video';
+        if (url.startsWith('data:image/')) { sawImage = true; continue; }
+        const detected = detectMediaTypeFromUrl(url);
+        if (detected === 'video') return 'video';
+        if (detected === 'image') sawImage = true;
+    }
+    return sawImage ? 'image' : null;
+}
+
+/**
+ * For nodes whose output dataType is dynamic, return the narrowed runtime
+ * type — or null to fall back to the static registry dataType. Centralizes
+ * the per-node-type carve-outs so the handle-compat helpers stay generic.
  */
 function resolveDynamicOutputType(
     node: { type: string; id?: string } | undefined,
@@ -94,6 +144,9 @@ function resolveDynamicOutputType(
     if (node.type === 'blur') {
         const kind = resolveBlurOutputKind(node.id);
         return kind; // 'image' | 'video' | null
+    }
+    if (node.type === 'compositor') {
+        return resolveCompositorOutputKind(node.id); // 'image' | 'video' | null
     }
     return null;
 }

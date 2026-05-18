@@ -471,7 +471,7 @@ export function useChatMessages({
                         });
                     }
                 }
-                else if (parsed.type === 'tool' && ['add_node', 'update_node', 'remove_node', 'mutate_workflow'].includes(parsed.name)) {
+                else if (parsed.type === 'tool' && ['add_node', 'update_node', 'update_compositor_layer', 'remove_node', 'mutate_workflow'].includes(parsed.name)) {
                     if (parsed.message) {
                         networkText += (networkText ? '\n\n' : '') + parsed.message;
                     }

@@ -275,7 +275,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               break;
             }
 
-            if (name !== 'add_node' && name !== 'update_node' && name !== 'remove_node') {
+            if (name !== 'add_node' && name !== 'update_node' && name !== 'update_compositor_layer' && name !== 'remove_node') {
               input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
               pendingTools.push({ id: event.id, success: false, error: `Unknown tool ${name}` });
               break;

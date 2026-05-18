@@ -272,6 +272,92 @@ export function runUpdateNode(state: ToolHandlerState, args: any): ToolResult {
   return { success: true, patch: merged ?? undefined };
 }
 
+export function runUpdateCompositorLayer(state: ToolHandlerState, args: any): ToolResult {
+  const updates = Array.isArray(args?.updates) ? args.updates : null;
+  if (!updates || updates.length === 0) {
+    return { success: false, error: 'update_compositor_layer requires a non-empty "updates" array.' };
+  }
+
+  // Group updates by nodeId so we read-modify-write each compositor's
+  // `config.layers` array once. Without grouping, two updates targeting
+  // the same compositor would race: the second would read the pre-first-
+  // patch layers and overwrite the first's changes.
+  const byNode = new Map<string, Array<{ index: number; layerId: string; patch: any }>>();
+
+  for (let i = 0; i < updates.length; i++) {
+    const u = updates[i];
+    if (!u || typeof u !== 'object') {
+      return { success: false, error: `update_compositor_layer updates[${i}] must be an object.` };
+    }
+    if (typeof u.nodeId !== 'string' || u.nodeId.length === 0) {
+      return { success: false, error: `update_compositor_layer updates[${i}] requires a "nodeId" string.` };
+    }
+    if (typeof u.layerId !== 'string' || u.layerId.length === 0) {
+      return { success: false, error: `update_compositor_layer updates[${i}] requires a "layerId" string.` };
+    }
+    if (!u.patch || typeof u.patch !== 'object') {
+      return { success: false, error: `update_compositor_layer updates[${i}] requires a "patch" object.` };
+    }
+    const resolved = state.idMap.get(u.nodeId) ?? u.nodeId;
+    const bucket = byNode.get(resolved);
+    if (bucket) bucket.push({ index: i, layerId: u.layerId, patch: u.patch });
+    else byNode.set(resolved, [{ index: i, layerId: u.layerId, patch: u.patch }]);
+  }
+
+  const patches: WorkflowPatch[] = [];
+
+  for (const [nodeId, perNodeUpdates] of byNode) {
+    const node = state.workflow.nodes.find((n: any) => n.id === nodeId);
+    if (!node) {
+      return { success: false, error: `update_compositor_layer: node "${nodeId}" not found.` };
+    }
+    if ((node as any).type !== 'compositor') {
+      return { success: false, error: `update_compositor_layer: node "${nodeId}" is not a compositor (got "${(node as any).type}").` };
+    }
+    const currentLayers: any[] = (((node as any).data?.config as any)?.layers ?? []) as any[];
+    if (currentLayers.length === 0) {
+      return { success: false, error: `update_compositor_layer: compositor "${nodeId}" has no layers yet — connect an edge to create one first.` };
+    }
+
+    let nextLayers = currentLayers;
+    for (const u of perNodeUpdates) {
+      const idx = nextLayers.findIndex((l: any) => l?.id === u.layerId);
+      if (idx < 0) {
+        const validIds = currentLayers.map((l: any) => l?.id).filter((x: any) => typeof x === 'string').join(', ');
+        return {
+          success: false,
+          error: `update_compositor_layer updates[${u.index}]: layer "${u.layerId}" not found on compositor "${nodeId}". Valid layer ids: ${validIds}.`
+        };
+      }
+      const old = nextLayers[idx];
+      const merged: any = { ...old, ...u.patch };
+      // One-level deep-merge for transform and transition so partial patches
+      // (e.g. just transform.x) don't wipe sibling fields. crop and other
+      // nested objects under transform are full-replace — they're coherent
+      // units the model should set entirely or leave alone.
+      if (u.patch.transform && typeof u.patch.transform === 'object') {
+        merged.transform = { ...(old?.transform ?? {}), ...u.patch.transform };
+      }
+      if (u.patch.transition && typeof u.patch.transition === 'object') {
+        merged.transition = { ...(old?.transition ?? {}), ...u.patch.transition };
+      }
+      nextLayers = [...nextLayers.slice(0, idx), merged, ...nextLayers.slice(idx + 1)];
+    }
+
+    const patch: WorkflowPatch = {
+      updatedNodes: [{
+        id: nodeId,
+        data: { config: { layers: nextLayers } },
+      }],
+    };
+    state.workflow = applyWorkflowPatch(state.workflow, patch);
+    patches.push(patch);
+  }
+
+  const merged = patches.reduce<WorkflowPatch | null>((acc, p) => mergeWorkflowPatches(acc, p), null);
+  return { success: true, patch: merged ?? undefined };
+}
+
 export function runRemoveNode(state: ToolHandlerState, args: any): ToolResult {
   const ids = Array.isArray(args?.ids) ? args.ids : null;
   if (!ids || ids.length === 0) {
@@ -299,9 +385,10 @@ export function runRemoveNode(state: ToolHandlerState, args: any): ToolResult {
 
 export async function dispatchTool(state: ToolHandlerState, name: ToolName, args: any): Promise<ToolResult> {
   switch (name) {
-    case 'add_node':    return await runAddNode(state, args);
-    case 'update_node': return runUpdateNode(state, args);
-    case 'remove_node': return runRemoveNode(state, args);
+    case 'add_node':                return await runAddNode(state, args);
+    case 'update_node':             return runUpdateNode(state, args);
+    case 'update_compositor_layer': return runUpdateCompositorLayer(state, args);
+    case 'remove_node':             return runRemoveNode(state, args);
     case 'ask_clarification':
       // Handled directly by the brain (see brain.ts) — never patch the workflow.
       // Reached only if the brain forwards it here by mistake; treat as a no-op.

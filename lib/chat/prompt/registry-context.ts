@@ -133,11 +133,13 @@ export function formatRegistryContext(input: RegistryContextInput): string {
       // target the static handle "layers"; sourceHandleId in config.layers
       // stores the runtime edge id (not a handle name). The compositor has
       // an orphan-edge fallback that auto-creates layers from incoming
-      // edges, so the model should leave config.layers empty.
+      // edges, so the model should leave config.layers empty at creation
+      // time and use the dedicated update_compositor_layer tool for edits.
       block += `\n\nREQUIRED CONFIG for compositor:`;
       block += `\n- All edges connecting INTO a compositor MUST use targetHandle: "layers" (the only valid handle on this node).`;
       block += `\n- Do NOT use targetHandle values like "layer_0", "layer_1", etc. — they don't exist and will be rejected by the canvas.`;
-      block += `\n- Leave \`config.layers\` as an empty array \`[]\`. The canvas auto-creates layers from incoming edges.`;
+      block += `\n- Leave \`config.layers\` as an empty array \`[]\` when ADDING a compositor. The canvas auto-creates one layer per incoming edge with a stable id (visible in the workflow context as \`config.layers[*].id\`).`;
+      block += `\n- To EDIT existing compositor layers — move/resize/rotate, set timeline placement (startTime, duration), change opacity/blend mode/flip, set typography on text layers, or adjust the crop box — use the dedicated \`update_compositor_layer\` tool. NEVER touch \`config.layers\` via \`update_node\`: that does a shallow replace and silently drops fields (forward-compat keys, transitions, blend modes, etc.).`;
       block += `\n- The aiSchema below for this node is misleading — ignore the layer/sourceHandleId guidance there. Trust THIS section instead.`;
     } else if (def.aiSchema && Object.keys(def.aiSchema).length > 0) {
       const topRequired: string[] = Array.isArray(def.aiSchema.required) ? def.aiSchema.required : [];

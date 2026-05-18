@@ -37,7 +37,10 @@
       "Bash(Select-String -Pattern \"error|Error|warn|✓|✗|compiled|failed|success|Compiled|Failed|Route|done|Done\" --SimpleMatch)",
       "Bash(Get-Content \"C:\\\\Projects\\\\Prisfol\\\\PrismAi\\\\lib\\\\store\\\\app-store.ts\")",
       "Bash(Select-String \"updateMessage\")",
-      "Bash(findstr *)"
+      "Bash(findstr *)",
+      "WebFetch(domain:maiamichelle.com)",
+      "WebFetch(domain:www.youtube.com)",
+      "WebFetch(domain:videohighlight.com)"
     ]
   }
 }

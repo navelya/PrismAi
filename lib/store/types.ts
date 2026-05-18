@@ -96,6 +96,15 @@ export interface WorkflowSlice {
     onEdgesChange: (changes: any[]) => void;
     onConnect: (connection: any) => void;
 
+    /**
+     * Drop outgoing edges from a node whose downstream target is incompatible
+     * with the given output type. Used by nodes with dynamically-narrowing
+     * outputs (e.g. Blur) — when their effective output type changes (image
+     * → video or vice versa), edges that targeted a now-incompatible input
+     * become orphaned and are removed.
+     */
+    pruneIncompatibleOutgoingEdges: (nodeId: string, outputType: string | string[]) => void;
+
     isDragging: boolean;
     setIsDragging: (isDragging: boolean) => void;
     copiedNode: WorkflowNode | null;

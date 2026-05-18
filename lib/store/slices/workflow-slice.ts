@@ -10,6 +10,7 @@ import {
     GROUP_PADDING,
     GROUP_DEFAULT_LABEL,
 } from '../../nodes/group-constants';
+import { getNodeHandleType, typesAreCompatible } from '@/lib/editor/handle-compatibility';
 
 /**
  * Build a default CompositorLayer for an edge that just landed on a compositor.
@@ -348,6 +349,39 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                 edges: updatedEdges as any[]
             },
             isWorkflowDirty: true
+        });
+    },
+
+    pruneIncompatibleOutgoingEdges: (nodeId, outputType) => {
+        const { currentWorkflow, models } = get();
+        if (!currentWorkflow) return;
+
+        const incompatible = currentWorkflow.edges.filter((edge) => {
+            if (edge.source !== nodeId) return false;
+            const downstream = currentWorkflow.nodes.find((n) => n.id === edge.target);
+            if (!downstream) return false;
+            const downstreamHandle = getNodeHandleType(
+                downstream as any,
+                edge.targetHandle || null,
+                'target',
+                models,
+                sharedRegistry,
+            );
+            if (!downstreamHandle) return false; // unknown — keep
+            return !typesAreCompatible(outputType, downstreamHandle.type);
+        });
+
+        if (incompatible.length === 0) return;
+
+        get().takeSnapshot();
+
+        const removeIds = new Set(incompatible.map((e) => e.id));
+        set({
+            currentWorkflow: {
+                ...currentWorkflow,
+                edges: currentWorkflow.edges.filter((e) => !removeIds.has(e.id)),
+            },
+            isWorkflowDirty: true,
         });
     },
 
