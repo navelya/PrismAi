@@ -184,9 +184,14 @@ function LivePreview({
     return (
         <div
             ref={containerRef}
-            className="w-full relative overflow-hidden flex items-center justify-center rounded-xl border border-stroke-subtle shadow-2xl"
+            className="relative overflow-hidden flex items-center justify-center rounded-xl border border-stroke-subtle shadow-2xl"
             style={{
                 ...checkerboardStyle,
+                // Intrinsic preferred width — feeds the BaseNode's outer
+                // `max-content` clamp (320..420). Without this the wrapper
+                // collapses under max-content because aspect-ratio alone
+                // has no width to measure against.
+                width: canvasWidth,
                 aspectRatio: `${canvasWidth} / ${canvasHeight}`
             }}
         >
@@ -697,7 +702,8 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 nodeData={data}
                 isNew={(data as any).isNew}
                 badgeCount={renderable.length}
-                width={320}
+                width=""
+                style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
                 hideStatus={true}
                 customOutputs={customOutputs}
                 customActions={
