@@ -299,6 +299,39 @@ export function typesAreCompatible(
 }
 
 /**
+ * True if adding `source → target` to the current edge set would close a
+ * directed cycle. Forward DFS from `target` — if we reach `source`, the new
+ * edge would loop back. O(V + E); fine for typical workflow sizes.
+ *
+ * Self-loops are reported as a cycle for convenience; callers can also rely
+ * on their own `source === target` early-out if they want a separate code
+ * path for that case.
+ */
+export function wouldCreateCycle(
+    sourceId: string,
+    targetId: string,
+    edges: { source: string; target: string }[],
+): boolean {
+    if (sourceId === targetId) return true;
+    const adj = new Map<string, string[]>();
+    for (const e of edges) {
+        if (!adj.has(e.source)) adj.set(e.source, []);
+        adj.get(e.source)!.push(e.target);
+    }
+    const stack = [targetId];
+    const seen = new Set<string>();
+    while (stack.length) {
+        const n = stack.pop()!;
+        if (n === sourceId) return true;
+        if (seen.has(n)) continue;
+        seen.add(n);
+        const next = adj.get(n);
+        if (next) stack.push(...next);
+    }
+    return false;
+}
+
+/**
  * Pick the first handle on the candidate node that the pending wire can connect to.
  * - 'source' wire (originated at an output) → look for a compatible input.
  * - 'target' wire (originated at an input)  → look for a compatible output.
