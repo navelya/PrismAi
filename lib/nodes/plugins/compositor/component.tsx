@@ -184,14 +184,9 @@ function LivePreview({
     return (
         <div
             ref={containerRef}
-            className="relative overflow-hidden flex items-center justify-center rounded-xl border border-stroke-subtle shadow-2xl"
+            className="w-full relative overflow-hidden flex items-center justify-center rounded-xl border border-stroke-subtle shadow-2xl"
             style={{
                 ...checkerboardStyle,
-                // Intrinsic preferred width — feeds the BaseNode's outer
-                // `max-content` clamp (320..420). Without this the wrapper
-                // collapses under max-content because aspect-ratio alone
-                // has no width to measure against.
-                width: canvasWidth,
                 aspectRatio: `${canvasWidth} / ${canvasHeight}`
             }}
         >
@@ -597,6 +592,23 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
 
+    // Card sizing: cap the LONGER dimension at MAX_DIM and derive the other
+    // from the canvas aspect. Pure max-content + a width-only maxWidth would
+    // let portrait canvases blow up the height (a 9:16 card pinned to 420
+    // wide via aspect-ratio reads ~747 tall — too much). Picking the binding
+    // axis explicitly keeps the card balanced for any aspect.
+    //
+    // MIN_DIM is a safety floor for extreme aspects only; reasonable canvas
+    // ratios (≥ ~9:21) never hit it.
+    const cardWidth = useMemo(() => {
+        const MAX_DIM = 420;
+        const MIN_DIM = 200;
+        const aspect = canvasW / Math.max(1, canvasH);
+        let w = aspect >= 1 ? MAX_DIM : MAX_DIM * aspect;
+        if (w < MIN_DIM) w = MIN_DIM;
+        return Math.round(w);
+    }, [canvasW, canvasH]);
+
     // Classify wired layers to derive the effective output kind. Any video
     // layer → 'video' (temporal render). A canvas-sourced layer (chained
     // compositor or blur wrapping one) also counts as 'video' — it's a live
@@ -702,8 +714,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 nodeData={data}
                 isNew={(data as any).isNew}
                 badgeCount={renderable.length}
-                width=""
-                style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
+                width={cardWidth}
                 hideStatus={true}
                 customOutputs={customOutputs}
                 customActions={
