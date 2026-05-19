@@ -175,7 +175,6 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             selected={selected}
             nodeData={data}
             isNew={(data as any).isNew}
-            badgeCount={images.length}
             className={cn(isDragOver && "ring-2 ring-accent-primary ring-offset-2")}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -330,7 +329,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                     </>
                 )}
                 {/* Modern Glassy Loading Effect */}
-                {isUploading && <GlassyLoader />}
+                {(isUploading || (data.config as any)?._isUploading === true) && <GlassyLoader />}
             </div>
 
             {/* Hidden file input */}

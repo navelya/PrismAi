@@ -22,6 +22,7 @@ import {
 } from './shared';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { registerDownloadHandler, unregisterDownloadHandler } from '@/lib/workflow/download-registry';
 import { NodeClientDef } from '../../core/types';
 import { compositorClientExecutor } from './executor.client';
 
@@ -744,13 +745,24 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         });
     }, [hasVideoLayer, publishedGraph, id, canvasW, canvasH, setNodeOutput]);
 
-    // Server-side download flow. Resolves each wired layer to its upstream
-    // URL (same path the LivePreview uses), POSTs config + URL map to
-    // /api/compositor/export, and streams the rendered mp4 back as a file
-    // download. fluent-ffmpeg on the server handles audio mixing + H.264
-    // encoding so quality and duration come out right by construction.
-    const handleRequestDownload = useCallback(async () => {
-        if (downloadState === 'rendering') return;
+    // Server-side export: resolves each wired layer to its upstream URL (same
+    // path the LivePreview uses), POSTs config + URL map to /api/compositor/export,
+    // and returns the rendered mp4 as a Blob. fluent-ffmpeg on the server handles
+    // audio mixing + H.264 encoding so quality and duration come out right by
+    // construction.
+    //
+    // This is the shared core for both the editor-modal Download button (which
+    // saves via a.click immediately) and the bulk-download registry (which
+    // collects the blob into a zip with the rest of the selection). It owns
+    // the per-node `downloadState` lifecycle in either case; the caller adds
+    // its own UX layer (anchor click vs zip entry) on top of the returned blob.
+    const fetchCompositorExport = useCallback(async (): Promise<{ filename: string; blob: Blob }[]> => {
+        // Reject (rather than silently return) on early-out branches so callers
+        // — including Promise.allSettled in the bulk orchestrator — see an
+        // accurate success/failure outcome.
+        if (downloadState === 'rendering') {
+            throw new Error('Already rendering');
+        }
 
         const inputs: Record<string, string> = {};
         for (const layer of config.layers || []) {
@@ -771,7 +783,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         if (Object.keys(inputs).length === 0) {
             setDownloadState('error');
             setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
-            return;
+            throw new Error('No wired inputs');
         }
 
         setDownloadState('rendering');
@@ -794,25 +806,40 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             const cd = resp.headers.get('Content-Disposition') || '';
             const match = cd.match(/filename="([^"]+)"/);
             const safeLabel = (data.label || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
-            const downloadName = match?.[1] || `${safeLabel}.mp4`;
-
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = downloadName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            const filename = match?.[1] || `${safeLabel}.mp4`;
 
             setDownloadState('success');
             setTimeout(() => setDownloadState((s) => (s === 'success' ? 'idle' : s)), 1500);
+            return [{ filename, blob }];
         } catch (err) {
             console.error('[Compositor:download] export failed', err);
             setDownloadState('error');
             setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+            throw err;
         }
     }, [downloadState, config, layerEdges, upstreamBySource, data.label]);
+
+    // Modal Download button: render the mp4, then save it directly via a click.
+    const handleRequestDownload = useCallback(async () => {
+        const [item] = await fetchCompositorExport();
+        if (!item) return;
+        const blobUrl = URL.createObjectURL(item.blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = item.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    }, [fetchCompositorExport]);
+
+    // Bulk-download path: register the export-to-blob path with the registry.
+    // EditorCanvas's multi-select Download zips everything it gets back from
+    // selected nodes' registered handlers + the generic media-URL fallback.
+    useEffect(() => {
+        registerDownloadHandler(id, fetchCompositorExport);
+        return () => unregisterDownloadHandler(id);
+    }, [id, fetchCompositorExport]);
 
     return (
         <>
@@ -823,7 +850,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 selected={selected}
                 nodeData={data}
                 isNew={(data as any).isNew}
-                badgeCount={renderable.length}
                 width={cardWidth}
                 hideStatus={true}
                 customOutputs={customOutputs}

@@ -311,9 +311,19 @@ export async function renderCompositorVideo(
         // ── Build the video filter graph ──
         // [bg]                           color=black, size=WxH, duration=total
         // For each input i:
-        //   - image: [i:v]loop=-1:1:0,trim=duration=eff,setpts=PTS-STARTPTS,scale=w:h,format=rgba[L_i]
-        //   - video: [i:v]trim=duration=eff,setpts=PTS-STARTPTS,scale=w:h,format=rgba[L_i]
+        //   - image: [i:v]loop=-1:1:0,trim=duration=eff,setpts=PTS-STARTPTS+startT/TB,scale=w:h,format=rgba[L_i]
+        //   - video: [i:v]trim=duration=eff,setpts=PTS-STARTPTS+startT/TB,scale=w:h,format=rgba[L_i]
         // Overlay each [L_i] onto the running canvas with time gating + x/y.
+        //
+        // The `+startT/TB` PTS shift parks each layer's frames at the global
+        // canvas timestamp where the layer is supposed to play. Without it,
+        // `setpts=PTS-STARTPTS` rebases the trimmed stream to [0..eff], so for
+        // layers that start at t>0 the overlay window [startT..endT] falls
+        // *past EOF* of that stream — overlay's default `eof_action=repeat`
+        // then holds the last decoded frame (in practice the first, since the
+        // decoder has barely advanced when `enable` flips on), making the
+        // layer look like a frozen still. Image layers happen to look fine
+        // either way because every frame is identical.
         const filters: string[] = [];
         filters.push(`color=c=black:s=${width}x${height}:r=${fps}:d=${total}[bg]`);
 
@@ -327,15 +337,16 @@ export async function renderCompositorVideo(
             const eff = p.effectiveDuration;
             const startT = p.startTime;
             const endT = startT + eff;
+            const setpts = `setpts=PTS-STARTPTS+${startT.toFixed(3)}/TB`;
 
             const layerLabel = `L${idx}`;
             if (p.sourceKind === 'image') {
                 filters.push(
-                    `[${idx}:v]loop=loop=-1:size=1:start=0,trim=duration=${eff.toFixed(3)},setpts=PTS-STARTPTS,scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
+                    `[${idx}:v]loop=loop=-1:size=1:start=0,trim=duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
                 );
             } else {
                 filters.push(
-                    `[${idx}:v]trim=duration=${eff.toFixed(3)},setpts=PTS-STARTPTS,scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
+                    `[${idx}:v]trim=duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
                 );
             }
 
@@ -348,7 +359,11 @@ export async function renderCompositorVideo(
 
         // ── Build the audio mix (when requested + at least one audible video) ──
         // For each unmuted video layer with audio:
-        //   [i:a]atrim=duration=eff,asetpts=PTS-STARTPTS,adelay=startMs:all=1[A_i]
+        //   [i:a]atrim=duration=eff,asetpts=PTS-STARTPTS,adelay=ms|ms|...|ms[A_i]
+        // The pipe-delimited delay list repeats the per-channel offset 8 times so
+        // mono / stereo / 5.1 / 7.1 all get the same shift. We avoided the newer
+        // `:all=1` option because the static ffmpeg builds shipped by
+        // @ffmpeg-installer don't all carry it ("Option not found").
         // Then amix together (or use the single chain directly when there's only one).
         const outputMaps: string[] = ['vout'];
         let useAudio = false;
@@ -361,9 +376,10 @@ export async function renderCompositorVideo(
                 const audioLabels: string[] = [];
                 audible.forEach(({ p, idx }) => {
                     const startMs = Math.max(0, Math.round(p.startTime * 1000));
+                    const delays = new Array(8).fill(startMs).join('|');
                     const label = `A${idx}`;
                     filters.push(
-                        `[${idx}:a]atrim=duration=${p.effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${startMs}:all=1[${label}]`,
+                        `[${idx}:a]atrim=duration=${p.effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${delays}[${label}]`,
                     );
                     audioLabels.push(label);
                 });
@@ -413,10 +429,17 @@ export async function renderCompositorVideo(
             } else {
                 outputOptions.push('-an');
             }
+            let stderrTail = '';
             cmd.complexFilter(filterComplex, outputMaps)
                 .outputOptions(outputOptions)
+                .on('stderr', (line: string) => {
+                    stderrTail = (stderrTail + '\n' + line).slice(-2000);
+                })
                 .on('end', () => resolve())
-                .on('error', (err) => reject(err))
+                .on('error', (err: Error) => {
+                    console.error('[renderCompositorVideo] ffmpeg failed.\nfilter_complex:\n', filterComplex, '\nstderr tail:\n', stderrTail);
+                    reject(new Error(`${err.message}${stderrTail ? `\nffmpeg stderr:\n${stderrTail}` : ''}`));
+                })
                 .save(outputPath);
         });
 

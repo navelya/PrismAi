@@ -25,10 +25,15 @@ import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
 import { CanvasToolbar } from './canvas/CanvasToolbar';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Trash2, Copy, Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
+import { Trash2, Copy, Group as GroupIcon, Ungroup as UngroupIcon, Download } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Toast } from '@/components/ui/Toast';
+import { collectNodeMediaBlobs, triggerBlobDownload, type DownloadItem } from '@/lib/workflow/download-output';
+import { getDownloadHandler } from '@/lib/workflow/download-registry';
+import { extractMediaUrls } from '@/lib/workflow/result-format';
+import JSZip from 'jszip';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -52,6 +57,36 @@ const PRO_OPTIONS = { hideAttribution: true } as const;
 const PAN_ON_DRAG_PAN: number[] = [0, 1];
 const PAN_ON_DRAG_SELECT: number[] = [1];
 const preventDefault = (e: React.DragEvent) => e.preventDefault();
+
+/**
+ * Sanitize an arbitrary string (workflow name, label) into a filesystem-safe
+ * filename stem. Returns an empty string for null/empty inputs so the caller
+ * can fall back to a default name.
+ */
+function sanitizeFsName(name: string | null | undefined): string {
+    if (!name) return '';
+    return name.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase().replace(/^-+|-+$/g, '').slice(0, 64);
+}
+
+/**
+ * Deduplicate zip entry names. If `name` is already in `used`, insert an
+ * incrementing `-2`, `-3`, … suffix before the extension. Mutates `used` to
+ * include the chosen final name.
+ */
+function uniqueZipName(name: string, used: Set<string>): string {
+    if (!used.has(name)) {
+        used.add(name);
+        return name;
+    }
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    let i = 2;
+    while (used.has(`${stem}-${i}${ext}`)) i++;
+    const next = `${stem}-${i}${ext}`;
+    used.add(next);
+    return next;
+}
 
 interface EditorCanvasProps {
     nodes: any[];
@@ -289,6 +324,167 @@ const EditorCanvasInner = ({
 
         onDelete(Array.from(idsToDelete));
     }, [reactFlowInstance, localNodes, onDelete]);
+
+    // Bulk-download toast (local, auto-dismissed). Set when the user clicks
+    // Download in the multi-select toolbar; cleared by the Toast itself.
+    // closeDownloadToast is stabilized because Toast's auto-dismiss effect
+    // has `onClose` in its deps — passing a fresh arrow each render would
+    // reset the timer on every parent re-render, so the toast would never
+    // auto-close.
+    const [downloadToast, setDownloadToast] = useState<string | null>(null);
+    const closeDownloadToast = useCallback(() => setDownloadToast(null), []);
+
+    /**
+     * Bulk-download for the multi-select toolbar.
+     *
+     * Collects every selected node's media output (image / video / audio / 3D)
+     * into a single zip and triggers one download. Two collection paths:
+     *
+     *   1. If a per-instance override is registered (download-registry), call
+     *      it for an artifact the node has authored itself. This is how the
+     *      compositor returns its server-side ffmpeg export rather than the
+     *      cached preview frame.
+     *   2. Otherwise fall back to extractMediaUrls on nodeOutputs[id], fetched
+     *      one by one into blobs.
+     *
+     * Text/JSON outputs are skipped on purpose — bulk download targets media
+     * only (see CLAUDE.md task notes).
+     *
+     * Progress is published to `bulkDownload` in the store as we go (one tick
+     * per fetched file plus one for the final zip), so EditorToolbar can show
+     * a "Preparing download…" indicator next to the Run button. Filenames
+     * collide between nodes get auto-disambiguated when added to the zip.
+     */
+    const setBulkDownloadProgress = useAppStore((s) => s.setBulkDownloadProgress);
+    const clearBulkDownload = useAppStore((s) => s.clearBulkDownload);
+
+    const handleDownloadSelected = useCallback(async () => {
+        const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
+        const directlySelected = rfNodes.filter((n: any) => n.selected);
+        if (directlySelected.length === 0) return;
+
+        // Fold each selected group's children into the download set so groups
+        // download as a single bundle (mirrors handleDeleteSelected).
+        const ids = new Set<string>();
+        directlySelected.forEach((n: any) => ids.add(n.id));
+        for (const sel of directlySelected) {
+            if (sel.type === 'group_container') {
+                rfNodes
+                    .filter((n: any) => n.parentNode === sel.id)
+                    .forEach((c: any) => ids.add(c.id));
+            }
+        }
+        // Group containers have no output of their own — strip them.
+        const downloadIds = Array.from(ids).filter((id) => {
+            const n = rfNodes.find((x: any) => x.id === id);
+            return !!n && n.type !== 'group_container';
+        });
+
+        if (downloadIds.length === 0) {
+            setDownloadToast('Nothing to download');
+            return;
+        }
+
+        const { nodeOutputs, currentWorkflow } = useAppStore.getState();
+
+        // Estimate progress total: count URLs from generic fallbacks + 1 per
+        // override + 1 for the final zip. Overrides can return >1 file but
+        // we can't tell ahead of time — they count as a single unit.
+        let total = 1; // zip step
+        for (const id of downloadIds) {
+            if (getDownloadHandler(id)) {
+                total += 1;
+            } else {
+                const out = nodeOutputs[id];
+                if (out) total += extractMediaUrls(out).length;
+            }
+        }
+
+        if (total <= 1) {
+            // Only the zip step exists — selection has no downloadable media.
+            setDownloadToast('Nothing to download — selected nodes have no media output');
+            return;
+        }
+
+        // Per-call operation id so concurrent downloads each render their own
+        // pill in the EditorToolbar. crypto.randomUUID is available in every
+        // modern browser; the fallback is defensive for older test envs.
+        const opId =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        let current = 0;
+        const tick = () => {
+            current = Math.min(current + 1, total);
+            setBulkDownloadProgress(opId, { current, total });
+        };
+
+        setBulkDownloadProgress(opId, { current: 0, total });
+        setDownloadToast(`Preparing ${downloadIds.length} node${downloadIds.length === 1 ? '' : 's'}…`);
+
+        try {
+            const collected: DownloadItem[] = [];
+
+            // Run nodes in parallel via Promise.allSettled so a slow compositor
+            // doesn't block faster image fetches.
+            const settled = await Promise.allSettled(
+                downloadIds.map(async (id) => {
+                    const node = currentWorkflow?.nodes.find((n) => n.id === id);
+                    const label = node?.data?.label || node?.type || 'node';
+                    const override = getDownloadHandler(id);
+                    if (override) {
+                        const items = await override();
+                        tick();
+                        return items;
+                    }
+                    return await collectNodeMediaBlobs(nodeOutputs[id], label, tick);
+                }),
+            );
+
+            let failed = 0;
+            for (const r of settled) {
+                if (r.status === 'rejected') {
+                    failed++;
+                    continue;
+                }
+                if (r.value.length === 0) continue;
+                collected.push(...r.value);
+            }
+
+            if (collected.length === 0) {
+                setDownloadToast(failed > 0 ? `${failed} failed` : 'Nothing to download');
+                return;
+            }
+
+            // Build the zip. Disambiguate same-named entries across nodes by
+            // appending an incrementing suffix; common because two duplicated
+            // ai_generator nodes both end up named "image.png".
+            const zip = new JSZip();
+            const used = new Set<string>();
+            for (const item of collected) {
+                zip.file(uniqueZipName(item.filename, used), item.blob);
+            }
+
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            tick();
+
+            const wfLabel = sanitizeFsName(currentWorkflow?.name) || 'prism-download';
+            const zipName = `${wfLabel}.zip`;
+            triggerBlobDownload(zipBlob, zipName);
+
+            const parts: string[] = [`Downloaded ${collected.length} file${collected.length === 1 ? '' : 's'} as ${zipName}`];
+            // "N had no media" intentionally omitted — selecting extra nodes
+            // alongside the media-producing ones is normal usage, not a
+            // failure worth reporting.
+            if (failed > 0) parts.push(`${failed} failed`);
+            setDownloadToast(parts.join(' · '));
+        } finally {
+            // Always clear progress — guarantees the pill never strands
+            // on-screen even if zip generation or one of the awaits throws.
+            clearBulkDownload(opId);
+        }
+    }, [reactFlowInstance, localNodes, setBulkDownloadProgress, clearBulkDownload]);
 
     // Group button is shown only when 2+ nodes are selected AND none are already
     // in a group. Mixed selections (some grouped, some not) would be ambiguous —
@@ -733,13 +929,73 @@ const EditorCanvasInner = ({
 
     const handleDrop = useCallback((event: React.DragEvent) => {
         event.preventDefault();
+        if (!reactFlowInstance) return;
+
         const rawData = event.dataTransfer.getData('application/reactflow');
-        if (!rawData || !reactFlowInstance) return;
-        try {
-            const payload = JSON.parse(rawData);
-            const position = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-            onDrop(payload.type, position, payload.node_type_id, undefined, payload.initialConfig);
-        } catch (e) { /* fallback */ }
+        if (rawData) {
+            try {
+                const payload = JSON.parse(rawData);
+                const position = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+                onDrop(payload.type, position, payload.node_type_id, undefined, payload.initialConfig);
+                return;
+            } catch (e) { /* fallback to file-drop handling */ }
+        }
+
+        // OS-file drop: mirror the assets-panel UX. Filter to image/video,
+        // spawn an empty media_input at the drop point with a transient
+        // _isUploading flag that drives the in-node GlassyLoader, then upload
+        // in the background and populate config.images on success.
+        const mediaFiles = Array.from(event.dataTransfer.files || []).filter(
+            (f) => f.type.startsWith('image/') || f.type.startsWith('video/'),
+        );
+        if (mediaFiles.length === 0) return;
+
+        const activeSessionId = useAppStore.getState().activeSessionId;
+        if (!activeSessionId) return;
+
+        const position = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        const beforeIds = new Set(
+            (useAppStore.getState().currentWorkflow?.nodes || []).map((n: any) => n.id),
+        );
+        onDrop('media_input', position, undefined, undefined, { images: [], _isUploading: true });
+
+        const wf = useAppStore.getState().currentWorkflow;
+        const newNode = wf?.nodes.find((n: any) => !beforeIds.has(n.id));
+        if (!newNode) return;
+        const newNodeId = newNode.id;
+
+        (async () => {
+            try {
+                const { uploadApi } = await import('@/lib/api/client');
+                const uploaded = await Promise.all(
+                    mediaFiles.map(async (file) => {
+                        const result = await uploadApi.upload(file, {
+                            sessionId: activeSessionId,
+                            nodeId: newNodeId,
+                        });
+                        return { url: result.publicUrl, path: result.path };
+                    }),
+                );
+
+                const store = useAppStore.getState();
+                const currentNode = store.currentWorkflow?.nodes.find((n: any) => n.id === newNodeId);
+                if (!currentNode) return; // node was deleted mid-upload
+                const currentConfig = (currentNode.data?.config as any) || {};
+                const existing = Array.isArray(currentConfig.images) ? currentConfig.images : [];
+                store.updateNodeConfig(newNodeId, {
+                    ...currentConfig,
+                    images: [...existing, ...uploaded],
+                    _isUploading: false,
+                });
+            } catch (err) {
+                console.error('Canvas file-drop upload failed:', err);
+                const store = useAppStore.getState();
+                const currentNode = store.currentWorkflow?.nodes.find((n: any) => n.id === newNodeId);
+                if (!currentNode) return;
+                const currentConfig = (currentNode.data?.config as any) || {};
+                store.updateNodeConfig(newNodeId, { ...currentConfig, _isUploading: false });
+            }
+        })();
     }, [reactFlowInstance, onDrop]);
 
     const handleNodesDelete = useCallback((deleted: any[]) => {
@@ -904,6 +1160,16 @@ const EditorCanvasInner = ({
                                     className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
                                 >
                                     <Copy className="w-3 h-3 pointer-events-none" />
+                                </button>
+                            </Tooltip>
+                            <Tooltip content="Download selected" position="top" delay={600}>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); void handleDownloadSelected(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                >
+                                    <Download className="w-3 h-3 pointer-events-none" />
                                 </button>
                             </Tooltip>
                             <Tooltip content="Delete selected" position="top" delay={600}>
@@ -1137,6 +1403,15 @@ const EditorCanvasInner = ({
                         setPendingWireAnchor(null);
                     }}
                     models={models}
+                />
+            )}
+
+            {downloadToast && (
+                <Toast
+                    message={downloadToast}
+                    duration={3500}
+                    onClose={closeDownloadToast}
+                    position="bottom-right"
                 />
             )}
         </div>

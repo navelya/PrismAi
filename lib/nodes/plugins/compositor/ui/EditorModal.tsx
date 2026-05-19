@@ -758,7 +758,12 @@ export default function CompositorEditorModal({
                     <div className="flex items-center gap-2">
                         {canDownload && onRequestDownload && (
                             <button
-                                onClick={() => { if (downloadState !== 'rendering') void onRequestDownload(); }}
+                                onClick={() => {
+                                    if (downloadState === 'rendering') return;
+                                    // Failures are surfaced via downloadState; catch the rejection
+                                    // here so it doesn't bubble as an unhandled promise rejection.
+                                    onRequestDownload()?.catch(() => {});
+                                }}
                                 disabled={downloadState === 'rendering'}
                                 className={cn(
                                     'px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-black text-xs shadow-lg transition-all uppercase tracking-widest flex items-center gap-2',

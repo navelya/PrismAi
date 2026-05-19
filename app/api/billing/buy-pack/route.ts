@@ -1,17 +1,19 @@
 /**
  * Silent credit-pack purchase.
  *
- * Creates a Paddle transaction billed against the user's saved payment method
- * (no overlay, no card re-entry) and returns the transaction ID for the
- * client to track via webhook → token_ledger.
+ * Kicks off a one-time charge against the user's active subscription's saved
+ * payment method via Paddle's purpose-built `subscriptions.createOneTimeCharge`
+ * endpoint. The resulting `transaction.completed` webhook lands the credit
+ * grant in `token_ledger`, which the client polls for to confirm completion.
  *
- * If the user has no Paddle customer record yet (never purchased before),
- * we can't charge a saved card — we return `requiresCheckout: true` so the
- * client falls back to the Paddle.js overlay for first-time card capture.
+ * Why not `transactions.create({ status: 'billed' })`? Paddle rejects that
+ * directly ("Transaction status needs to be ready") — the create endpoint
+ * only accepts draft/ready statuses. One-time charges on an existing
+ * subscription are the documented way to bill a saved card synchronously.
  *
- * Credits aren't granted here; the existing `transaction.completed` webhook
- * handler does that with full idempotency. This endpoint only kicks off the
- * charge — the source of truth for "did the grant happen" is the ledger.
+ * If the user has no active subscription, we can't use createOneTimeCharge
+ * and return `requiresCheckout: true` so the client opens the Paddle.js
+ * overlay for first-time card capture instead.
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
@@ -58,39 +60,32 @@ export async function POST(request: Request) {
         const service = createServiceClient();
         const { data: sub } = await service
             .from('subscriptions')
-            .select('paddle_customer_id')
+            .select('paddle_subscription_id, status')
             .eq('user_id', user.id)
             .maybeSingle();
 
-        // No saved customer → must go through the Paddle overlay to capture
-        // a payment method. The client falls back automatically.
-        if (!sub?.paddle_customer_id) {
+        // No active subscription = no path to charge a saved card via
+        // createOneTimeCharge. Fall back to the Paddle.js overlay so the
+        // user can enter (and save) a card on this first purchase.
+        if (!sub?.paddle_subscription_id || sub.status !== 'active') {
             return NextResponse.json({ requiresCheckout: true });
         }
 
         const paddle = getPaddle();
         try {
-            const tx = await paddle.transactions.create({
-                items: [{ priceId: pack.paddlePriceId, quantity: 1 }],
-                customerId: sub.paddle_customer_id,
-                collectionMode: 'automatic',
-                // Status 'billed' tells Paddle to immediately attempt the
-                // charge against the saved payment method.
-                status: 'billed',
-                customData: {
-                    user_id: user.id,
-                    pack_id: pack.id,
+            await paddle.subscriptions.createOneTimeCharge(
+                sub.paddle_subscription_id,
+                {
+                    effectiveFrom: 'immediately',
+                    items: [{ priceId: pack.paddlePriceId, quantity: 1 }],
                 },
-            });
+            );
 
-            return NextResponse.json({
-                transactionId: tx.id,
-                status: tx.status,
-            });
+            return NextResponse.json({ ok: true });
         } catch (paddleErr: any) {
-            // Paddle throws when the customer has no payment method on file
-            // (or it's been deleted). Fall back to the overlay so they can
-            // add one rather than seeing a hard error.
+            // Paddle throws when the subscription has no payment method on
+            // file (or it's been deleted). Fall back to the overlay so they
+            // can add one rather than seeing a hard error.
             const message = paddleErr?.message || '';
             const noMethod =
                 /payment method/i.test(message) ||
@@ -99,7 +94,7 @@ export async function POST(request: Request) {
             if (noMethod) {
                 return NextResponse.json({ requiresCheckout: true });
             }
-            console.error('[Buy Pack] Paddle transaction.create failed:', paddleErr);
+            console.error('[Buy Pack] Paddle createOneTimeCharge failed:', paddleErr);
             return NextResponse.json(
                 { error: message || 'Could not charge your saved card.' },
                 { status: 502 },

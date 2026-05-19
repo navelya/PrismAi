@@ -266,6 +266,16 @@ export interface UISlice {
     /** ID of the group currently being hovered over by a dragged node, or null. Ephemeral — never persisted. */
     dragHoverGroupId: string | null;
     setDragHoverGroupId: (id: string | null) => void;
+
+    /**
+     * Progress for the multi-select bulk-download flow. Keyed by a per-call
+     * operation id so concurrent downloads each get their own pill in the
+     * EditorToolbar. Empty record = idle. EditorCanvas is the sole writer.
+     * Ephemeral — never persisted.
+     */
+    bulkDownloads: Record<string, { current: number; total: number }>;
+    setBulkDownloadProgress: (id: string, state: { current: number; total: number }) => void;
+    clearBulkDownload: (id: string) => void;
 }
 
 export interface LivePositionSlice {

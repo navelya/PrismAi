@@ -12,6 +12,12 @@ export interface SubscriptionInfo {
     cancelAtPeriodEnd: boolean;
     /** 'monthly' or 'yearly' for paid plans; null for free. */
     billingCycle: 'monthly' | 'yearly' | null;
+    /**
+     * Paddle price ID the user has scheduled to switch to at the end of
+     * their current period. Null when no change is pending. Set by the
+     * scheduled-downgrade flow; cleared by the apply-pending-changes cron.
+     */
+    pendingPlanChangePriceId: string | null;
 }
 
 export function useSubscription() {
@@ -33,7 +39,7 @@ export function useSubscription() {
 
                 const { data, error: fetchErr } = await supabase
                     .from('subscriptions')
-                    .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle')
+                    .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id')
                     .eq('user_id', user.id)
                     .single();
 
@@ -52,6 +58,7 @@ export function useSubscription() {
                             data.billing_cycle === 'monthly' || data.billing_cycle === 'yearly'
                                 ? data.billing_cycle
                                 : null,
+                        pendingPlanChangePriceId: data.pending_plan_change_price_id ?? null,
                     });
                 }
                 setLoading(false);

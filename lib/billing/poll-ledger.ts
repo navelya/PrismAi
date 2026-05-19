@@ -1,9 +1,10 @@
 /**
- * Wait for the credit-grant row to appear in `token_ledger` for a given
- * Paddle transaction. Used by the silent credit-pack flow to know when the
- * webhook has confirmed the purchase and granted credits — so the UI can
- * flip from "processing" to "success" exactly when the user's balance
- * actually changes, not on a fixed timer.
+ * Wait for a Paddle-driven credit grant to land in `token_ledger`.
+ *
+ * Used by the silent credit-pack flow: after kicking off a charge against
+ * the saved card, the client polls the ledger until the webhook has
+ * recorded the grant — at which point the UI can confidently flip from
+ * "processing" to "success".
  *
  * Returns the ledger row on success, or null on timeout.
  */
@@ -18,33 +19,41 @@ export interface LedgerGrantRow {
 }
 
 interface PollOpts {
-    /** Total time to wait before giving up. Default 20 seconds. */
+    /** Total time to wait before giving up. Default 25 seconds. */
     timeoutMs?: number;
     /** Delay between polls. Default 700 ms. */
     intervalMs?: number;
 }
 
-export async function pollLedgerForTx(
-    paddleTransactionId: string,
+/**
+ * Watch for a pack-purchase grant for the given pack created after
+ * `sinceMs`. We filter by pack ID (not transaction ID) because
+ * `createOneTimeCharge` doesn't return the transaction it spawns — the
+ * webhook is the first place we learn it. The `sinceMs` cutoff prevents
+ * matching a previous purchase of the same pack.
+ */
+export async function pollLedgerForPack(
+    packId: string,
+    sinceMs: number,
     opts: PollOpts = {},
 ): Promise<LedgerGrantRow | null> {
-    const timeoutMs = opts.timeoutMs ?? 20000;
+    const timeoutMs = opts.timeoutMs ?? 25000;
     const intervalMs = opts.intervalMs ?? 700;
 
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
+    const sinceIso = new Date(sinceMs).toISOString();
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        // Filter via the JSON metadata column — we tag every Paddle-driven
-        // grant with `paddle_transaction_id` so we can find this specific
-        // purchase rather than just polling for any new credit movement.
         const { data } = await supabase
             .from('token_ledger')
             .select('id, amount, reason, metadata, created_at')
             .eq('user_id', user.id)
-            .filter('metadata->>paddle_transaction_id', 'eq', paddleTransactionId)
+            .eq('reason', 'paddle_pack_purchase')
+            .filter('metadata->>pack_id', 'eq', packId)
+            .gte('created_at', sinceIso)
             .order('created_at', { ascending: false })
             .limit(1);
 

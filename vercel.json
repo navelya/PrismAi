@@ -17,6 +17,10 @@
         {
             "path": "/api/cron/reconcile",
             "schedule": "0 4 * * *"
+        },
+        {
+            "path": "/api/cron/apply-pending-changes",
+            "schedule": "0 * * * *"
         }
     ]
 }

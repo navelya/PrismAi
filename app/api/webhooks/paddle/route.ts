@@ -18,6 +18,7 @@ import { EventName } from '@paddle/paddle-node-sdk';
 import { getPaddle } from '@/lib/billing/paddle-server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { lookupPlanByPriceId, lookupPackByPriceId } from '@/lib/billing/paddle-mapping';
+import { PLANS } from '@/lib/billing/plans-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -237,7 +238,22 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
             // charges a prorated diff and the line item has rate<1; grant
             // proportionally so we don't over-credit.
             const rate = parseProrationRate(item.proration);
-            const credits = Math.max(0, Math.round(plan.monthlyCredits * rate));
+            const wouldGrant = Math.max(0, Math.round(plan.monthlyCredits * rate));
+            if (wouldGrant === 0) continue;
+
+            // Cap-this-period: prevent the cycling exploit where a user goes
+            // Studio→Pro→Studio and accumulates credits on every hop. The
+            // rule is that across one billing period, total subscription
+            // credits granted must not exceed the highest plan held during
+            // that period. Plays cleanly with legitimate flows:
+            //   - Fresh subscription: nothing prior → grant full amount.
+            //   - Renewal: prior anchor advances → fresh budget for the
+            //     new period.
+            //   - Real upgrade: grants the delta up to the new tier.
+            //   - Downgrade or cycle-back: no credits (already at cap).
+            const periodCap = await computePeriodGrantCap(supabase, userId, plan.planId);
+            const remaining = Math.max(0, periodCap.maxCredits - periodCap.alreadyGranted);
+            const credits = Math.min(wouldGrant, remaining);
             if (credits === 0) continue;
 
             await grantCredits(supabase, {
@@ -253,10 +269,85 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
                     cycle: plan.cycle,
                     proration_rate: rate,
                     transaction_origin: data.origin ?? null,
+                    period_max_credits: periodCap.maxCredits,
+                    period_already_granted: periodCap.alreadyGranted,
                 },
             });
         }
     }
+}
+
+/**
+ * Compute the credit-grant ceiling for the user's current billing period.
+ *
+ * Period boundary: we anchor the start of the current period at the most
+ * recent `paddle_subscription_grant` whose `transaction_origin` is a
+ * fresh-period signal — `web` (first checkout), `subscription_recurring`
+ * (auto-renewal), or `api` (admin/server-side creation). Mid-period plan
+ * changes (`subscription_update`) are NOT anchors; they fall WITHIN the
+ * current period. If no fresh-period grant exists yet, we fall back to
+ * "since the dawn of time" so the first grant always lands.
+ *
+ * Ceiling: the highest `monthlyCredits` of any plan held during the period
+ * — including the plan we're about to grant for. Already-granted is the sum
+ * of grants since the period anchor.
+ *
+ * Returns `{ maxCredits, alreadyGranted }`. Caller computes
+ * `remaining = max(0, maxCredits - alreadyGranted)` and grants
+ * `min(wouldGrant, remaining)`.
+ */
+async function computePeriodGrantCap(
+    supabase: ReturnType<typeof createServiceClient>,
+    userId: string,
+    incomingPlanId: string,
+): Promise<{ maxCredits: number; alreadyGranted: number }> {
+    const incomingPlanCredits = monthlyCreditsForPlan(incomingPlanId);
+
+    // Find the anchor: latest fresh-period grant. `.or()` with the JSON
+    // arrow path is the supabase-js way to express "origin in (...)".
+    const { data: anchorRows } = await supabase
+        .from('token_ledger')
+        .select('created_at, metadata')
+        .eq('user_id', userId)
+        .eq('reason', 'paddle_subscription_grant')
+        .or(
+            'metadata->>transaction_origin.eq.web,' +
+            'metadata->>transaction_origin.eq.subscription_recurring,' +
+            'metadata->>transaction_origin.eq.api',
+        )
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+    const anchorIso = anchorRows && anchorRows.length > 0
+        ? (anchorRows[0] as any).created_at
+        : '1970-01-01T00:00:00.000Z';
+
+    // Pull every subscription grant since the anchor (inclusive) — this is
+    // our view of "what's already been granted in the current period."
+    const { data: priorGrants } = await supabase
+        .from('token_ledger')
+        .select('amount, metadata')
+        .eq('user_id', userId)
+        .eq('reason', 'paddle_subscription_grant')
+        .gte('created_at', anchorIso);
+
+    let alreadyGranted = 0;
+    let maxCredits = incomingPlanCredits;
+    if (priorGrants) {
+        for (const row of priorGrants as any[]) {
+            alreadyGranted += row.amount;
+            const pid = row.metadata?.plan_id;
+            const planCredits = pid ? monthlyCreditsForPlan(pid) : 0;
+            if (planCredits > maxCredits) maxCredits = planCredits;
+        }
+    }
+
+    return { maxCredits, alreadyGranted };
+}
+
+function monthlyCreditsForPlan(planId: string): number {
+    const plan = PLANS.find((p) => p.id === planId);
+    return plan?.monthlyCredits ?? 0;
 }
 
 /**

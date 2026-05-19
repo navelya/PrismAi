@@ -7,7 +7,7 @@ import { AlertCircle, AlertTriangle, Check, Loader2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { useSubscription } from '@/lib/billing/use-subscription';
-import { getPlanDisplay } from '@/lib/billing/plans-config';
+import { getPlanDisplay, PLANS } from '@/lib/billing/plans-config';
 import { formatCredits } from '@/lib/billing/cost';
 import { loadPaddle } from '@/lib/billing/paddle-client';
 import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
@@ -232,6 +232,7 @@ export default function PlanBillingView() {
                                     cancelAtPeriodEnd={subscription.cancelAtPeriodEnd}
                                     currentPeriodEnd={subscription.currentPeriodEnd}
                                     planName={plan?.name ?? subscription.planId}
+                                    pendingPlanChangePriceId={subscription.pendingPlanChangePriceId}
                                 />
                             )}
                         </>
@@ -308,12 +309,14 @@ interface SubscriptionActionsProps {
     cancelAtPeriodEnd: boolean;
     currentPeriodEnd: string | null;
     planName: string;
+    pendingPlanChangePriceId: string | null;
 }
 
 function SubscriptionActions({
     cancelAtPeriodEnd,
     currentPeriodEnd,
     planName,
+    pendingPlanChangePriceId,
 }: SubscriptionActionsProps) {
     const [paymentLoading, setPaymentLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -400,6 +403,27 @@ function SubscriptionActions({
         }
     };
 
+    const [pendingCancelLoading, setPendingCancelLoading] = useState(false);
+    const handleCancelPending = async () => {
+        setError(null);
+        setPendingCancelLoading(true);
+        try {
+            const res = await fetch('/api/billing/schedule-plan-change', {
+                method: 'DELETE',
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json.error || 'Failed to cancel scheduled change');
+                return;
+            }
+            setTimeout(() => window.location.reload(), 200);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to cancel scheduled change');
+        } finally {
+            setPendingCancelLoading(false);
+        }
+    };
+
     const handleUpdatePayment = async () => {
         setError(null);
         setPaymentLoading(true);
@@ -442,6 +466,34 @@ function SubscriptionActions({
                         You&apos;ll keep access until then.
                     </div>
                 )}
+
+                {!cancelAtPeriodEnd && pendingPlanChangePriceId && currentPeriodEnd && (() => {
+                    // Resolve the pending price ID to a display name. Walk
+                    // PLANS rather than calling getPlanDisplay so we can find
+                    // both yearly and monthly cycle entries.
+                    const targetPlan = PLANS.find(
+                        (p) =>
+                            p.paddlePriceIdMonthly === pendingPlanChangePriceId ||
+                            p.paddlePriceIdYearly === pendingPlanChangePriceId,
+                    );
+                    const targetName = targetPlan?.name ?? 'a different plan';
+                    return (
+                        <div className="mb-3 rounded-lg border border-accent-primary/30 bg-accent-primary/[0.06] px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs text-content-secondary leading-relaxed min-w-0">
+                                Switching to <span className="font-semibold text-content-primary">{targetName}</span> on{' '}
+                                <span className="font-semibold text-content-primary">{formatDate(currentPeriodEnd)}</span>.
+                                You&apos;ll stay on {planName} until then.
+                            </div>
+                            <button
+                                onClick={handleCancelPending}
+                                disabled={pendingCancelLoading}
+                                className="flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold text-content-secondary hover:text-content-primary hover:bg-surface-tertiary border border-stroke-subtle transition-all disabled:opacity-50"
+                            >
+                                {pendingCancelLoading ? 'Canceling…' : 'Cancel switch'}
+                            </button>
+                        </div>
+                    );
+                })()}
 
                 <div className="flex flex-wrap items-center gap-2">
                     <button

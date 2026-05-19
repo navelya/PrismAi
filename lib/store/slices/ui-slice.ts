@@ -30,6 +30,20 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     isMenuLoading: false,
     dragHoverGroupId: null,
 
+    // Bulk-download progress (multi-select toolbar → "Download selected").
+    // Map keyed by per-call operation id so concurrent downloads each get
+    // their own pill in the EditorToolbar next to the Run button.
+    bulkDownloads: {},
+    setBulkDownloadProgress: (id, state) =>
+        set((s) => ({ bulkDownloads: { ...s.bulkDownloads, [id]: state } })),
+    clearBulkDownload: (id) =>
+        set((s) => {
+            if (!(id in s.bulkDownloads)) return s;
+            const next = { ...s.bulkDownloads };
+            delete next[id];
+            return { bulkDownloads: next };
+        }),
+
     setEditorState: (newState) =>
         set((state) => ({
             editorState: { ...state.editorState, ...newState },

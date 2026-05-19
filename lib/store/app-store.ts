@@ -131,6 +131,8 @@ export const useAppStore = create<RootState>()(
                     'nodeLabelDraft',
                     // Ephemeral hover signal during drag-into-group — must not persist.
                     'dragHoverGroupId',
+                    // Bulk-download progress — transient; never persist.
+                    'bulkDownloads',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {

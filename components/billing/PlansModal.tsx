@@ -10,7 +10,7 @@ import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
 import { openPaddleCheckout } from '@/lib/billing/paddle-client';
 import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
-import { pollLedgerForTx } from '@/lib/billing/poll-ledger';
+import { pollLedgerForPack } from '@/lib/billing/poll-ledger';
 import { createClient } from '@/lib/supabase/client';
 import BillingProcessingModal, { type BillingStatus } from './BillingProcessingModal';
 
@@ -372,6 +372,12 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
         setErrorMessage(null);
         setStatus('processing');
 
+        // Mark the moment BEFORE the API call so we can distinguish this
+        // purchase from any previous grant of the same pack in the ledger.
+        // Subtract a tiny buffer (1s) to absorb clock skew between client
+        // and Supabase server.
+        const startedAtMs = Date.now() - 1000;
+
         try {
             const res = await fetch('/api/billing/buy-pack', {
                 method: 'POST',
@@ -394,16 +400,11 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
                 return;
             }
 
-            if (!json.transactionId) {
-                setErrorMessage('Unexpected response from billing — please retry.');
-                setStatus('error');
-                return;
-            }
-
-            // Watch the ledger for the grant tagged with this transaction ID.
-            // We use it (not just balance) so we know exactly which purchase
-            // landed, even if other credit movements race in.
-            const grant = await pollLedgerForTx(json.transactionId, { timeoutMs: 25000 });
+            // Watch the ledger for a fresh pack-purchase grant matching this
+            // pack ID. `createOneTimeCharge` doesn't return the resulting
+            // transaction, so we identify the grant by pack + cutoff time
+            // rather than transaction ID.
+            const grant = await pollLedgerForPack(pack.id, startedAtMs, { timeoutMs: 25000 });
             if (!grant) {
                 setErrorMessage(
                     'Payment accepted, but the credits haven’t been added yet. Refresh in a moment — they’ll show up automatically.',
@@ -547,29 +548,33 @@ function PlanCTA({
     const targetRank = planRank(plan.id);
     const currentRank = planRank(currentPlanId);
 
-    // Pick a verb that's accurate for this transition. If the plan is the
-    // same but the cycle differs, that's neither up nor down — it's a billing
-    // cycle change, which deserves its own copy.
-    const samePlanDifferentCycle =
+    // Classification of this transition. Each category has its own button
+    // copy, its own backend route, and its own success/processing UX.
+    //   - cycleSwap: same plan, different billing cycle → immediate change
+    //   - downgrade: lower plan rank (or yearly→monthly on same plan) →
+    //     scheduled for period end (no immediate charge / no credits)
+    //   - upgrade / switch: immediate, prorated
+    const isCycleSwap =
         plan.id === currentPlanId && currentRank > 0 && selectedCycle !== currentCycle;
+    const isDowngrade =
+        !isCycleSwap &&
+        currentRank > 0 &&
+        targetRank > 0 &&
+        targetRank < currentRank;
+
     let label: string;
     let processingTitle: string;
-    if (samePlanDifferentCycle) {
+    if (isCycleSwap) {
         const direction = selectedCycle === 'yearly' ? 'annual' : 'monthly';
         label = `Switch to ${direction} billing`;
         processingTitle = `Switching to ${direction} billing…`;
+    } else if (isDowngrade) {
+        label = `Downgrade to ${plan.name}`;
+        processingTitle = 'Scheduling your downgrade…';
     } else {
-        const verb =
-            targetRank > currentRank
-                ? 'Upgrade'
-                : targetRank < currentRank && currentRank > 0
-                    ? 'Downgrade'
-                    : 'Switch';
+        const verb = targetRank > currentRank ? 'Upgrade' : 'Switch';
         label = `${verb} to ${plan.name}`;
-        processingTitle =
-            verb === 'Upgrade' ? 'Upgrading your plan…'
-                : verb === 'Downgrade' ? 'Switching to ' + plan.name + '…'
-                    : 'Updating your plan…';
+        processingTitle = verb === 'Upgrade' ? 'Upgrading your plan…' : 'Updating your plan…';
     }
 
     const handleClick = async () => {
@@ -581,6 +586,37 @@ function PlanCTA({
             router.push(`/checkout/${plan.id}?cycle=${selectedCycle}`);
             return;
         }
+
+        // Downgrades take the scheduled path — no immediate charge, no
+        // immediate plan change, no credit grant. The user keeps their
+        // current (higher) plan until the period rolls over, then a cron
+        // applies the change via Paddle.
+        if (isDowngrade) {
+            setStatus('processing');
+            try {
+                const res = await fetch('/api/billing/schedule-plan-change', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ priceId: targetPriceId }),
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setErrorMessage(json.error || 'Failed to schedule downgrade');
+                    setStatus('error');
+                    return;
+                }
+                setStatus('success');
+                setTimeout(() => {
+                    onClose();
+                    window.location.reload();
+                }, 1400);
+            } catch (e: any) {
+                setErrorMessage(e?.message || 'Failed to schedule downgrade');
+                setStatus('error');
+            }
+            return;
+        }
+
         setStatus('processing');
         try {
             const res = await fetch('/api/billing/change-plan', {
@@ -624,14 +660,22 @@ function PlanCTA({
         }
     };
 
-    const successTitle = samePlanDifferentCycle
-        ? `Now billed ${selectedCycle === 'yearly' ? 'annually' : 'monthly'}`
-        : `You’re on ${plan.name}`;
-    const successDescription = samePlanDifferentCycle
-        ? selectedCycle === 'yearly'
+    // The success card text branches on the transition type so the user
+    // sees exactly what just happened — not a generic "plan changed" line.
+    let successTitle: string;
+    let successDescription: string;
+    if (isDowngrade) {
+        successTitle = `Switch to ${plan.name} scheduled`;
+        successDescription = `You’ll keep your current plan until your period ends, then automatically switch to ${plan.name}. You can cancel the switch any time before then.`;
+    } else if (isCycleSwap) {
+        successTitle = `Now billed ${selectedCycle === 'yearly' ? 'annually' : 'monthly'}`;
+        successDescription = selectedCycle === 'yearly'
             ? 'Your subscription renews once a year. Any unused monthly time was credited toward this year.'
-            : 'Your subscription renews monthly now. Any unused yearly time was credited toward future renewals.'
-        : 'Your new plan is active and your credits have been updated.';
+            : 'Your subscription renews monthly now. Any unused yearly time was credited toward future renewals.';
+    } else {
+        successTitle = `You’re on ${plan.name}`;
+        successDescription = 'Your new plan is active and your credits have been updated.';
+    }
 
     return (
         <>
@@ -646,10 +690,14 @@ function PlanCTA({
             <BillingProcessingModal
                 status={status}
                 processingTitle={processingTitle}
-                processingDescription="Charging your saved payment method. This usually takes a second or two."
+                processingDescription={
+                    isDowngrade
+                        ? 'No charges today — we’re just recording your choice. The switch happens automatically when your current period ends.'
+                        : 'Charging your saved payment method. This usually takes a second or two.'
+                }
                 successTitle={successTitle}
                 successDescription={successDescription}
-                errorTitle="Couldn’t change plan"
+                errorTitle={isDowngrade ? 'Couldn’t schedule downgrade' : 'Couldn’t change plan'}
                 errorMessage={errorMessage}
                 onClose={() => setStatus(null)}
             />
