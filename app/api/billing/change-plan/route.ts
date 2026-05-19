@@ -60,12 +60,21 @@ export async function POST(request: Request) {
         }
 
         const paddle = getPaddle();
+
+        // Paddle rejects `scheduledChange: null` combined with any other field
+        // updates ("cannot combine updating schedule_change with other fields").
+        // If the user is upgrading/downgrading while a cancellation is queued,
+        // we need to clear that cancellation first, then change the plan.
+        const current = await paddle.subscriptions.get(sub.paddle_subscription_id);
+        if (current.scheduledChange) {
+            await paddle.subscriptions.update(sub.paddle_subscription_id, {
+                scheduledChange: null,
+            });
+        }
+
         await paddle.subscriptions.update(sub.paddle_subscription_id, {
             items: [{ priceId, quantity: 1 }],
             prorationBillingMode: 'prorated_immediately',
-            // Clear any scheduled cancellation — the user actively chose a new
-            // plan, so they're staying.
-            scheduledChange: null,
         });
 
         return NextResponse.json({ ok: true });

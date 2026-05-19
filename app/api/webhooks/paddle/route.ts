@@ -98,6 +98,33 @@ async function handleSubscriptionUpserted(data: any, supabase: ReturnType<typeof
         return;
     }
 
+    // Defend against stale events for a previously-orphaned subscription.
+    // If the user has TWO Paddle subs (e.g. from the old broken upgrade flow),
+    // events from the inactive one must not overwrite the active row.
+    //
+    // Rule: only accept this event if it's for the sub our row currently
+    // tracks, OR our row has no sub_id yet, OR our row's tracked sub has been
+    // canceled. Otherwise skip and let `/api/billing/sync` reconcile.
+    const { data: existing } = await supabase
+        .from('subscriptions')
+        .select('paddle_subscription_id, status')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (
+        existing?.paddle_subscription_id &&
+        existing.paddle_subscription_id !== data.id &&
+        existing.status === 'active'
+    ) {
+        console.warn(
+            '[Paddle Webhook] Ignoring event for non-tracked sub',
+            data.id,
+            '— DB row tracks',
+            existing.paddle_subscription_id,
+        );
+        return;
+    }
+
     const status = mapPaddleStatusToOurs(data.status);
 
     const { error } = await supabase.rpc('paddle_subscription_upsert', {
@@ -121,7 +148,10 @@ async function handleSubscriptionUpserted(data: any, supabase: ReturnType<typeof
 async function handleSubscriptionCanceled(data: any, supabase: ReturnType<typeof createServiceClient>) {
     // Paddle sends `subscription.canceled` once the subscription has actually
     // ended (not when the user clicks cancel — that's a `subscription.updated`
-    // with `scheduledChange.action = 'cancel'`). Downgrade to free.
+    // with `scheduledChange.action = 'cancel'`). Downgrade to free, but only
+    // if the canceled sub is the one our row is tracking. A cancellation for
+    // an orphaned sub (e.g. from the old broken upgrade flow) must not
+    // downgrade an active subscription the user still pays for.
     const userId = extractUserId(data);
     if (!userId) {
         console.error('[Paddle Webhook] Cancel event missing user_id:', data.id);
@@ -140,7 +170,8 @@ async function handleSubscriptionCanceled(data: any, supabase: ReturnType<typeof
             billing_cycle: null,
             updated_at: new Date().toISOString(),
         })
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('paddle_subscription_id', data.id);
 
     if (error) {
         console.error('[Paddle Webhook] Failed to downgrade subscription:', error);

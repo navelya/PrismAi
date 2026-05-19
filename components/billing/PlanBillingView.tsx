@@ -1,12 +1,18 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { AlertTriangle, Check, Loader2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { useSubscription } from '@/lib/billing/use-subscription';
 import { getPlanDisplay } from '@/lib/billing/plans-config';
 import { formatCredits } from '@/lib/billing/cost';
+import { loadPaddle } from '@/lib/billing/paddle-client';
+import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
 import PlansModal from './PlansModal';
+import BillingProcessingModal, { type BillingStatus } from './BillingProcessingModal';
 
 interface LedgerRow {
     id: string;
@@ -51,6 +57,11 @@ function formatDate(iso: string): string {
     });
 }
 
+// Session flag so we resync DB ↔ Paddle once per browser tab on mount.
+// Cheap insurance against rare cases where webhooks missed an update or
+// events for an orphaned subscription overwrote the active row.
+const SYNC_SESSION_FLAG = 'prisfol_billing_synced';
+
 export default function PlanBillingView() {
     const { balance } = useTokenBalance();
     const { subscription, loading: subLoading } = useSubscription();
@@ -59,6 +70,45 @@ export default function PlanBillingView() {
     const [ledgerLoading, setLedgerLoading] = useState(true);
     const [page, setPage] = useState(0);
     const [hasMore, setHasMore] = useState(false);
+    // `syncCompleted` gates the plan card render so it never paints with a
+    // stale row. It starts false and only flips true once we've either run
+    // the resync OR confirmed it was skipped (already done this session). If
+    // we end up reloading, we deliberately leave it false so the skeleton
+    // bridges the gap until the new page paints.
+    const [syncCompleted, setSyncCompleted] = useState(false);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (sessionStorage.getItem(SYNC_SESSION_FLAG)) {
+            setSyncCompleted(true);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/billing/sync', { method: 'POST' });
+                const json = await res.json().catch(() => ({}));
+                if (!cancelled && res.ok) {
+                    sessionStorage.setItem(SYNC_SESSION_FLAG, '1');
+                    if (json.synced && json.changed) {
+                        // DB actually moved. Reload so every hook on the page
+                        // (useSubscription, useTokenBalance) sees the fresh row.
+                        // Do NOT release the skeleton — the reload owns it from
+                        // here, otherwise the user sees a frame of stale data.
+                        window.location.reload();
+                        return;
+                    }
+                }
+            } catch {
+                // Silent: a failed resync isn't fatal — show whatever the DB
+                // has and let the user retry.
+            }
+            if (!cancelled) setSyncCompleted(true);
+        })();
+        return () => { cancelled = true; };
+        // Run once on mount only.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const fetchLedger = React.useCallback(async (pageIdx: number) => {
         setLedgerLoading(true);
@@ -115,64 +165,70 @@ export default function PlanBillingView() {
                 {/* Current plan card */}
                 <section className="relative rounded-2xl border border-stroke-subtle bg-gradient-to-br from-surface-elevated to-surface-primary/40 overflow-hidden">
                     <div className="pointer-events-none absolute -right-20 -top-20 w-72 h-72 rounded-full bg-accent-primary/10 blur-3xl" />
-                    <div className="relative p-6 sm:p-7 flex flex-col sm:flex-row gap-6 sm:items-start">
-                        {/* Plan info */}
-                        <div className="flex-1 min-w-0">
-                            <span className="text-[10px] font-bold tracking-widest uppercase text-content-tertiary">
-                                Current plan
-                            </span>
-                            <h2 className="text-xl font-bold font-display text-content-primary mt-1">
-                                {plan?.name ?? 'Free'}
-                            </h2>
-                            <p className="text-xs text-content-tertiary mt-0.5">
-                                {plan?.tagline}
-                            </p>
-                            <div className="grid grid-cols-2 gap-4 mt-5">
-                                <Stat
-                                    label="Monthly floor"
-                                    value={formatCredits(plan?.monthlyCredits ?? 0)}
-                                />
-                                <Stat
-                                    label={subscription?.cancelAtPeriodEnd ? 'Ends on' : 'Next refill'}
-                                    value={
-                                        subLoading || !subscription
-                                            ? '…'
-                                            : formatDate(
-                                                subscription.cancelAtPeriodEnd && subscription.currentPeriodEnd
-                                                    ? subscription.currentPeriodEnd
-                                                    : subscription.nextTopupAt,
-                                            )
-                                    }
-                                />
-                            </div>
-                        </div>
-
-                        {/* Balance + CTA */}
-                        <div className="flex sm:flex-col gap-4 sm:items-end items-center sm:min-w-[180px] pt-4 sm:pt-0 border-t sm:border-t-0 sm:border-l border-stroke-subtle sm:pl-6">
-                            <div className="flex-1 sm:flex-none sm:text-right">
-                                <div className="text-[10px] font-bold tracking-widest uppercase text-content-tertiary mb-1">
-                                    Balance
+                    {subLoading || !syncCompleted ? (
+                        <PlanCardSkeleton />
+                    ) : (
+                        <>
+                            <div className="relative p-6 sm:p-7 flex flex-col sm:flex-row gap-6 sm:items-start">
+                                {/* Plan info */}
+                                <div className="flex-1 min-w-0">
+                                    <span className="text-[10px] font-bold tracking-widest uppercase text-content-tertiary">
+                                        Current plan
+                                    </span>
+                                    <h2 className="text-xl font-bold font-display text-content-primary mt-1">
+                                        {plan?.name ?? 'Free'}
+                                    </h2>
+                                    <p className="text-xs text-content-tertiary mt-0.5">
+                                        {plan?.tagline}
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-4 mt-5">
+                                        <Stat
+                                            label="Monthly floor"
+                                            value={formatCredits(plan?.monthlyCredits ?? 0)}
+                                        />
+                                        <Stat
+                                            label={subscription?.cancelAtPeriodEnd ? 'Ends on' : 'Next refill'}
+                                            value={
+                                                !subscription
+                                                    ? '—'
+                                                    : formatDate(
+                                                        subscription.cancelAtPeriodEnd && subscription.currentPeriodEnd
+                                                            ? subscription.currentPeriodEnd
+                                                            : subscription.nextTopupAt,
+                                                    )
+                                            }
+                                        />
+                                    </div>
                                 </div>
-                                <div className="text-2xl font-bold font-display text-content-primary tabular-nums">
-                                    {formatCredits(balance)}
+
+                                {/* Balance + CTA */}
+                                <div className="flex sm:flex-col gap-4 sm:items-end items-center sm:min-w-[180px] pt-4 sm:pt-0 border-t sm:border-t-0 sm:border-l border-stroke-subtle sm:pl-6">
+                                    <div className="flex-1 sm:flex-none sm:text-right">
+                                        <div className="text-[10px] font-bold tracking-widest uppercase text-content-tertiary mb-1">
+                                            Balance
+                                        </div>
+                                        <div className="text-2xl font-bold font-display text-content-primary tabular-nums">
+                                            {balance === null ? <Skeleton className="h-7 w-20 ml-auto" /> : formatCredits(balance)}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowPlans(true)}
+                                        className="px-4 py-2 rounded-full bg-accent-primary text-white text-sm font-semibold hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/30"
+                                    >
+                                        {subscription && subscription.planId !== 'free' ? 'Change plan' : 'Upgrade'}
+                                    </button>
                                 </div>
                             </div>
-                            <button
-                                onClick={() => setShowPlans(true)}
-                                className="px-4 py-2 rounded-full bg-accent-primary text-white text-sm font-semibold hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/30"
-                            >
-                                {subscription && subscription.planId !== 'free' ? 'Change plan' : 'Upgrade'}
-                            </button>
-                        </div>
-                    </div>
 
-                    {/* Subscription actions / cancel banner */}
-                    {subscription && subscription.planId !== 'free' && (
-                        <SubscriptionActions
-                            cancelAtPeriodEnd={subscription.cancelAtPeriodEnd}
-                            currentPeriodEnd={subscription.currentPeriodEnd}
-                            planName={plan?.name ?? subscription.planId}
-                        />
+                            {/* Subscription actions / cancel banner */}
+                            {subscription && subscription.planId !== 'free' && (
+                                <SubscriptionActions
+                                    cancelAtPeriodEnd={subscription.cancelAtPeriodEnd}
+                                    currentPeriodEnd={subscription.currentPeriodEnd}
+                                    planName={plan?.name ?? subscription.planId}
+                                />
+                            )}
+                        </>
                     )}
                 </section>
 
@@ -253,47 +309,88 @@ function SubscriptionActions({
     currentPeriodEnd,
     planName,
 }: SubscriptionActionsProps) {
-    const [cancelLoading, setCancelLoading] = useState(false);
-    const [resumeLoading, setResumeLoading] = useState(false);
     const [paymentLoading, setPaymentLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [confirmingCancel, setConfirmingCancel] = useState(false);
 
+    // One modal serves both cancel and resume — the copy is set per action via
+    // these refs/state so the user always sees the right title and outcome.
+    const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+    const [billingErrorMessage, setBillingErrorMessage] = useState<string | null>(null);
+    const [actionKind, setActionKind] = useState<'cancel' | 'resume' | null>(null);
+
+    const cancelLoading = billingStatus === 'processing' && actionKind === 'cancel';
+    const resumeLoading = billingStatus === 'processing' && actionKind === 'resume';
+
     const handleCancel = async () => {
         setError(null);
-        setCancelLoading(true);
+        setBillingErrorMessage(null);
+        setActionKind('cancel');
+        setBillingStatus('processing');
         try {
             const res = await fetch('/api/billing/cancel', { method: 'POST' });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setError(json.error || 'Failed to cancel subscription');
+                setBillingErrorMessage(json.error || 'Failed to cancel subscription');
+                setBillingStatus('error');
                 return;
             }
+            // Close the confirmation modal — the processing modal owns the UI now.
             setConfirmingCancel(false);
-            // Paddle's webhook updates our row; give it a beat, then refresh.
-            setTimeout(() => window.location.reload(), 800);
+
+            const settled = await pollSubscriptionUntil(
+                (row) => row.cancel_at_period_end === true,
+                { timeoutMs: 20000 },
+            );
+
+            if (!settled) {
+                setBillingErrorMessage(
+                    'Your cancellation request was accepted, but we’re still waiting on confirmation from Paddle. Refresh in a moment.',
+                );
+                setBillingStatus('error');
+                return;
+            }
+
+            setBillingStatus('success');
+            setTimeout(() => window.location.reload(), 1400);
         } catch (e: any) {
-            setError(e?.message || 'Failed to cancel subscription');
-        } finally {
-            setCancelLoading(false);
+            setBillingErrorMessage(e?.message || 'Failed to cancel subscription');
+            setBillingStatus('error');
         }
     };
 
     const handleResume = async () => {
         setError(null);
-        setResumeLoading(true);
+        setBillingErrorMessage(null);
+        setActionKind('resume');
+        setBillingStatus('processing');
         try {
             const res = await fetch('/api/billing/resume', { method: 'POST' });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setError(json.error || 'Failed to resume subscription');
+                setBillingErrorMessage(json.error || 'Failed to resume subscription');
+                setBillingStatus('error');
                 return;
             }
-            setTimeout(() => window.location.reload(), 800);
+
+            const settled = await pollSubscriptionUntil(
+                (row) => row.cancel_at_period_end === false,
+                { timeoutMs: 20000 },
+            );
+
+            if (!settled) {
+                setBillingErrorMessage(
+                    'Resume request was accepted, but we’re still waiting on confirmation from Paddle. Refresh in a moment.',
+                );
+                setBillingStatus('error');
+                return;
+            }
+
+            setBillingStatus('success');
+            setTimeout(() => window.location.reload(), 1400);
         } catch (e: any) {
-            setError(e?.message || 'Failed to resume subscription');
-        } finally {
-            setResumeLoading(false);
+            setBillingErrorMessage(e?.message || 'Failed to resume subscription');
+            setBillingStatus('error');
         }
     };
 
@@ -303,11 +400,25 @@ function SubscriptionActions({
         try {
             const res = await fetch('/api/billing/payment-method', { method: 'POST' });
             const json = await res.json().catch(() => ({}));
-            if (!res.ok || !json.url) {
+            if (!res.ok || !json.transactionId) {
                 setError(json.error || 'Failed to open payment update');
                 return;
             }
-            window.open(json.url, '_blank', 'noopener,noreferrer');
+            const paddle = await loadPaddle();
+            if (!paddle) {
+                setError('Could not initialize payment form.');
+                return;
+            }
+            paddle.Checkout.open({
+                transactionId: json.transactionId,
+                settings: {
+                    displayMode: 'overlay',
+                    theme: 'dark',
+                    // Paddle reloads this URL on completion, refreshing the
+                    // page so the new payment method shows up.
+                    successUrl: `${window.location.origin}/settings?tab=plan-billing`,
+                },
+            });
         } catch (e: any) {
             setError(e?.message || 'Failed to open payment update');
         } finally {
@@ -316,64 +427,217 @@ function SubscriptionActions({
     };
 
     return (
-        <div className="relative border-t border-stroke-subtle bg-surface-primary/30 px-6 sm:px-7 py-4">
-            {cancelAtPeriodEnd && currentPeriodEnd && (
-                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-200">
-                    Your <span className="font-semibold">{planName}</span> plan will end on{' '}
-                    <span className="font-semibold">{formatDate(currentPeriodEnd)}</span>.
-                    You&apos;ll keep access until then.
-                </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2">
-                <button
-                    onClick={handleUpdatePayment}
-                    disabled={paymentLoading}
-                    className="px-3 py-1.5 rounded-full border border-stroke-subtle text-content-secondary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all disabled:opacity-50"
-                >
-                    {paymentLoading ? 'Opening…' : 'Update payment method'}
-                </button>
-
-                {cancelAtPeriodEnd ? (
-                    <button
-                        onClick={handleResume}
-                        disabled={resumeLoading}
-                        className="px-3 py-1.5 rounded-full bg-accent-primary/15 border border-accent-primary/40 text-accent-primary hover:bg-accent-primary/25 text-xs font-semibold transition-all disabled:opacity-50"
-                    >
-                        {resumeLoading ? 'Resuming…' : 'Resume subscription'}
-                    </button>
-                ) : confirmingCancel ? (
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-content-secondary">Cancel at period end?</span>
-                        <button
-                            onClick={handleCancel}
-                            disabled={cancelLoading}
-                            className="px-3 py-1.5 rounded-full bg-accent-error/15 border border-accent-error/40 text-accent-error hover:bg-accent-error/25 text-xs font-semibold transition-all disabled:opacity-50"
-                        >
-                            {cancelLoading ? 'Canceling…' : 'Yes, cancel'}
-                        </button>
-                        <button
-                            onClick={() => setConfirmingCancel(false)}
-                            disabled={cancelLoading}
-                            className="px-3 py-1.5 rounded-full text-content-tertiary hover:text-content-primary text-xs font-semibold transition-all"
-                        >
-                            Keep
-                        </button>
+        <>
+            <div className="relative border-t border-stroke-subtle bg-surface-primary/30 px-6 sm:px-7 py-4">
+                {cancelAtPeriodEnd && currentPeriodEnd && (
+                    <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-200">
+                        Your <span className="font-semibold">{planName}</span> plan will end on{' '}
+                        <span className="font-semibold">{formatDate(currentPeriodEnd)}</span>.
+                        You&apos;ll keep access until then.
                     </div>
-                ) : (
+                )}
+
+                <div className="flex flex-wrap items-center gap-2">
                     <button
-                        onClick={() => setConfirmingCancel(true)}
-                        className="px-3 py-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all"
+                        onClick={handleUpdatePayment}
+                        disabled={paymentLoading}
+                        className="px-3 py-1.5 rounded-full border border-stroke-subtle text-content-secondary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all disabled:opacity-50"
                     >
-                        Cancel subscription
+                        {paymentLoading ? 'Opening…' : 'Update payment method'}
                     </button>
+
+                    {cancelAtPeriodEnd ? (
+                        <button
+                            onClick={handleResume}
+                            disabled={resumeLoading}
+                            className="px-3 py-1.5 rounded-full bg-accent-primary/15 border border-accent-primary/40 text-accent-primary hover:bg-accent-primary/25 text-xs font-semibold transition-all disabled:opacity-50"
+                        >
+                            {resumeLoading ? 'Resuming…' : 'Resume subscription'}
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => setConfirmingCancel(true)}
+                            className="px-3 py-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all"
+                        >
+                            Cancel subscription
+                        </button>
+                    )}
+                </div>
+
+                {error && (
+                    <p className="mt-2 text-[11px] text-accent-error">{error}</p>
                 )}
             </div>
 
-            {error && (
-                <p className="mt-2 text-[11px] text-accent-error">{error}</p>
+            <CancelConfirmModal
+                open={confirmingCancel}
+                planName={planName}
+                currentPeriodEnd={currentPeriodEnd}
+                loading={cancelLoading}
+                onConfirm={handleCancel}
+                onClose={() => {
+                    if (!cancelLoading) setConfirmingCancel(false);
+                }}
+            />
+
+            <BillingProcessingModal
+                status={billingStatus}
+                processingTitle={
+                    actionKind === 'cancel' ? 'Canceling your subscription…' : 'Resuming your subscription…'
+                }
+                processingDescription={
+                    actionKind === 'cancel'
+                        ? 'Confirming the cancellation with Paddle. You’ll keep access until your period ends.'
+                        : 'Letting Paddle know you’re staying on. This usually takes a second.'
+                }
+                successTitle={
+                    actionKind === 'cancel'
+                        ? 'Subscription canceled'
+                        : `You’re staying on ${planName}`
+                }
+                successDescription={
+                    actionKind === 'cancel'
+                        ? currentPeriodEnd
+                            ? `Access continues until ${formatDate(currentPeriodEnd)}.`
+                            : 'You’ll keep access until your period ends.'
+                        : 'Your subscription will continue renewing as normal.'
+                }
+                errorTitle={
+                    actionKind === 'cancel' ? 'Couldn’t cancel' : 'Couldn’t resume'
+                }
+                errorMessage={billingErrorMessage}
+                onClose={() => setBillingStatus(null)}
+            />
+        </>
+    );
+}
+
+interface CancelConfirmModalProps {
+    open: boolean;
+    planName: string;
+    currentPeriodEnd: string | null;
+    loading: boolean;
+    onConfirm: () => void;
+    onClose: () => void;
+}
+
+function CancelConfirmModal({
+    open,
+    planName,
+    currentPeriodEnd,
+    loading,
+    onConfirm,
+    onClose,
+}: CancelConfirmModalProps) {
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
+
+    useEffect(() => {
+        if (!open) return;
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [open, onClose]);
+
+    if (!mounted) return null;
+
+    const endDate = currentPeriodEnd ? formatDate(currentPeriodEnd) : null;
+
+    const overlay = (
+        <AnimatePresence>
+            {open && (
+                <motion.div
+                    key="cancel-overlay"
+                    className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-md flex items-center justify-center p-4"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={onClose}
+                >
+                    <motion.div
+                        key="cancel-card"
+                        className="relative w-full max-w-md bg-surface-elevated border border-stroke-subtle rounded-2xl shadow-2xl overflow-hidden"
+                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-6 pt-6 pb-2 flex items-start justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                                    <AlertTriangle className="w-5 h-5 text-amber-400" strokeWidth={2.5} />
+                                </div>
+                                <h2 className="text-lg font-bold font-display text-content-primary leading-tight">
+                                    Cancel your {planName} plan?
+                                </h2>
+                            </div>
+                            <button
+                                onClick={onClose}
+                                disabled={loading}
+                                className="p-1.5 hover:bg-surface-tertiary rounded-lg transition-colors disabled:opacity-50"
+                            >
+                                <X className="w-4 h-4 text-content-tertiary" />
+                            </button>
+                        </div>
+
+                        <div className="px-6 pb-2">
+                            <p className="text-sm text-content-secondary leading-relaxed">
+                                Cancellation takes effect at the end of your current billing
+                                period{endDate ? <> — <span className="font-semibold text-content-primary">{endDate}</span></> : ''}.
+                                You&apos;ll still have full access to {planName} until then.
+                            </p>
+                        </div>
+
+                        <ul className="px-6 py-4 space-y-2.5 text-sm">
+                            <ReassureRow>
+                                Keep using every {planName} feature until {endDate ?? 'period end'}
+                            </ReassureRow>
+                            <ReassureRow>
+                                Resume any time before then — no break in service
+                            </ReassureRow>
+                            <ReassureRow>
+                                Your existing credits stay in your account and never expire
+                            </ReassureRow>
+                            <ReassureRow>
+                                No cancellation fee. You won&apos;t be charged again
+                            </ReassureRow>
+                        </ul>
+
+                        <div className="px-6 py-4 border-t border-stroke-subtle bg-surface-primary/30 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                            <button
+                                onClick={onClose}
+                                disabled={loading}
+                                className="px-4 py-2 rounded-xl text-sm font-semibold text-content-primary hover:bg-surface-tertiary transition-colors disabled:opacity-50"
+                            >
+                                Keep my plan
+                            </button>
+                            <button
+                                onClick={onConfirm}
+                                disabled={loading}
+                                className="px-4 py-2 rounded-xl bg-accent-error/90 hover:bg-accent-error text-white text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                            >
+                                {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                {loading ? 'Canceling…' : 'Cancel subscription'}
+                            </button>
+                        </div>
+                    </motion.div>
+                </motion.div>
             )}
-        </div>
+        </AnimatePresence>
+    );
+
+    return createPortal(overlay, document.body);
+}
+
+function ReassureRow({ children }: { children: React.ReactNode }) {
+    return (
+        <li className="flex items-start gap-2.5">
+            <Check className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" strokeWidth={2.5} />
+            <span className="text-content-secondary leading-snug">{children}</span>
+        </li>
     );
 }
 
@@ -493,13 +757,48 @@ function InvoicesSection({ hasPaidSub }: { hasPaidSub: boolean }) {
     );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: string | React.ReactNode }) {
     return (
         <div>
             <div className="text-[10px] font-bold tracking-widest uppercase text-content-tertiary mb-1">
                 {label}
             </div>
             <div className="text-sm font-semibold text-content-primary">{value}</div>
+        </div>
+    );
+}
+
+function Skeleton({ className = '' }: { className?: string }) {
+    return (
+        <div className={`rounded-md bg-surface-tertiary/70 animate-pulse ${className}`} />
+    );
+}
+
+function PlanCardSkeleton() {
+    return (
+        <div className="relative p-6 sm:p-7 flex flex-col sm:flex-row gap-6 sm:items-start">
+            <div className="flex-1 min-w-0 space-y-3">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-7 w-32" />
+                <Skeleton className="h-3 w-44" />
+                <div className="grid grid-cols-2 gap-4 mt-5">
+                    <div className="space-y-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-4 w-16" />
+                    </div>
+                    <div className="space-y-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-4 w-24" />
+                    </div>
+                </div>
+            </div>
+            <div className="flex sm:flex-col gap-4 sm:items-end items-center sm:min-w-[180px] pt-4 sm:pt-0 border-t sm:border-t-0 sm:border-l border-stroke-subtle sm:pl-6">
+                <div className="flex-1 sm:flex-none sm:text-right space-y-2">
+                    <Skeleton className="h-3 w-16 sm:ml-auto" />
+                    <Skeleton className="h-7 w-24 sm:ml-auto" />
+                </div>
+                <Skeleton className="h-9 w-28 rounded-full" />
+            </div>
         </div>
     );
 }

@@ -9,7 +9,9 @@ import { PLANS, CREDIT_PACKS, type PlanDisplay, type CreditPack } from '@/lib/bi
 import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
 import { openPaddleCheckout } from '@/lib/billing/paddle-client';
+import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
 import { createClient } from '@/lib/supabase/client';
+import BillingProcessingModal, { type BillingStatus } from './BillingProcessingModal';
 
 interface PlansModalProps {
     isOpen: boolean;
@@ -316,8 +318,8 @@ function PlanCTA({
     onClose: () => void;
 }) {
     const router = useRouter();
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [status, setStatus] = useState<BillingStatus | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     if (isCurrent) {
         return (
@@ -362,14 +364,18 @@ function PlanCTA({
                 ? 'Downgrade'
                 : 'Switch';
     const label = `${verb} to ${plan.name}`;
+    const processingTitle =
+        verb === 'Upgrade' ? 'Upgrading your plan…'
+            : verb === 'Downgrade' ? 'Switching to ' + plan.name + '…'
+                : 'Updating your plan…';
 
     const handleClick = async () => {
-        setError(null);
+        setErrorMessage(null);
         if (!hasPaidSub) {
             router.push(`/checkout/${plan.id}?cycle=monthly`);
             return;
         }
-        setLoading(true);
+        setStatus('processing');
         try {
             const res = await fetch('/api/billing/change-plan', {
                 method: 'POST',
@@ -378,34 +384,60 @@ function PlanCTA({
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setError(json.error || 'Failed to change plan');
-                setLoading(false);
+                setErrorMessage(json.error || 'Failed to change plan');
+                setStatus('error');
                 return;
             }
-            // Paddle's webhook updates our row asynchronously; give it a beat,
-            // then reload so the page reflects the new plan.
-            onClose();
-            setTimeout(() => window.location.reload(), 800);
+
+            // Wait for Paddle's webhook to land the new plan_id in our DB.
+            // Polling is more responsive than a fixed delay — we'll proceed as
+            // soon as the row reflects the change, or fall through on timeout.
+            const settled = await pollSubscriptionUntil(
+                (row) => row.plan_id === plan.id,
+                { timeoutMs: 20000 },
+            );
+
+            if (!settled) {
+                setErrorMessage(
+                    'Your payment went through, but we haven’t heard back from Paddle yet. Refresh in a moment to see the new plan.',
+                );
+                setStatus('error');
+                return;
+            }
+
+            setStatus('success');
+            // Brief celebration, then reload so every billing hook (balance,
+            // subscription) sees the freshly written row.
+            setTimeout(() => {
+                onClose();
+                window.location.reload();
+            }, 1400);
         } catch (e: any) {
-            setError(e?.message || 'Failed to change plan');
-        } finally {
-            setLoading(false);
+            setErrorMessage(e?.message || 'Failed to change plan');
+            setStatus('error');
         }
     };
 
     return (
-        <div className="space-y-2">
+        <>
             <button
                 onClick={handleClick}
-                disabled={loading}
+                disabled={status === 'processing'}
                 className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all ${buttonClass} disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
             >
-                {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {loading ? 'Working…' : label}
+                {label}
             </button>
-            {error && (
-                <p className="text-[11px] text-accent-error text-center leading-snug">{error}</p>
-            )}
-        </div>
+
+            <BillingProcessingModal
+                status={status}
+                processingTitle={processingTitle}
+                processingDescription="Charging your saved payment method. This usually takes a second or two."
+                successTitle={`You’re on ${plan.name}`}
+                successDescription="Your new plan is active and your credits have been updated."
+                errorTitle="Couldn’t change plan"
+                errorMessage={errorMessage}
+                onClose={() => setStatus(null)}
+            />
+        </>
     );
 }
