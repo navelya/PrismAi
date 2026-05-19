@@ -28,6 +28,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { Trash2, Copy, Group as GroupIcon, Ungroup as UngroupIcon } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -884,34 +885,37 @@ const EditorCanvasInner = ({
                             onMouseDown={(e) => e.stopPropagation()}
                         >
                             {canGroupSelection && (
+                                <Tooltip content="Group selected (Cmd+G)" position="top" delay={1500}>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleGroupSelected(); }}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                    >
+                                        <GroupIcon className="w-3 h-3 pointer-events-none" />
+                                    </button>
+                                </Tooltip>
+                            )}
+                            <Tooltip content="Duplicate selected" position="top" delay={1500}>
                                 <button
                                     type="button"
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleGroupSelected(); }}
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
                                     onMouseDown={(e) => e.stopPropagation()}
                                     className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
-                                    title="Group selected (Cmd+G)"
                                 >
-                                    <GroupIcon className="w-3 h-3 pointer-events-none" />
+                                    <Copy className="w-3 h-3 pointer-events-none" />
                                 </button>
-                            )}
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
-                                title="Duplicate selected"
-                            >
-                                <Copy className="w-3 h-3 pointer-events-none" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
-                                title="Delete selected"
-                            >
-                                <Trash2 className="w-3 h-3 pointer-events-none" />
-                            </button>
+                            </Tooltip>
+                            <Tooltip content="Delete selected" position="top" delay={1500}>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
+                                >
+                                    <Trash2 className="w-3 h-3 pointer-events-none" />
+                                </button>
+                            </Tooltip>
                         </div>
                     </NodeToolbar>
                 )}
@@ -928,33 +932,36 @@ const EditorCanvasInner = ({
                             style={{ pointerEvents: 'auto', zIndex: 50 }}
                             onMouseDown={(e) => e.stopPropagation()}
                         >
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleUngroup(); }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
-                                title="Ungroup"
-                            >
-                                <UngroupIcon className="w-3 h-3 pointer-events-none" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
-                                title="Duplicate group"
-                            >
-                                <Copy className="w-3 h-3 pointer-events-none" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
-                                title="Delete group + contents"
-                            >
-                                <Trash2 className="w-3 h-3 pointer-events-none" />
-                            </button>
+                            <Tooltip content="Ungroup" position="top" delay={1500}>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleUngroup(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                >
+                                    <UngroupIcon className="w-3 h-3 pointer-events-none" />
+                                </button>
+                            </Tooltip>
+                            <Tooltip content="Duplicate group" position="top" delay={1500}>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                >
+                                    <Copy className="w-3 h-3 pointer-events-none" />
+                                </button>
+                            </Tooltip>
+                            <Tooltip content="Delete group + contents" position="top" delay={1500}>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
+                                >
+                                    <Trash2 className="w-3 h-3 pointer-events-none" />
+                                </button>
+                            </Tooltip>
                         </div>
                     </NodeToolbar>
                 )}

@@ -21,6 +21,11 @@ interface PlansModalProps {
 export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
     const { subscription } = useSubscription();
     const currentPlanId = subscription?.planId ?? 'free';
+    // Inherit the current billing cycle when changing plans so a yearly
+    // subscriber stays yearly. Defaults to monthly for first-time purchasers
+    // since the modal doesn't expose a cycle toggle — yearly upsell happens
+    // on the dedicated /checkout page.
+    const currentCycle = subscription?.billingCycle ?? 'monthly';
 
     // Portal mount guard — prevents SSR mismatch and lets the modal escape
     // any ancestor with `transform`/`will-change`/`filter`, which would
@@ -95,6 +100,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                         plan={plan}
                                         isCurrent={plan.id === currentPlanId}
                                         currentPlanId={currentPlanId}
+                                        currentCycle={currentCycle}
                                         onClose={onClose}
                                     />
                                 ))}
@@ -139,10 +145,11 @@ interface PlanCardProps {
     plan: PlanDisplay;
     isCurrent: boolean;
     currentPlanId: string;
+    currentCycle: 'monthly' | 'yearly';
     onClose: () => void;
 }
 
-function PlanCard({ plan, isCurrent, currentPlanId, onClose }: PlanCardProps) {
+function PlanCard({ plan, isCurrent, currentPlanId, currentCycle, onClose }: PlanCardProps) {
     const accentClasses =
         plan.accent === 'highlight'
             ? 'border-accent-primary/50 bg-gradient-to-b from-accent-primary/[0.07] to-transparent shadow-[0_0_40px_-10px_rgba(var(--accent-primary),0.4)]'
@@ -213,6 +220,7 @@ function PlanCard({ plan, isCurrent, currentPlanId, onClose }: PlanCardProps) {
                 plan={plan}
                 isCurrent={isCurrent}
                 currentPlanId={currentPlanId}
+                currentCycle={currentCycle}
                 onClose={onClose}
             />
         </div>
@@ -310,11 +318,13 @@ function PlanCTA({
     plan,
     isCurrent,
     currentPlanId,
+    currentCycle,
     onClose,
 }: {
     plan: PlanDisplay;
     isCurrent: boolean;
     currentPlanId: string;
+    currentCycle: 'monthly' | 'yearly';
     onClose: () => void;
 }) {
     const router = useRouter();
@@ -332,7 +342,16 @@ function PlanCTA({
         );
     }
 
-    if (!plan.available || !plan.paddlePriceIdMonthly) {
+    // Pick a price ID that matches the user's current billing cycle so a
+    // yearly subscriber stays yearly when changing plans. If the target plan
+    // doesn't offer that cycle, fall back to the other one so the option
+    // isn't silently dropped.
+    const targetPriceId =
+        currentCycle === 'yearly'
+            ? plan.paddlePriceIdYearly ?? plan.paddlePriceIdMonthly
+            : plan.paddlePriceIdMonthly ?? plan.paddlePriceIdYearly;
+
+    if (!plan.available || !targetPriceId) {
         return (
             <button
                 disabled
@@ -372,6 +391,9 @@ function PlanCTA({
     const handleClick = async () => {
         setErrorMessage(null);
         if (!hasPaidSub) {
+            // First-time purchase: no saved sub to mutate, so route through
+            // the checkout page where Paddle can collect a payment method.
+            // Default to monthly since the modal doesn't expose a cycle picker.
             router.push(`/checkout/${plan.id}?cycle=monthly`);
             return;
         }
@@ -380,7 +402,7 @@ function PlanCTA({
             const res = await fetch('/api/billing/change-plan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ priceId: plan.paddlePriceIdMonthly }),
+                body: JSON.stringify({ priceId: targetPriceId }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {

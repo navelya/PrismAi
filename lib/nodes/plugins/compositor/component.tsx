@@ -23,6 +23,7 @@ import {
 } from './shared';
 import { acquireVideo, releaseVideo } from './video-pool';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { NodeClientDef } from '../../core/types';
 import { compositorClientExecutor } from './executor.client';
 
@@ -999,14 +1000,16 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 hideStatus={true}
                 customOutputs={customOutputs}
                 customActions={
-                    <button
-                        onClick={openEditor}
-                        className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
-                                flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                        title="Edit compositor"
-                    >
-                        <Edit3 className="w-3 h-3 text-content-inverted" />
-                    </button>
+                    <Tooltip content="Edit compositor" position="top" delay={1500}>
+                        <button
+                            type="button"
+                            onClick={openEditor}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                        >
+                            <Edit3 className="w-3 h-3 pointer-events-none" />
+                        </button>
+                    </Tooltip>
                 }
                 contentClassName="p-0 overflow-hidden"
             >

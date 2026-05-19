@@ -3,31 +3,47 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Check, Loader2, ArrowRight } from 'lucide-react';
+import { Check, Loader2, ArrowRight, AlertCircle } from 'lucide-react';
 import { useTokenBalance } from '@/lib/billing/use-balance';
-import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
-import { getPlanDisplay } from '@/lib/billing/plans-config';
+import { getPlanDisplay, type PlanId } from '@/lib/billing/plans-config';
+import { pollSubscriptionUntil, type SubscriptionRow } from '@/lib/billing/poll-subscription';
 
 /**
  * Post-checkout landing page.
  *
- * The webhook is what actually grants credits / activates subscriptions, so
- * this page polls for the change. We give the webhook ~10 seconds before
- * showing a "still processing" state.
+ * The webhook is what actually grants credits / activates a subscription, so
+ * this page polls the `subscriptions` row until Paddle's webhook has landed
+ * the change — then it switches from the processing state to the confirmed
+ * state. If the webhook is unusually slow we fall into a 'pending' state
+ * that tells the user what's happening rather than lying about success.
  */
+type Status = 'processing' | 'confirmed' | 'pending';
+
 export default function BillingSuccessPage() {
     const { balance } = useTokenBalance();
-    const { subscription } = useSubscription();
-    const [waited, setWaited] = useState(0);
+    const [status, setStatus] = useState<Status>('processing');
+    const [confirmedRow, setConfirmedRow] = useState<SubscriptionRow | null>(null);
 
     useEffect(() => {
-        const interval = setInterval(() => setWaited((w) => w + 1), 1000);
-        return () => clearInterval(interval);
+        let cancelled = false;
+        (async () => {
+            const row = await pollSubscriptionUntil(
+                (r) => r.plan_id !== 'free' && r.status === 'active',
+                { timeoutMs: 25000, intervalMs: 700 },
+            );
+            if (cancelled) return;
+            if (row) {
+                setConfirmedRow(row);
+                setStatus('confirmed');
+            } else {
+                setStatus('pending');
+            }
+        })();
+        return () => { cancelled = true; };
     }, []);
 
-    const plan = getPlanDisplay(subscription?.planId);
-    const isProcessing = waited < 8 && (!subscription || subscription.planId === 'free');
+    const plan = confirmedRow ? getPlanDisplay(confirmedRow.plan_id as PlanId) : null;
 
     return (
         <div className="min-h-screen w-full bg-bg-primary text-content-primary flex items-center justify-center p-6">
@@ -39,26 +55,38 @@ export default function BillingSuccessPage() {
             >
                 <div className="mb-8 flex justify-center">
                     <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
-                        isProcessing
+                        status === 'processing'
                             ? 'bg-accent-primary/10'
-                            : 'bg-accent-success/10'
+                            : status === 'pending'
+                                ? 'bg-amber-500/15'
+                                : 'bg-accent-success/10'
                     }`}>
-                        {isProcessing ? (
+                        {status === 'processing' && (
                             <Loader2 className="w-7 h-7 text-accent-primary animate-spin" />
-                        ) : (
+                        )}
+                        {status === 'pending' && (
+                            <AlertCircle className="w-7 h-7 text-amber-400" />
+                        )}
+                        {status === 'confirmed' && (
                             <Check className="w-7 h-7 text-accent-success" strokeWidth={3} />
                         )}
                     </div>
                 </div>
 
                 <h1 className="text-3xl font-bold font-display mb-3 tracking-tight">
-                    {isProcessing ? 'Processing your purchase…' : 'Payment confirmed!'}
+                    {status === 'processing' && 'Processing your purchase…'}
+                    {status === 'pending' && 'Almost there'}
+                    {status === 'confirmed' && 'Payment confirmed!'}
                 </h1>
 
                 <p className="text-content-secondary leading-relaxed mb-8">
-                    {isProcessing ? (
+                    {status === 'processing' && (
                         <>This usually takes a few seconds. We&rsquo;re activating your purchase and adding credits to your account.</>
-                    ) : (
+                    )}
+                    {status === 'pending' && (
+                        <>Your payment went through, but we haven&rsquo;t heard back from Paddle yet. This is rare and resolves on its own — refresh in a moment, or check your email for the receipt.</>
+                    )}
+                    {status === 'confirmed' && (
                         <>
                             Thanks for supporting Prisfol.{' '}
                             {plan && plan.id !== 'free' && (
@@ -68,7 +96,7 @@ export default function BillingSuccessPage() {
                     )}
                 </p>
 
-                {balance !== null && (
+                {balance !== null && status !== 'processing' && (
                     <div className="mb-8 p-5 rounded-2xl border border-stroke-subtle bg-surface-elevated">
                         <div className="text-xs uppercase tracking-wider text-content-tertiary mb-1">Current balance</div>
                         <div className="text-3xl font-bold font-display text-content-primary">

@@ -177,6 +177,7 @@ export function useSession() {
                             models: string[];
                             detail: string;
                             blueprint?: { nodes?: any[]; edges?: any[] };
+                            tasks?: import('@/lib/chat/streaming/protocol').TaskBlueprint[];
                         } | null;
                         plan_answer?: {
                             planMessageId: string;
@@ -208,6 +209,11 @@ export function useSession() {
                             arrows: typeof metadata.plan.arrows === 'string' ? metadata.plan.arrows : '',
                             models: Array.isArray(metadata.plan.models) ? metadata.plan.models.filter((s: any) => typeof s === 'string') : [],
                             detail: typeof metadata.plan.detail === 'string' ? metadata.plan.detail : '',
+                            blueprint: {
+                                nodes: Array.isArray(metadata.plan.blueprint?.nodes) ? metadata.plan.blueprint!.nodes : [],
+                                edges: Array.isArray(metadata.plan.blueprint?.edges) ? metadata.plan.blueprint!.edges : [],
+                            },
+                            tasks: Array.isArray(metadata.plan.tasks) ? metadata.plan.tasks : undefined,
                         };
                     }
 

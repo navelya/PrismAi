@@ -2,7 +2,7 @@
 
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Handle, Position, NodeToolbar, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
-import { Copy, X, Loader2, Check, Circle } from 'lucide-react';
+import { Copy, X, Loader2, Check, Circle, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -10,6 +10,7 @@ import type { NodeStatus } from '@/lib/nodes/types';
 import { useWireDrag } from '@/lib/editor/wire-drag-context';
 import { findHandleForNode, findAllCompatibleHandlesForNode, wouldCreateCycle } from '@/lib/editor/handle-compatibility';
 import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { motion } from 'framer-motion';
 
 // Stable framer-motion prop references.
@@ -160,6 +161,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     // cursor is over this node AND a cycle-forming wire is in flight — exiting
     // the node clears it ("gone when the user is moving away").
     const [isHoveredDuringWireDrag, setIsHoveredDuringWireDrag] = useState(false);
+    // Generic hover state used to reveal the per-node action toolbar. Tracked
+    // in React (not CSS :hover) because the toolbar is portaled outside this
+    // node's DOM tree, so `group-hover` can't reach it.
+    const [isHovered, setIsHovered] = useState(false);
     useEffect(() => {
         // If the wire drag ends while the cursor is still inside the card,
         // onPointerLeave won't fire — reset eagerly.
@@ -304,8 +309,14 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             onAnimationComplete={() => {
                 if (isNew) updateNodeInternals(id);
             }}
-            onPointerEnter={() => { if (wireDrag) setIsHoveredDuringWireDrag(true); }}
-            onPointerLeave={() => setIsHoveredDuringWireDrag(false)}
+            onPointerEnter={() => {
+                setIsHovered(true);
+                if (wireDrag) setIsHoveredDuringWireDrag(true);
+            }}
+            onPointerLeave={() => {
+                setIsHovered(false);
+                setIsHoveredDuringWireDrag(false);
+            }}
             transition={isDragging ? DRAG_TRANSITION : SHARED_TRANSITION}
             className={cn(
                 // CSS transitions on border/shadow/background are kept enabled
@@ -354,32 +365,72 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 </div>
             </NodeToolbar>
 
-            {/* Action Buttons — suppressed in multi-select mode (the floating
-                toolbar above the selection handles bulk actions). */}
-            {!isMultiSelectActive && (
-                <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10">
-                    {/* Input nodes don't have manual triggers anymore. Utility nodes compute reactively. */}
-                    {customActions}
-                    <button
-                        onClick={handleDuplicate}
-                        className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
-                                    flex items-center justify-center shadow-lg hover:scale-110 hover:bg-white/10 transition-all duration-200"
-                        style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
-                        title="Duplicate node"
+            {/* Action Buttons — rendered via NodeToolbar so they render in a
+                portal at constant screen size (do NOT scale with canvas zoom),
+                matching the multi-select and single-group toolbars. Suppressed
+                in multi-select mode where the floating selection toolbar
+                handles bulk actions. */}
+            <NodeToolbar
+                nodeId={id}
+                isVisible={!isMultiSelectActive && (isHovered || !!selected)}
+                position={Position.Top}
+                align="end"
+            >
+                {/* Hover-bridge wrapper: the pill is the only visible element,
+                    but a transparent strip directly below it covers the gap
+                    between the toolbar and the node top. Pointer-enter/leave
+                    are tracked on the wrapper, so React fires them only when
+                    the cursor truly leaves both the pill AND the bridge —
+                    letting the user travel from node → bridge → pill without
+                    the toolbar flickering away mid-reach. The bridge can't
+                    appear on its own because it only mounts when the toolbar
+                    does, which already requires the node to be hovered. */}
+                <div
+                    className="nopan"
+                    style={{ position: 'relative', pointerEvents: 'auto' }}
+                    onPointerEnter={() => setIsHovered(true)}
+                    onPointerLeave={() => setIsHovered(false)}
+                >
+                    <div
+                        className="nowheel flex items-center gap-0.5 p-0.5 rounded-md bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle shadow-lg"
+                        style={{ zIndex: 50 }}
+                        onMouseDown={(e) => e.stopPropagation()}
                     >
-                        <Copy className="w-3 h-3 text-content-primary" />
-                    </button>
-                    <button
-                        onClick={handleDelete}
-                        className="w-6 h-6 rounded-lg bg-white/5 border backdrop-blur-md
-                                    flex items-center justify-center shadow-lg hover:scale-110 hover:bg-accent-error hover:text-content-inverted transition-all duration-200 group/del"
-                        style={{ borderWidth: `${b1}px`, borderColor: 'rgba(255,255,255,0.1)' }}
-                        title="Delete node"
-                    >
-                        <X className="w-3.5 h-3.5 text-accent-error group-hover/del:text-content-inverted" />
-                    </button>
+                        {customActions}
+                        <Tooltip content="Duplicate node" position="top" delay={1500}>
+                            <button
+                                type="button"
+                                onClick={handleDuplicate}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                            >
+                                <Copy className="w-3 h-3 pointer-events-none" />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="Delete node" position="top" delay={1500}>
+                            <button
+                                type="button"
+                                onClick={handleDelete}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-accent-error hover:bg-accent-error/20 transition-all"
+                            >
+                                <Trash2 className="w-3 h-3 pointer-events-none" />
+                            </button>
+                        </Tooltip>
+                    </div>
+                    <div
+                        aria-hidden
+                        style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            right: 0,
+                            height: 12,
+                            pointerEvents: 'auto',
+                        }}
+                    />
                 </div>
-            )}
+            </NodeToolbar>
 
             {/* Status Badge */}
             {!hideStatus && status !== 'idle' && (

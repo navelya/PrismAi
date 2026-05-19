@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Check, Loader2, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, Loader2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { useSubscription } from '@/lib/billing/use-subscription';
@@ -161,6 +161,12 @@ export default function PlanBillingView() {
                         </p>
                     </div>
                 </header>
+
+                {/* Past-due banner — surfaces a failed renewal so the user can
+                    fix their card before the sub gets canceled by Paddle. */}
+                {!subLoading && syncCompleted && subscription?.status === 'past_due' && (
+                    <PastDueBanner />
+                )}
 
                 {/* Current plan card */}
                 <section className="relative rounded-2xl border border-stroke-subtle bg-gradient-to-br from-surface-elevated to-surface-primary/40 overflow-hidden">
@@ -771,6 +777,68 @@ function Stat({ label, value }: { label: string; value: string | React.ReactNode
 function Skeleton({ className = '' }: { className?: string }) {
     return (
         <div className={`rounded-md bg-surface-tertiary/70 animate-pulse ${className}`} />
+    );
+}
+
+function PastDueBanner() {
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleClick = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/billing/payment-method', { method: 'POST' });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.transactionId) {
+                setError(json.error || 'Could not open the payment update form.');
+                return;
+            }
+            const paddle = await loadPaddle();
+            if (!paddle) {
+                setError('Could not initialize payment form.');
+                return;
+            }
+            paddle.Checkout.open({
+                transactionId: json.transactionId,
+                settings: {
+                    displayMode: 'overlay',
+                    theme: 'dark',
+                    successUrl: `${window.location.origin}/settings?tab=plan-billing`,
+                },
+            });
+        } catch (e: any) {
+            setError(e?.message || 'Could not open the payment update form.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="rounded-2xl border border-accent-error/40 bg-accent-error/[0.06] px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+                <AlertCircle className="w-5 h-5 text-accent-error flex-shrink-0 mt-0.5" strokeWidth={2.5} />
+                <div className="min-w-0">
+                    <div className="text-sm font-bold text-content-primary">
+                        Your last payment failed
+                    </div>
+                    <p className="text-xs text-content-secondary mt-0.5 leading-relaxed">
+                        Update your card so we can retry the charge and keep your plan active.
+                        We&apos;ll keep retrying for a few days before pausing access.
+                    </p>
+                    {error && (
+                        <p className="text-[11px] text-accent-error mt-1.5">{error}</p>
+                    )}
+                </div>
+            </div>
+            <button
+                onClick={handleClick}
+                disabled={loading}
+                className="flex-shrink-0 px-4 py-2 rounded-full bg-accent-error/90 hover:bg-accent-error text-white text-sm font-semibold transition-colors disabled:opacity-60"
+            >
+                {loading ? 'Opening…' : 'Update payment method'}
+            </button>
+        </div>
     );
 }
 

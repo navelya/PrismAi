@@ -10,6 +10,8 @@ export interface SubscriptionInfo {
     nextTopupAt: string;
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
+    /** 'monthly' or 'yearly' for paid plans; null for free. */
+    billingCycle: 'monthly' | 'yearly' | null;
 }
 
 export function useSubscription() {
@@ -31,7 +33,7 @@ export function useSubscription() {
 
                 const { data, error: fetchErr } = await supabase
                     .from('subscriptions')
-                    .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end')
+                    .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle')
                     .eq('user_id', user.id)
                     .single();
 
@@ -46,6 +48,10 @@ export function useSubscription() {
                         nextTopupAt: data.next_topup_at,
                         currentPeriodEnd: data.current_period_end,
                         cancelAtPeriodEnd: data.cancel_at_period_end,
+                        billingCycle:
+                            data.billing_cycle === 'monthly' || data.billing_cycle === 'yearly'
+                                ? data.billing_cycle
+                                : null,
                     });
                 }
                 setLoading(false);
