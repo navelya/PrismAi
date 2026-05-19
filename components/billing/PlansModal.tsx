@@ -13,6 +13,7 @@ import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
 import { pollLedgerForPack } from '@/lib/billing/poll-ledger';
 import { createClient } from '@/lib/supabase/client';
 import BillingProcessingModal, { type BillingStatus } from './BillingProcessingModal';
+import CancelConfirmModal from './CancelConfirmModal';
 
 interface PlansModalProps {
     isOpen: boolean;
@@ -118,6 +119,8 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                         currentPlanId={currentPlanId}
                                         currentCycle={currentCycle}
                                         selectedCycle={selectedCycle}
+                                        currentPeriodEnd={subscription?.currentPeriodEnd ?? null}
+                                        cancelAtPeriodEnd={subscription?.cancelAtPeriodEnd ?? false}
                                         onClose={onClose}
                                     />
                                 ))}
@@ -199,10 +202,20 @@ interface PlanCardProps {
     currentPlanId: string;
     currentCycle: 'monthly' | 'yearly';
     selectedCycle: 'monthly' | 'yearly';
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
     onClose: () => void;
 }
 
-function PlanCard({ plan, currentPlanId, currentCycle, selectedCycle, onClose }: PlanCardProps) {
+function PlanCard({
+    plan,
+    currentPlanId,
+    currentCycle,
+    selectedCycle,
+    currentPeriodEnd,
+    cancelAtPeriodEnd,
+    onClose,
+}: PlanCardProps) {
     // "Current plan" means BOTH the plan and the cycle match what the user
     // is paying for right now. Same plan / different cycle is still a change
     // we can offer (it goes through the same change-plan endpoint).
@@ -274,6 +287,8 @@ function PlanCard({ plan, currentPlanId, currentCycle, selectedCycle, onClose }:
                 currentPlanId={currentPlanId}
                 currentCycle={currentCycle}
                 selectedCycle={selectedCycle}
+                currentPeriodEnd={currentPeriodEnd}
+                cancelAtPeriodEnd={cancelAtPeriodEnd}
                 onClose={onClose}
             />
         </div>
@@ -490,6 +505,8 @@ function PlanCTA({
     currentPlanId,
     currentCycle,
     selectedCycle,
+    currentPeriodEnd,
+    cancelAtPeriodEnd,
     onClose,
 }: {
     plan: PlanDisplay;
@@ -497,11 +514,14 @@ function PlanCTA({
     currentPlanId: string;
     currentCycle: 'monthly' | 'yearly';
     selectedCycle: 'monthly' | 'yearly';
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
     onClose: () => void;
 }) {
     const router = useRouter();
     const [status, setStatus] = useState<BillingStatus | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [confirmingCancel, setConfirmingCancel] = useState(false);
 
     if (isCurrent) {
         return (
@@ -511,6 +531,98 @@ function PlanCTA({
             >
                 You&apos;re on this plan
             </button>
+        );
+    }
+
+    // Free plan from a paid user → that IS a cancellation. Wire it to the
+    // same cancel flow as the plan card's cancel button so the user has a
+    // single mental model: "to go back to Free, cancel your subscription."
+    if (plan.id === 'free' && currentPlanId !== 'free') {
+        const currentPlan = PLANS.find((p) => p.id === currentPlanId);
+        const currentPlanName = currentPlan?.name ?? currentPlanId;
+
+        // Already scheduled to cancel — surface that instead of offering it again.
+        if (cancelAtPeriodEnd) {
+            return (
+                <button
+                    disabled
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold border border-stroke-subtle text-content-tertiary cursor-default"
+                >
+                    Already scheduled
+                </button>
+            );
+        }
+
+        const handleCancel = async () => {
+            setErrorMessage(null);
+            setStatus('processing');
+            try {
+                const res = await fetch('/api/billing/cancel', { method: 'POST' });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setErrorMessage(json.error || 'Failed to cancel subscription');
+                    setStatus('error');
+                    return;
+                }
+                setConfirmingCancel(false);
+                const settled = await pollSubscriptionUntil(
+                    (row) => row.cancel_at_period_end === true,
+                    { timeoutMs: 20000 },
+                );
+                if (!settled) {
+                    setErrorMessage(
+                        'Cancellation accepted, but we’re still waiting on confirmation from Paddle. Refresh in a moment.',
+                    );
+                    setStatus('error');
+                    return;
+                }
+                setStatus('success');
+                setTimeout(() => {
+                    onClose();
+                    window.location.reload();
+                }, 1400);
+            } catch (e: any) {
+                setErrorMessage(e?.message || 'Failed to cancel subscription');
+                setStatus('error');
+            }
+        };
+
+        return (
+            <>
+                <button
+                    onClick={() => setConfirmingCancel(true)}
+                    disabled={status === 'processing'}
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold border border-stroke-subtle text-content-secondary hover:text-content-primary hover:bg-surface-tertiary transition-all disabled:opacity-50"
+                >
+                    Cancel subscription
+                </button>
+
+                <CancelConfirmModal
+                    open={confirmingCancel}
+                    planName={currentPlanName}
+                    currentPeriodEnd={currentPeriodEnd}
+                    loading={status === 'processing'}
+                    onConfirm={handleCancel}
+                    onClose={() => {
+                        if (status !== 'processing') setConfirmingCancel(false);
+                    }}
+                />
+
+                <BillingProcessingModal
+                    status={status}
+                    processingTitle="Canceling your subscription…"
+                    processingDescription="Confirming the cancellation with Paddle. You’ll keep access until your period ends."
+                    successTitle="Subscription canceled"
+                    successDescription={
+                        currentPeriodEnd
+                            ? `Access continues until ${new Date(currentPeriodEnd).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}.`
+                            : 'You’ll keep access until your period ends.'
+                    }
+                    errorTitle="Couldn’t cancel"
+                    errorMessage={errorMessage}
+                    onClose={() => setStatus(null)}
+                />
+            </>
         );
     }
 
