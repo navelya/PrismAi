@@ -9,6 +9,65 @@ import { ClientExecutor } from '@/lib/nodes/core/types';
 const COMPUTE_DEBOUNCE_MS = 150;
 
 /**
+ * Envelope-level content equality. Compares two executor results shallowly
+ * down to one level inside `data[]`. Used to skip `setNodeOutput` calls where
+ * the executor produced an identical-by-content (but newly-allocated) result.
+ *
+ * Why this matters: every executor synthesizes a fresh envelope object per
+ * run. If the run was triggered by an unrelated upstream churn (a sibling
+ * republishing its own graph), our setNodeOutput writes a new envelope ref
+ * with identical content. Downstream readers see "the value changed" and
+ * re-execute, republishing back the same way. The propagation never
+ * converges; React's commit phase ends up reattaching refs through Radix's
+ * composed-refs setRef chain on every cycle, eventually tripping React #185
+ * (Maximum update depth) inside that recursion.
+ *
+ * Comparison rules:
+ *   - top-level: type + data array length
+ *   - per data-item: shallow key compare
+ *   - resolution {width,height}: compared by value (it's commonly a fresh
+ *     object literal but trivially shallow-comparable)
+ *   - graph / canvas / stream / other live-signal handles: ref equality
+ *     (upstream stabilization makes these stable by reference when content
+ *     hasn't changed; if a writer doesn't follow that contract, we
+ *     pessimistically treat the envelope as changed — correct fallback)
+ */
+function envelopeContentEqual(a: any, b: any): boolean {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+    if (a.type !== b.type) return false;
+    const aData = Array.isArray(a.data) ? a.data : null;
+    const bData = Array.isArray(b.data) ? b.data : null;
+    if (aData === bData) return true;
+    if (!aData || !bData) return false;
+    if (aData.length !== bData.length) return false;
+    for (let i = 0; i < aData.length; i++) {
+        const ai = aData[i];
+        const bi = bData[i];
+        if (ai === bi) continue;
+        if (!ai || !bi || typeof ai !== 'object' || typeof bi !== 'object') return false;
+        const aKeys = Object.keys(ai);
+        const bKeys = Object.keys(bi);
+        if (aKeys.length !== bKeys.length) return false;
+        for (const k of aKeys) {
+            const av = ai[k];
+            const bv = bi[k];
+            if (av === bv) continue;
+            if (
+                k === 'resolution' &&
+                av && bv &&
+                typeof av === 'object' && typeof bv === 'object' &&
+                av.width === bv.width && av.height === bv.height
+            ) {
+                continue;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
  * useNodeAutoCompute
  *
  * Drives client-side computation for any node whose plugin defines a
@@ -95,9 +154,14 @@ export function useNodeAutoCompute(nodeId: string): void {
             try {
                 const result = await executor(node.config, inputs);
                 if (myRun !== runIdRef.current) return; // superseded
-                if (result) {
-                    setNodeOutput(nodeId, result);
-                }
+                if (!result) return;
+                // Skip republish if content-equal to what's already there.
+                // Otherwise every upstream churn would write a freshly-allocated
+                // envelope, downstream would see "value changed" and re-execute,
+                // and the propagation would never converge.
+                const currentOutput = useAppStore.getState().nodeOutputs[nodeId];
+                if (envelopeContentEqual(currentOutput, result)) return;
+                setNodeOutput(nodeId, result);
             } catch (err) {
                 console.error(`[useNodeAutoCompute] ${node.type} executor failed for ${nodeId}:`, err);
             }

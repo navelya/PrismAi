@@ -8,6 +8,84 @@ import { CompositorLayer } from './definition';
 
 export type LayerSourceKind = 'image' | 'video' | 'text' | 'unknown';
 
+// ───────────────────────────────────────────────────────────────────────────
+// Pull-model graph description
+//
+// A `GraphDescription` is a serializable "how to render this output at any
+// time t" — published in `nodeOutputs[id].data[0].graph` by any node whose
+// output is a live signal. Downstream consumers don't read the upstream's
+// canvas; they walk the graph and render it themselves at their own playhead.
+//
+// Two kinds:
+//   - 'compositor': a timeline of layers, each with a source (media URL, text,
+//     or a nested graph). The renderer composites them.
+//   - 'filter': wraps an upstream graph and applies a CSS filter on top.
+//     Used by Blur (and future filter nodes) so the filter compounds purely
+//     as a descriptor without baking pixels.
+// ───────────────────────────────────────────────────────────────────────────
+
+export type GraphLayerSource =
+    | { kind: 'media'; url: string; mediaKind: 'image' | 'video' }
+    | { kind: 'text'; text: string }
+    | { kind: 'graph'; graph: GraphDescription };
+
+export interface GraphLayer {
+    layer: CompositorLayer;
+    source: GraphLayerSource;
+}
+
+export type GraphDescription =
+    | {
+          kind: 'compositor';
+          layers: GraphLayer[];
+          canvasWidth: number;
+          canvasHeight: number;
+          duration: number;
+          fps: number;
+          intrinsicDurations: Record<string, number | null>;
+      }
+    | {
+          kind: 'filter';
+          upstream: GraphDescription;
+          cssFilter: string;
+      };
+
+/**
+ * Pull the dimensions of a graph regardless of kind — filter graphs report
+ * their upstream's dimensions since they don't change resolution.
+ */
+export function graphDimensions(graph: GraphDescription): { width: number; height: number } {
+    if (graph.kind === 'filter') return graphDimensions(graph.upstream);
+    return { width: graph.canvasWidth, height: graph.canvasHeight };
+}
+
+/**
+ * Total timeline duration of a graph regardless of kind.
+ */
+export function graphDuration(graph: GraphDescription): number {
+    if (graph.kind === 'filter') return graphDuration(graph.upstream);
+    return graph.duration;
+}
+
+/**
+ * Accumulate the cssFilter chain by descending through filter graphs.
+ * Returns the concatenated CSS filter string and the innermost non-filter
+ * graph. Used by consumers that render the underlying compositor surface
+ * once and then apply the accumulated filter via CSS at display time.
+ */
+export function flattenFilters(graph: GraphDescription): {
+    base: Exclude<GraphDescription, { kind: 'filter' }>;
+    cssFilter: string;
+} {
+    let cssFilter = '';
+    let current: GraphDescription = graph;
+    while (current.kind === 'filter') {
+        cssFilter = cssFilter ? `${current.cssFilter} ${cssFilter}` : current.cssFilter;
+        current = current.upstream;
+    }
+    return { base: current, cssFilter };
+}
+
 /**
  * Best-effort detection of a layer's source kind from its resolved upstream
  * value. The renderer hands us either:

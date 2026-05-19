@@ -8,9 +8,12 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         viewport: { x: 0, y: 0 },
     },
     isLoading: false,
-    isLoadingSession: false,
+    // Default true so a session page renders skeletons on the very first paint
+    // instead of flashing the empty/welcome state before loadSession() runs.
+    // The welcome page (no session) clears this via clearAllState().
+    isLoadingSession: true,
     statusMessage: null,
-    isCanvasMode: false,
+    isCanvasMode: true,
     isCopilotMinimized: false,
     lastInteraction: Date.now(),
     nodeLabelDraft: null,

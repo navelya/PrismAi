@@ -160,16 +160,21 @@ const EditorCanvasInner = ({
     const hasFiredReadyRef = useRef(false);
     const onCanvasReadyRef = useRef(onCanvasReady);
     onCanvasReadyRef.current = onCanvasReady;
+    // RF's useNodesInitialized() returns false for an empty node array (its
+    // internal check is `nodes.every(measured) && nodes.length > 0`), so an
+    // empty workflow would otherwise leave the loader spinning forever. Treat
+    // a zero-node canvas as immediately ready — there's nothing to measure.
+    const hasNodesToMeasure = localNodes.length > 0;
     useEffect(() => {
         if (hasFiredReadyRef.current) return;
         if (!reactFlowInstance) return;
-        if (!nodesInitialized) return;
+        if (hasNodesToMeasure && !nodesInitialized) return;
         const raf = requestAnimationFrame(() => {
             hasFiredReadyRef.current = true;
             onCanvasReadyRef.current?.();
         });
         return () => cancelAnimationFrame(raf);
-    }, [nodesInitialized, reactFlowInstance]);
+    }, [nodesInitialized, reactFlowInstance, hasNodesToMeasure]);
 
     const { resolvedTheme } = useTheme();
 

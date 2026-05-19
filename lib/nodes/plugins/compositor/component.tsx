@@ -3,7 +3,7 @@
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeProps, useUpdateNodeInternals } from 'reactflow';
-import { Plus, Edit3, X } from 'lucide-react';
+import { Plus, Edit3, X, Download, Loader2, Check } from 'lucide-react';
 import { Stage, Layer, Group } from 'react-konva';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
@@ -14,7 +14,13 @@ import ImageLightbox from '@/components/ui/ImageLightbox';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './ui/Renderer';
 import MiniTransport from './ui/MiniTransport';
-import { detectSourceKindFromUrl, computeTimelineDuration } from './shared';
+import {
+    detectSourceKindFromUrl,
+    computeTimelineDuration,
+    GraphDescription,
+    GraphLayer,
+    GraphLayerSource,
+} from './shared';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { NodeClientDef } from '../../core/types';
 import { compositorClientExecutor } from './executor.client';
@@ -33,6 +39,92 @@ const defaultConfig: CompositorConfig = {
 interface CompositorNodeData {
     label: string;
     config: CompositorConfig;
+}
+
+/**
+ * Convert a layer's resolved upstream value (from useResolvedNodeValue /
+ * nodeOutputs) into a serializable `GraphLayerSource` for inclusion in the
+ * graph description this compositor publishes downstream.
+ *
+ * Returns null when the upstream isn't a usable source yet — the layer is
+ * skipped in the published graph so downstream renderers don't see partial
+ * data. The compositor's own preview keeps rendering whatever it can locally
+ * even if a layer is skipped here.
+ */
+function resolveToGraphSource(resolved: any): GraphLayerSource | null {
+    if (resolved === null || resolved === undefined) return null;
+    if (typeof resolved === 'string') return { kind: 'text', text: resolved };
+    if (typeof resolved !== 'object') return null;
+    // Nested graph from an upstream pull-model node (compositor or filter).
+    // Pass through verbatim — downstream renderers handle recursion via
+    // `paintGraphFrame` / `LayerSubgraph`.
+    if ((resolved as any).graph) {
+        return { kind: 'graph', graph: (resolved as any).graph as GraphDescription };
+    }
+    const url = (resolved as any).url;
+    if (typeof url === 'string' && url.length > 0) {
+        const mediaKind = detectSourceKindFromUrl(url);
+        if (mediaKind === 'image' || mediaKind === 'video') {
+            return { kind: 'media', url, mediaKind };
+        }
+    }
+    return null;
+}
+
+/**
+ * Content-equality check for a GraphLayer pair. Compares the layer ref
+ * (stable from config.layers) and the source fields by value. Used to keep
+ * the compositor's published graphLayers reference stable across renders
+ * that produce identical content, so downstream republishing converges.
+ */
+function graphLayerContentEqual(a: GraphLayer, b: GraphLayer): boolean {
+    if (a === b) return true;
+    if (a.layer !== b.layer) return false;
+    if (a.source.kind !== b.source.kind) return false;
+    if (a.source.kind === 'media' && b.source.kind === 'media') {
+        return a.source.url === b.source.url && a.source.mediaKind === b.source.mediaKind;
+    }
+    if (a.source.kind === 'text' && b.source.kind === 'text') {
+        return a.source.text === b.source.text;
+    }
+    if (a.source.kind === 'graph' && b.source.kind === 'graph') {
+        // Ref equality is the right check here: upstream's stabilization (this
+        // same memo applied at every node in the chain) means identical
+        // content produces identical reference.
+        return a.source.graph === b.source.graph;
+    }
+    return false;
+}
+
+function graphLayersContentEqual(a: GraphLayer[], b: GraphLayer[]): boolean {
+    if (a === b) return true;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (!graphLayerContentEqual(a[i], b[i])) return false;
+    }
+    return true;
+}
+
+/**
+ * Content-equality check for two published GraphDescriptions of kind
+ * 'compositor'. graphLayers is compared by reference (already stabilized
+ * above); the rest are primitives or a shallow Record<string, number|null>.
+ */
+function publishedGraphContentEqual(a: GraphDescription, b: GraphDescription): boolean {
+    if (a === b) return true;
+    if (a.kind !== 'compositor' || b.kind !== 'compositor') return false;
+    if (a.layers !== b.layers) return false;
+    if (a.canvasWidth !== b.canvasWidth) return false;
+    if (a.canvasHeight !== b.canvasHeight) return false;
+    if (a.duration !== b.duration) return false;
+    if (a.fps !== b.fps) return false;
+    const ak = Object.keys(a.intrinsicDurations);
+    const bk = Object.keys(b.intrinsicDurations);
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) {
+        if (a.intrinsicDurations[k] !== b.intrinsicDurations[k]) return false;
+    }
+    return true;
 }
 
 // Professional CSS Checkerboard to indicate transparent areas
@@ -66,6 +158,7 @@ function LivePreview({
     isPlaying,
     onPlayheadChange,
     onTotalDurationChange,
+    poolKey,
 }: {
     config: CompositorConfig;
     renderable: RenderableLayer[];
@@ -81,6 +174,8 @@ function LivePreview({
     onPlayheadChange: (t: number) => void;
     /** Called when the computed total timeline duration changes; lets the parent size the transport scrubber. */
     onTotalDurationChange: (total: number) => void;
+    /** Video-pool scope for this surface. See `CompositorLayerNodesProps.poolKey`. */
+    poolKey: string;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState({ width: 0, height: 0 });
@@ -136,23 +231,39 @@ function LivePreview({
         const THROTTLE_MS = 100;
         let live = playheadRef.current;
         let lastCommit = last;
+        // Track the value we last *pushed* to React (not `live`). The
+        // external-seek detector below compares the incoming prop against
+        // THIS — otherwise the moment we wrap `live` to 0 without yet
+        // committing, the next tick sees `playheadRef.current` (≈ totalDuration)
+        // far from `live` (≈ 0), interprets that as an external seek, and
+        // snaps `live` straight back to the end. Net effect: indicator
+        // freezes near the end while the pooled <video> keeps looping.
+        let lastCommittedValue = live;
         const tick = (now: number) => {
             const dt = (now - last) / 1000;
             last = now;
             // Honor external playhead resets (e.g., the lightbox forcing
-            // playback to t=0 before it starts recording). Without this snap,
-            // the local `live` accumulator ignores the prop change and the
-            // canvas keeps advancing from wherever playback already was —
-            // which made the recorded video start mid-timeline and look
-            // truncated at the end.
-            if (Math.abs(playheadRef.current - live) > 0.5) {
+            // playback to t=0). External = prop diverged from what we
+            // pushed; internal wraps don't trip this because they update
+            // lastCommittedValue at commit time.
+            if (Math.abs(playheadRef.current - lastCommittedValue) > 0.5) {
                 live = playheadRef.current;
+                lastCommittedValue = live;
                 lastCommit = now;
             }
             live += dt;
-            if (live >= totalDuration) live = 0;
-            if (now - lastCommit >= THROTTLE_MS) {
+            let wrapped = false;
+            if (live >= totalDuration) {
+                live = 0;
+                wrapped = true;
+            }
+            // Wraps commit immediately so the indicator snaps back to 0
+            // without waiting on the throttle — the next tick's external-
+            // seek check then sees lastCommittedValue=0 ≈ live=0+dt and
+            // leaves us alone.
+            if (wrapped || now - lastCommit >= THROTTLE_MS) {
                 lastCommit = now;
+                lastCommittedValue = live;
                 onPlayheadChange(live);
             }
             raf = requestAnimationFrame(tick);
@@ -221,6 +332,7 @@ function LivePreview({
                                 isPlaying={isPlaying}
                                 playhead={playhead}
                                 intrinsicDurations={intrinsicDurations}
+                                poolKey={poolKey}
                             />
                         </Group>
                     </Layer>
@@ -589,6 +701,30 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         setIsEditorOpen(true);
     };
 
+    // Trigger a server-side render of THIS compositor (and its upstream chain)
+    // via the existing per-node Run pathway (same one ai_generator uses).
+    // After the orchestrator runs, the server executor writes the rendered
+    // MP4/PNG URL into `nodeOutputs[id]`. The graph-publish effect below
+    // detects the server URL and stops republishing the live graph so the
+    // URL persists for downstream consumers — until the user edits something,
+    // which invalidates the URL and reverts to the live graph.
+    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
+
+    // ---------- Download flow ----------
+    //
+    // Single-click "download the finished result": if a server-rendered URL
+    // already lives in nodeOutputs (no edits since last run), fetch+blob it
+    // and trigger a save dialog. Otherwise dispatch the same Run pipeline the
+    // old play button used, watch nodeOutputs for the URL to land, then
+    // download. UI states: idle → rendering (server work) → downloading
+    // (fetch) → success (brief flash) → idle.
+    const [downloadState, setDownloadState] =
+        useState<'idle' | 'rendering' | 'downloading' | 'success' | 'error'>('idle');
+    /** True while we've fired triggerRunFromNode and are waiting for a URL
+     *  to appear. Ref (not state) so the effect can read latest without re-
+     *  running on every state flip. */
+    const waitingForUrlRef = useRef(false);
+
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
 
@@ -669,33 +805,104 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         useAppStore.getState().pruneIncompatibleOutgoingEdges(id, outputKind);
     }, [id, outputKind]);
 
-    // Publish live canvas + stream to `nodeOutputs[id]`. Downstream live
-    // consumers can pick whichever surface fits their pipeline:
-    //   - canvas → per-frame drawImage (sync, cheap, no audio)
-    //   - stream → <video srcObject> / MediaStreamTrackProcessor (audio-capable later)
-    // We publish an empty `url` because the live-data story is the canonical
-    // one for video compositors — the server-rendered URL is ephemeral and
-    // unreliable, so callers should never depend on it for the live preview.
+    // Build the pull-model graph description: a serializable "how to render
+    // this compositor's output at any time t" that downstream consumers can
+    // each render independently into their own canvases at their own
+    // playheads. Replaces the previous canvas/stream push: the compositor no
+    // longer hands out a reference to its own surface; it hands out a
+    // description, and every consumer renders its own copy.
     //
-    // `cssFilter: ''` is the "start of a chain" marker — downstream filters
-    // (Blur, etc.) concatenate their own filter onto this string and propagate
-    // forward. Mirrors the chained-blur pattern for static video URLs, only
-    // with a live MediaStream/canvas as the source instead of a seekable file.
+    // CRITICAL: both graphLayers and publishedGraph are stabilized by CONTENT
+    // equality, not just dep-reference equality. Without this, every config
+    // mutation (or even an unrelated upstream reseed) returns a freshly-
+    // constructed object whose downstream effect — `setNodeOutput(id, ...)` —
+    // republishes a new envelope reference, which any consumer reading
+    // `nodeOutputs[id]` sees as a change, re-executes, and republishes back.
+    // The propagation never converges; React's commit phase keeps detaching
+    // and reattaching refs (Radix's composedRefs chain), hitting React #185
+    // ("Maximum update depth exceeded") inside the setRef recursion.
+    const lastGraphLayersRef = useRef<GraphLayer[]>([]);
+    const graphLayers: GraphLayer[] = useMemo(() => {
+        const next: GraphLayer[] = [];
+        for (const { layer, resolved } of renderable) {
+            const source = resolveToGraphSource(resolved);
+            if (!source) continue;
+            next.push({ layer, source });
+        }
+        if (graphLayersContentEqual(lastGraphLayersRef.current, next)) {
+            return lastGraphLayersRef.current;
+        }
+        lastGraphLayersRef.current = next;
+        return next;
+    }, [renderable]);
+
+    const lastStablePublishedGraphRef = useRef<GraphDescription | null>(null);
+    const publishedGraph: GraphDescription | null = useMemo(() => {
+        if (graphLayers.length === 0) {
+            if (lastStablePublishedGraphRef.current !== null) {
+                lastStablePublishedGraphRef.current = null;
+            }
+            return null;
+        }
+        const next: GraphDescription = {
+            kind: 'compositor',
+            layers: graphLayers,
+            canvasWidth: canvasW,
+            canvasHeight: canvasH,
+            duration: cardTotalDuration || 0,
+            fps: config.fps || 30,
+            intrinsicDurations,
+        };
+        const prev = lastStablePublishedGraphRef.current;
+        if (prev && publishedGraphContentEqual(prev, next)) {
+            return prev;
+        }
+        lastStablePublishedGraphRef.current = next;
+        return next;
+    }, [graphLayers, canvasW, canvasH, cardTotalDuration, config.fps, intrinsicDurations]);
+
+    // Publish the graph envelope to `nodeOutputs[id]`. Downstream live
+    // consumers (Blur, chained Compositor, etc.) read `graph` and mount their
+    // own renderers at their own playheads via `LayerSubgraph`. They never
+    // see this compositor's canvas reference — that's local state used only
+    // by THIS card's preview + lightbox.
+    //
+    // `cssFilter: ''` is the "start of a chain" marker — downstream filter
+    // nodes wrap this graph in a `{ kind: 'filter', upstream, cssFilter }`
+    // graph rather than mutating the cssFilter field directly. The field
+    // stays for any legacy consumer that still pattern-matches on it; new
+    // consumers should descend into the graph instead.
+    //
+    // Once the user clicks Run and the server writes a real URL into
+    // `nodeOutputs[id]`, we stop republishing — `lastPublishedGraphRef`
+    // remembers the graph identity that was current at our last publish, so
+    // when nothing has changed since that point we leave the URL in place
+    // (downstream is using it). The next config edit changes
+    // `publishedGraph` identity, the ref check falls through, and we publish
+    // the live graph again — invalidating the URL until the user re-runs.
+    const lastPublishedGraphRef = useRef<GraphDescription | null>(null);
     useEffect(() => {
         if (!hasVideoLayer) return;
-        if (!liveCanvas) return;
+        if (!publishedGraph) return;
+
+        const currentlyPublished = useAppStore.getState().nodeOutputs[id];
+        const hasAnyOutput = currentlyPublished !== undefined;
+        if (lastPublishedGraphRef.current === publishedGraph && hasAnyOutput) {
+            return;
+        }
+        lastPublishedGraphRef.current = publishedGraph;
+
         setNodeOutput(id, {
             type: 'video',
             data: [{
                 url: '',
-                canvas: liveCanvas,
-                stream: liveStream ?? undefined,
+                graph: publishedGraph,
                 cssFilter: '',
                 resolution: { width: canvasW, height: canvasH },
-                metadata: { source: 'Compositor', processedBy: 'LiveCanvas' },
+                metadata: { source: 'Compositor', processedBy: 'GraphLive' },
             }],
         });
-    }, [hasVideoLayer, liveCanvas, liveStream, id, canvasW, canvasH, setNodeOutput]);
+    }, [hasVideoLayer, publishedGraph, id, canvasW, canvasH, setNodeOutput]);
 
     const openLightbox = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -703,6 +910,96 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     };
 
     const handleLightboxClose = useCallback(() => setLightboxOpen(false), []);
+
+    // Fetch the rendered file and trigger a browser save. Going through
+    // fetch+blob (vs. <a href download>) is what makes the download actually
+    // download for cross-origin Supabase URLs — a same-tab navigation is the
+    // fallback the browser would otherwise pick.
+    const performDownload = useCallback(async (url: string) => {
+        setDownloadState('downloading');
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            const safeLabel = (data.label || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
+            // Prefer the source URL's extension (server picks the correct
+            // container) but fall back to outputKind when the URL is opaque.
+            const urlExt = url.split('?')[0].split('.').pop()?.toLowerCase();
+            const ext = urlExt && urlExt.length <= 4 ? urlExt
+                : outputKind === 'video' ? 'mp4'
+                : 'png';
+            a.download = `${safeLabel}-${ts}.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+            setDownloadState('success');
+            setTimeout(() => setDownloadState((s) => s === 'success' ? 'idle' : s), 1500);
+        } catch (err) {
+            console.error('Compositor download failed:', err);
+            setDownloadState('error');
+            setTimeout(() => setDownloadState((s) => s === 'error' ? 'idle' : s), 2500);
+        }
+    }, [data.label, outputKind]);
+
+    // Extract a real URL from a published envelope. The compositor's live
+    // graph publish uses `url: ''` as a sentinel — only treat non-empty
+    // strings as a downloadable resource.
+    const extractDownloadableUrl = useCallback((output: any): string | null => {
+        if (!output) return null;
+        const normalized = toLegacyRenderableOutput(output);
+        const first = Array.isArray(normalized) ? normalized[0] : normalized;
+        if (first && typeof first === 'object' && typeof (first as any).url === 'string' && (first as any).url) {
+            return (first as any).url as string;
+        }
+        return null;
+    }, []);
+
+    const downloadCompositor = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (downloadState !== 'idle' && downloadState !== 'success' && downloadState !== 'error') return;
+        const existingUrl = extractDownloadableUrl(composedOutput);
+        if (existingUrl) {
+            performDownload(existingUrl);
+            return;
+        }
+        // No fresh URL — trigger the same server pipeline the old Run button
+        // used. The watcher effect below picks up the URL when it lands.
+        setDownloadState('rendering');
+        waitingForUrlRef.current = true;
+        triggerRunFromNode(id, 'solo');
+    }, [downloadState, composedOutput, extractDownloadableUrl, performDownload, id, triggerRunFromNode]);
+
+    // Watch for the server-rendered URL to appear while we're waiting. The
+    // ref-gate (`waitingForUrlRef`) makes sure we only react to URLs that
+    // landed AFTER the user clicked download — not on unrelated republishes
+    // (e.g. an upstream re-emit).
+    useEffect(() => {
+        if (!waitingForUrlRef.current) return;
+        const url = extractDownloadableUrl(composedOutput);
+        if (!url) return;
+        waitingForUrlRef.current = false;
+        performDownload(url);
+    }, [composedOutput, extractDownloadableUrl, performDownload]);
+
+    // Failsafe: if the server-side render never produces a URL (failure with
+    // no error signal back, network issue, etc.), don't leave the button
+    // spinning forever.
+    useEffect(() => {
+        if (downloadState !== 'rendering') return;
+        const timeout = setTimeout(() => {
+            if (waitingForUrlRef.current) {
+                waitingForUrlRef.current = false;
+                setDownloadState('error');
+                setTimeout(() => setDownloadState((s) => s === 'error' ? 'idle' : s), 2500);
+            }
+        }, 90_000);
+        return () => clearTimeout(timeout);
+    }, [downloadState]);
 
     return (
         <>
@@ -718,14 +1015,38 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 hideStatus={true}
                 customOutputs={customOutputs}
                 customActions={
-                    <button
-                        onClick={openEditor}
-                        className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
-                                flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                        title="Edit compositor"
-                    >
-                        <Edit3 className="w-3 h-3 text-content-inverted" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={downloadCompositor}
+                            disabled={downloadState === 'rendering' || downloadState === 'downloading'}
+                            className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
+                                    flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200
+                                    disabled:opacity-80 disabled:cursor-wait disabled:hover:scale-100"
+                            title={
+                                downloadState === 'rendering' ? 'Rendering on the server…'
+                                : downloadState === 'downloading' ? 'Downloading…'
+                                : downloadState === 'success' ? 'Downloaded'
+                                : downloadState === 'error' ? 'Download failed — click to retry'
+                                : 'Download the composited result'
+                            }
+                        >
+                            {downloadState === 'rendering' || downloadState === 'downloading' ? (
+                                <Loader2 className="w-3 h-3 text-content-inverted animate-spin" />
+                            ) : downloadState === 'success' ? (
+                                <Check className="w-3 h-3 text-content-inverted" />
+                            ) : (
+                                <Download className="w-3 h-3 text-content-inverted" />
+                            )}
+                        </button>
+                        <button
+                            onClick={openEditor}
+                            className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
+                                    flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                            title="Edit compositor"
+                        >
+                            <Edit3 className="w-3 h-3 text-content-inverted" />
+                        </button>
+                    </div>
                 }
                 contentClassName="p-0 overflow-hidden"
             >
@@ -747,6 +1068,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                 isPlaying={cardIsPlaying}
                                 onPlayheadChange={setCardPlayhead}
                                 onTotalDurationChange={setCardTotalDuration}
+                                poolKey={id}
                             />
                             {hasVideoLayer && (
                                 <MiniTransport
@@ -783,8 +1105,11 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             {lightboxOpen && (() => {
                 // Resolve the server-published URL from this node's
                 // composedOutput (set by the workflow runner after the server
-                // executor uploads the rendered file). Common path for both
-                // image and video.
+                // executor uploads the rendered file). When present, prefer
+                // it over the live MediaStream path — a real URL gives the
+                // user native <video controls>, download, and accurate
+                // duration/scrubbing. The live stream lightbox is reserved
+                // for the case where no Run has been performed yet.
                 const normalized = composedOutput
                     ? toLegacyRenderableOutput(composedOutput)
                     : null;
@@ -795,9 +1120,22 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                         : null;
 
                 if (hasVideoLayer) {
-                    // Instant lightbox: same MediaStream the blur preview
-                    // already consumes, bound via srcObject to a fullscreen
-                    // <video controls>. Opens immediately, no recording.
+                    if (composedUrl) {
+                        // Server-rendered MP4 is available — full-featured
+                        // lightbox with native controls + download.
+                        return (
+                            <ImageLightbox
+                                media={composedUrl}
+                                type="video"
+                                initialIndex={0}
+                                onClose={handleLightboxClose}
+                            />
+                        );
+                    }
+                    // No Run yet — fall back to the live-stream lightbox.
+                    // Downloads aren't supported here (MediaStream isn't a
+                    // seekable resource); the user gets that capability by
+                    // clicking the Run button on the card first.
                     return (
                         <InstantVideoLightbox
                             stream={liveStream}

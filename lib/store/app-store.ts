@@ -68,9 +68,12 @@ export const useAppStore = create<RootState>()(
                         viewport: { x: 0, y: 0 },
                     },
                     isLoading: false,
-                    isLoadingSession: false,
+                    // Match the slice default — clearing state shouldn't make the
+                    // chat flash its empty/welcome view between a session navigation
+                    // and the subsequent loadSession() call.
+                    isLoadingSession: true,
                     statusMessage: null,
-                    isCanvasMode: false,
+                    isCanvasMode: true,
                     isCopilotMinimized: false,
                     models: [],
                     categories: [],
@@ -101,6 +104,10 @@ export const useAppStore = create<RootState>()(
                     'isLoadingSession',
                     'statusMessage',
                     'isCopilotMinimized',
+                    // Canvas mode is the default starting position for every
+                    // page load — never restore a stale "fullscreen chat" value
+                    // from a previous session.
+                    'isCanvasMode',
                     'liveNodePositions',
                     // History does not need to survive a page refresh; persisting
                     // forces a JSON.stringify of every snapshot on every set(),
@@ -138,7 +145,9 @@ export const useAppStore = create<RootState>()(
                     state.activeExecutionId = null;
                     state.executionStartTime = null;
                     state.isCopilotMinimized = false;
-                    state.isLoadingSession = false;
+                    state.isCanvasMode = true;
+                    // Keep the slice default (true) on rehydration so a refreshed
+                    // session page renders skeletons until loadSession() resolves.
                     state.runFromNodeId = null;
                     state.runMode = null;
                 }

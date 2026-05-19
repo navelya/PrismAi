@@ -1,17 +1,25 @@
 'use client';
 
 /**
- * Shared HTMLVideoElement pool keyed by source URL with cooperative play state.
+ * HTMLVideoElement pool keyed by (source URL, poolKey) with cooperative play
+ * state.
  *
- * Each consumer (one `LayerVideo` instance) acquires the element by URL and
- * receives a unique numeric `id`. Consumers vote on play state via
- * `setPlayState(url, id, wantsPlay)`. The pool plays the element if ANY
- * consumer wants it playing, pauses it if NONE do. This means:
+ * Each top-level consumer (a compositor card + its editor modal share one
+ * pool; a downstream blur or compositor each get their own) passes a stable
+ * `poolKey` — typically their node id — so different consumer trees decode
+ * the same URL into independent <video> elements with independent playheads.
+ * Without per-key isolation, every surface seeking the same URL would fight
+ * over a single shared `currentTime`, which is exactly what the pull-model
+ * architecture is built to avoid.
+ *
+ * Inside a single pool entry, individual `LayerVideo` instances still vote on
+ * play state via `setPlayState`. The element plays if ANY voter wants it
+ * playing, pauses if NONE do. Within one compositor's surface this lets the
+ * card and the editor modal share an element correctly:
  *
  *   - Card preview paused + modal playing → element plays (modal wins via OR)
  *   - Card preview paused + modal closes → element pauses (no playing voter
- *     remains). This fixes the bug where closing the modal mid-play left the
- *     card's preview running in the background.
+ *     remains)
  *   - Lightbox opens with its own autoplay → its consumer votes true; card's
  *     vote is independent. Closing lightbox removes its vote and the element
  *     returns to whatever the card wanted.
@@ -31,6 +39,13 @@ interface PoolEntry {
 
 const pool = new Map<string, PoolEntry>();
 let nextConsumerId = 1;
+
+/** Default key used when a caller doesn't supply one. */
+const DEFAULT_POOL_KEY = '_global_';
+
+function entryKey(url: string, poolKey: string): string {
+    return `${poolKey}|${url}`;
+}
 
 function makeSafeUrl(url: string): string {
     if (url.startsWith('data:')) return url;
@@ -53,12 +68,22 @@ function reconcilePlayState(entry: PoolEntry): void {
 }
 
 /**
- * Acquire a pooled video for a URL. Returns the element AND a consumer id.
- * The caller MUST release with the same id on unmount.
+ * Acquire a pooled video for a (URL, poolKey) pair. Returns the element AND a
+ * consumer id. The caller MUST release with the same (url, poolKey, id) on
+ * unmount.
+ *
+ * Surfaces that should share an element (e.g. a compositor card + its editor
+ * modal viewing the same compositor) pass the same poolKey. Surfaces that
+ * need independent playback (e.g. a downstream blur or chained compositor)
+ * pass their own distinct poolKey so they get a fresh decoder.
  */
-export function acquireVideo(url: string): { el: HTMLVideoElement; id: number } {
+export function acquireVideo(
+    url: string,
+    poolKey: string = DEFAULT_POOL_KEY,
+): { el: HTMLVideoElement; id: number } {
     const id = nextConsumerId++;
-    let entry = pool.get(url);
+    const key = entryKey(url, poolKey);
+    let entry = pool.get(key);
     if (entry) {
         entry.consumers.set(id, false);
         return { el: entry.el, id };
@@ -85,10 +110,10 @@ export function acquireVideo(url: string): { el: HTMLVideoElement; id: number } 
         metadataReady: false,
         metaWaiters: [],
     };
-    pool.set(url, entry);
+    pool.set(key, entry);
 
     el.addEventListener('loadedmetadata', () => {
-        const e = pool.get(url);
+        const e = pool.get(key);
         if (!e) return;
         e.metadataReady = true;
         const waiters = e.metaWaiters;
@@ -109,8 +134,10 @@ export function acquireVideo(url: string): { el: HTMLVideoElement; id: number } 
 export function onVideoMetadata(
     url: string,
     cb: (el: HTMLVideoElement) => void,
+    poolKey: string = DEFAULT_POOL_KEY,
 ): () => void {
-    const entry = pool.get(url);
+    const key = entryKey(url, poolKey);
+    const entry = pool.get(key);
     if (!entry) return () => {};
     if (entry.metadataReady) {
         cb(entry.el);
@@ -118,7 +145,7 @@ export function onVideoMetadata(
     }
     entry.metaWaiters.push(cb);
     return () => {
-        const e = pool.get(url);
+        const e = pool.get(key);
         if (!e) return;
         const idx = e.metaWaiters.indexOf(cb);
         if (idx >= 0) e.metaWaiters.splice(idx, 1);
@@ -129,15 +156,25 @@ export function onVideoMetadata(
  * Set this consumer's vote on whether the pooled element should be playing.
  * The pool reconciles by OR-ing all consumer votes.
  */
-export function setPlayState(url: string, id: number, wantsPlay: boolean): void {
-    const entry = pool.get(url);
+export function setPlayState(
+    url: string,
+    id: number,
+    wantsPlay: boolean,
+    poolKey: string = DEFAULT_POOL_KEY,
+): void {
+    const entry = pool.get(entryKey(url, poolKey));
     if (!entry) return;
     entry.consumers.set(id, wantsPlay);
     reconcilePlayState(entry);
 }
 
-export function releaseVideo(url: string, id: number): void {
-    const entry = pool.get(url);
+export function releaseVideo(
+    url: string,
+    id: number,
+    poolKey: string = DEFAULT_POOL_KEY,
+): void {
+    const key = entryKey(url, poolKey);
+    const entry = pool.get(key);
     if (!entry) return;
     entry.consumers.delete(id);
     if (entry.consumers.size === 0) {
@@ -149,7 +186,7 @@ export function releaseVideo(url: string, id: number): void {
             // Element going away — nothing meaningful to recover from.
         }
         entry.el.remove();
-        pool.delete(url);
+        pool.delete(key);
     } else {
         // Other consumers remain; recompute play state without this voter.
         reconcilePlayState(entry);

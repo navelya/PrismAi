@@ -77,6 +77,11 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             if ((control?.type || '').toLowerCase() === 'array') return true;
             if (Array.isArray(value)) return true;
 
+            // Controls are always scalar widgets (slider, number_input, select, etc.) —
+            // never apply the suffix heuristic to a registered control, even if the key
+            // happens to end in "_images" / "_files" / "_urls" (e.g. `max_images`).
+            if (control) return false;
+
             const normalizedKey = key.toLowerCase();
             return (
                 normalizedKey === 'images' ||

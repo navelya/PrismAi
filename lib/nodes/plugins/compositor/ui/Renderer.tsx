@@ -21,18 +21,21 @@ import { Image as KonvaImage, Text as KonvaText, Group } from 'react-konva';
 import useImage from 'use-image';
 import Konva from 'konva';
 import { CompositorLayer, LayerTransform } from '../definition';
-import { detectSourceKindFromUrl, isLayerActiveAt, LayerSourceKind } from '../shared';
+import { detectSourceKindFromUrl, isLayerActiveAt, LayerSourceKind, GraphDescription, graphDimensions } from '../shared';
 import { acquireVideo, onVideoMetadata, releaseVideo, setPlayState } from '../video-pool';
+import { GraphRenderCache, paintGraphFrame } from '../graph-renderer';
 
 /**
  * What the shared renderer needs to draw one layer:
  *   - the layer record (transform, visibility, etc.)
  *   - its resolved upstream value: an image object `{ url, ... }`, a text
- *     string, or null when the upstream hasn't produced anything yet
+ *     string, an object carrying a live `canvas` reference (legacy push model),
+ *     an object carrying a `graph` description (pull model), or null when the
+ *     upstream hasn't produced anything yet
  */
 export interface RenderableLayer {
     layer: CompositorLayer;
-    resolved: { url?: string } | string | null;
+    resolved: { url?: string; canvas?: HTMLCanvasElement; graph?: GraphDescription; cssFilter?: string } | string | null;
 }
 
 interface CompositorLayerNodesProps {
@@ -66,6 +69,19 @@ interface CompositorLayerNodesProps {
      * `onLayerVideoLoad` callbacks.
      */
     intrinsicDurations?: Record<string, number | null>;
+    /**
+     * Pool key for HTMLVideoElement acquisition. Surfaces that should share
+     * decoders (a compositor card + its editor modal viewing the same
+     * compositor) pass the same key — typically the owning node id. Surfaces
+     * that need independent playback (a downstream blur or chained compositor)
+     * pass their own distinct key so their videos get fresh decoders with
+     * independent currentTime.
+     *
+     * When omitted, callers fall back to the pool's `_global_` default which
+     * shares across all unkeyed acquirers (legacy behavior — fine for the
+     * pre-pull-model layout but not for chained live previews).
+     */
+    poolKey?: string;
 }
 
 function safeImageUrl(url: string): string {
@@ -191,6 +207,7 @@ const LayerVideo = memo(function LayerVideo({
     localTime,
     isPlaying,
     visible = true,
+    poolKey,
 }: {
     layer: CompositorLayer;
     videoUrl: string;
@@ -221,14 +238,17 @@ const LayerVideo = memo(function LayerVideo({
      * clip's window.
      */
     visible?: boolean;
+    /** See CompositorLayerNodesProps.poolKey. */
+    poolKey?: string;
 }) {
     // Acquire a pooled element on mount; pool returns the shared element and
     // a unique consumer id so this instance can vote on play state without
     // stomping other surfaces' votes. See video-pool.ts for the consensus
-    // logic.
+    // logic. The poolKey scopes the acquisition so independent consumer trees
+    // (different cards) get independent decoders for the same URL.
     const handle = useMemo(
-        () => (typeof document !== 'undefined' ? acquireVideo(videoUrl) : null),
-        [videoUrl],
+        () => (typeof document !== 'undefined' ? acquireVideo(videoUrl, poolKey) : null),
+        [videoUrl, poolKey],
     );
     const pooledEl = handle?.el ?? null;
     const consumerId = handle?.id ?? null;
@@ -305,12 +325,12 @@ const LayerVideo = memo(function LayerVideo({
                 width: el.videoWidth || 0,
                 height: el.videoHeight || 0,
             });
-        });
+        }, poolKey);
         return () => {
             unsub();
-            releaseVideo(videoUrl, consumerId);
+            releaseVideo(videoUrl, consumerId, poolKey);
         };
-    }, [videoUrl, pooledEl, consumerId]);
+    }, [videoUrl, pooledEl, consumerId, poolKey]);
 
     // Vote on play state. The pool plays if any consumer wants play, pauses
     // if none do. When this LayerVideo unmounts, releaseVideo removes the
@@ -319,8 +339,8 @@ const LayerVideo = memo(function LayerVideo({
     // never voted to play."
     useEffect(() => {
         if (consumerId === null) return;
-        setPlayState(videoUrl, consumerId, !!isPlaying);
-    }, [isPlaying, consumerId, videoUrl]);
+        setPlayState(videoUrl, consumerId, !!isPlaying, poolKey);
+    }, [isPlaying, consumerId, videoUrl, poolKey]);
 
     // Seek when not playing (covers two cases: paused & user scrubs; inactive
     // clip that the parent is keeping mounted so the decoder stays warm).
@@ -598,6 +618,189 @@ const LayerCanvas = memo(function LayerCanvas({
     );
 });
 
+/**
+ * Render a layer whose source is a pull-model `GraphDescription`.
+ *
+ * Each instance owns an offscreen canvas at the subgraph's natural
+ * dimensions. A rAF loop paints the subgraph into it at THIS consumer's
+ * playhead via the imperative `paintGraphFrame` renderer (see
+ * graph-renderer.ts). The painted canvas is then exposed to the enclosing
+ * Konva tree as a KonvaImage source — same trick as `LayerCanvas`, but the
+ * canvas's contents are computed locally instead of being a reference to
+ * an upstream node's surface.
+ *
+ * This is the core of the pull-model: instead of every downstream node
+ * pointing at the same source canvas (which has one shared playhead), each
+ * downstream consumer renders the upstream graph itself, at its own time,
+ * into its own canvas.
+ */
+const LayerSubgraph = memo(function LayerSubgraph({
+    layer,
+    graph,
+    playhead,
+    isPlaying,
+    poolKey,
+    interactive,
+    onSelect,
+    onTransform,
+    onLoad,
+    onInteractStart,
+    onInteractEnd,
+    visible = true,
+}: {
+    layer: CompositorLayer;
+    graph: GraphDescription;
+    playhead: number;
+    isPlaying: boolean;
+    poolKey: string;
+    interactive: boolean;
+    onSelect?: () => void;
+    onTransform?: (updates: Partial<LayerTransform>) => void;
+    onLoad?: (meta: { duration: number; width: number; height: number }) => void;
+    onInteractStart?: () => void;
+    onInteractEnd?: () => void;
+    visible?: boolean;
+}) {
+    const shapeRef = useRef<any>(null);
+    const t = layer.transform;
+    const dims = graphDimensions(graph);
+
+    // Offscreen canvas + render cache live for the component's lifetime. The
+    // cache owns pooled video voters and image loads; releasing it on unmount
+    // is what removes this consumer's votes from the shared pool.
+    const offscreenRef = useRef<HTMLCanvasElement | null>(null);
+    const cacheRef = useRef<GraphRenderCache | null>(null);
+    if (!offscreenRef.current && typeof document !== 'undefined') {
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, dims.width);
+        c.height = Math.max(1, dims.height);
+        offscreenRef.current = c;
+    }
+    if (!cacheRef.current) {
+        cacheRef.current = new GraphRenderCache(poolKey);
+    }
+
+    // Keep the cache's poolKey in sync if the parent changes it (rare — would
+    // only happen if the owning node id changed, which it doesn't).
+    useEffect(() => {
+        return () => {
+            cacheRef.current?.dispose();
+            cacheRef.current = null;
+        };
+    }, []);
+
+    // Resize the offscreen canvas if the graph's dimensions change.
+    useEffect(() => {
+        const c = offscreenRef.current;
+        if (!c) return;
+        if (c.width !== dims.width) c.width = Math.max(1, dims.width);
+        if (c.height !== dims.height) c.height = Math.max(1, dims.height);
+    }, [dims.width, dims.height]);
+
+    // Fire onLoad once we know the subgraph's dimensions. Duration is taken
+    // from the graph; intrinsic subgraph durations don't drive activity
+    // gating at the parent level (the subgraph manages its own timeline).
+    const onLoadRef = useRef(onLoad);
+    onLoadRef.current = onLoad;
+    useEffect(() => {
+        if (dims.width > 0 && dims.height > 0) {
+            onLoadRef.current?.({ duration: 0, width: dims.width, height: dims.height });
+        }
+    }, [dims.width, dims.height]);
+
+    // rAF loop driving the subgraph repaint. We don't gate on isPlaying here
+    // — even when the consumer is paused, the subgraph might still need to
+    // repaint (e.g. user editing layers upstream → live reflection downstream).
+    // The cost is one drawImage chain per frame; cheap.
+    const playheadRef = useRef(playhead);
+    playheadRef.current = playhead;
+    const isPlayingRef = useRef(isPlaying);
+    isPlayingRef.current = isPlaying;
+    useEffect(() => {
+        const c = offscreenRef.current;
+        const cache = cacheRef.current;
+        if (!c || !cache) return;
+        let stopped = false;
+        let raf = 0;
+        const draw = () => {
+            if (stopped) return;
+            const ctx = c.getContext('2d');
+            if (ctx) {
+                cache.releaseAllScratch();
+                paintGraphFrame(graph, playheadRef.current, ctx, cache, isPlayingRef.current);
+            }
+            raf = requestAnimationFrame(draw);
+        };
+        raf = requestAnimationFrame(draw);
+        return () => {
+            stopped = true;
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [graph]);
+
+    const imageEl = offscreenRef.current;
+    if (!imageEl) return null;
+
+    const commonProps: any = {
+        image: imageEl,
+        ref: shapeRef,
+        visible,
+        x: t.x,
+        y: t.y,
+        width: t.width,
+        height: t.height,
+        rotation: t.rotation,
+        opacity: t.opacity,
+        scaleX: t.flipX ? -1 : 1,
+        scaleY: t.flipY ? -1 : 1,
+        offsetX: t.flipX ? t.width : 0,
+        offsetY: t.flipY ? t.height : 0,
+        globalCompositeOperation: (t.blendMode as any) || 'source-over',
+    };
+
+    if (!interactive) {
+        return <KonvaImage {...commonProps} listening={false} />;
+    }
+
+    return (
+        <KonvaImage
+            {...commonProps}
+            name={`img-${layer.id}`}
+            draggable={!layer.locked && visible}
+            onClick={onSelect}
+            onTap={onSelect}
+            onDragStart={() => {
+                onSelect?.();
+                onInteractStart?.();
+            }}
+            onDragEnd={(e) => {
+                onTransform?.({ x: e.target.x(), y: e.target.y() });
+                onInteractEnd?.();
+            }}
+            onTransformStart={() => onInteractStart?.()}
+            onTransformEnd={() => {
+                const node = shapeRef.current;
+                if (!node) {
+                    onInteractEnd?.();
+                    return;
+                }
+                const scaleX = node.scaleX();
+                const scaleY = node.scaleY();
+                node.scaleX(t.flipX ? -1 : 1);
+                node.scaleY(t.flipY ? -1 : 1);
+                onTransform?.({
+                    x: node.x(),
+                    y: node.y(),
+                    rotation: node.rotation(),
+                    width: Math.max(5, node.width() * Math.abs(scaleX)),
+                    height: Math.max(5, node.height() * Math.abs(scaleY)),
+                });
+                onInteractEnd?.();
+            }}
+        />
+    );
+});
+
 const LayerText = memo(function LayerText({
     layer,
     text,
@@ -756,18 +959,20 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
     playhead,
     isPlaying = false,
     intrinsicDurations,
+    poolKey,
 }: CompositorLayerNodesProps) {
     // Detect if any visible layer needs the continuous redraw loop. That's
-    // true when the layer is a video URL (frames decode over time) OR when
-    // the layer's source is an HTMLCanvasElement (e.g. another compositor's
-    // live canvas — pixels can change every tick of the upstream renderer).
-    // Image-only compositors don't need the rAF loop.
+    // true when the layer is a video URL (frames decode over time), an
+    // upstream canvas reference (legacy push model), or a graph description
+    // (pull model — the subgraph might be animating). Image-only compositors
+    // don't need the rAF loop.
     const hasVideo = useMemo(
         () =>
             layers.some(({ layer, resolved }) => {
                 if (!layer.visible) return false;
-                if (resolved && typeof resolved === 'object' && (resolved as any).canvas instanceof HTMLCanvasElement) {
-                    return true;
+                if (resolved && typeof resolved === 'object') {
+                    if ((resolved as any).graph) return true;
+                    if ((resolved as any).canvas instanceof HTMLCanvasElement) return true;
                 }
                 const url =
                     resolved && typeof resolved === 'object' && typeof (resolved as any).url === 'string'
@@ -789,13 +994,22 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                     resolved && typeof resolved === 'object' && typeof (resolved as any).url === 'string'
                         ? ((resolved as any).url as string)
                         : null;
-                // Live canvas reference from an upstream renderer (another
-                // Compositor, or a Blur node wrapping one). Takes precedence
-                // over URL: a chained compositor publishes both an empty url
-                // AND a canvas; we want to draw the canvas, not try to fetch
-                // the empty url. Konva accepts HTMLCanvasElement as a
-                // KonvaImage source directly — no encoding step.
+                // Pull-model graph description from upstream. When present,
+                // takes precedence over every other source — the layer is a
+                // sub-render the consumer drives at its own playhead. The
+                // graph itself may be a `filter` wrapper composing a CSS
+                // filter chain onto an inner compositor graph; the
+                // LayerSubgraph renderer descends through both transparently.
+                const sourceGraph: GraphDescription | null =
+                    resolved && typeof resolved === 'object' && (resolved as any).graph
+                        ? ((resolved as any).graph as GraphDescription)
+                        : null;
+                // Live canvas reference from an upstream renderer (legacy
+                // push model — kept for non-graph sources that still publish
+                // a direct canvas ref). The pull-model graph branch above
+                // takes precedence whenever both are present.
                 const sourceCanvas =
+                    !sourceGraph &&
                     resolved && typeof resolved === 'object' && (resolved as any).canvas instanceof HTMLCanvasElement
                         ? ((resolved as any).canvas as HTMLCanvasElement)
                         : null;
@@ -811,6 +1025,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
 
                 let kind: LayerSourceKind = 'unknown';
                 if (asText !== null) kind = 'text';
+                else if (sourceGraph) kind = 'video'; // graphs behave like video for gating/redraw
                 else if (sourceCanvas) kind = 'video'; // canvas behaves like video for gating/redraw
                 else if (url) kind = detectSourceKindFromUrl(url);
 
@@ -824,6 +1039,39 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                 if (typeof playhead === 'number') {
                     const intrinsic = intrinsicDurations?.[layer.id] ?? null;
                     isActive = isLayerActiveAt(layer, kind, intrinsic, playhead);
+                }
+
+                if (sourceGraph) {
+                    // Pull-model: render the subgraph at THIS consumer's
+                    // playhead into our own offscreen canvas, then composite
+                    // it as a layer in our scene. Independent of any other
+                    // consumer of the same upstream — each downstream node
+                    // is its own renderer with its own time cursor.
+                    return (
+                        <LayerSubgraph
+                            key={layer.id}
+                            layer={layer}
+                            graph={sourceGraph}
+                            playhead={typeof playhead === 'number' ? playhead : 0}
+                            isPlaying={isPlaying}
+                            poolKey={poolKey || '_global_'}
+                            interactive={interactive}
+                            onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
+                            onTransform={
+                                interactive && onTransformLayer
+                                    ? (u) => onTransformLayer(layer.id, u)
+                                    : undefined
+                            }
+                            onLoad={
+                                onLayerVideoLoad
+                                    ? (meta) => onLayerVideoLoad(layer.id, meta)
+                                    : undefined
+                            }
+                            onInteractStart={onInteractStart}
+                            onInteractEnd={onInteractEnd}
+                            visible={true}
+                        />
+                    );
                 }
 
                 if (sourceCanvas) {
@@ -885,6 +1133,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             localTime={localTime}
                             isPlaying={isPlaying && isActive}
                             visible={isActive}
+                            poolKey={poolKey}
                         />
                     );
                 }

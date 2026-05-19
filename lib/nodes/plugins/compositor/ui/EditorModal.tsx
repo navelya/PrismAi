@@ -532,6 +532,83 @@ export default function CompositorEditorModal({
         [layers, config.timelineDuration, intrinsicDurations],
     );
 
+    // Timeline only makes sense once a video is wired in — for purely static
+    // image/text compositions there's nothing to scrub. Recomputes when a
+    // layer's resolved source kind flips (e.g. an upstream finishes producing).
+    const hasVideoLayer = useMemo(
+        () => layers.some((l) => sourceKindByLayerId[l.id] === 'video'),
+        [layers, sourceKindByLayerId],
+    );
+
+    /**
+     * Auto-sequence new video layers onto the end of the timeline so they
+     * never pile up at t=0. Runs once per video layer; the `isAutoSequenced`
+     * flag freezes the layer's start position after the first placement so
+     * later manual drags are preserved.
+     *
+     * Strategy ("append to end"):
+     *   1. Collect end-times of every video layer that's already settled
+     *      (isAutoSequenced=true OR user-customized startTime/duration).
+     *   2. For each unsequenced video, place it at max(known ends) and mark
+     *      it settled. Walking oldest→newest (high array index first) means
+     *      a freshly-placed layer can serve as the anchor for the next one
+     *      in the same pass.
+     *   3. If an older video hasn't reported its intrinsic duration yet, we
+     *      halt — the effect re-runs when the intrinsic arrives.
+     */
+    useEffect(() => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = node?.data?.config as CompositorConfig | undefined;
+        if (!cfg || !cfg.layers || cfg.layers.length === 0) return;
+
+        const endByLayerId = new Map<string, number>();
+
+        // Pass 1: already-settled video layers contribute their current end.
+        for (const l of cfg.layers) {
+            if (sourceKindByLayerId[l.id] !== 'video') continue;
+            const userCustomized =
+                (l.startTime || 0) !== 0 || (l.duration !== null && l.duration !== undefined);
+            if (!l.isAutoSequenced && !userCustomized) continue;
+            const intrinsic = intrinsicDurations[l.id];
+            const dur = l.duration ?? intrinsic ?? 0;
+            endByLayerId.set(l.id, (l.startTime || 0) + dur);
+        }
+
+        // Pass 2: place untouched video layers, oldest first.
+        const targets: { id: string; startTime: number }[] = [];
+        for (let i = cfg.layers.length - 1; i >= 0; i--) {
+            const l = cfg.layers[i];
+            if (sourceKindByLayerId[l.id] !== 'video') continue;
+            if (l.isAutoSequenced) continue;
+            const userCustomized =
+                (l.startTime || 0) !== 0 || (l.duration !== null && l.duration !== undefined);
+            if (userCustomized) {
+                // User already positioned this layer manually before the
+                // sequencer could run; respect it and freeze.
+                targets.push({ id: l.id, startTime: l.startTime || 0 });
+                continue;
+            }
+            const intrinsic = intrinsicDurations[l.id];
+            if (intrinsic === undefined || intrinsic === null) {
+                // Wait for this layer's intrinsic before sequencing it (and
+                // any newer layers); guarantees add-order placement.
+                break;
+            }
+            let maxEnd = 0;
+            for (const end of endByLayerId.values()) {
+                if (end > maxEnd) maxEnd = end;
+            }
+            endByLayerId.set(l.id, maxEnd + intrinsic);
+            targets.push({ id: l.id, startTime: maxEnd });
+        }
+
+        if (targets.length === 0) return;
+        updateLayers((prev) => prev.map((l) => {
+            const t = targets.find((x) => x.id === l.id);
+            return t ? { ...l, startTime: t.startTime, isAutoSequenced: true } : l;
+        }));
+    }, [layers, intrinsicDurations, sourceKindByLayerId, nodeId, updateLayers]);
+
     // rAF playback loop. Halts when paused, when the modal closes, or when the
     // playhead would step past the end (we wrap to 0 so playback feels looping).
     useEffect(() => {
@@ -756,6 +833,7 @@ export default function CompositorEditorModal({
                                     playhead={playhead}
                                     isPlaying={isPlaying}
                                     intrinsicDurations={intrinsicDurations}
+                                    poolKey={nodeId}
                                 />
                                 <Path data={dimmerPathData} fill="rgba(0,0,0,0.7)" fillRule="evenodd" listening={false} />
                                 {selectedLayer && !selectedLayer.locked && (
@@ -916,25 +994,28 @@ export default function CompositorEditorModal({
                     </div>
                 </div>
 
-                {/* Timeline panel (Stage 1: temporal compositor surface) */}
-                <div className="h-[260px] flex-shrink-0 border-t border-white/10">
-                    <Timeline
-                        layers={layers}
-                        sourceKindByLayerId={sourceKindByLayerId}
-                        intrinsicDurations={intrinsicDurations}
-                        configuredTotalDuration={config.timelineDuration ?? null}
-                        fps={config.fps || 30}
-                        playhead={playhead}
-                        isPlaying={isPlaying}
-                        audioMuted={audioMuted}
-                        selectedLayerId={selectedLayerId}
-                        onTogglePlay={() => setIsPlaying((p) => !p)}
-                        onSeek={(t) => { setIsPlaying(false); setPlayhead(t); }}
-                        onToggleAudioMute={() => setAudioMuted((m) => !m)}
-                        onSelectLayer={setSelectedLayerId}
-                        onUpdateLayer={handleUpdateLayer}
-                    />
-                </div>
+                {/* Timeline panel — only mounted when a video is on the canvas.
+                    Image/text-only compositions don't need a transport bar. */}
+                {hasVideoLayer && (
+                    <div className="h-[260px] flex-shrink-0 border-t border-white/10">
+                        <Timeline
+                            layers={layers}
+                            sourceKindByLayerId={sourceKindByLayerId}
+                            intrinsicDurations={intrinsicDurations}
+                            configuredTotalDuration={config.timelineDuration ?? null}
+                            fps={config.fps || 30}
+                            playhead={playhead}
+                            isPlaying={isPlaying}
+                            audioMuted={audioMuted}
+                            selectedLayerId={selectedLayerId}
+                            onTogglePlay={() => setIsPlaying((p) => !p)}
+                            onSeek={(t) => { setIsPlaying(false); setPlayhead(t); }}
+                            onToggleAudioMute={() => setAudioMuted((m) => !m)}
+                            onSelectLayer={setSelectedLayerId}
+                            onUpdateLayer={handleUpdateLayer}
+                        />
+                    </div>
+                )}
             </div>
         </div>
     );

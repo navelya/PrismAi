@@ -62,6 +62,14 @@ export interface CompositorLayer {
     startTime: number;
     /** How long it stays. null = "full source" for video, "full timeline" for image/text. */
     duration: number | null;
+    /**
+     * One-shot flag: true once the editor has auto-placed this video layer at
+     * the end of the prior timeline content (so new videos don't pile up at
+     * t=0). After this is set, the user owns the layer's startTime and the
+     * auto-sequencer never touches it again. Image/text layers don't need
+     * sequencing — this stays falsy for them.
+     */
+    isAutoSequenced?: boolean;
 
     // --- Forward-compat (Stage 1 ignored) ---
     /** Trim seconds from the start of the source clip (Stage 2). */

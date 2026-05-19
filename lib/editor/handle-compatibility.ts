@@ -119,6 +119,15 @@ function resolveCompositorOutputKind(nodeId: string): 'image' | 'video' | null {
         const cfgLast = (upstream.data as any)?.config?.last_output;
         const candidate = liveOutput ?? dataOutput ?? cfgImages ?? cfgLast;
 
+        // Envelope shape: {type, data}. Trust the type field over URL
+        // detection — pull-model graph envelopes are authoritatively video
+        // but have no URL until the server renders.
+        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+            const t = (candidate as any).type;
+            if (t === 'video') return 'video';
+            if (t === 'image') { sawImage = true; continue; }
+        }
+
         const url = extractFirstUrl(candidate);
         if (!url) continue;
 

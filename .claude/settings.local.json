@@ -40,7 +40,8 @@
       "Bash(findstr *)",
       "WebFetch(domain:maiamichelle.com)",
       "WebFetch(domain:www.youtube.com)",
-      "WebFetch(domain:videohighlight.com)"
+      "WebFetch(domain:videohighlight.com)",
+      "Bash(taskkill /F /IM node.exe)"
     ]
   }
 }

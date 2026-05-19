@@ -105,111 +105,35 @@ async function blurImage(
 }
 
 async function blurVideo(
-    videoUrl: string,
-    sigma: number,
-    type: BlurType,
-    context: ExecutionContext,
+    _videoUrl: string,
+    _sigma: number,
+    _type: BlurType,
+    _context: ExecutionContext,
 ): Promise<NodeExecutionResult> {
-    console.log(`[BlurExecutor:video] Applying ${type} blur with sigma ${sigma} to ${videoUrl}`);
-
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const { fetchFile } = await import('@ffmpeg/util');
-
-    const ffmpeg = new FFmpeg();
-    try {
-        await ffmpeg.load();
-    } catch (err) {
-        return {
-            success: false,
-            data: null,
-            error: `ffmpeg-wasm failed to load on this deployment. Video blur unavailable. (${err instanceof Error ? err.message : 'unknown'})`,
-        };
-    }
-
-    const inputName = 'input.mp4';
-    const outputName = 'out.mp4';
-
-    try {
-        const data = await fetchFile(videoUrl);
-        await ffmpeg.writeFile(inputName, data);
-    } catch (err) {
-        return {
-            success: false,
-            data: null,
-            error: `Failed to fetch video for blur: ${err instanceof Error ? err.message : 'unknown'}`,
-        };
-    }
-
-    // Compose video filters: blur first, then optional type-specific eq
-    // adjustments that mirror the client's CSS approximations.
-    //   box   = blur + contrast(1.15) brightness(1.05) saturate(1.1)
-    //   stack = blur + saturate(0.8) (opacity dropped — see note in blurImage)
-    // ffmpeg's eq filter: brightness is additive (-1..1, 0 = unchanged),
-    // contrast and saturation are multiplicative (1 = unchanged). CSS
-    // brightness is multiplicative — approximating 1.05 with an additive
-    // +0.05 is close enough for these stylistic flavours.
-    const filters: string[] = [`gblur=sigma=${sigma}`];
-    if (type === 'box') {
-        filters.push('eq=contrast=1.15:brightness=0.05:saturation=1.1');
-    } else if (type === 'stack') {
-        filters.push('eq=saturation=0.8');
-    }
-
-    const args = [
-        '-i', inputName,
-        '-vf', filters.join(','),
-        '-c:a', 'copy',
-        '-movflags', '+faststart',
-        '-y',
-        outputName,
-    ];
-
-    console.log(`[BlurExecutor:video] running ffmpeg: ${args.join(' ')}`);
-
-    try {
-        await ffmpeg.exec(args);
-    } catch (err) {
-        return {
-            success: false,
-            data: null,
-            error: `ffmpeg blur failed: ${err instanceof Error ? err.message : 'unknown error'}`,
-        };
-    }
-
-    let outputBuffer: Uint8Array;
-    try {
-        outputBuffer = (await ffmpeg.readFile(outputName)) as Uint8Array;
-    } catch (err) {
-        return {
-            success: false,
-            data: null,
-            error: `ffmpeg produced no output: ${err instanceof Error ? err.message : 'unknown error'}`,
-        };
-    }
-
-    const supabase = createServiceClient();
-    const filename = `${context.executionId}/${context.nodeId}/blur_${Date.now()}.mp4`;
-
-    const { error: uploadError } = await supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .upload(filename, Buffer.from(outputBuffer), { contentType: 'video/mp4', cacheControl: '3600' });
-    if (uploadError) {
-        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
-    }
-
-    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
-
+    // @ffmpeg/ffmpeg@0.12+ is browser-only by design — its constructor throws
+    // "ffmpeg.wasm does not support nodejs" the moment it's instantiated in a
+    // Node runtime (Vercel serverless function). Lazy-importing it doesn't
+    // help; the package is just incompatible with the server.
+    //
+    // To enable server-side video blur, the project needs to pick ONE of:
+    //   (a) fluent-ffmpeg + ffmpeg-static (Node-native, ~70MB binary)
+    //   (b) route to the Python sidecar service
+    //   (c) use a cloud video model on Replicate
+    //   (d) skip server video entirely and rely on the client pull-model
+    //       graph render to produce / download user-visible video
+    //
+    // Until that decision lands, fail fast with a useful message instead of
+    // the bare "ffmpeg.wasm does not support nodejs" surface error. The
+    // previous ffmpeg-wasm implementation (kept until commit fd3d7734) is
+    // recoverable from git history once the replacement is wired up.
     return {
-        success: true,
-        data: [
-            {
-                url: urlData.publicUrl,
-                metadata: {
-                    format: 'mp4',
-                    size: outputBuffer.byteLength,
-                    processedBy: 'ServerFFmpegWasm',
-                },
-            },
-        ],
+        success: false,
+        data: null,
+        error:
+            'Server-side video blur is not available in this deployment. ' +
+            '@ffmpeg/ffmpeg@0.12 is browser-only and cannot run in Node.js. ' +
+            'Use the in-card client preview (pull-model graph render), or ' +
+            'switch the server path to fluent-ffmpeg + ffmpeg-static, the ' +
+            'Python sidecar service, or a Replicate video model.',
     };
 }

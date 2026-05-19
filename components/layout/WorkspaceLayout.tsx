@@ -30,7 +30,6 @@ const CANVAS_TRANSITION = { type: 'tween' as const, ease: 'easeOut' as const, du
 const RAIL_SPRING = { type: 'spring' as const, stiffness: 340, damping: 30 };
 
 const SIDEBAR_WIDTH = 340;
-const SIDEBAR_HEIGHT = 600;
 const PANEL_W = 320; // left-side panel width
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,18 +37,6 @@ type ActivePanel = 'node-library' | 'assets' | 'templates' | null;
 
 export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult, sessionId }: WorkspaceLayoutProps) {
     const isMobile = useIsMobile();
-
-    // BOOTSTRAP (render-phase, runs once before the first paint):
-    // Sync the store to the optimistic mode now so the first paint and every
-    // store subscriber (chat panel included) agree.
-    const hasBootstrappedMode = useRef(false);
-    if (!hasBootstrappedMode.current) {
-        hasBootstrappedMode.current = true;
-        const store = useAppStore.getState();
-        const wantCanvas = !!sessionId;
-        if (store.isCanvasMode !== wantCanvas) store.setIsCanvasMode(wantCanvas);
-        if (store.isCopilotMinimized) store.setIsCopilotMinimized(false);
-    }
 
     const isCanvasMode = useAppStore(s => s.isCanvasMode);
     const setIsCanvasMode = useAppStore(s => s.setIsCanvasMode);
@@ -59,32 +46,17 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
-    // MAINTENANCE: While the session is still loading (workflow not yet
-    // resolved), keep canvas mode pinned. This defends against
-    // `clearAllState()` in /chat/[id]/page.tsx, which fires AFTER our render
-    // bootstrap and resets isCanvasMode to false. useLayoutEffect runs before
-    // paint, so the user never sees the intermediate full-screen frame.
-    const hasHandledInitialMode = useRef(false);
+    // Defaults (canvas mode on, chat sidebar visible) are baked into the store
+    // — see ui-slice.ts initial state, app-store.ts persist exclusion, and
+    // onRehydrateStorage. This effect only re-asserts those defaults when
+    // sessionId changes (session switch, new chat, "Start Empty Canvas") in
+    // case the user manually toggled fullscreen or minimized chat during the
+    // previous session.
     useLayoutEffect(() => {
-        if (hasHandledInitialMode.current) return;
         const store = useAppStore.getState();
-        const wantCanvas = !!sessionId;
-        if (store.isCanvasMode !== wantCanvas) store.setIsCanvasMode(wantCanvas);
+        if (!store.isCanvasMode) store.setIsCanvasMode(true);
         if (store.isCopilotMinimized) store.setIsCopilotMinimized(false);
-    });
-
-    // VERIFICATION: When the workflow lands, commit the final mode based on
-    // whether it has nodes, then release the maintenance loop above.
-    useEffect(() => {
-        if (!sessionId || hasHandledInitialMode.current) return;
-
-        if (workflow && workflow.id === sessionId) {
-            const hasNodes = (workflow.nodes?.length || 0) > 0;
-            setIsCanvasMode(hasNodes);
-            setIsCopilotMinimized(false);
-            hasHandledInitialMode.current = true;
-        }
-    }, [sessionId, workflow, setIsCanvasMode, setIsCopilotMinimized]);
+    }, [sessionId]);
 
     const togglePanel = useCallback((panel: ActivePanel) => {
         setActivePanel(prev => (prev === panel ? null : panel));
@@ -130,22 +102,11 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
         }
     }, [isNodeLibraryOpen, fetchCategories, fetchNodeTypes, fetchProviders, fetchModels]);
 
-    // ── Container size for sidebar positioning ───────────────────────────────
     const containerRef = useRef<HTMLDivElement>(null);
-    const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-        const ro = new ResizeObserver(([e]) => setContainerSize({ w: e.contentRect.width, h: e.contentRect.height }));
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, []);
-
     const PAD = 16;
     const TOP_BAR_OFFSET = 64; // clears the credits/upgrade pill at top-left of the canvas
     const canvasLeft = 16;  // matches left-4 = 16px (same as other panels)
     const canvasTop = TOP_BAR_OFFSET;
-    const chatHeight = Math.max(SIDEBAR_HEIGHT, containerSize.h - TOP_BAR_OFFSET - PAD);
 
     // Rail left position:
     //   chat open  → right edge of chat panel (PAD + SIDEBAR_WIDTH + gap)
@@ -403,8 +364,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                     !isCanvasMode
                         ? { left: 0, top: 0, right: 0, bottom: 0, width: '100%' as any, height: '100%' as any, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                         : isCopilotMinimized
-                            ? { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, height: chatHeight, opacity: 0, x: -24, pointerEvents: 'none' as any }
-                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, height: chatHeight, opacity: 1, x: 0, pointerEvents: 'auto' as any }
+                            ? { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, opacity: 0, x: -24, pointerEvents: 'none' as any }
+                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                 }
                 transition={isCanvasMode ? { duration: 0.18, ease: 'easeOut' } : RESIZE_TRANSITION}
                 style={isCanvasMode ? { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', background: 'rgba(12, 12, 16, 0.88)' } : { background: undefined }}

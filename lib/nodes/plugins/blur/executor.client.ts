@@ -3,6 +3,7 @@ import { ClientExecutor } from '../../core/types';
 import { toLegacyRenderableOutput, detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import { BlurConfig } from './definition';
 import { radiusToSigma, blurFilterString } from './shared';
+import { GraphDescription } from '../compositor/shared';
 
 /**
  * Browser-only Blur Executor (image branch)
@@ -85,42 +86,64 @@ export const blurClientExecutor: ClientExecutor<BlurConfig> = async (config, inp
     const first = Array.isArray(normalized) ? normalized[0] : normalized;
     let url: string | null = null;
     let upstreamCssFilter: string | null = null;
-    let stream: MediaStream | undefined;
-    let liveCanvas: HTMLCanvasElement | undefined;
+    let upstreamGraph: GraphDescription | undefined;
     let resolution: { width: number; height: number } | undefined;
 
     if (typeof first === 'string') url = first;
     else if (first && typeof first === 'object') {
         if (typeof (first as any).url === 'string') url = (first as any).url;
         if (typeof (first as any).cssFilter === 'string') upstreamCssFilter = (first as any).cssFilter;
-        if ((first as any).stream) stream = (first as any).stream;
-        if ((first as any).canvas) liveCanvas = (first as any).canvas;
+        if ((first as any).graph) upstreamGraph = (first as any).graph as GraphDescription;
         if ((first as any).resolution) resolution = (first as any).resolution;
     }
 
-    // Detect live signal: a video coming from Compositor (or another upstream
-    // pass-through filter) carries stream/canvas with an empty URL. Treat it
-    // as a video for filter-chaining purposes — don't try to fetch the empty
-    // URL or run the image canvas branch.
-    const hasLiveSource = !!(stream || liveCanvas);
-    if (!url && !hasLiveSource) return null;
+    // Pull-model live signal: upstream publishes a `graph` description from
+    // a Compositor (or another filter wrapping one). No URL yet, and the
+    // signal isn't a single seekable resource — it's a description that
+    // downstream consumers render at their own time.
+    const hasGraphSource = !!upstreamGraph;
+    if (!url && !hasGraphSource) return null;
 
-    const kind: 'image' | 'video' = hasLiveSource
+    const kind: 'image' | 'video' = hasGraphSource
         ? 'video'
         : (detectMediaTypeFromUrl(url!) === 'video' ? 'video' : 'image');
 
     if (kind === 'video') {
         const ownFilter = blurFilterString(config?.radius ?? 5);
-        const cssFilter = upstreamCssFilter
+        const accumulatedCss = upstreamCssFilter
             ? `${upstreamCssFilter} ${ownFilter}`
             : ownFilter;
+
+        if (upstreamGraph) {
+            // Pull-model: wrap the upstream graph in a filter node. Downstream
+            // consumers descend through this via `paintGraphFrame` and apply
+            // the CSS filter at the appropriate level when rendering. The
+            // `cssFilter` field is kept on the envelope for any legacy
+            // consumer that still pattern-matches it directly.
+            const filterGraph: GraphDescription = {
+                kind: 'filter',
+                upstream: upstreamGraph,
+                cssFilter: ownFilter,
+            };
+            return {
+                type: 'video',
+                data: [{
+                    url: '',
+                    graph: filterGraph,
+                    cssFilter: accumulatedCss,
+                    resolution,
+                }],
+            } as any;
+        }
+
+        // Static URL video: pure pass-through with cssFilter as today.
+        // Downstream consumer attaches its own <video src={url}> and applies
+        // the filter at render time.
         return {
             type: 'video',
             data: [{
                 url: url ?? '',
-                stream,
-                canvas: liveCanvas,
-                cssFilter,
+                cssFilter: accumulatedCss,
                 resolution,
             }],
         } as any;

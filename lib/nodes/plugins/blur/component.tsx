@@ -1,6 +1,7 @@
 'use client';
 
 import React, { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { NodeProps, useUpdateNodeInternals } from 'reactflow';
 import { motion } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
@@ -18,6 +19,8 @@ import { blurSharedDef } from './definition';
 import { blurClientExecutor } from './executor.client';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import { radiusToSigma } from './shared';
+import { GraphDescription, graphDimensions, graphDuration } from '../compositor/shared';
+import { GraphRenderCache, paintGraphFrame } from '../compositor/graph-renderer';
 
 interface BlurNodeData {
     label: string;
@@ -125,37 +128,37 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         return typeof u === 'string' && u.length > 0 ? u : null;
     }, [upstreamItem]);
 
-    // Live-signal references published by upstream nodes (currently
-    // Compositor). When present, we render the preview via
-    // `<video srcObject={stream}>` instead of `<video src={url}>` — the CSS
-    // filter stack composes the same way either way.
-    const liveStream = useMemo<MediaStream | null>(() => {
+    // Pull-model live signal: upstream publishes a `graph` description (from
+    // a Compositor, or another filter wrapping one). When present, we render
+    // the preview by painting the graph onto our own offscreen canvas at our
+    // OWN playhead — independent of any other consumer of the same upstream.
+    // That's the entire point of the pull model: each downstream node has
+    // its own time cursor and decoder pool.
+    const upstreamGraph = useMemo<GraphDescription | null>(() => {
         if (!upstreamItem || typeof upstreamItem !== 'object') return null;
-        return (upstreamItem as any).stream ?? null;
-    }, [upstreamItem]);
-
-    const liveCanvas = useMemo<HTMLCanvasElement | null>(() => {
-        if (!upstreamItem || typeof upstreamItem !== 'object') return null;
-        return (upstreamItem as any).canvas ?? null;
+        return (upstreamItem as any).graph ?? null;
     }, [upstreamItem]);
 
     // Upstream-provided resolution (preferred over loading the URL to
     // measure). Lets the preview-blur scaling math kick in immediately for
     // live sources where there's no <img> load event.
     const upstreamResolution = useMemo<{ width: number; height: number } | null>(() => {
+        if (upstreamGraph) {
+            return graphDimensions(upstreamGraph);
+        }
         if (!upstreamItem || typeof upstreamItem !== 'object') return null;
         const r = (upstreamItem as any).resolution;
         if (r && typeof r.width === 'number' && typeof r.height === 'number') return r;
         return null;
-    }, [upstreamItem]);
+    }, [upstreamItem, upstreamGraph]);
 
     const mediaKind = useMemo<'image' | 'video' | null>(() => {
-        if (liveStream || liveCanvas) return 'video';
+        if (upstreamGraph) return 'video';
         if (!mediaUrl) return null;
         if (mediaUrl.startsWith('data:video/')) return 'video';
         if (mediaUrl.startsWith('data:image/')) return 'image';
         return (detectMediaTypeFromUrl(mediaUrl) as 'image' | 'video' | null) ?? 'image';
-    }, [liveStream, liveCanvas, mediaUrl]);
+    }, [upstreamGraph, mediaUrl]);
 
     // If the upstream already carries a cssFilter (e.g. another Blur upstream),
     // grab it so we can compose our own filter on top in the visible preview.
@@ -256,23 +259,80 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         try { v.currentTime = 0; } catch { /* noop */ }
     }, []);
 
-    // Bind the live MediaStream when upstream is a live source (Compositor).
-    // `srcObject` can't be set declaratively in JSX, so the effect handles it.
-    // We also flip the element back to `src`-mode if the upstream changes to a
-    // static URL, so dropping the Compositor and wiring a regular MediaInput
-    // video keeps working without remounting the node.
+    // Pull-model preview: when upstream is a graph, paint it into our own
+    // offscreen-style canvas. The canvas is mounted in the JSX below; this
+    // effect drives its repaints. CSS filter (blur's own) is applied at the
+    // wrapper element so the GPU path renders the same visual the downstream
+    // consumer sees.
+    //
+    // Hover-to-play mirrors the static-URL `<video>` behavior: paused at
+    // t=0 until the user hovers, then advances the playhead via rAF. The
+    // cache owns this consumer's video decoder votes — independent from
+    // every other surface that consumes the same upstream graph.
+    const previewGraphCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const graphCacheRef = useRef<GraphRenderCache | null>(null);
+    if (!graphCacheRef.current) {
+        graphCacheRef.current = new GraphRenderCache(id);
+    }
+    const [isHoveringGraphPreview, setIsHoveringGraphPreview] = useState(false);
+    const handleGraphPreviewEnter = useCallback(() => setIsHoveringGraphPreview(true), []);
+    const handleGraphPreviewLeave = useCallback(() => setIsHoveringGraphPreview(false), []);
+
     useEffect(() => {
-        const v = previewVideoRef.current;
-        if (!v) return;
-        if (liveStream) {
-            if (v.srcObject !== liveStream) {
-                v.srcObject = liveStream;
-                v.play().catch(() => { /* autoplay may be blocked pre-gesture */ });
+        return () => {
+            graphCacheRef.current?.dispose();
+            graphCacheRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!upstreamGraph) return;
+        const canvas = previewGraphCanvasRef.current;
+        const cache = graphCacheRef.current;
+        if (!canvas || !cache) return;
+
+        const dims = graphDimensions(upstreamGraph);
+        if (canvas.width !== dims.width) canvas.width = Math.max(1, dims.width);
+        if (canvas.height !== dims.height) canvas.height = Math.max(1, dims.height);
+
+        // Not hovering → render a single frame at t=0 and bail. Matches the
+        // static-URL hover-to-play: video element sits paused at currentTime=0
+        // until the user enters the preview area.
+        if (!isHoveringGraphPreview) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                cache.releaseAllScratch();
+                paintGraphFrame(upstreamGraph, 0, ctx, cache, false);
             }
-        } else if (v.srcObject) {
-            v.srcObject = null;
+            return;
         }
-    }, [liveStream]);
+
+        const duration = graphDuration(upstreamGraph);
+        let stopped = false;
+        let raf = 0;
+        let playhead = 0;
+        let last = performance.now();
+
+        const tick = (now: number) => {
+            if (stopped) return;
+            const dt = (now - last) / 1000;
+            last = now;
+            playhead += dt;
+            if (duration > 0 && playhead >= duration) playhead = 0;
+
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                cache.releaseAllScratch();
+                paintGraphFrame(upstreamGraph, playhead, ctx, cache, true);
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => {
+            stopped = true;
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [upstreamGraph, isHoveringGraphPreview]);
 
     // Derived blur style. Composes our own blur with any cssFilter the
     // upstream already declared, so a chained Blur → Blur card preview shows
@@ -311,7 +371,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         });
         observer.observe(wrapper);
         return () => observer.disconnect();
-    }, [mediaKind, mediaUrl, liveStream]);
+    }, [mediaKind, mediaUrl, upstreamGraph]);
 
     const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
         setNativeMediaWidth(e.currentTarget.videoWidth || 0);
@@ -368,23 +428,41 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             >
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
 
-                {(mediaUrl || liveStream) ? (
+                {(mediaUrl || upstreamGraph) ? (
                     <div
                         ref={previewWrapperRef}
                         className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
                         onClick={() => setLightboxOpen(true)}
-                        onMouseEnter={mediaKind === 'video' && !liveStream ? handlePreviewEnter : undefined}
-                        onMouseLeave={mediaKind === 'video' && !liveStream ? handlePreviewLeave : undefined}
+                        onMouseEnter={
+                            mediaKind === 'video'
+                                ? (upstreamGraph ? handleGraphPreviewEnter : handlePreviewEnter)
+                                : undefined
+                        }
+                        onMouseLeave={
+                            mediaKind === 'video'
+                                ? (upstreamGraph ? handleGraphPreviewLeave : handlePreviewLeave)
+                                : undefined
+                        }
                         style={{ filter: previewBlurStyle }}
                     >
-                        {mediaKind === 'video' ? (
+                        {upstreamGraph ? (
+                            // Pull-model preview: locally painted at our own
+                            // looped playhead. Independent of every other
+                            // consumer of the same upstream graph.
+                            <canvas
+                                ref={previewGraphCanvasRef}
+                                className={cn(
+                                    "relative z-10 w-full h-full object-cover",
+                                    !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                                )}
+                            />
+                        ) : mediaKind === 'video' ? (
                             <video
                                 ref={previewVideoRef}
-                                {...(liveStream ? {} : { src: mediaUrl as string })}
+                                src={mediaUrl as string}
                                 loop
                                 muted
                                 playsInline
-                                autoPlay={!!liveStream}
                                 preload="metadata"
                                 onLoadedMetadata={handleVideoMetadata}
                                 className={cn(
@@ -472,7 +550,15 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                 can apply the same displayWidth/nativeWidth scaling the card
                 preview and the compositor use. Result: same effective blur
                 strength on every surface. */}
-            {lightboxOpen && mediaUrl && (
+            {lightboxOpen && upstreamGraph && (
+                <BlurGraphLightbox
+                    graph={upstreamGraph}
+                    cssFilter={blurStyle}
+                    poolKey={`${id}_lightbox`}
+                    onClose={() => setLightboxOpen(false)}
+                />
+            )}
+            {lightboxOpen && !upstreamGraph && mediaUrl && (
                 <ImageLightbox
                     media={mediaUrl}
                     type={mediaKind === 'video' ? 'video' : 'image'}
@@ -485,6 +571,90 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         </BaseNode>
     );
 }
+
+/**
+ * Fullscreen graph preview with blur's CSS filter applied.
+ *
+ * Uses a separate poolKey (the blur node's id + "_lightbox") so the
+ * lightbox decodes its own video instances independent of the card's
+ * preview — opening the lightbox doesn't disturb the card's playhead.
+ * Auto-loops on the graph's total duration; clicking outside the canvas
+ * closes the modal.
+ */
+const BlurGraphLightbox = memo(function BlurGraphLightbox({
+    graph,
+    cssFilter,
+    poolKey,
+    onClose,
+}: {
+    graph: GraphDescription;
+    cssFilter: string;
+    poolKey: string;
+    onClose: () => void;
+}) {
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const cacheRef = useRef<GraphRenderCache | null>(null);
+    if (!cacheRef.current) cacheRef.current = new GraphRenderCache(poolKey);
+
+    useEffect(() => {
+        return () => {
+            cacheRef.current?.dispose();
+            cacheRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        const cache = cacheRef.current;
+        if (!canvas || !cache) return;
+
+        const dims = graphDimensions(graph);
+        if (canvas.width !== dims.width) canvas.width = Math.max(1, dims.width);
+        if (canvas.height !== dims.height) canvas.height = Math.max(1, dims.height);
+
+        const duration = graphDuration(graph);
+        let stopped = false;
+        let raf = 0;
+        let playhead = 0;
+        let last = performance.now();
+
+        const tick = (now: number) => {
+            if (stopped) return;
+            const dt = (now - last) / 1000;
+            last = now;
+            playhead += dt;
+            if (duration > 0 && playhead >= duration) playhead = 0;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                cache.releaseAllScratch();
+                paintGraphFrame(graph, playhead, ctx, cache, true);
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => {
+            stopped = true;
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [graph]);
+
+    const dims = graphDimensions(graph);
+
+    return createPortal(
+        <div
+            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
+            onClick={onClose}
+        >
+            <canvas
+                ref={canvasRef}
+                onClick={(e) => e.stopPropagation()}
+                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl bg-black"
+                style={{ aspectRatio: `${dims.width} / ${dims.height}`, filter: cssFilter }}
+            />
+        </div>,
+        document.body,
+    );
+});
 
 export default memo(BlurNode);
 
