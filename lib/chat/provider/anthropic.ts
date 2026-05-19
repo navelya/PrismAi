@@ -41,6 +41,7 @@ export type ProviderEvent =
   | { kind: 'thinking_delta'; text: string }
   | { kind: 'thinking_end' }
   | { kind: 'text_delta'; text: string }
+  | { kind: 'tool_start'; id: string; name: string }
   | { kind: 'tool_call'; id: string; name: string; args: any }
   | { kind: 'turn_end'; assistantContent: Anthropic.ContentBlock[]; stopReason: string | null }
   | { kind: 'usage'; inputTokens: number; outputTokens: number; thinkingTokens: number; cacheReadTokens: number; costUsd: number };
@@ -134,6 +135,7 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
         blockState.set(idx, { type: 'text', jsonBuffer: '' });
       } else if (block.type === 'tool_use') {
         blockState.set(idx, { type: 'tool_use', name: block.name, id: block.id, jsonBuffer: '' });
+        yield { kind: 'tool_start', id: block.id, name: block.name };
       }
     } else if (event.type === 'content_block_delta') {
       const idx = event.index;

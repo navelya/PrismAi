@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { useSubscription } from '@/lib/billing/use-subscription';
@@ -133,11 +133,15 @@ export default function PlanBillingView() {
                                     value={formatCredits(plan?.monthlyCredits ?? 0)}
                                 />
                                 <Stat
-                                    label="Next refill"
+                                    label={subscription?.cancelAtPeriodEnd ? 'Ends on' : 'Next refill'}
                                     value={
                                         subLoading || !subscription
                                             ? '…'
-                                            : formatDate(subscription.nextTopupAt)
+                                            : formatDate(
+                                                subscription.cancelAtPeriodEnd && subscription.currentPeriodEnd
+                                                    ? subscription.currentPeriodEnd
+                                                    : subscription.nextTopupAt,
+                                            )
                                     }
                                 />
                             </div>
@@ -153,20 +157,27 @@ export default function PlanBillingView() {
                                     {formatCredits(balance)}
                                 </div>
                             </div>
-                            <div className="flex flex-col gap-2">
-                                <button
-                                    onClick={() => setShowPlans(true)}
-                                    className="px-4 py-2 rounded-full bg-accent-primary text-white text-sm font-semibold hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/30"
-                                >
-                                    Change plan
-                                </button>
-                                {subscription && subscription.planId !== 'free' && (
-                                    <ManagePortalButton />
-                                )}
-                            </div>
+                            <button
+                                onClick={() => setShowPlans(true)}
+                                className="px-4 py-2 rounded-full bg-accent-primary text-white text-sm font-semibold hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/30"
+                            >
+                                {subscription && subscription.planId !== 'free' ? 'Change plan' : 'Upgrade'}
+                            </button>
                         </div>
                     </div>
+
+                    {/* Subscription actions / cancel banner */}
+                    {subscription && subscription.planId !== 'free' && (
+                        <SubscriptionActions
+                            cancelAtPeriodEnd={subscription.cancelAtPeriodEnd}
+                            currentPeriodEnd={subscription.currentPeriodEnd}
+                            planName={plan?.name ?? subscription.planId}
+                        />
+                    )}
                 </section>
+
+                {/* Invoices */}
+                <InvoicesSection hasPaidSub={!!subscription && subscription.planId !== 'free'} />
 
                 {/* Billing history */}
                 <section className="rounded-2xl border border-stroke-subtle bg-surface-elevated overflow-hidden">
@@ -231,41 +242,254 @@ export default function PlanBillingView() {
     );
 }
 
-function ManagePortalButton() {
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+interface SubscriptionActionsProps {
+    cancelAtPeriodEnd: boolean;
+    currentPeriodEnd: string | null;
+    planName: string;
+}
 
-    const handleClick = async () => {
-        setLoading(true);
+function SubscriptionActions({
+    cancelAtPeriodEnd,
+    currentPeriodEnd,
+    planName,
+}: SubscriptionActionsProps) {
+    const [cancelLoading, setCancelLoading] = useState(false);
+    const [resumeLoading, setResumeLoading] = useState(false);
+    const [paymentLoading, setPaymentLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [confirmingCancel, setConfirmingCancel] = useState(false);
+
+    const handleCancel = async () => {
         setError(null);
+        setCancelLoading(true);
         try {
-            const res = await fetch('/api/billing/portal', { method: 'POST' });
-            const json = await res.json();
+            const res = await fetch('/api/billing/cancel', { method: 'POST' });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json.error || 'Failed to cancel subscription');
+                return;
+            }
+            setConfirmingCancel(false);
+            // Paddle's webhook updates our row; give it a beat, then refresh.
+            setTimeout(() => window.location.reload(), 800);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to cancel subscription');
+        } finally {
+            setCancelLoading(false);
+        }
+    };
+
+    const handleResume = async () => {
+        setError(null);
+        setResumeLoading(true);
+        try {
+            const res = await fetch('/api/billing/resume', { method: 'POST' });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json.error || 'Failed to resume subscription');
+                return;
+            }
+            setTimeout(() => window.location.reload(), 800);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to resume subscription');
+        } finally {
+            setResumeLoading(false);
+        }
+    };
+
+    const handleUpdatePayment = async () => {
+        setError(null);
+        setPaymentLoading(true);
+        try {
+            const res = await fetch('/api/billing/payment-method', { method: 'POST' });
+            const json = await res.json().catch(() => ({}));
             if (!res.ok || !json.url) {
-                setError(json.error || 'Failed to open portal');
+                setError(json.error || 'Failed to open payment update');
                 return;
             }
             window.open(json.url, '_blank', 'noopener,noreferrer');
         } catch (e: any) {
-            setError(e?.message || 'Failed to open portal');
+            setError(e?.message || 'Failed to open payment update');
         } finally {
-            setLoading(false);
+            setPaymentLoading(false);
         }
     };
 
     return (
-        <>
-            <button
-                onClick={handleClick}
-                disabled={loading}
-                className="px-4 py-2 rounded-full border border-stroke-subtle text-content-secondary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all disabled:opacity-50"
-            >
-                {loading ? 'Opening…' : 'Manage subscription'}
-            </button>
-            {error && (
-                <span className="text-[10px] text-accent-error">{error}</span>
+        <div className="relative border-t border-stroke-subtle bg-surface-primary/30 px-6 sm:px-7 py-4">
+            {cancelAtPeriodEnd && currentPeriodEnd && (
+                <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-200">
+                    Your <span className="font-semibold">{planName}</span> plan will end on{' '}
+                    <span className="font-semibold">{formatDate(currentPeriodEnd)}</span>.
+                    You&apos;ll keep access until then.
+                </div>
             )}
-        </>
+
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    onClick={handleUpdatePayment}
+                    disabled={paymentLoading}
+                    className="px-3 py-1.5 rounded-full border border-stroke-subtle text-content-secondary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all disabled:opacity-50"
+                >
+                    {paymentLoading ? 'Opening…' : 'Update payment method'}
+                </button>
+
+                {cancelAtPeriodEnd ? (
+                    <button
+                        onClick={handleResume}
+                        disabled={resumeLoading}
+                        className="px-3 py-1.5 rounded-full bg-accent-primary/15 border border-accent-primary/40 text-accent-primary hover:bg-accent-primary/25 text-xs font-semibold transition-all disabled:opacity-50"
+                    >
+                        {resumeLoading ? 'Resuming…' : 'Resume subscription'}
+                    </button>
+                ) : confirmingCancel ? (
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-content-secondary">Cancel at period end?</span>
+                        <button
+                            onClick={handleCancel}
+                            disabled={cancelLoading}
+                            className="px-3 py-1.5 rounded-full bg-accent-error/15 border border-accent-error/40 text-accent-error hover:bg-accent-error/25 text-xs font-semibold transition-all disabled:opacity-50"
+                        >
+                            {cancelLoading ? 'Canceling…' : 'Yes, cancel'}
+                        </button>
+                        <button
+                            onClick={() => setConfirmingCancel(false)}
+                            disabled={cancelLoading}
+                            className="px-3 py-1.5 rounded-full text-content-tertiary hover:text-content-primary text-xs font-semibold transition-all"
+                        >
+                            Keep
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setConfirmingCancel(true)}
+                        className="px-3 py-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all"
+                    >
+                        Cancel subscription
+                    </button>
+                )}
+            </div>
+
+            {error && (
+                <p className="mt-2 text-[11px] text-accent-error">{error}</p>
+            )}
+        </div>
+    );
+}
+
+interface InvoiceRow {
+    id: string;
+    invoiceNumber: string | null;
+    status: string;
+    billedAt: string | null;
+    currencyCode: string;
+    grandTotal: string | null;
+    origin: string;
+    subscriptionId: string | null;
+}
+
+function formatMinor(amountMinor: string | null, currency: string): string {
+    if (!amountMinor) return '—';
+    const n = Number(amountMinor);
+    if (!Number.isFinite(n)) return '—';
+    return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: currency || 'USD',
+    }).format(n / 100);
+}
+
+function InvoicesSection({ hasPaidSub }: { hasPaidSub: boolean }) {
+    const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchInvoices = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/billing/invoices');
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json.error || 'Failed to load invoices');
+                setInvoices([]);
+                return;
+            }
+            setInvoices(json.invoices || []);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to load invoices');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (hasPaidSub) {
+            fetchInvoices();
+        } else {
+            setInvoices([]);
+        }
+    }, [hasPaidSub, fetchInvoices]);
+
+    if (!hasPaidSub) return null;
+
+    return (
+        <section className="rounded-2xl border border-stroke-subtle bg-surface-elevated overflow-hidden">
+            <header className="flex items-center justify-between px-6 py-4 border-b border-stroke-subtle">
+                <div>
+                    <h2 className="text-base font-bold text-content-primary">Invoices</h2>
+                    <p className="text-xs text-content-tertiary mt-0.5">
+                        Receipts from Paddle. Download the PDF for tax records.
+                    </p>
+                </div>
+                <button
+                    onClick={fetchInvoices}
+                    className="px-3 py-1.5 text-xs font-medium text-content-secondary hover:text-content-primary hover:bg-surface-tertiary rounded-lg transition-colors"
+                >
+                    {loading ? 'Refreshing…' : 'Refresh'}
+                </button>
+            </header>
+
+            {loading && invoices.length === 0 ? (
+                <div className="flex items-center justify-center py-12">
+                    <div className="w-5 h-5 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+            ) : error ? (
+                <div className="px-6 py-8 text-center text-sm text-accent-error">{error}</div>
+            ) : invoices.length === 0 ? (
+                <div className="px-6 py-10 text-center text-sm text-content-tertiary">
+                    No invoices yet.
+                </div>
+            ) : (
+                <ul className="divide-y divide-stroke-subtle">
+                    {invoices.map((inv) => (
+                        <li
+                            key={inv.id}
+                            className="flex items-center gap-4 px-6 py-3.5 hover:bg-surface-primary/40 transition-colors"
+                        >
+                            <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold text-content-primary truncate">
+                                    {inv.invoiceNumber || inv.id}
+                                </div>
+                                <div className="text-xs text-content-tertiary mt-0.5">
+                                    {inv.billedAt ? formatDate(inv.billedAt) : '—'} · {inv.status}
+                                </div>
+                            </div>
+                            <div className="text-sm font-bold tabular-nums text-content-primary flex-shrink-0">
+                                {formatMinor(inv.grandTotal, inv.currencyCode)}
+                            </div>
+                            <a
+                                href={`/api/billing/invoices/${inv.id}/pdf`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-content-secondary hover:text-content-primary hover:bg-surface-tertiary transition-colors"
+                            >
+                                PDF
+                            </a>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
     );
 }
 

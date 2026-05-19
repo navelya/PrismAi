@@ -412,6 +412,11 @@ export function useChatMessages({
                         clarification: { options: Array.isArray(parsed.options) ? parsed.options : [] },
                     });
                 }
+                else if (parsed.type === 'tool_start' && parsed.name === 'propose_plan') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        planLoading: true,
+                    });
+                }
                 else if (parsed.type === 'plan') {
                     const p = parsed.plan;
                     if (p && typeof p === 'object') {

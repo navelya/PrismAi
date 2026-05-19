@@ -92,6 +92,8 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                         key={plan.id}
                                         plan={plan}
                                         isCurrent={plan.id === currentPlanId}
+                                        currentPlanId={currentPlanId}
+                                        onClose={onClose}
                                     />
                                 ))}
                             </div>
@@ -134,9 +136,11 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
 interface PlanCardProps {
     plan: PlanDisplay;
     isCurrent: boolean;
+    currentPlanId: string;
+    onClose: () => void;
 }
 
-function PlanCard({ plan, isCurrent }: PlanCardProps) {
+function PlanCard({ plan, isCurrent, currentPlanId, onClose }: PlanCardProps) {
     const accentClasses =
         plan.accent === 'highlight'
             ? 'border-accent-primary/50 bg-gradient-to-b from-accent-primary/[0.07] to-transparent shadow-[0_0_40px_-10px_rgba(var(--accent-primary),0.4)]'
@@ -203,7 +207,12 @@ function PlanCard({ plan, isCurrent }: PlanCardProps) {
             </ul>
 
             {/* CTA */}
-            <PlanCTA plan={plan} isCurrent={isCurrent} />
+            <PlanCTA
+                plan={plan}
+                isCurrent={isCurrent}
+                currentPlanId={currentPlanId}
+                onClose={onClose}
+            />
         </div>
     );
 }
@@ -290,8 +299,25 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
     );
 }
 
-function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean }) {
+function planRank(planId: string): number {
+    const order: Record<string, number> = { free: 0, starter: 1, pro: 2, studio: 3 };
+    return order[planId] ?? -1;
+}
+
+function PlanCTA({
+    plan,
+    isCurrent,
+    currentPlanId,
+    onClose,
+}: {
+    plan: PlanDisplay;
+    isCurrent: boolean;
+    currentPlanId: string;
+    onClose: () => void;
+}) {
     const router = useRouter();
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     if (isCurrent) {
         return (
@@ -299,7 +325,7 @@ function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean })
                 disabled
                 className="w-full py-2.5 rounded-xl text-sm font-semibold border border-stroke-subtle text-content-tertiary cursor-default"
             >
-                You're on this plan
+                You&apos;re on this plan
             </button>
         );
     }
@@ -323,16 +349,63 @@ function PlanCTA({ plan, isCurrent }: { plan: PlanDisplay; isCurrent: boolean })
                 ? 'bg-gradient-to-r from-purple-500 to-accent-primary text-white hover:opacity-90 shadow-lg shadow-purple-500/20'
                 : 'bg-surface-tertiary text-content-primary hover:bg-surface-tertiary/70';
 
-    const handleClick = () => {
-        router.push(`/checkout/${plan.id}?cycle=monthly`);
+    // Coming from a paid plan → mutate the existing subscription via the API.
+    // Coming from the free plan (or no plan) → open a real Paddle checkout so
+    // Paddle can collect a payment method.
+    const hasPaidSub = currentPlanId !== 'free' && currentPlanId !== '';
+    const targetRank = planRank(plan.id);
+    const currentRank = planRank(currentPlanId);
+    const verb =
+        targetRank > currentRank
+            ? 'Upgrade'
+            : targetRank < currentRank && currentRank > 0
+                ? 'Downgrade'
+                : 'Switch';
+    const label = `${verb} to ${plan.name}`;
+
+    const handleClick = async () => {
+        setError(null);
+        if (!hasPaidSub) {
+            router.push(`/checkout/${plan.id}?cycle=monthly`);
+            return;
+        }
+        setLoading(true);
+        try {
+            const res = await fetch('/api/billing/change-plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ priceId: plan.paddlePriceIdMonthly }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(json.error || 'Failed to change plan');
+                setLoading(false);
+                return;
+            }
+            // Paddle's webhook updates our row asynchronously; give it a beat,
+            // then reload so the page reflects the new plan.
+            onClose();
+            setTimeout(() => window.location.reload(), 800);
+        } catch (e: any) {
+            setError(e?.message || 'Failed to change plan');
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
-        <button
-            onClick={handleClick}
-            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all ${buttonClass}`}
-        >
-            Upgrade to {plan.name}
-        </button>
+        <div className="space-y-2">
+            <button
+                onClick={handleClick}
+                disabled={loading}
+                className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all ${buttonClass} disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
+            >
+                {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {loading ? 'Working…' : label}
+            </button>
+            {error && (
+                <p className="text-[11px] text-accent-error text-center leading-snug">{error}</p>
+            )}
+        </div>
     );
 }

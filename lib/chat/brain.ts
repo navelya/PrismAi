@@ -155,6 +155,21 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
             input.encoder.send({ type: 'text', text: event.text });
             break;
 
+          case 'tool_start': {
+            const startName = event.name as ToolName;
+            if (
+              startName === 'add_node' ||
+              startName === 'update_node' ||
+              startName === 'update_compositor_layer' ||
+              startName === 'remove_node' ||
+              startName === 'ask_clarification' ||
+              startName === 'propose_plan'
+            ) {
+              input.encoder.send({ type: 'tool_start', name: startName });
+            }
+            break;
+          }
+
           case 'tool_call': {
             const name = event.name as ToolName;
 

@@ -1,12 +1,13 @@
 /**
- * Customer Portal endpoint.
+ * Update-payment-method URL endpoint.
  *
- * Returns a Paddle-hosted customer portal URL for the authenticated user.
- * The portal is where customers manage their payment method, view invoices,
- * cancel/upgrade — Paddle handles the entire UI.
+ * Returns a Paddle-hosted single-purpose URL that lets the user update the
+ * card on file. Card collection has to live on Paddle's domain for PCI-DSS,
+ * so the rest of subscription management stays in-app — this endpoint is
+ * scoped to *just* the card-update flow, not the full customer portal.
  *
- * The portal session URL is short-lived; clients should request a fresh one
- * each time the user clicks "Manage subscription".
+ * The URL is short-lived; clients should request a fresh one each time the
+ * user clicks "Update payment method".
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
@@ -31,9 +32,9 @@ export async function POST() {
             .eq('user_id', user.id)
             .single();
 
-        if (subErr || !sub?.paddle_customer_id) {
+        if (subErr || !sub?.paddle_customer_id || !sub.paddle_subscription_id) {
             return NextResponse.json(
-                { error: 'No Paddle customer found. Make a purchase first to access the customer portal.' },
+                { error: 'No active subscription found.' },
                 { status: 404 }
             );
         }
@@ -41,17 +42,24 @@ export async function POST() {
         const paddle = getPaddle();
         const session = await paddle.customerPortalSessions.create(
             sub.paddle_customer_id,
-            sub.paddle_subscription_id ? [sub.paddle_subscription_id] : []
+            [sub.paddle_subscription_id]
         );
 
-        const portalUrl = session.urls?.general?.overview;
-        if (!portalUrl) {
-            return NextResponse.json({ error: 'Failed to create portal session' }, { status: 500 });
+        const subUrl = session.urls?.subscriptions?.find(
+            (s) => s.id === sub.paddle_subscription_id
+        );
+        const updateUrl = subUrl?.updateSubscriptionPaymentMethod;
+
+        if (!updateUrl) {
+            return NextResponse.json(
+                { error: 'Failed to create payment-method update link.' },
+                { status: 500 }
+            );
         }
 
-        return NextResponse.json({ url: portalUrl });
+        return NextResponse.json({ url: updateUrl });
     } catch (err: any) {
-        console.error('[Billing Portal] Error:', err);
+        console.error('[Payment Method URL] Error:', err);
         return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
     }
 }

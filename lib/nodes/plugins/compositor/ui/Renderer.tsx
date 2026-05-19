@@ -22,7 +22,7 @@ import useImage from 'use-image';
 import Konva from 'konva';
 import { CompositorLayer, LayerTransform } from '../definition';
 import { detectSourceKindFromUrl, isLayerActiveAt, LayerSourceKind, GraphDescription, graphDimensions } from '../shared';
-import { acquireVideo, onVideoMetadata, releaseVideo, setPlayState } from '../video-pool';
+import { acquireVideo, onVideoMetadata, releaseVideo, setPlayState, setMuted } from '../video-pool';
 import { GraphRenderCache, paintGraphFrame } from '../graph-renderer';
 
 /**
@@ -63,6 +63,13 @@ interface CompositorLayerNodesProps {
     playhead?: number;
     /** Whether videos should be in playback mode (true) or paused on the playhead (false). */
     isPlaying?: boolean;
+    /**
+     * Whether the pooled video elements should be muted. The MiniTransport
+     * (card) and Transport (modal) volume buttons flow through here; without
+     * this thread the toggles were pure UI state and audio never played.
+     * Defaults to true so the initial state matches the historical behavior.
+     */
+    muted?: boolean;
     /**
      * Intrinsic source duration per layer id (seconds). Drives time gating for
      * video layers when `layer.duration` is null. Populated by the editor from
@@ -208,6 +215,7 @@ const LayerVideo = memo(function LayerVideo({
     isPlaying,
     visible = true,
     poolKey,
+    muted = true,
 }: {
     layer: CompositorLayer;
     videoUrl: string;
@@ -240,6 +248,13 @@ const LayerVideo = memo(function LayerVideo({
     visible?: boolean;
     /** See CompositorLayerNodesProps.poolKey. */
     poolKey?: string;
+    /**
+     * Whether THIS consumer wants the pooled video element muted. Cast as a
+     * vote into the pool; OR-ed across all consumers of the same element.
+     * Defaults to true so a renderer that doesn't pass the prop matches the
+     * historical silent behavior.
+     */
+    muted?: boolean;
 }) {
     // Acquire a pooled element on mount; pool returns the shared element and
     // a unique consumer id so this instance can vote on play state without
@@ -341,6 +356,15 @@ const LayerVideo = memo(function LayerVideo({
         if (consumerId === null) return;
         setPlayState(videoUrl, consumerId, !!isPlaying, poolKey);
     }, [isPlaying, consumerId, videoUrl, poolKey]);
+
+    // Vote on mute state. Toggling the volume button on the card or in the
+    // editor flips this prop; setMuted reconciles the pool's element so audio
+    // actually plays. Without this, the prior `muted=true` initialization in
+    // the pool stuck forever and the volume buttons were decorative.
+    useEffect(() => {
+        if (consumerId === null) return;
+        setMuted(videoUrl, consumerId, !!muted, poolKey);
+    }, [muted, consumerId, videoUrl, poolKey]);
 
     // Seek when not playing (covers two cases: paused & user scrubs; inactive
     // clip that the parent is keeping mounted so the decoder stays warm).
@@ -960,6 +984,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
     isPlaying = false,
     intrinsicDurations,
     poolKey,
+    muted = true,
 }: CompositorLayerNodesProps) {
     // Detect if any visible layer needs the continuous redraw loop. That's
     // true when the layer is a video URL (frames decode over time), an
@@ -1110,6 +1135,10 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                         typeof playhead === 'number'
                             ? Math.max(0, playhead - (layer.startTime || 0))
                             : undefined;
+                    // Mute inactive clips even when the surface wants audio,
+                    // so a paused-by-time-gating clip doesn't leak a frame of
+                    // sound when the playhead briefly crosses its edge.
+                    const layerMuted = muted || !isActive || !!layer.muted;
                     return (
                         <LayerVideo
                             key={layer.id}
@@ -1134,6 +1163,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             isPlaying={isPlaying && isActive}
                             visible={isActive}
                             poolKey={poolKey}
+                            muted={layerMuted}
                         />
                     );
                 }

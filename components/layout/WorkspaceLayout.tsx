@@ -3,8 +3,7 @@
 import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Workflow as WorkflowIcon,
-    MessageSquare, Minimize2, Maximize2, Plus, X, Zap,
+    MessageSquare, Minimize2, Plus, X, Zap,
     ArrowLeft, Folder, Box, Building2,
     Image as ImageIcon, BookOpen
 } from 'lucide-react';
@@ -25,7 +24,6 @@ interface WorkspaceLayoutProps {
 
 // ─── Animation configs ────────────────────────────────────────────────────────
 const RESIZE_TRANSITION = { type: 'tween' as const, ease: 'easeInOut' as const, duration: 0.25 };
-const MORPH_SPRING = { type: 'spring' as const, stiffness: 380, damping: 28, mass: 0.6 };
 const CANVAS_TRANSITION = { type: 'tween' as const, ease: 'easeOut' as const, duration: 0.4 };
 const RAIL_SPRING = { type: 'spring' as const, stiffness: 340, damping: 30 };
 
@@ -38,24 +36,21 @@ type ActivePanel = 'node-library' | 'assets' | 'templates' | null;
 export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult, sessionId }: WorkspaceLayoutProps) {
     const isMobile = useIsMobile();
 
-    const isCanvasMode = useAppStore(s => s.isCanvasMode);
-    const setIsCanvasMode = useAppStore(s => s.setIsCanvasMode);
+    // Canvas mode is a pure derivation of sessionId — no toggle, no store
+    // round-trip. Session → sidebar chat + canvas; welcome → full-screen chat.
+    const isCanvasMode = !!sessionId;
     const isCopilotMinimized = useAppStore(s => s.isCopilotMinimized);
     const setIsCopilotMinimized = useAppStore(s => s.setIsCopilotMinimized);
 
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
-    // Defaults (canvas mode on, chat sidebar visible) are baked into the store
-    // — see ui-slice.ts initial state, app-store.ts persist exclusion, and
-    // onRehydrateStorage. This effect only re-asserts those defaults when
-    // sessionId changes (session switch, new chat, "Start Empty Canvas") in
-    // case the user manually toggled fullscreen or minimized chat during the
-    // previous session.
+    // Reset transient sidebar visibility when the session changes so a stale
+    // "chat minimized" toggle from a previous session doesn't carry over.
     useLayoutEffect(() => {
-        const store = useAppStore.getState();
-        if (!store.isCanvasMode) store.setIsCanvasMode(true);
-        if (store.isCopilotMinimized) store.setIsCopilotMinimized(false);
+        if (useAppStore.getState().isCopilotMinimized) {
+            useAppStore.getState().setIsCopilotMinimized(false);
+        }
     }, [sessionId]);
 
     const togglePanel = useCallback((panel: ActivePanel) => {
@@ -370,36 +365,14 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 transition={isCanvasMode ? { duration: 0.18, ease: 'easeOut' } : RESIZE_TRANSITION}
                 style={isCanvasMode ? { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', background: 'rgba(12, 12, 16, 0.88)' } : { background: undefined }}
             >
-                {/* Copilot controls — minimize / exit canvas */}
+                {/* Copilot minimize control — only on session pages */}
                 <AnimatePresence>
                     {isCanvasMode && !isCopilotMinimized && (
                         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute top-3 right-3 z-30 flex items-center gap-0.5 p-0.5 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-full">
                             <button onClick={() => setIsCopilotMinimized(true)} className="p-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-white/10 transition-colors" title="Minimize copilot">
                                 <Minimize2 className="w-3.5 h-3.5" />
                             </button>
-                            <div className="w-[1px] h-3 bg-stroke-subtle" />
-                            <button onClick={() => { setIsCanvasMode(false); setIsCopilotMinimized(false); }} className="p-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-white/10 transition-colors" title="Exit canvas mode">
-                                <Maximize2 className="w-3.5 h-3.5" />
-                            </button>
                         </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {/* Canvas toggle pill (Chat Mode) — original design, do not change */}
-                <AnimatePresence>
-                    {!isCanvasMode && !!sessionId && (
-                        <motion.button
-                            key="canvas-toggle"
-                            onClick={() => setIsCanvasMode(true)}
-                            className="absolute top-4 right-4 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle rounded-full text-xs font-medium text-content-secondary hover:text-accent-primary hover:border-accent-primary/30 hover:bg-surface-elevated transition-all duration-200 shadow-sm hover:shadow-md group"
-                            initial={{ opacity: 0, scale: 0.85 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.85 }}
-                            transition={MORPH_SPRING}
-                        >
-                            <WorkflowIcon className="w-3.5 h-3.5 group-hover:text-accent-primary transition-colors" />
-                            Workflow
-                        </motion.button>
                     )}
                 </AnimatePresence>
 

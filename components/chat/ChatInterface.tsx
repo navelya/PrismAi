@@ -67,7 +67,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     }, [sessionId, prevSessionId]);
 
     const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
-    const isCanvasMode = useAppStore((state) => state.isCanvasMode);
     const selectedChatModel = useAppStore((state) => state.selectedChatModel);
     const setSelectedChatModel = useAppStore((state) => state.setSelectedChatModel);
     const { subscription } = useSubscription();
@@ -75,6 +74,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
 
     const effectiveSessionId = sessionId || storeActiveSessionId;
     const isEmptyState = !effectiveSessionId;
+    // Canvas mode mirrors WorkspaceLayout: session → sidebar (compact UI),
+    // welcome → full-screen (roomy UI). Derived, not stored.
+    const isCanvasMode = !!effectiveSessionId;
 
     const isMobile = useIsMobile();
     const messages = useAppStore((state) => state.chatMessages);

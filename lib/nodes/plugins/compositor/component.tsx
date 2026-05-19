@@ -3,14 +3,14 @@
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeProps, useUpdateNodeInternals } from 'reactflow';
-import { Plus, Edit3, X, Download, Loader2, Check } from 'lucide-react';
+import { Plus, Edit3 } from 'lucide-react';
 import { Stage, Layer, Group } from 'react-konva';
+import fixWebmDuration from 'webm-duration-fix';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import { CompositorConfig, CompositorLayer, calculateInitialTransform, calculateFirstLayerFitToCanvas, compositorSharedDef } from './definition';
 import CompositorEditorModal from './ui/EditorModal';
-import ImageLightbox from '@/components/ui/ImageLightbox';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './ui/Renderer';
 import MiniTransport from './ui/MiniTransport';
@@ -21,6 +21,7 @@ import {
     GraphLayer,
     GraphLayerSource,
 } from './shared';
+import { acquireVideo, releaseVideo } from './video-pool';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { NodeClientDef } from '../../core/types';
 import { compositorClientExecutor } from './executor.client';
@@ -159,6 +160,7 @@ function LivePreview({
     onPlayheadChange,
     onTotalDurationChange,
     poolKey,
+    muted,
 }: {
     config: CompositorConfig;
     renderable: RenderableLayer[];
@@ -176,6 +178,8 @@ function LivePreview({
     onTotalDurationChange: (total: number) => void;
     /** Video-pool scope for this surface. See `CompositorLayerNodesProps.poolKey`. */
     poolKey: string;
+    /** Mute state from the parent's transport bar; forwarded to layer videos. */
+    muted: boolean;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState({ width: 0, height: 0 });
@@ -333,6 +337,7 @@ function LivePreview({
                                 playhead={playhead}
                                 intrinsicDurations={intrinsicDurations}
                                 poolKey={poolKey}
+                                muted={muted}
                             />
                         </Group>
                     </Layer>
@@ -343,82 +348,33 @@ function LivePreview({
 }
 
 /**
- * Instant lightbox for the compositor's live video output.
- *
- * Pure consumer of the same MediaStream the blur preview already consumes —
- * binds `srcObject` to the existing captureStream, so the lightbox opens
- * instantly with whatever the card's Konva canvas is currently producing.
- * No recording, no second renderer mount, no card-playback hijack.
- *
- * Native `<video controls>` provides play / pause / volume / fullscreen.
- * Scrubbing and duration display are inherently broken for live MediaStream
- * sources (the browser reports duration as Infinity and the scrubber is
- * non-interactive) — that's a platform limitation of MediaStream, not
- * something we can paper over without recording. The compositor's own
- * MiniTransport remains the source of truth for timeline position.
+ * Pick the best supported MediaRecorder MIME type for the current browser.
+ * Chrome/Edge/Firefox: webm + vp9/vp8. Safari (since 14.1): mp4 + h.264.
+ * Returns null when MediaRecorder isn't available at all — caller hides
+ * the download button in that case rather than offering a broken click.
  */
-function InstantVideoLightbox({
-    stream,
-    resolution,
-    onClose,
-}: {
-    stream: MediaStream | null;
-    resolution: { width: number; height: number };
-    onClose: () => void;
-}) {
-    const videoRef = useRef<HTMLVideoElement | null>(null);
-
-    useEffect(() => {
-        const el = videoRef.current;
-        if (!el || !stream) return;
-        if (el.srcObject !== stream) {
-            el.srcObject = stream;
-            el.play().catch(() => { /* gesture-required; ignore */ });
-        }
-        return () => { try { el.srcObject = null; } catch { /* noop */ } };
-    }, [stream]);
-
-    return createPortal(
-        <div
-            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
-            onMouseDown={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onClose(); }}
-        >
-            <button
-                onMouseDown={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); onClose(); }}
-                className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="Close"
-            >
-                <X className="w-6 h-6" />
-            </button>
-            {stream ? (
-                <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    loop
-                    controls
-                    className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl bg-black"
-                    style={{ aspectRatio: `${resolution.width} / ${resolution.height}` }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                />
-            ) : (
-                <div className="text-white/60 text-sm">Preview unavailable in this browser.</div>
-            )}
-        </div>,
-        document.body,
-    );
+function pickRecorderMime(): string | null {
+    if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return null;
+    const candidates = [
+        'video/mp4;codecs=avc1',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+    ];
+    for (const c of candidates) {
+        try { if (MediaRecorder.isTypeSupported(c)) return c; } catch { /* fall through */ }
+    }
+    return null;
 }
+
+// InstantVideoLightbox removed: the live-stream lightbox shipped duration-Infinity
+// webm files (canvas captureStream is an unbounded source) and had no audio.
+// The download flow now lives in CompositorEditorModal, which records from the
+// card's full-resolution liveCanvas, mixes audio from pooled video layers, and
+// patches the resulting webm header via webm-duration-fix.
 
 function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
-    const [lightboxOpen, setLightboxOpen] = useState(false);
     const stageRef = useRef<any>(null);
     const updateNodeInternals = useUpdateNodeInternals();
 
@@ -428,11 +384,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // output is published into nodeOutputs[id]. Downstream nodes (Blur, AI
     // Generator, ...) read through that same path.
     useNodeAutoCompute(id);
-
-    // Read this compositor's published output (envelope) for the lightbox so
-    // the user downloads the full-canvas composition, not the down-scaled
-    // Konva preview capture.
-    const composedOutput = useAppStore((state) => state.nodeOutputs[id]);
 
     // Edges currently targeting this compositor's "layers" input.
     const layerEdges = useAppStore(useShallow((state) =>
@@ -656,74 +607,21 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [cardMuted, setCardMuted] = useState(true);
     const [cardTotalDuration, setCardTotalDuration] = useState(0);
 
-    // Live MediaStream captured from the Konva canvas. We feed this to the
-    // lightbox's native <video srcObject> AND publish it for any downstream
-    // consumer that prefers a stream over per-frame drawImage. Single source
-    // of truth → no duplicate Konva mounts.
-    const [liveStream, setLiveStream] = useState<MediaStream | null>(null);
-
-    // Create / refresh the stream whenever the canvas (re-)mounts. The
-    // stream's track list is bound to the canvas element, so as long as
-    // Konva keeps drawing to that element, the stream keeps producing
-    // frames at the requested fps (frames are repeated if Konva isn't
-    // animating, dropped if it animates faster).
-    //
-    // No cleanup that stops the tracks: in React 18 strict mode (Next.js
-    // dev default) every effect runs setup → cleanup → setup on mount,
-    // which would `.stop()` the freshly-created stream's tracks. Once a
-    // MediaStream track is stopped it can't be restarted, and any consumer
-    // still holding the reference (the lightbox's `<video srcObject>`,
-    // downstream blur, etc.) gets a permanently-loading element with no
-    // frames. The browser inactivates the tracks automatically when the
-    // source canvas goes away — that's sufficient cleanup; explicit
-    // `.stop()` here only causes harm.
-    useEffect(() => {
-        if (!liveCanvas) { setLiveStream(null); return; }
-        if (typeof (liveCanvas as any).captureStream !== 'function') {
-            // Older Safari — captureStream isn't available. Lightbox falls
-            // back to a "preview unavailable" state in that case.
-            setLiveStream(null);
-            return;
-        }
-        const fps = config.fps || 30;
-        const stream = (liveCanvas as any).captureStream(fps) as MediaStream;
-        setLiveStream(stream);
-    }, [liveCanvas, config.fps]);
-
-    // (Previously: opening the lightbox force-reset the card to playhead=0
-    // and isPlaying=true, snapshotting+restoring the prior state on close.
-    // That hijack is gone — the lightbox is now a pure consumer of the live
-    // stream and never touches the card's playback. The lightbox has its own
-    // display-only play/pause that only toggles its <video> element.)
-
     const openEditor = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsEditorOpen(true);
     };
 
-    // Trigger a server-side render of THIS compositor (and its upstream chain)
-    // via the existing per-node Run pathway (same one ai_generator uses).
-    // After the orchestrator runs, the server executor writes the rendered
-    // MP4/PNG URL into `nodeOutputs[id]`. The graph-publish effect below
-    // detects the server URL and stops republishing the live graph so the
-    // URL persists for downstream consumers — until the user edits something,
-    // which invalidates the URL and reverts to the live graph.
-    const triggerRunFromNode = useAppStore((state) => state.triggerRunFromNode);
-
-    // ---------- Download flow ----------
+    // ---------- Download flow (client-side recording) ----------
     //
-    // Single-click "download the finished result": if a server-rendered URL
-    // already lives in nodeOutputs (no edits since last run), fetch+blob it
-    // and trigger a save dialog. Otherwise dispatch the same Run pipeline the
-    // old play button used, watch nodeOutputs for the URL to land, then
-    // download. UI states: idle → rendering (server work) → downloading
-    // (fetch) → success (brief flash) → idle.
-    const [downloadState, setDownloadState] =
-        useState<'idle' | 'rendering' | 'downloading' | 'success' | 'error'>('idle');
-    /** True while we've fired triggerRunFromNode and are waiting for a URL
-     *  to appear. Ref (not state) so the effect can read latest without re-
-     *  running on every state flip. */
-    const waitingForUrlRef = useRef(false);
+    // The download lives in the editor modal. When the user clicks Download
+    // there, this function is invoked. It records the card's live canvas
+    // (already at full resolution via the LivePreview's pixelRatio=1/scale)
+    // for exactly totalDuration seconds, mixes audio from each video layer
+    // via Web Audio, fixes the webm duration metadata, and triggers a local
+    // download. No server round-trip, no ffmpeg, no Infinity-duration bug.
+    const [recordingState, setRecordingState] =
+        useState<'idle' | 'recording' | 'finalizing' | 'success' | 'error'>('idle');
 
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
@@ -904,102 +802,188 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         });
     }, [hasVideoLayer, publishedGraph, id, canvasW, canvasH, setNodeOutput]);
 
-    const openLightbox = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setLightboxOpen(true);
-    };
+    // Client-side recording flow. Invoked by the editor modal's Download
+    // button (we own this card's playhead + the full-resolution liveCanvas;
+    // the modal just renders the trigger).
+    //
+    // Records THIS card's `liveCanvas` (already at full canvasW×H thanks to
+    // LivePreview's pixelRatio=1/scale) via MediaRecorder, mixes audio from
+    // every video layer's pooled HTMLVideoElement through Web Audio, drives
+    // the card playhead 0 → totalDuration, then patches the resulting webm
+    // duration metadata so it isn't reported as Infinity. Saves locally.
+    const handleRequestDownload = useCallback(async () => {
+        if (recordingState !== 'idle' && recordingState !== 'success' && recordingState !== 'error') return;
+        if (!liveCanvas) {
+            setRecordingState('error');
+            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
+            return;
+        }
+        if (typeof (liveCanvas as any).captureStream !== 'function') {
+            console.warn('[Compositor:download] captureStream unsupported');
+            setRecordingState('error');
+            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
+            return;
+        }
+        const mime = pickRecorderMime();
+        if (!mime) {
+            console.warn('[Compositor:download] no supported MediaRecorder mime type');
+            setRecordingState('error');
+            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
+            return;
+        }
 
-    const handleLightboxClose = useCallback(() => setLightboxOpen(false), []);
+        const fps = config.fps || 30;
+        const durationSec = cardTotalDuration > 0 ? cardTotalDuration : 5;
 
-    // Fetch the rendered file and trigger a browser save. Going through
-    // fetch+blob (vs. <a href download>) is what makes the download actually
-    // download for cross-origin Supabase URLs — a same-tab navigation is the
-    // fallback the browser would otherwise pick.
-    const performDownload = useCallback(async (url: string) => {
-        setDownloadState('downloading');
+        // Snapshot card state so we can restore it after recording.
+        const priorPlayhead = cardPlayhead;
+        const priorIsPlaying = cardIsPlaying;
+        const priorMuted = cardMuted;
+
+        // Force playback from t=0 with audio so the live canvas paints every
+        // frame AND each pooled video plays its audio track during the
+        // recording window.
+        setCardMuted(false);
+        setCardPlayhead(0);
+        setCardIsPlaying(true);
+
+        // Build the audio track. For every wired video layer, acquire the
+        // pooled HTMLVideoElement (shared with the card preview's renderer)
+        // and route its `captureStream()` audio through a single Web Audio
+        // destination, so multiple layer audio streams mix into one track.
+        const audioConsumers: Array<{ url: string; consumerId: number }> = [];
+        let audioCtx: AudioContext | null = null;
+        let audioDest: MediaStreamAudioDestinationNode | null = null;
         try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const blob = await response.blob();
+            const AudioCtxCtor: typeof AudioContext | undefined =
+                (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) || undefined;
+            if (AudioCtxCtor) {
+                audioCtx = new AudioCtxCtor();
+                audioDest = audioCtx.createMediaStreamDestination();
+                const seen = new Set<string>();
+                for (const layer of config.layers || []) {
+                    const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
+                    if (!edge) continue;
+                    const upstream = upstreamBySource[edge.source];
+                    const normalized = upstream !== undefined ? toLegacyRenderableOutput(upstream) : null;
+                    const item = Array.isArray(normalized) ? normalized[layer.selectedIndex ?? 0] ?? normalized[0] : normalized;
+                    const url: string | null = item && typeof item === 'object' && typeof (item as any).url === 'string' ? (item as any).url : null;
+                    if (!url) continue;
+                    if (detectSourceKindFromUrl(url) !== 'video') continue;
+                    if (seen.has(url)) continue;
+                    seen.add(url);
+                    try {
+                        const handle = acquireVideo(url, id);
+                        audioConsumers.push({ url, consumerId: handle.id });
+                        const layerStream = (handle.el as any).captureStream?.() as MediaStream | undefined;
+                        if (!layerStream) continue;
+                        const aTracks = layerStream.getAudioTracks();
+                        if (aTracks.length === 0) continue;
+                        const audioOnly = new MediaStream([aTracks[0]]);
+                        const srcNode = audioCtx.createMediaStreamSource(audioOnly);
+                        srcNode.connect(audioDest);
+                    } catch (err) {
+                        console.warn('[Compositor:download] audio track unavailable for', url, err);
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[Compositor:download] audio mix setup failed', err);
+        }
+
+        // Build the final stream: card canvas video + mixed audio (if any).
+        const canvasStream = (liveCanvas as any).captureStream(fps) as MediaStream;
+        const recordTracks: MediaStreamTrack[] = [...canvasStream.getVideoTracks()];
+        const audioTrack = audioDest?.stream.getAudioTracks()[0] ?? null;
+        if (audioTrack) recordTracks.push(audioTrack);
+        const recordStream = new MediaStream(recordTracks);
+
+        const chunks: Blob[] = [];
+        let recorder: MediaRecorder;
+        try {
+            recorder = new MediaRecorder(recordStream, { mimeType: mime });
+        } catch (err) {
+            console.error('[Compositor:download] MediaRecorder init failed', err);
+            setRecordingState('error');
+            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
+            // Restore state.
+            setCardPlayhead(priorPlayhead);
+            setCardIsPlaying(priorIsPlaying);
+            setCardMuted(priorMuted);
+            audioConsumers.forEach(({ url, consumerId }) => releaseVideo(url, consumerId));
+            audioCtx?.close().catch(() => {});
+            return;
+        }
+
+        const finish = async () => {
+            // Restore card state regardless of success/failure.
+            setCardPlayhead(priorPlayhead);
+            setCardIsPlaying(priorIsPlaying);
+            setCardMuted(priorMuted);
+            audioConsumers.forEach(({ url, consumerId }) => releaseVideo(url, consumerId));
+            audioCtx?.close().catch(() => {});
+
+            if (chunks.length === 0) {
+                setRecordingState('error');
+                setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
+                return;
+            }
+
+            setRecordingState('finalizing');
+            let blob = new Blob(chunks, { type: mime });
+            // webm-duration-fix only patches webm — mp4 is fine as-is.
+            if (mime.startsWith('video/webm')) {
+                try {
+                    blob = await fixWebmDuration(blob);
+                } catch (err) {
+                    console.warn('[Compositor:download] duration fix failed (keeping raw blob)', err);
+                }
+            }
+
+            const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
             const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = blobUrl;
             const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
             const safeLabel = (data.label || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
-            // Prefer the source URL's extension (server picks the correct
-            // container) but fall back to outputKind when the URL is opaque.
-            const urlExt = url.split('?')[0].split('.').pop()?.toLowerCase();
-            const ext = urlExt && urlExt.length <= 4 ? urlExt
-                : outputKind === 'video' ? 'mp4'
-                : 'png';
             a.download = `${safeLabel}-${ts}.${ext}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            URL.revokeObjectURL(blobUrl);
-            setDownloadState('success');
-            setTimeout(() => setDownloadState((s) => s === 'success' ? 'idle' : s), 1500);
-        } catch (err) {
-            console.error('Compositor download failed:', err);
-            setDownloadState('error');
-            setTimeout(() => setDownloadState((s) => s === 'error' ? 'idle' : s), 2500);
-        }
-    }, [data.label, outputKind]);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 
-    // Extract a real URL from a published envelope. The compositor's live
-    // graph publish uses `url: ''` as a sentinel — only treat non-empty
-    // strings as a downloadable resource.
-    const extractDownloadableUrl = useCallback((output: any): string | null => {
-        if (!output) return null;
-        const normalized = toLegacyRenderableOutput(output);
-        const first = Array.isArray(normalized) ? normalized[0] : normalized;
-        if (first && typeof first === 'object' && typeof (first as any).url === 'string' && (first as any).url) {
-            return (first as any).url as string;
-        }
-        return null;
-    }, []);
+            setRecordingState('success');
+            setTimeout(() => setRecordingState((s) => (s === 'success' ? 'idle' : s)), 1500);
+        };
 
-    const downloadCompositor = useCallback((e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (downloadState !== 'idle' && downloadState !== 'success' && downloadState !== 'error') return;
-        const existingUrl = extractDownloadableUrl(composedOutput);
-        if (existingUrl) {
-            performDownload(existingUrl);
-            return;
-        }
-        // No fresh URL — trigger the same server pipeline the old Run button
-        // used. The watcher effect below picks up the URL when it lands.
-        setDownloadState('rendering');
-        waitingForUrlRef.current = true;
-        triggerRunFromNode(id, 'solo');
-    }, [downloadState, composedOutput, extractDownloadableUrl, performDownload, id, triggerRunFromNode]);
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+        recorder.onerror = (e) => { console.error('[Compositor:download] MediaRecorder error', e); };
+        recorder.onstop = () => { void finish(); };
 
-    // Watch for the server-rendered URL to appear while we're waiting. The
-    // ref-gate (`waitingForUrlRef`) makes sure we only react to URLs that
-    // landed AFTER the user clicked download — not on unrelated republishes
-    // (e.g. an upstream re-emit).
-    useEffect(() => {
-        if (!waitingForUrlRef.current) return;
-        const url = extractDownloadableUrl(composedOutput);
-        if (!url) return;
-        waitingForUrlRef.current = false;
-        performDownload(url);
-    }, [composedOutput, extractDownloadableUrl, performDownload]);
-
-    // Failsafe: if the server-side render never produces a URL (failure with
-    // no error signal back, network issue, etc.), don't leave the button
-    // spinning forever.
-    useEffect(() => {
-        if (downloadState !== 'rendering') return;
-        const timeout = setTimeout(() => {
-            if (waitingForUrlRef.current) {
-                waitingForUrlRef.current = false;
-                setDownloadState('error');
-                setTimeout(() => setDownloadState((s) => s === 'error' ? 'idle' : s), 2500);
+        // Small tail grace so the final frame definitely lands in the file —
+        // canvas.captureStream + MediaRecorder run a frame behind in practice.
+        const recordMs = Math.ceil(durationSec * 1000) + 250;
+        recorder.start(100);
+        setRecordingState('recording');
+        setTimeout(() => {
+            if (recorder.state !== 'inactive') {
+                try { recorder.stop(); } catch { /* noop */ }
             }
-        }, 90_000);
-        return () => clearTimeout(timeout);
-    }, [downloadState]);
+        }, recordMs);
+    }, [
+        recordingState,
+        liveCanvas,
+        config.fps,
+        config.layers,
+        cardTotalDuration,
+        cardPlayhead,
+        cardIsPlaying,
+        cardMuted,
+        layerEdges,
+        upstreamBySource,
+        id,
+        data.label,
+    ]);
 
     return (
         <>
@@ -1015,44 +999,20 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 hideStatus={true}
                 customOutputs={customOutputs}
                 customActions={
-                    <div className="flex items-center gap-1.5">
-                        <button
-                            onClick={downloadCompositor}
-                            disabled={downloadState === 'rendering' || downloadState === 'downloading'}
-                            className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
-                                    flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200
-                                    disabled:opacity-80 disabled:cursor-wait disabled:hover:scale-100"
-                            title={
-                                downloadState === 'rendering' ? 'Rendering on the server…'
-                                : downloadState === 'downloading' ? 'Downloading…'
-                                : downloadState === 'success' ? 'Downloaded'
-                                : downloadState === 'error' ? 'Download failed — click to retry'
-                                : 'Download the composited result'
-                            }
-                        >
-                            {downloadState === 'rendering' || downloadState === 'downloading' ? (
-                                <Loader2 className="w-3 h-3 text-content-inverted animate-spin" />
-                            ) : downloadState === 'success' ? (
-                                <Check className="w-3 h-3 text-content-inverted" />
-                            ) : (
-                                <Download className="w-3 h-3 text-content-inverted" />
-                            )}
-                        </button>
-                        <button
-                            onClick={openEditor}
-                            className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
-                                    flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
-                            title="Edit compositor"
-                        >
-                            <Edit3 className="w-3 h-3 text-content-inverted" />
-                        </button>
-                    </div>
+                    <button
+                        onClick={openEditor}
+                        className="w-6 h-6 rounded-full bg-accent-primary/90 hover:bg-accent-primary backdrop-blur-sm
+                                flex items-center justify-center shadow-lg hover:scale-110 transition-all duration-200"
+                        title="Edit compositor"
+                    >
+                        <Edit3 className="w-3 h-3 text-content-inverted" />
+                    </button>
                 }
                 contentClassName="p-0 overflow-hidden"
             >
                 <div
-                    onClick={openLightbox}
-                    className="relative w-full group/compositor transition-all duration-500 cursor-zoom-in flex flex-col min-h-[200px]"
+                    onClick={openEditor}
+                    className="relative w-full group/compositor transition-all duration-500 cursor-pointer flex flex-col min-h-[200px]"
                 >
                     {renderable.length > 0 ? (
                         <div className="w-full p-1">
@@ -1069,6 +1029,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                 onPlayheadChange={setCardPlayhead}
                                 onTotalDurationChange={setCardTotalDuration}
                                 poolKey={id}
+                                muted={cardMuted}
                             />
                             {hasVideoLayer && (
                                 <MiniTransport
@@ -1099,71 +1060,12 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                     config={config}
                     onClose={() => setIsEditorOpen(false)}
                     onConfigChange={updateConfig}
+                    canDownload={hasVideoLayer}
+                    onRequestDownload={handleRequestDownload}
+                    recordingState={recordingState}
                 />,
                 document.body
             )}
-            {lightboxOpen && (() => {
-                // Resolve the server-published URL from this node's
-                // composedOutput (set by the workflow runner after the server
-                // executor uploads the rendered file). When present, prefer
-                // it over the live MediaStream path — a real URL gives the
-                // user native <video controls>, download, and accurate
-                // duration/scrubbing. The live stream lightbox is reserved
-                // for the case where no Run has been performed yet.
-                const normalized = composedOutput
-                    ? toLegacyRenderableOutput(composedOutput)
-                    : null;
-                const first = Array.isArray(normalized) ? normalized[0] : normalized;
-                const composedUrl =
-                    first && typeof first === 'object' && typeof (first as any).url === 'string' && (first as any).url
-                        ? ((first as any).url as string)
-                        : null;
-
-                if (hasVideoLayer) {
-                    if (composedUrl) {
-                        // Server-rendered MP4 is available — full-featured
-                        // lightbox with native controls + download.
-                        return (
-                            <ImageLightbox
-                                media={composedUrl}
-                                type="video"
-                                initialIndex={0}
-                                onClose={handleLightboxClose}
-                            />
-                        );
-                    }
-                    // No Run yet — fall back to the live-stream lightbox.
-                    // Downloads aren't supported here (MediaStream isn't a
-                    // seekable resource); the user gets that capability by
-                    // clicking the Run button on the card first.
-                    return (
-                        <InstantVideoLightbox
-                            stream={liveStream}
-                            resolution={{ width: canvasW, height: canvasH }}
-                            onClose={handleLightboxClose}
-                        />
-                    );
-                }
-
-                let mediaSrc: string | null = composedUrl;
-                if (!mediaSrc && stageRef.current) {
-                    const scale = stageRef.current.scaleX?.() || 1;
-                    mediaSrc = stageRef.current.toDataURL({
-                        pixelRatio: scale > 0 ? 1 / scale : 1,
-                    });
-                }
-
-                if (!mediaSrc) return null;
-
-                return (
-                    <ImageLightbox
-                        media={mediaSrc}
-                        type="image"
-                        initialIndex={0}
-                        onClose={() => setLightboxOpen(false)}
-                    />
-                );
-            })()}
         </>
     );
 }

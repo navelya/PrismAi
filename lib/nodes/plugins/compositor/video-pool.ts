@@ -33,6 +33,11 @@ interface PoolEntry {
     el: HTMLVideoElement;
     /** Consumer id → wantsPlay. Pool plays iff any value is true. */
     consumers: Map<number, boolean>;
+    /** Consumer id → wantsAudio. Element is unmuted iff any value is true.
+     *  Same OR semantics as `consumers`: any surface unmuting wins for the
+     *  shared element. The common case (only one surface visible at a time
+     *  for a given poolKey) makes the choice between OR and AND moot. */
+    consumerAudio: Map<number, boolean>;
     metadataReady: boolean;
     metaWaiters: Array<(el: HTMLVideoElement) => void>;
 }
@@ -67,6 +72,15 @@ function reconcilePlayState(entry: PoolEntry): void {
     }
 }
 
+function reconcileMuted(entry: PoolEntry): void {
+    let anyWantsAudio = false;
+    entry.consumerAudio.forEach((v) => { if (v) anyWantsAudio = true; });
+    const shouldBeMuted = !anyWantsAudio;
+    if (entry.el.muted !== shouldBeMuted) {
+        entry.el.muted = shouldBeMuted;
+    }
+}
+
 /**
  * Acquire a pooled video for a (URL, poolKey) pair. Returns the element AND a
  * consumer id. The caller MUST release with the same (url, poolKey, id) on
@@ -86,6 +100,7 @@ export function acquireVideo(
     let entry = pool.get(key);
     if (entry) {
         entry.consumers.set(id, false);
+        entry.consumerAudio.set(id, false);
         return { el: entry.el, id };
     }
 
@@ -107,6 +122,7 @@ export function acquireVideo(
     entry = {
         el,
         consumers: new Map([[id, false]]),
+        consumerAudio: new Map([[id, false]]),
         metadataReady: false,
         metaWaiters: [],
     };
@@ -168,6 +184,23 @@ export function setPlayState(
     reconcilePlayState(entry);
 }
 
+/**
+ * Vote on whether the pooled element should emit audio. OR-ed across
+ * consumers — element is unmuted iff at least one consumer wants audio.
+ * The toggle in MiniTransport / Transport flows through here.
+ */
+export function setMuted(
+    url: string,
+    id: number,
+    muted: boolean,
+    poolKey: string = DEFAULT_POOL_KEY,
+): void {
+    const entry = pool.get(entryKey(url, poolKey));
+    if (!entry) return;
+    entry.consumerAudio.set(id, !muted);
+    reconcileMuted(entry);
+}
+
 export function releaseVideo(
     url: string,
     id: number,
@@ -177,6 +210,7 @@ export function releaseVideo(
     const entry = pool.get(key);
     if (!entry) return;
     entry.consumers.delete(id);
+    entry.consumerAudio.delete(id);
     if (entry.consumers.size === 0) {
         try {
             entry.el.pause();
@@ -188,7 +222,8 @@ export function releaseVideo(
         entry.el.remove();
         pool.delete(key);
     } else {
-        // Other consumers remain; recompute play state without this voter.
+        // Other consumers remain; recompute play state + mute without this voter.
         reconcilePlayState(entry);
+        reconcileMuted(entry);
     }
 }

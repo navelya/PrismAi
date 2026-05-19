@@ -155,16 +155,19 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
         return;
     }
 
-    // Each transaction can have multiple line items. Walk them and grant
-    // credits for any that match a known plan or credit pack.
-    const items = data.items || data.details?.lineItems || [];
+    // The line items carry per-item proration. Pull from details.lineItems
+    // first (where proration lives); fall back to top-level items for older
+    // payload shapes that don't ship details.
+    const lineItems = data.details?.lineItems || data.items || [];
 
-    for (const item of items) {
+    for (const item of lineItems) {
         const priceId: string | undefined = item.price?.id || item.priceId;
         if (!priceId) continue;
 
         const pack = lookupPackByPriceId(priceId);
         if (pack) {
+            // One-time credit packs always grant their full pack size,
+            // regardless of proration (packs aren't subscription items).
             await grantCredits(supabase, {
                 userId,
                 amount: pack.credits,
@@ -182,11 +185,19 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
 
         const plan = lookupPlanByPriceId(priceId);
         if (plan) {
-            // For subscription transactions, grant the monthly credits.
-            // The monthly_topup cron will keep things refilled going forward.
+            // Match credits to money paid. For first-time purchases and
+            // renewals, proration is null (or rate=1) and the user is paying
+            // for the full period — grant the full monthly allowance. For
+            // mid-period plan changes (origin=subscription_update), Paddle
+            // charges a prorated diff and the line item has rate<1; grant
+            // proportionally so we don't over-credit.
+            const rate = parseProrationRate(item.proration);
+            const credits = Math.max(0, Math.round(plan.monthlyCredits * rate));
+            if (credits === 0) continue;
+
             await grantCredits(supabase, {
                 userId,
-                amount: plan.monthlyCredits,
+                amount: credits,
                 reason: 'paddle_subscription_grant',
                 idempotencyKey: `paddle:tx:${data.id}:item:${priceId}`,
                 paddleEventId: eventId,
@@ -195,6 +206,8 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
                     paddle_price_id: priceId,
                     plan_id: plan.planId,
                     cycle: plan.cycle,
+                    proration_rate: rate,
+                    transaction_origin: data.origin ?? null,
                 },
             });
         }
@@ -235,6 +248,22 @@ function extractUserId(data: any): string | null {
     const fromCustomData = data?.customData?.user_id || data?.custom_data?.user_id;
     if (typeof fromCustomData === 'string' && fromCustomData.length > 0) return fromCustomData;
     return null;
+}
+
+/**
+ * Read a line item's proration rate as a number in [0, 1].
+ *
+ * Paddle ships proration as a decimal string ("0.5", "1", etc.) on prorated
+ * mid-period charges and as null/missing on full-period charges (first-time
+ * purchases, renewals). Anything we can't parse falls back to 1 so we err on
+ * the side of granting full credits rather than under-granting paying users.
+ */
+function parseProrationRate(proration: any): number {
+    const raw = proration?.rate;
+    if (raw == null) return 1;
+    const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+    if (!Number.isFinite(n) || n <= 0) return 1;
+    return Math.min(1, n);
 }
 
 function mapPaddleStatusToOurs(paddleStatus: string): 'active' | 'canceled' | 'past_due' {

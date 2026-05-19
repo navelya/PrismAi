@@ -10,6 +10,7 @@ import MessageRenderer from './MessageRenderer';
 import { ThinkingPanel } from './ThinkingPanel';
 import { ChipCard } from './ChipCard';
 import { PlanCard } from './PlanCard';
+import { PlanCardSkeleton } from './PlanCardSkeleton';
 import { TaskProgressCard } from './TaskProgressCard';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -38,6 +39,7 @@ interface Message {
         detail: string;
         tasks?: import('@/lib/chat/streaming/protocol').TaskBlueprint[];
     };
+    planLoading?: boolean;
     planAnswer?: {
         action: 'approve' | 'feedback';
         feedbackText?: string;
@@ -266,12 +268,14 @@ export const Message = React.memo(function Message({
                                 isCanvasMode={isCanvasMode}
                             />
                         </div>
-                    ) : message.type === 'assistant' && !message.result && !message.plan && !message.clarification && (
+                    ) : message.type === 'assistant' && !message.result && !message.plan && !message.clarification && !message.planLoading && (
                         // Loading dots only when the bubble has nothing else to show.
                         // A plan card or chip card is visually self-sufficient content
                         // below this slot, so dots above them would just be noise — and
                         // would persist forever for plan/clarification turns where the
                         // model skipped the prose preamble (content stays '' in DB).
+                        // planLoading suppresses dots too: the PlanCardSkeleton below
+                        // is the dedicated placeholder for that turn.
                         <div className="flex items-center gap-1 px-1 py-1.5">
                             <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:0ms] dark:bg-zinc-400" />
                             <span className="size-1.5 animate-bounce rounded-full bg-zinc-500 [animation-delay:120ms] dark:bg-zinc-400" />
@@ -297,6 +301,10 @@ export const Message = React.memo(function Message({
                                 })
                             }
                         />
+                    )}
+
+                    {message.type === 'assistant' && message.planLoading && !message.plan && (
+                        <PlanCardSkeleton />
                     )}
 
                     {message.type === 'assistant' && message.plan && (

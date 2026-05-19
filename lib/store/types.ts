@@ -30,6 +30,12 @@ export interface Message {
     // (either via chip click or by typing). chosenIndex is null for typed answers.
     // text mirrors the user's reply text; used to render the answered chip card.
     clarificationAnswer?: { chosenIndex: number | null; text: string };
+    // Transient client-only flag: true once the brain emits a
+    // `tool_start: propose_plan` event for this turn but before the
+    // full `plan` payload arrives. Drives the PlanCardSkeleton placeholder.
+    // Cleared implicitly once `plan` is set (skeleton is gated on !plan).
+    // Not persisted.
+    planLoading?: boolean;
     // Plan card (assistant turn): set when the brain emits a `plan`
     // stream event. The full PlanPayload from the propose_plan tool.
     plan?: {

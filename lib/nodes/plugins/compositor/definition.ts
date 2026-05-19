@@ -193,7 +193,7 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
     },
     handles: {
         inputs: [
-            { id: 'layers', label: 'Layers', expectedType: ['image', 'video', 'text'], is_array: true, color: '#f8fafc' }
+            { id: 'layers', label: 'Layers', expectedType: ['image', 'video', 'text', 'audio'], is_array: true, color: '#f8fafc' }
         ],
         // Single polymorphic output. The id stays `image_out` so saved
         // workflows (which originally only had `image_out` and `video_out`,
@@ -230,7 +230,7 @@ export const compositorSharedDef: NodeSharedDef<CompositorConfig> = {
             timelineDuration: { type: ['number', 'null'], default: null, description: 'Total timeline length in seconds. null = auto = longest layer end.' },
             layers: {
                 type: 'array',
-                description: 'CRITICAL: Array of layers. You MUST generate one layer object for every image OR video you connect to this compositor. Layer at array[0] is the BOTTOM of the visual stack. Layers can be still (no duration on timeline) or temporal (startTime + duration). The compositor has a single polymorphic output handle (image_out) that emits an image when all layers are still, or a video when any layer is temporal/video.',
+                description: 'CRITICAL: Array of layers. You MUST generate one layer object for every image, video, text, OR audio source you connect to this compositor. Layer at array[0] is the BOTTOM of the visual stack. Layers can be still (no duration on timeline) or temporal (startTime + duration). Audio-only sources are accepted as wires but currently do not render visually or play standalone — only the audio track of a connected VIDEO source is audible during preview (toggle via the mute control). The compositor has a single polymorphic output handle (image_out) that emits an image when all layers are still, or a video when any layer is temporal/video.',
                 items: {
                     type: 'object',
                     required: ['id', 'name', 'sourceHandleId', 'transform'],

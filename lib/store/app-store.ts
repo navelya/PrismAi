@@ -73,7 +73,6 @@ export const useAppStore = create<RootState>()(
                     // and the subsequent loadSession() call.
                     isLoadingSession: true,
                     statusMessage: null,
-                    isCanvasMode: true,
                     isCopilotMinimized: false,
                     models: [],
                     categories: [],
