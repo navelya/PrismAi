@@ -49,6 +49,18 @@ export async function POST(request: Request) {
             effectiveFrom: body.immediate ? 'immediately' : 'next_billing_period',
         });
 
+        // Cancel takes priority over a scheduled downgrade — the user is
+        // leaving, not switching plans. Clear any pending change so the
+        // cron doesn't try to apply it later against a canceled sub.
+        await service
+            .from('subscriptions')
+            .update({
+                pending_plan_change_price_id: null,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', user.id)
+            .not('pending_plan_change_price_id', 'is', null);
+
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         console.error('[Cancel Subscription] Error:', err);

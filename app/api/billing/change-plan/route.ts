@@ -77,6 +77,18 @@ export async function POST(request: Request) {
             prorationBillingMode: 'prorated_immediately',
         });
 
+        // The user just made a fresh choice — any previously scheduled
+        // downgrade no longer reflects intent. Clear it so we don't switch
+        // them to a stale target at the next boundary.
+        await service
+            .from('subscriptions')
+            .update({
+                pending_plan_change_price_id: null,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', user.id)
+            .not('pending_plan_change_price_id', 'is', null);
+
         return NextResponse.json({ ok: true });
     } catch (err: any) {
         console.error('[Change Plan] Error:', err);

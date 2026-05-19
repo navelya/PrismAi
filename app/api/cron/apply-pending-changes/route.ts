@@ -33,6 +33,8 @@ interface PendingRow {
     pending_plan_change_price_id: string | null;
     paddle_price_id: string | null;
     current_period_end: string | null;
+    status: string;
+    cancel_at_period_end: boolean;
 }
 
 export async function GET(request: Request) {
@@ -44,9 +46,14 @@ export async function GET(request: Request) {
     const supabase = createServiceClient();
     const nowIso = new Date().toISOString();
 
+    // Only consider ACTIVE subs that are due. A canceled or past_due sub
+    // can't accept a plan change via Paddle's API — and a sub scheduled to
+    // cancel at period end takes priority over a scheduled downgrade
+    // (you're leaving, not switching). Either way, we clear the pending
+    // field as housekeeping so the row stops appearing in this query.
     const { data: due, error: fetchErr } = await supabase
         .from('subscriptions')
-        .select('user_id, paddle_subscription_id, pending_plan_change_price_id, paddle_price_id, current_period_end')
+        .select('user_id, paddle_subscription_id, pending_plan_change_price_id, paddle_price_id, current_period_end, status, cancel_at_period_end')
         .not('pending_plan_change_price_id', 'is', null)
         .lte('current_period_end', nowIso)
         .limit(BATCH_LIMIT);
@@ -57,7 +64,7 @@ export async function GET(request: Request) {
     }
 
     const rows = (due || []) as PendingRow[];
-    const results: Array<{ user_id: string; ok: boolean; error?: string }> = [];
+    const results: Array<{ user_id: string; ok: boolean; error?: string; skipped?: string }> = [];
 
     const paddle = getPaddle();
 
@@ -69,17 +76,22 @@ export async function GET(request: Request) {
                 continue;
             }
 
+            // Dead-end states: the sub can't accept a plan change. Just
+            // clear the pending marker so it stops appearing in this query.
+            const isDeadEnd =
+                row.status !== 'active' ||
+                row.cancel_at_period_end === true;
+            if (isDeadEnd) {
+                await clearPending(supabase, row.user_id);
+                results.push({ user_id: row.user_id, ok: true, skipped: 'inactive_or_canceling' });
+                continue;
+            }
+
             // No-op if the target equals the current — clear the pending
             // marker without calling Paddle.
             if (row.paddle_price_id === row.pending_plan_change_price_id) {
-                await supabase
-                    .from('subscriptions')
-                    .update({
-                        pending_plan_change_price_id: null,
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq('user_id', row.user_id);
-                results.push({ user_id: row.user_id, ok: true });
+                await clearPending(supabase, row.user_id);
+                results.push({ user_id: row.user_id, ok: true, skipped: 'already_on_target' });
                 continue;
             }
 
@@ -91,13 +103,7 @@ export async function GET(request: Request) {
             // Clear the pending marker only after Paddle has accepted the
             // change. The subsequent `subscription.updated` webhook will
             // write the new plan_id; we don't have to mirror it here.
-            await supabase
-                .from('subscriptions')
-                .update({
-                    pending_plan_change_price_id: null,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('user_id', row.user_id);
+            await clearPending(supabase, row.user_id);
 
             results.push({ user_id: row.user_id, ok: true });
         } catch (err: any) {
@@ -121,4 +127,17 @@ export async function GET(request: Request) {
         failed: results.filter((r) => !r.ok).length,
         results,
     });
+}
+
+async function clearPending(
+    supabase: ReturnType<typeof createServiceClient>,
+    userId: string,
+): Promise<void> {
+    await supabase
+        .from('subscriptions')
+        .update({
+            pending_plan_change_price_id: null,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId);
 }

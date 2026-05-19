@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
 import * as RadixContextMenu from '@radix-ui/react-context-menu';
 import { 
     Root, Trigger, Portal, Content, Item, 
@@ -48,7 +48,7 @@ interface CanvasContextMenuProps {
     pendingConnection?: PendingConnection | null;
 }
 
-const MENU_WIDTH = 260;
+const MENU_WIDTH = 210;
 const MENU_PADDING = 8;
 
 export default function CanvasContextMenu({
@@ -70,13 +70,16 @@ export default function CanvasContextMenu({
 
     // No longer needs on-demand fetch here as it is pre-fetched by SharedWorkflowEditor
 
-    // Fire a synthetic contextmenu event on the invisible trigger on mount
-    useEffect(() => {
+    // Fire a synthetic contextmenu event on the invisible trigger on mount.
+    // useLayoutEffect (not useEffect) so the dispatch happens before paint —
+    // otherwise the browser paints one blank frame before Radix opens, which
+    // shows up as a perceptible "nothing happens" delay on right-click.
+    useLayoutEffect(() => {
         if (!triggerRef.current) return;
         const event = new MouseEvent('contextmenu', {
-            bubbles: true, 
-            cancelable: true, 
-            clientX: position.x, 
+            bubbles: true,
+            cancelable: true,
+            clientX: position.x,
             clientY: position.y,
         });
         // Flag it so the parent knows not to trigger another context menu
@@ -197,6 +200,13 @@ export default function CanvasContextMenu({
     }, [selectedIndex, searchQuery]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        // Block Radix's typeahead — any printable key would otherwise be caught
+        // by the Content's matching logic and steal focus to a menu item.
+        // Arrow/Enter are handled explicitly below; Escape is left to bubble.
+        if (e.key !== 'Escape') {
+            e.stopPropagation();
+        }
+
         if (searchQuery) {
             // Search Navigation
             if (e.key === 'ArrowDown') {
@@ -221,16 +231,16 @@ export default function CanvasContextMenu({
     };
 
     const renderIcon = (iconName: string | null) => {
-        if (!iconName) return <Box className="w-4 h-4" />;
-        
+        if (!iconName) return <Box className="w-3.5 h-3.5" />;
+
         // Check if it's a URL (http or https)
         if (iconName.startsWith('http')) {
-            return <img src={iconName} alt="" className="w-4 h-4 object-contain rounded-sm" />;
+            return <img src={iconName} alt="" className="w-3.5 h-3.5 object-contain rounded-sm" />;
         }
 
         const iconComponent = (Icons as any)[iconName] || Box;
         const FinalIcon = iconComponent;
-        return <FinalIcon className="w-4 h-4" />;
+        return <FinalIcon className="w-3.5 h-3.5" />;
     };
 
     const renderItem = (item: ContextMenuItem, index?: number) => {
@@ -241,29 +251,25 @@ export default function CanvasContextMenu({
                 key={item.id}
                 onSelect={() => handleNodeClick(item)}
                 className={cn(
-                    "w-full px-2 py-2 flex items-center justify-between transition-colors duration-100 group outline-none cursor-pointer rounded-lg",
-                    "data-[highlighted]:bg-white/10",
-                    isHighlightedByKbd && "bg-white/10 shadow-[inset_0_0_0_1px_rgba(6,182,212,0.3)]"
+                    "w-full px-2 py-1.5 flex items-center justify-between gap-2 outline-none cursor-pointer rounded-md text-content-secondary",
+                    "data-[highlighted]:bg-white/5 data-[highlighted]:text-content-primary",
+                    isHighlightedByKbd && "bg-white/5 text-content-primary"
                 )}
             >
-                <div className="flex items-center gap-3">
-                    <div className={cn(
-                        "w-7 h-7 rounded-md flex items-center justify-center bg-white/5 border border-white/10 transition-all duration-150 text-content-tertiary shadow-inner",
-                        "group-data-[highlighted]:scale-110 group-data-[highlighted]:bg-accent-primary/20 group-data-[highlighted]:border-accent-primary/30 group-data-[highlighted]:text-accent-primary",
-                        isHighlightedByKbd && "scale-110 bg-accent-primary/20 border-accent-primary/30 text-accent-primary"
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className={cn(
+                        "shrink-0 text-content-tertiary",
+                        "group-data-[highlighted]:text-accent-primary",
+                        isHighlightedByKbd && "text-accent-primary"
                     )}>
                         {renderIcon(item.icon)}
-                    </div>
-                    <span className={cn(
-                        "text-xs font-semibold text-content-secondary transition-colors",
-                        "group-data-[highlighted]:text-content-primary",
-                        isHighlightedByKbd && "text-content-primary"
-                    )}>
+                    </span>
+                    <span className="text-[11px] font-semibold tracking-wide truncate">
                         {item.title}
                     </span>
                 </div>
                 {item.badge && (
-                    <span className="px-1.5 py-0.5 bg-accent-primary/20 text-accent-primary text-[9px] font-bold uppercase rounded-md shadow-sm">
+                    <span className="px-1.5 py-0.5 bg-accent-primary/10 text-accent-primary text-[9px] font-bold uppercase rounded-full">
                         {item.badge}
                     </span>
                 )}
@@ -272,11 +278,11 @@ export default function CanvasContextMenu({
     };
 
     const renderTree = (nodes: ContextMenuItem[]) => {
-        return nodes.map(node => {
+        return nodes.map((node, i) => {
             if (node.item_type === 'header') {
                 return (
-                    <div key={node.id} className="px-3 pt-4 pb-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-accent-primary/70">
+                    <div key={node.id} className={cn("px-2 pb-1", i === 0 ? "pt-1" : "pt-3")}>
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-content-tertiary/70">
                             {node.title}
                         </span>
                     </div>
@@ -285,18 +291,18 @@ export default function CanvasContextMenu({
             if (node.item_type === 'submenu' || node.item_type === 'provider') {
                 return (
                     <Sub key={node.id}>
-                        <SubTrigger className="w-full px-2 py-2 flex items-center justify-between outline-none cursor-pointer data-[state=open]:bg-white/10 data-[highlighted]:bg-white/10 rounded-lg group text-content-secondary data-[highlighted]:text-content-primary">
-                            <div className="flex items-center gap-3">
-                                <div className="w-7 h-7 rounded-md flex items-center justify-center bg-white/5 border border-white/10 group-data-[highlighted]:scale-110 group-data-[highlighted]:text-white transition-all duration-150 text-content-tertiary">
+                        <SubTrigger className="w-full px-2 py-1.5 flex items-center justify-between gap-2 outline-none cursor-pointer rounded-md text-content-secondary data-[state=open]:bg-white/5 data-[state=open]:text-content-primary data-[highlighted]:bg-white/5 data-[highlighted]:text-content-primary">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="shrink-0 text-content-tertiary">
                                     {renderIcon(node.icon)}
-                                </div>
-                                <span className="text-xs font-semibold">{node.title}</span>
+                                </span>
+                                <span className="text-[11px] font-semibold tracking-wide truncate">{node.title}</span>
                             </div>
-                            <ChevronRight className="w-4 h-4 opacity-40 group-data-[highlighted]:opacity-100 transition-opacity" />
+                            <ChevronRight className="w-3.5 h-3.5 opacity-40 shrink-0" />
                         </SubTrigger>
                         <Portal>
                             <SubContent
-                                className="z-[9999] min-w-[220px] bg-surface-elevated/95 backdrop-blur-2xl rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.6)] border border-white/10 p-1.5 flex flex-col gap-0.5 animate-in slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                                className="popover-animate z-[9999] min-w-[180px] bg-surface-elevated/80 backdrop-blur-md rounded-2xl shadow-xl shadow-black/20 border border-stroke-subtle p-1 flex flex-col gap-0.5 origin-top-left"
                                 sideOffset={4}
                                 alignOffset={-4}
                             >
@@ -320,14 +326,14 @@ export default function CanvasContextMenu({
                 <Content
                     style={{ width: MENU_WIDTH }}
                     collisionPadding={MENU_PADDING}
-                    className="z-[9999] bg-surface-elevated/95 backdrop-blur-2xl rounded-2xl shadow-[0_0_60px_rgba(0,0,0,0.7)] border border-stroke-subtle overflow-hidden flex flex-col data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:hide origin-top-left"
+                    className="popover-animate z-[9999] bg-surface-elevated/80 backdrop-blur-md rounded-2xl shadow-xl shadow-black/20 border border-stroke-subtle overflow-hidden flex flex-col origin-top-left"
                     onEscapeKeyDown={onClose}
                     onInteractOutside={onClose}
                 >
                     {/* Search Component */}
-                    <div className="p-2 border-b border-white/5 bg-gradient-to-b from-white/5 to-transparent">
+                    <div className="p-1.5 border-b border-stroke-subtle/60">
                         <div className="relative group">
-                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-content-tertiary group-focus-within:text-accent-primary transition-colors" />
+                            <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-content-tertiary group-focus-within:text-accent-primary transition-colors" />
                             <input
                                 ref={searchInputRef}
                                 type="text"
@@ -335,7 +341,7 @@ export default function CanvasContextMenu({
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                                 onKeyDown={handleKeyDown}
-                                className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent-primary transition-all shadow-inner"
+                                className="w-full bg-white/[0.03] border border-stroke-subtle rounded-md pl-7 pr-2 py-1.5 text-[11px] font-medium text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-accent-primary/40 transition-colors"
                                 autoFocus
                             />
                         </div>
@@ -344,15 +350,15 @@ export default function CanvasContextMenu({
                     {/* Hierarchy/Results list */}
                     <div
                         ref={listRef}
-                        className="p-1.5 max-h-[360px] overflow-y-auto custom-scrollbar flex flex-col gap-0.5 relative"
+                        className="p-1 max-h-[360px] overflow-y-auto custom-scrollbar flex flex-col gap-0.5 relative"
                     >
                         {searchQuery ? (
                             searchResults.length > 0 ? (
                                 searchResults.map((item, idx) => renderItem(item, idx))
                             ) : (
-                                <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
-                                    <Inbox className="w-6 h-6 text-content-tertiary opacity-40" />
-                                    <p className="text-xs font-medium text-content-tertiary">
+                                <div className="py-8 text-center flex flex-col items-center justify-center gap-1.5">
+                                    <Inbox className="w-4 h-4 text-content-tertiary opacity-40" />
+                                    <p className="text-[11px] font-medium text-content-tertiary">
                                         {pendingConnection ? (
                                             <>No compatible matches for {Array.isArray(pendingConnection.dataType) ? pendingConnection.dataType.join(' / ') : pendingConnection.dataType}.</>
                                         ) : 'No matching nodes.'}
@@ -363,31 +369,31 @@ export default function CanvasContextMenu({
                             filteredTree.length > 0 ? (
                                 renderTree(filteredTree)
                             ) : (
-                                <div className="py-10 text-center flex flex-col items-center justify-center gap-2">
-                                    <Inbox className="w-6 h-6 text-content-tertiary opacity-40" />
-                                    <p className="text-xs font-medium text-content-tertiary">
+                                <div className="py-8 text-center flex flex-col items-center justify-center gap-1.5">
+                                    <Inbox className="w-4 h-4 text-content-tertiary opacity-40" />
+                                    <p className="text-[11px] font-medium text-content-tertiary">
                                         No compatible nodes for {Array.isArray(pendingConnection.dataType) ? pendingConnection.dataType.join(' / ') : pendingConnection.dataType}.
                                     </p>
                                 </div>
                             )
                         ) : (
                             isMenuLoading && tree.length === 0 ? (
-                                <div className="p-1.5 flex flex-col gap-2">
+                                <div className="p-1 flex flex-col gap-1">
                                     {[1, 2, 3, 4, 5].map(i => (
-                                        <div key={i} className="flex items-center gap-3 px-2 py-2 animate-pulse">
-                                            <div className="w-7 h-7 rounded-md bg-white/5" />
-                                            <div className="h-3 w-24 bg-white/5 rounded-full" />
+                                        <div key={i} className="flex items-center gap-2 px-2 py-1.5 animate-pulse">
+                                            <div className="w-3.5 h-3.5 rounded-sm bg-white/5" />
+                                            <div className="h-2.5 w-24 bg-white/5 rounded-full" />
                                         </div>
                                     ))}
                                 </div>
                             ) : tree.length > 0 ? (
                                 renderTree(tree)
                             ) : (
-                                <div className="py-10 text-center flex flex-col items-center justify-center gap-2 px-4 border border-dashed border-white/5 mx-2 my-2 rounded-xl bg-white/[0.02]">
-                                    <LayoutGrid className="w-5 h-5 text-accent-primary opacity-50 animate-pulse" />
+                                <div className="py-8 text-center flex flex-col items-center justify-center gap-1.5 px-4 mx-1 my-1">
+                                    <LayoutGrid className="w-4 h-4 text-content-tertiary opacity-40" />
                                     <div className="space-y-1">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-content-secondary">Neural Menu Offline</p>
-                                        <p className="text-[9px] text-content-tertiary leading-relaxed">No active items found in the registry. Configure your menu in the Admin Panel.</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-content-secondary">Menu empty</p>
+                                        <p className="text-[10px] text-content-tertiary leading-relaxed">Configure items in the Admin Panel.</p>
                                     </div>
                                 </div>
                             )
