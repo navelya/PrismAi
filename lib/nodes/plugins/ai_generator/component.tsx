@@ -172,7 +172,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const fixedWidth = activeType === 'audio' ? 280 : 320;
     const mediaStyle: React.CSSProperties = {
         width: 'max-content',
-        minWidth: 320,
+        minWidth: 200,
         maxWidth: 420,
     };
     const textMinHeightClass = "min-h-[140px]";

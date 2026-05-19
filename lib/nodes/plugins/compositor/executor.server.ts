@@ -190,14 +190,29 @@ interface ProcessedLayer {
     intrinsicDuration: number; // seconds; 0 if unknown
     effectiveDuration: number; // seconds; what we actually render
     startTime: number;         // seconds
+    hasAudio: boolean;         // video has at least one audio stream
 }
 
-async function runTemporalRender(
+export interface RenderCompositorVideoOptions {
+    /** Mix per-layer audio into the output. Workflow executor leaves this off; download route turns it on. */
+    includeAudio: boolean;
+    /** libx264 CRF. Lower = higher quality + bigger file. Default 23 keeps parity with the workflow executor. */
+    crf?: number;
+}
+
+/**
+ * Render the compositor's temporal timeline to an mp4 Buffer.
+ *
+ * Shared core between the workflow executor (which uploads the result and
+ * returns a URL) and the download API route (which streams the buffer back
+ * to the browser). Both callers pass the same (config, inputs) shape — the
+ * `inputs` map is keyed by `layer.sourceHandleId` -> resolved URL.
+ */
+export async function renderCompositorVideo(
     config: CompositorConfig,
     inputs: Record<string, any>,
-    context: ExecutionContext,
-    sourceKindByLayerId: Record<string, LayerSourceKind>,
-): Promise<NodeExecutionResult> {
+    options: RenderCompositorVideoOptions,
+): Promise<Buffer> {
     const width = Math.round(config?.canvasWidth || 1080);
     const height = Math.round(config?.canvasHeight || 1080);
     const fps = Math.max(1, Math.min(60, Math.round(config?.fps || 30)));
@@ -230,13 +245,8 @@ async function runTemporalRender(
             const layer = visibleLayers[i];
             const url = inputs[layer.sourceHandleId];
             if (!url || typeof url !== 'string') continue;
-            const kind = sourceKindByLayerId[layer.id] ?? detectSourceKindFromUrl(url);
-            if (kind !== 'video' && kind !== 'image') {
-                // Stage 1: text-only layers are skipped on the temporal path.
-                // Sharp renders text via fonts; bridging that to ffmpeg is
-                // Stage 2 work.
-                continue;
-            }
+            const kind = detectSourceKindFromUrl(url);
+            if (kind !== 'video' && kind !== 'image') continue;
 
             const ext = kind === 'video' ? 'mp4' : 'png';
             const inputPath = path.join(tmpDir, `in_${i}.${ext}`);
@@ -247,15 +257,18 @@ async function runTemporalRender(
                 await fs.writeFile(inputPath, buf);
             } catch (err) {
                 console.error(
-                    `[CompositorExecutor:temporal] Skipping layer ${layer.name}: fetch failed`,
+                    `[renderCompositorVideo] Skipping layer ${layer.name}: fetch failed`,
                     err,
                 );
                 continue;
             }
 
             let intrinsicDuration = 0;
+            let hasAudio = false;
             if (kind === 'video') {
-                intrinsicDuration = await probeVideoDuration(ffmpeg, inputPath).catch(() => 0);
+                const probe = await probeVideoStreams(ffmpeg, inputPath).catch(() => ({ duration: 0, hasAudio: false }));
+                intrinsicDuration = probe.duration;
+                hasAudio = probe.hasAudio;
             }
 
             processed.push({
@@ -265,12 +278,12 @@ async function runTemporalRender(
                 intrinsicDuration,
                 effectiveDuration: 0, // filled below once we know the timeline total
                 startTime: Math.max(0, layer.startTime || 0),
+                hasAudio,
             });
         }
 
         if (processed.length === 0) {
-            await cleanup();
-            return { success: false, data: null, error: 'No renderable layers on temporal compositor.' };
+            throw new Error('No renderable layers on temporal compositor.');
         }
 
         // Resolve total timeline duration. computeTimelineDuration honors
@@ -295,7 +308,7 @@ async function runTemporalRender(
             }
         }
 
-        // ── Build the filter graph ──
+        // ── Build the video filter graph ──
         // [bg]                           color=black, size=WxH, duration=total
         // For each input i:
         //   - image: [i:v]loop=-1:1:0,trim=duration=eff,setpts=PTS-STARTPTS,scale=w:h,format=rgba[L_i]
@@ -326,103 +339,146 @@ async function runTemporalRender(
                 );
             }
 
-            const nextChain = idx === processed.length - 1 ? 'out' : `s${idx}`;
+            const nextChain = idx === processed.length - 1 ? 'vout' : `s${idx}`;
             filters.push(
                 `[${currentChain}][${layerLabel}]overlay=x=${x}:y=${y}:enable='between(t,${startT.toFixed(3)},${endT.toFixed(3)})':format=auto[${nextChain}]`,
             );
             currentChain = nextChain;
         });
 
+        // ── Build the audio mix (when requested + at least one audible video) ──
+        // For each unmuted video layer with audio:
+        //   [i:a]atrim=duration=eff,asetpts=PTS-STARTPTS,adelay=startMs:all=1[A_i]
+        // Then amix together (or use the single chain directly when there's only one).
+        const outputMaps: string[] = ['vout'];
+        let useAudio = false;
+        if (options.includeAudio) {
+            const audible = processed
+                .map((p, idx) => ({ p, idx }))
+                .filter(({ p }) => p.sourceKind === 'video' && p.hasAudio && !p.layer.muted);
+
+            if (audible.length > 0) {
+                const audioLabels: string[] = [];
+                audible.forEach(({ p, idx }) => {
+                    const startMs = Math.max(0, Math.round(p.startTime * 1000));
+                    const label = `A${idx}`;
+                    filters.push(
+                        `[${idx}:a]atrim=duration=${p.effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${startMs}:all=1[${label}]`,
+                    );
+                    audioLabels.push(label);
+                });
+
+                if (audioLabels.length === 1) {
+                    outputMaps.push(audioLabels[0]);
+                } else {
+                    const mixIn = audioLabels.map((l) => `[${l}]`).join('');
+                    filters.push(
+                        `${mixIn}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0[aout]`,
+                    );
+                    outputMaps.push('aout');
+                }
+                useAudio = true;
+            }
+        }
+
         const filterComplex = filters.join(';');
         const outputPath = path.join(tmpDir, 'out.mp4');
 
-        console.log(`[CompositorExecutor:temporal] filter_complex: ${filterComplex}`);
+        console.log(`[renderCompositorVideo] filter_complex: ${filterComplex}`);
 
-        try {
-            await new Promise<void>((resolve, reject) => {
-                const cmd = ffmpeg();
-                // Add inputs in array order so [N:v] in the filter graph
-                // matches the layer index.
-                for (const p of processed) {
-                    if (p.sourceKind === 'image') {
-                        cmd.input(p.inputPath).inputOptions(['-loop', '1']);
-                    } else {
-                        cmd.input(p.inputPath);
-                    }
+        await new Promise<void>((resolve, reject) => {
+            const cmd = ffmpeg();
+            // Add inputs in array order so [N:v] in the filter graph
+            // matches the layer index.
+            for (const p of processed) {
+                if (p.sourceKind === 'image') {
+                    cmd.input(p.inputPath).inputOptions(['-loop', '1']);
+                } else {
+                    cmd.input(p.inputPath);
                 }
-                cmd.complexFilter(filterComplex, ['out'])
-                    .outputOptions([
-                        '-t', total.toFixed(3),
-                        '-r', String(fps),
-                        '-c:v', 'libx264',
-                        '-preset', 'veryfast',
-                        '-pix_fmt', 'yuv420p',
-                        '-movflags', '+faststart',
-                        '-an', // Stage 1: no audio (mirrors the wasm version)
-                    ])
-                    .on('end', () => resolve())
-                    .on('error', (err) => reject(err))
-                    .save(outputPath);
-            });
-        } catch (err) {
-            await cleanup();
-            return {
-                success: false,
-                data: null,
-                error: `ffmpeg render failed: ${err instanceof Error ? err.message : 'unknown error'}`,
-            };
-        }
+            }
+            const outputOptions: string[] = [
+                '-t', total.toFixed(3),
+                '-r', String(fps),
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-pix_fmt', 'yuv420p',
+                '-movflags', '+faststart',
+            ];
+            if (typeof options.crf === 'number') {
+                outputOptions.push('-crf', String(options.crf));
+            }
+            if (useAudio) {
+                outputOptions.push('-c:a', 'aac', '-b:a', '192k');
+            } else {
+                outputOptions.push('-an');
+            }
+            cmd.complexFilter(filterComplex, outputMaps)
+                .outputOptions(outputOptions)
+                .on('end', () => resolve())
+                .on('error', (err) => reject(err))
+                .save(outputPath);
+        });
 
-        let outputBuffer: Buffer;
-        try {
-            outputBuffer = await fs.readFile(outputPath);
-        } catch (err) {
-            await cleanup();
-            return {
-                success: false,
-                data: null,
-                error: `ffmpeg produced no output: ${err instanceof Error ? err.message : 'unknown error'}`,
-            };
-        }
-
+        return await fs.readFile(outputPath);
+    } finally {
         await cleanup();
-
-        const supabase = createServiceClient();
-        const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.mp4`;
-        const { error: uploadError } = await supabase.storage
-            .from('workflow-ephemeral-tmp')
-            .upload(filename, outputBuffer, { contentType: 'video/mp4', cacheControl: '3600' });
-        if (uploadError) {
-            return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
-        }
-
-        const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
-
-        return {
-            success: true,
-            data: [
-                {
-                    url: urlData.publicUrl,
-                    resolution: { width, height },
-                    metadata: {
-                        format: 'mp4',
-                        source: 'Compositor',
-                        processedBy: 'ServerFluentFfmpeg',
-                    },
-                },
-            ],
-        };
-    } catch (err) {
-        await cleanup();
-        throw err;
     }
 }
 
+async function runTemporalRender(
+    config: CompositorConfig,
+    inputs: Record<string, any>,
+    context: ExecutionContext,
+    _sourceKindByLayerId: Record<string, LayerSourceKind>,
+): Promise<NodeExecutionResult> {
+    const width = Math.round(config?.canvasWidth || 1080);
+    const height = Math.round(config?.canvasHeight || 1080);
+
+    let outputBuffer: Buffer;
+    try {
+        outputBuffer = await renderCompositorVideo(config, inputs, { includeAudio: false });
+    } catch (err) {
+        return {
+            success: false,
+            data: null,
+            error: `ffmpeg render failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        };
+    }
+
+    const supabase = createServiceClient();
+    const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.mp4`;
+    const { error: uploadError } = await supabase.storage
+        .from('workflow-ephemeral-tmp')
+        .upload(filename, outputBuffer, { contentType: 'video/mp4', cacheControl: '3600' });
+    if (uploadError) {
+        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
+    }
+
+    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
+
+    return {
+        success: true,
+        data: [
+            {
+                url: urlData.publicUrl,
+                resolution: { width, height },
+                metadata: {
+                    format: 'mp4',
+                    source: 'Compositor',
+                    processedBy: 'ServerFluentFfmpeg',
+                },
+            },
+        ],
+    };
+}
+
 /**
- * Probe a video's duration via ffprobe (bundled by @ffprobe-installer).
- * fluent-ffmpeg's .ffprobe() returns a promise-friendly callback API.
+ * Probe a video for duration + audio-stream presence via ffprobe (bundled by
+ * @ffprobe-installer). fluent-ffmpeg's .ffprobe() returns a promise-friendly
+ * callback API.
  */
-function probeVideoDuration(ffmpeg: any, filePath: string): Promise<number> {
+function probeVideoStreams(ffmpeg: any, filePath: string): Promise<{ duration: number; hasAudio: boolean }> {
     return new Promise((resolve, reject) => {
         ffmpeg.ffprobe(filePath, (err: Error | null, data: any) => {
             if (err) {
@@ -430,7 +486,11 @@ function probeVideoDuration(ffmpeg: any, filePath: string): Promise<number> {
                 return;
             }
             const duration = data?.format?.duration;
-            resolve(typeof duration === 'number' ? duration : 0);
+            const hasAudio = Array.isArray(data?.streams) && data.streams.some((s: any) => s.codec_type === 'audio');
+            resolve({
+                duration: typeof duration === 'number' ? duration : 0,
+                hasAudio,
+            });
         });
     });
 }

@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom';
 import { NodeProps, useUpdateNodeInternals } from 'reactflow';
 import { Plus, Edit3 } from 'lucide-react';
 import { Stage, Layer, Group } from 'react-konva';
-import fixWebmDuration from 'webm-duration-fix';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
@@ -21,7 +20,6 @@ import {
     GraphLayer,
     GraphLayerSource,
 } from './shared';
-import { acquireVideo, releaseVideo } from './video-pool';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { NodeClientDef } from '../../core/types';
@@ -145,8 +143,6 @@ const checkerboardStyle = {
  *
  * Card-level playhead loops over the timeline so activity gating mirrors the
  * modal's behavior — clips only appear when their time window is active.
- * `onCanvasReady` reports the live Konva Layer canvas to the parent so it
- * can be published as `nodeOutputs[id]` for downstream live consumption.
  */
 function LivePreview({
     config,
@@ -155,7 +151,6 @@ function LivePreview({
     onLayerImageLoad,
     onLayerVideoLoad,
     intrinsicDurations,
-    onCanvasReady,
     playhead,
     isPlaying,
     onPlayheadChange,
@@ -169,7 +164,6 @@ function LivePreview({
     onLayerImageLoad?: (layerId: string, img: HTMLImageElement) => void;
     onLayerVideoLoad?: (layerId: string, meta: { duration: number; width: number; height: number }) => void;
     intrinsicDurations: Record<string, number | null>;
-    onCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
     /** External playhead control. Owner (the parent card) drives this; preview just renders. */
     playhead: number;
     isPlaying: boolean;
@@ -283,20 +277,6 @@ function LivePreview({
         };
     }, [isPlaying, totalDuration, onPlayheadChange]);
 
-    // After the Stage mounts, grab its first Layer's live `<canvas>` element
-    // and report it to the parent. Downstream nodes (Blur, etc.) can later
-    // read frames from this canvas directly via `drawImage` for live data
-    // flow without going through dataURLs.
-    useEffect(() => {
-        if (!onCanvasReady) return;
-        if (scale <= 0) return;
-        const stage = stageRef.current;
-        if (!stage) return;
-        const konvaLayer = stage.getLayers?.()[0];
-        const canvasEl: HTMLCanvasElement | null = konvaLayer?.getCanvas?.()?._canvas ?? null;
-        onCanvasReady(canvasEl);
-    }, [scale, stageRef, onCanvasReady]);
-
     return (
         <div
             ref={containerRef}
@@ -308,17 +288,11 @@ function LivePreview({
         >
             {/*
              * Stage is sized to the card's display size; the Layer's
-             * `pixelRatio` upsamples the internal canvas to FULL canvas
-             * resolution. This keeps `canvas.captureStream(fps)` producing
-             * crisp full-resolution frames (so the lightbox's native <video>
-             * isn't blurry) without CSS-transforming the Stage — Konva
-             * manages width/height styling on its own container, and
-             * layering a `transform: scale` on top of that has been
-             * brittle in practice.
-             *
-             * pixelRatio = canvasWidth / displayWidth means the Layer
-             * draws at (canvasWidth × canvasHeight) pixels internally,
-             * downsampled to display via the Stage's CSS box.
+             * `pixelRatio = 1 / scale` means the internal canvas is drawn at
+             * (canvasWidth × canvasHeight) pixels and downsampled to display
+             * via the Stage's CSS box. We tried `transform: scale` on the
+             * Stage container instead; Konva managing width/height on its
+             * own container made that layer brittle in practice.
              */}
             {scale > 0 && (
                 <Stage
@@ -347,32 +321,6 @@ function LivePreview({
         </div>
     );
 }
-
-/**
- * Pick the best supported MediaRecorder MIME type for the current browser.
- * Chrome/Edge/Firefox: webm + vp9/vp8. Safari (since 14.1): mp4 + h.264.
- * Returns null when MediaRecorder isn't available at all — caller hides
- * the download button in that case rather than offering a broken click.
- */
-function pickRecorderMime(): string | null {
-    if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return null;
-    const candidates = [
-        'video/mp4;codecs=avc1',
-        'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8',
-        'video/webm',
-    ];
-    for (const c of candidates) {
-        try { if (MediaRecorder.isTypeSupported(c)) return c; } catch { /* fall through */ }
-    }
-    return null;
-}
-
-// InstantVideoLightbox removed: the live-stream lightbox shipped duration-Infinity
-// webm files (canvas captureStream is an unbounded source) and had no audio.
-// The download flow now lives in CompositorEditorModal, which records from the
-// card's full-resolution liveCanvas, mixes audio from pooled video layers, and
-// patches the resulting webm header via webm-duration-fix.
 
 function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -593,11 +541,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         [handleLayerIntrinsicLoad],
     );
 
-    // Live canvas surface published downstream. Set by LivePreview once the
-    // Konva Stage's Layer has its canvas; downstream consumers can later read
-    // frames from this via `drawImage` for live data flow (the same way
-    // they read `url` for static images today).
-    const [liveCanvas, setLiveCanvas] = useState<HTMLCanvasElement | null>(null);
     const setNodeOutput = useAppStore((state) => state.setNodeOutput);
 
     // Card-level playback state. The card preview is paused by default —
@@ -613,16 +556,14 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         setIsEditorOpen(true);
     };
 
-    // ---------- Download flow (client-side recording) ----------
+    // ---------- Download flow ----------
     //
-    // The download lives in the editor modal. When the user clicks Download
-    // there, this function is invoked. It records the card's live canvas
-    // (already at full resolution via the LivePreview's pixelRatio=1/scale)
-    // for exactly totalDuration seconds, mixes audio from each video layer
-    // via Web Audio, fixes the webm duration metadata, and triggers a local
-    // download. No server round-trip, no ffmpeg, no Infinity-duration bug.
-    const [recordingState, setRecordingState] =
-        useState<'idle' | 'recording' | 'finalizing' | 'success' | 'error'>('idle');
+    // The download lives in the editor modal; the modal's Download button
+    // invokes this callback. We POST the compositor config + a map of
+    // resolved layer URLs to /api/compositor/export, where fluent-ffmpeg
+    // re-renders the timeline (with audio) and streams the mp4 back.
+    const [downloadState, setDownloadState] =
+        useState<'idle' | 'rendering' | 'success' | 'error'>('idle');
 
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
@@ -803,188 +744,75 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         });
     }, [hasVideoLayer, publishedGraph, id, canvasW, canvasH, setNodeOutput]);
 
-    // Client-side recording flow. Invoked by the editor modal's Download
-    // button (we own this card's playhead + the full-resolution liveCanvas;
-    // the modal just renders the trigger).
-    //
-    // Records THIS card's `liveCanvas` (already at full canvasW×H thanks to
-    // LivePreview's pixelRatio=1/scale) via MediaRecorder, mixes audio from
-    // every video layer's pooled HTMLVideoElement through Web Audio, drives
-    // the card playhead 0 → totalDuration, then patches the resulting webm
-    // duration metadata so it isn't reported as Infinity. Saves locally.
+    // Server-side download flow. Resolves each wired layer to its upstream
+    // URL (same path the LivePreview uses), POSTs config + URL map to
+    // /api/compositor/export, and streams the rendered mp4 back as a file
+    // download. fluent-ffmpeg on the server handles audio mixing + H.264
+    // encoding so quality and duration come out right by construction.
     const handleRequestDownload = useCallback(async () => {
-        if (recordingState !== 'idle' && recordingState !== 'success' && recordingState !== 'error') return;
-        if (!liveCanvas) {
-            setRecordingState('error');
-            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
-            return;
-        }
-        if (typeof (liveCanvas as any).captureStream !== 'function') {
-            console.warn('[Compositor:download] captureStream unsupported');
-            setRecordingState('error');
-            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
-            return;
-        }
-        const mime = pickRecorderMime();
-        if (!mime) {
-            console.warn('[Compositor:download] no supported MediaRecorder mime type');
-            setRecordingState('error');
-            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
-            return;
+        if (downloadState === 'rendering') return;
+
+        const inputs: Record<string, string> = {};
+        for (const layer of config.layers || []) {
+            const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
+            if (!edge) continue;
+            const upstream = upstreamBySource[edge.source];
+            const normalized = upstream !== undefined ? toLegacyRenderableOutput(upstream) : null;
+            const item = Array.isArray(normalized)
+                ? normalized[layer.selectedIndex ?? 0] ?? normalized[0]
+                : normalized;
+            const url =
+                item && typeof item === 'object' && typeof (item as any).url === 'string'
+                    ? ((item as any).url as string)
+                    : null;
+            if (url) inputs[layer.sourceHandleId] = url;
         }
 
-        const fps = config.fps || 30;
-        const durationSec = cardTotalDuration > 0 ? cardTotalDuration : 5;
+        if (Object.keys(inputs).length === 0) {
+            setDownloadState('error');
+            setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+            return;
+        }
 
-        // Snapshot card state so we can restore it after recording.
-        const priorPlayhead = cardPlayhead;
-        const priorIsPlaying = cardIsPlaying;
-        const priorMuted = cardMuted;
-
-        // Force playback from t=0 with audio so the live canvas paints every
-        // frame AND each pooled video plays its audio track during the
-        // recording window.
-        setCardMuted(false);
-        setCardPlayhead(0);
-        setCardIsPlaying(true);
-
-        // Build the audio track. For every wired video layer, acquire the
-        // pooled HTMLVideoElement (shared with the card preview's renderer)
-        // and route its `captureStream()` audio through a single Web Audio
-        // destination, so multiple layer audio streams mix into one track.
-        const audioConsumers: Array<{ url: string; consumerId: number }> = [];
-        let audioCtx: AudioContext | null = null;
-        let audioDest: MediaStreamAudioDestinationNode | null = null;
+        setDownloadState('rendering');
         try {
-            const AudioCtxCtor: typeof AudioContext | undefined =
-                (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) || undefined;
-            if (AudioCtxCtor) {
-                audioCtx = new AudioCtxCtor();
-                audioDest = audioCtx.createMediaStreamDestination();
-                const seen = new Set<string>();
-                for (const layer of config.layers || []) {
-                    const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
-                    if (!edge) continue;
-                    const upstream = upstreamBySource[edge.source];
-                    const normalized = upstream !== undefined ? toLegacyRenderableOutput(upstream) : null;
-                    const item = Array.isArray(normalized) ? normalized[layer.selectedIndex ?? 0] ?? normalized[0] : normalized;
-                    const url: string | null = item && typeof item === 'object' && typeof (item as any).url === 'string' ? (item as any).url : null;
-                    if (!url) continue;
-                    if (detectSourceKindFromUrl(url) !== 'video') continue;
-                    if (seen.has(url)) continue;
-                    seen.add(url);
-                    try {
-                        const handle = acquireVideo(url, id);
-                        audioConsumers.push({ url, consumerId: handle.id });
-                        const layerStream = (handle.el as any).captureStream?.() as MediaStream | undefined;
-                        if (!layerStream) continue;
-                        const aTracks = layerStream.getAudioTracks();
-                        if (aTracks.length === 0) continue;
-                        const audioOnly = new MediaStream([aTracks[0]]);
-                        const srcNode = audioCtx.createMediaStreamSource(audioOnly);
-                        srcNode.connect(audioDest);
-                    } catch (err) {
-                        console.warn('[Compositor:download] audio track unavailable for', url, err);
-                    }
-                }
-            }
-        } catch (err) {
-            console.warn('[Compositor:download] audio mix setup failed', err);
-        }
-
-        // Build the final stream: card canvas video + mixed audio (if any).
-        const canvasStream = (liveCanvas as any).captureStream(fps) as MediaStream;
-        const recordTracks: MediaStreamTrack[] = [...canvasStream.getVideoTracks()];
-        const audioTrack = audioDest?.stream.getAudioTracks()[0] ?? null;
-        if (audioTrack) recordTracks.push(audioTrack);
-        const recordStream = new MediaStream(recordTracks);
-
-        const chunks: Blob[] = [];
-        let recorder: MediaRecorder;
-        try {
-            recorder = new MediaRecorder(recordStream, { mimeType: mime });
-        } catch (err) {
-            console.error('[Compositor:download] MediaRecorder init failed', err);
-            setRecordingState('error');
-            setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
-            // Restore state.
-            setCardPlayhead(priorPlayhead);
-            setCardIsPlaying(priorIsPlaying);
-            setCardMuted(priorMuted);
-            audioConsumers.forEach(({ url, consumerId }) => releaseVideo(url, consumerId));
-            audioCtx?.close().catch(() => {});
-            return;
-        }
-
-        const finish = async () => {
-            // Restore card state regardless of success/failure.
-            setCardPlayhead(priorPlayhead);
-            setCardIsPlaying(priorIsPlaying);
-            setCardMuted(priorMuted);
-            audioConsumers.forEach(({ url, consumerId }) => releaseVideo(url, consumerId));
-            audioCtx?.close().catch(() => {});
-
-            if (chunks.length === 0) {
-                setRecordingState('error');
-                setTimeout(() => setRecordingState((s) => (s === 'error' ? 'idle' : s)), 2000);
-                return;
+            const resp = await fetch('/api/compositor/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    config,
+                    inputs,
+                    filename: data.label || 'compositor',
+                }),
+            });
+            if (!resp.ok) {
+                const errText = await resp.text().catch(() => '');
+                throw new Error(`server ${resp.status}: ${errText || resp.statusText}`);
             }
 
-            setRecordingState('finalizing');
-            let blob = new Blob(chunks, { type: mime });
-            // webm-duration-fix only patches webm — mp4 is fine as-is.
-            if (mime.startsWith('video/webm')) {
-                try {
-                    blob = await fixWebmDuration(blob);
-                } catch (err) {
-                    console.warn('[Compositor:download] duration fix failed (keeping raw blob)', err);
-                }
-            }
+            const blob = await resp.blob();
+            const cd = resp.headers.get('Content-Disposition') || '';
+            const match = cd.match(/filename="([^"]+)"/);
+            const safeLabel = (data.label || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
+            const downloadName = match?.[1] || `${safeLabel}.mp4`;
 
-            const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
             const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = blobUrl;
-            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const safeLabel = (data.label || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
-            a.download = `${safeLabel}-${ts}.${ext}`;
+            a.download = downloadName;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 
-            setRecordingState('success');
-            setTimeout(() => setRecordingState((s) => (s === 'success' ? 'idle' : s)), 1500);
-        };
-
-        recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-        recorder.onerror = (e) => { console.error('[Compositor:download] MediaRecorder error', e); };
-        recorder.onstop = () => { void finish(); };
-
-        // Small tail grace so the final frame definitely lands in the file —
-        // canvas.captureStream + MediaRecorder run a frame behind in practice.
-        const recordMs = Math.ceil(durationSec * 1000) + 250;
-        recorder.start(100);
-        setRecordingState('recording');
-        setTimeout(() => {
-            if (recorder.state !== 'inactive') {
-                try { recorder.stop(); } catch { /* noop */ }
-            }
-        }, recordMs);
-    }, [
-        recordingState,
-        liveCanvas,
-        config.fps,
-        config.layers,
-        cardTotalDuration,
-        cardPlayhead,
-        cardIsPlaying,
-        cardMuted,
-        layerEdges,
-        upstreamBySource,
-        id,
-        data.label,
-    ]);
+            setDownloadState('success');
+            setTimeout(() => setDownloadState((s) => (s === 'success' ? 'idle' : s)), 1500);
+        } catch (err) {
+            console.error('[Compositor:download] export failed', err);
+            setDownloadState('error');
+            setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+        }
+    }, [downloadState, config, layerEdges, upstreamBySource, data.label]);
 
     return (
         <>
@@ -1000,7 +828,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 hideStatus={true}
                 customOutputs={customOutputs}
                 customActions={
-                    <Tooltip content="Edit compositor" position="top" delay={1500}>
+                    <Tooltip content="Edit compositor" position="top" delay={600}>
                         <button
                             type="button"
                             onClick={openEditor}
@@ -1026,7 +854,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                 onLayerImageLoad={handleLayerImageLoad}
                                 onLayerVideoLoad={handleLayerVideoLoad}
                                 intrinsicDurations={intrinsicDurations}
-                                onCanvasReady={setLiveCanvas}
                                 playhead={cardPlayhead}
                                 isPlaying={cardIsPlaying}
                                 onPlayheadChange={setCardPlayhead}
@@ -1065,7 +892,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                     onConfigChange={updateConfig}
                     canDownload={hasVideoLayer}
                     onRequestDownload={handleRequestDownload}
-                    recordingState={recordingState}
+                    downloadState={downloadState}
                 />,
                 document.body
             )}

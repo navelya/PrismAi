@@ -397,7 +397,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         onMouseDown={(e) => e.stopPropagation()}
                     >
                         {customActions}
-                        <Tooltip content="Duplicate node" position="top" delay={1500}>
+                        <Tooltip content="Duplicate node" position="top" delay={600}>
                             <button
                                 type="button"
                                 onClick={handleDuplicate}
@@ -407,7 +407,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 <Copy className="w-3 h-3 pointer-events-none" />
                             </button>
                         </Tooltip>
-                        <Tooltip content="Delete node" position="top" delay={1500}>
+                        <Tooltip content="Delete node" position="top" delay={600}>
                             <button
                                 type="button"
                                 onClick={handleDelete}

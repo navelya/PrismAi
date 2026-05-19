@@ -10,6 +10,7 @@ import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
 import { openPaddleCheckout } from '@/lib/billing/paddle-client';
 import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
+import { pollLedgerForTx } from '@/lib/billing/poll-ledger';
 import { createClient } from '@/lib/supabase/client';
 import BillingProcessingModal, { type BillingStatus } from './BillingProcessingModal';
 
@@ -21,11 +22,19 @@ interface PlansModalProps {
 export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
     const { subscription } = useSubscription();
     const currentPlanId = subscription?.planId ?? 'free';
-    // Inherit the current billing cycle when changing plans so a yearly
-    // subscriber stays yearly. Defaults to monthly for first-time purchasers
-    // since the modal doesn't expose a cycle toggle — yearly upsell happens
-    // on the dedicated /checkout page.
     const currentCycle = subscription?.billingCycle ?? 'monthly';
+
+    // `selectedCycle` drives which prices the cards display and which price ID
+    // the CTA submits. Default to the user's current cycle so the modal opens
+    // showing what they're already paying for; they can flip the toggle to
+    // upsell themselves to yearly (or downgrade to monthly).
+    const [selectedCycle, setSelectedCycle] = useState<'monthly' | 'yearly'>(currentCycle);
+
+    // Re-sync the toggle whenever the modal reopens — if the user changed
+    // their cycle elsewhere, we want the default to reflect reality.
+    useEffect(() => {
+        if (isOpen) setSelectedCycle(currentCycle);
+    }, [isOpen, currentCycle]);
 
     // Portal mount guard — prevents SSR mismatch and lets the modal escape
     // any ancestor with `transform`/`will-change`/`filter`, which would
@@ -92,15 +101,23 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                 </button>
                             </div>
 
+                            {/* Billing cycle toggle */}
+                            <div className="relative flex justify-center px-8 pt-4">
+                                <CycleToggle
+                                    cycle={selectedCycle}
+                                    onChange={setSelectedCycle}
+                                />
+                            </div>
+
                             {/* Plan cards grid */}
                             <div className="relative px-6 sm:px-8 pt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
                                 {PLANS.map((plan) => (
                                     <PlanCard
                                         key={plan.id}
                                         plan={plan}
-                                        isCurrent={plan.id === currentPlanId}
                                         currentPlanId={currentPlanId}
                                         currentCycle={currentCycle}
+                                        selectedCycle={selectedCycle}
                                         onClose={onClose}
                                     />
                                 ))}
@@ -141,15 +158,57 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
     return createPortal(overlay, document.body);
 }
 
+function CycleToggle({
+    cycle,
+    onChange,
+}: {
+    cycle: 'monthly' | 'yearly';
+    onChange: (next: 'monthly' | 'yearly') => void;
+}) {
+    return (
+        <div className="inline-flex items-center p-1 bg-surface-primary/60 border border-stroke-subtle rounded-full">
+            <button
+                onClick={() => onChange('monthly')}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-colors ${
+                    cycle === 'monthly'
+                        ? 'bg-surface-tertiary text-content-primary'
+                        : 'text-content-tertiary hover:text-content-primary'
+                }`}
+            >
+                Monthly
+            </button>
+            <button
+                onClick={() => onChange('yearly')}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-colors flex items-center gap-2 ${
+                    cycle === 'yearly'
+                        ? 'bg-surface-tertiary text-content-primary'
+                        : 'text-content-tertiary hover:text-content-primary'
+                }`}
+            >
+                Yearly
+                <span className={`text-[10px] font-bold tracking-wider ${cycle === 'yearly' ? 'text-emerald-400' : 'text-emerald-400/70'}`}>
+                    SAVE 20%
+                </span>
+            </button>
+        </div>
+    );
+}
+
 interface PlanCardProps {
     plan: PlanDisplay;
-    isCurrent: boolean;
     currentPlanId: string;
     currentCycle: 'monthly' | 'yearly';
+    selectedCycle: 'monthly' | 'yearly';
     onClose: () => void;
 }
 
-function PlanCard({ plan, isCurrent, currentPlanId, currentCycle, onClose }: PlanCardProps) {
+function PlanCard({ plan, currentPlanId, currentCycle, selectedCycle, onClose }: PlanCardProps) {
+    // "Current plan" means BOTH the plan and the cycle match what the user
+    // is paying for right now. Same plan / different cycle is still a change
+    // we can offer (it goes through the same change-plan endpoint).
+    const isCurrent =
+        plan.id === currentPlanId &&
+        (selectedCycle === currentCycle || plan.id === 'free');
     const accentClasses =
         plan.accent === 'highlight'
             ? 'border-accent-primary/50 bg-gradient-to-b from-accent-primary/[0.07] to-transparent shadow-[0_0_40px_-10px_rgba(var(--accent-primary),0.4)]'
@@ -189,14 +248,7 @@ function PlanCard({ plan, isCurrent, currentPlanId, currentCycle, onClose }: Pla
             </div>
 
             {/* Price */}
-            <div className="flex items-baseline gap-1 mb-1">
-                <span className="text-3xl font-bold font-display text-content-primary tracking-tight">
-                    ${plan.priceMonthly}
-                </span>
-                {plan.priceMonthly > 0 && (
-                    <span className="text-xs text-content-tertiary">/month</span>
-                )}
-            </div>
+            <PlanPrice plan={plan} selectedCycle={selectedCycle} />
 
             {/* Credits highlight */}
             <div className="mt-2 mb-5 text-sm">
@@ -221,8 +273,55 @@ function PlanCard({ plan, isCurrent, currentPlanId, currentCycle, onClose }: Pla
                 isCurrent={isCurrent}
                 currentPlanId={currentPlanId}
                 currentCycle={currentCycle}
+                selectedCycle={selectedCycle}
                 onClose={onClose}
             />
+        </div>
+    );
+}
+
+function PlanPrice({
+    plan,
+    selectedCycle,
+}: {
+    plan: PlanDisplay;
+    selectedCycle: 'monthly' | 'yearly';
+}) {
+    // Free plan is always "$0/month" — yearly doesn't apply.
+    if (plan.priceMonthly === 0) {
+        return (
+            <div className="flex items-baseline gap-1 mb-1">
+                <span className="text-3xl font-bold font-display text-content-primary tracking-tight">$0</span>
+            </div>
+        );
+    }
+
+    // For paid plans on yearly, show the per-month equivalent (X/12) as the
+    // headline so plans are visually comparable against the monthly column —
+    // then footnote the actual annual charge below.
+    if (selectedCycle === 'yearly' && plan.priceYearly) {
+        const perMonth = Math.round((plan.priceYearly / 12) * 100) / 100;
+        return (
+            <>
+                <div className="flex items-baseline gap-1 mb-0.5">
+                    <span className="text-3xl font-bold font-display text-content-primary tracking-tight">
+                        ${perMonth}
+                    </span>
+                    <span className="text-xs text-content-tertiary">/month</span>
+                </div>
+                <div className="text-[11px] text-content-tertiary">
+                    ${plan.priceYearly} billed annually
+                </div>
+            </>
+        );
+    }
+
+    return (
+        <div className="flex items-baseline gap-1 mb-1">
+            <span className="text-3xl font-bold font-display text-content-primary tracking-tight">
+                ${plan.priceMonthly}
+            </span>
+            <span className="text-xs text-content-tertiary">/month</span>
         </div>
     );
 }
@@ -233,6 +332,8 @@ function PlanCard({ plan, isCurrent, currentPlanId, currentCycle, onClose }: Pla
 
 function CreditPackCard({ pack }: { pack: CreditPack }) {
     const [loading, setLoading] = useState(false);
+    const [status, setStatus] = useState<BillingStatus | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const accentClasses =
         pack.accent === 'highlight'
@@ -247,65 +348,133 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
 
     const isReady = pack.available && pack.paddlePriceId;
 
+    // Fallback path for first-time buyers (no saved card yet) — opens the
+    // Paddle.js overlay so they can enter a card. The webhook still handles
+    // the grant on the resulting transaction.completed event.
+    const openOverlay = async (): Promise<void> => {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || !user.email || !pack.paddlePriceId) {
+            setErrorMessage('Please sign in again and retry.');
+            setStatus('error');
+            return;
+        }
+        await openPaddleCheckout({
+            priceId: pack.paddlePriceId,
+            userId: user.id,
+            userEmail: user.email,
+        });
+    };
+
     const handleClick = async () => {
         if (loading || !pack.paddlePriceId) return;
         setLoading(true);
+        setErrorMessage(null);
+        setStatus('processing');
+
         try {
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user || !user.email) {
-                console.error('[Checkout] No authenticated user found.');
-                setLoading(false);
+            const res = await fetch('/api/billing/buy-pack', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ packId: pack.id }),
+            });
+            const json = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                setErrorMessage(json.error || 'Could not complete the purchase.');
+                setStatus('error');
                 return;
             }
-            await openPaddleCheckout({
-                priceId: pack.paddlePriceId,
-                userId: user.id,
-                userEmail: user.email,
-            });
-        } catch (e) {
-            console.error('[Checkout] Failed to open Paddle checkout:', e);
+
+            // No saved card → fall through to the Paddle overlay. Hide our
+            // processing modal first so the overlay isn't stacked on top of it.
+            if (json.requiresCheckout) {
+                setStatus(null);
+                await openOverlay();
+                return;
+            }
+
+            if (!json.transactionId) {
+                setErrorMessage('Unexpected response from billing — please retry.');
+                setStatus('error');
+                return;
+            }
+
+            // Watch the ledger for the grant tagged with this transaction ID.
+            // We use it (not just balance) so we know exactly which purchase
+            // landed, even if other credit movements race in.
+            const grant = await pollLedgerForTx(json.transactionId, { timeoutMs: 25000 });
+            if (!grant) {
+                setErrorMessage(
+                    'Payment accepted, but the credits haven’t been added yet. Refresh in a moment — they’ll show up automatically.',
+                );
+                setStatus('error');
+                return;
+            }
+
+            setStatus('success');
+            // Brief celebration, then reload so balance/ledger UI everywhere
+            // picks up the new state.
+            setTimeout(() => {
+                window.location.reload();
+            }, 1400);
+        } catch (e: any) {
+            setErrorMessage(e?.message || 'Could not complete the purchase.');
+            setStatus('error');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className={`relative rounded-xl border p-4 flex items-center gap-4 ${accentClasses} transition-all duration-300`}>
-            {pack.accent === 'highlight' && (
-                <span className="absolute -top-2.5 left-4 px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase rounded-full bg-accent-primary text-white shadow-md shadow-accent-primary/30">
-                    {pack.tagline}
-                </span>
-            )}
+        <>
+            <div className={`relative rounded-xl border p-4 flex items-center gap-4 ${accentClasses} transition-all duration-300`}>
+                {pack.accent === 'highlight' && (
+                    <span className="absolute -top-2.5 left-4 px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase rounded-full bg-accent-primary text-white shadow-md shadow-accent-primary/30">
+                        {pack.tagline}
+                    </span>
+                )}
 
-            <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-1.5">
-                    <span className="text-lg font-bold font-display text-content-primary leading-tight">
-                        {pack.name}
-                    </span>
-                    <span className="text-[10px] text-content-tertiary uppercase tracking-wider">
-                        ${(pack.price / pack.credits).toFixed(3)}/cr
-                    </span>
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-bold font-display text-content-primary leading-tight">
+                            {pack.name}
+                        </span>
+                        <span className="text-[10px] text-content-tertiary uppercase tracking-wider">
+                            ${(pack.price / pack.credits).toFixed(3)}/cr
+                        </span>
+                    </div>
+                    <div className="mt-1 text-xs text-content-secondary">
+                        <span className="font-semibold text-content-primary">{formatCredits(pack.credits)}</span> credits
+                    </div>
                 </div>
-                <div className="mt-1 text-xs text-content-secondary">
-                    <span className="font-semibold text-content-primary">{formatCredits(pack.credits)}</span> credits
-                </div>
+
+                <button
+                    onClick={handleClick}
+                    disabled={!isReady || loading}
+                    title={isReady ? '' : 'Credit packs launch soon'}
+                    className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all whitespace-nowrap flex items-center gap-2 ${
+                        isReady
+                            ? `${buttonClass} disabled:opacity-60 disabled:cursor-not-allowed`
+                            : 'bg-surface-tertiary/50 text-content-tertiary opacity-60 cursor-not-allowed border border-stroke-subtle'
+                    }`}
+                >
+                    {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {loading ? '…' : `$${pack.price}`}
+                </button>
             </div>
 
-            <button
-                onClick={handleClick}
-                disabled={!isReady || loading}
-                title={isReady ? '' : 'Credit packs launch soon'}
-                className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all whitespace-nowrap flex items-center gap-2 ${
-                    isReady
-                        ? `${buttonClass} disabled:opacity-60 disabled:cursor-not-allowed`
-                        : 'bg-surface-tertiary/50 text-content-tertiary opacity-60 cursor-not-allowed border border-stroke-subtle'
-                }`}
-            >
-                {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {loading ? '…' : `$${pack.price}`}
-            </button>
-        </div>
+            <BillingProcessingModal
+                status={status}
+                processingTitle="Buying credits…"
+                processingDescription="Charging your saved payment method. This usually takes a second or two."
+                successTitle={`+${formatCredits(pack.credits)} credits added`}
+                successDescription="Your new credits are ready to use. They never expire."
+                errorTitle="Couldn’t complete the purchase"
+                errorMessage={errorMessage}
+                onClose={() => setStatus(null)}
+            />
+        </>
     );
 }
 
@@ -319,12 +488,14 @@ function PlanCTA({
     isCurrent,
     currentPlanId,
     currentCycle,
+    selectedCycle,
     onClose,
 }: {
     plan: PlanDisplay;
     isCurrent: boolean;
     currentPlanId: string;
     currentCycle: 'monthly' | 'yearly';
+    selectedCycle: 'monthly' | 'yearly';
     onClose: () => void;
 }) {
     const router = useRouter();
@@ -342,12 +513,11 @@ function PlanCTA({
         );
     }
 
-    // Pick a price ID that matches the user's current billing cycle so a
-    // yearly subscriber stays yearly when changing plans. If the target plan
-    // doesn't offer that cycle, fall back to the other one so the option
-    // isn't silently dropped.
+    // Always submit the priceId for the cycle the user picked in the toggle.
+    // Fall back to the other cycle only if this plan doesn't offer the
+    // selected one (defensive — all our paid plans ship both).
     const targetPriceId =
-        currentCycle === 'yearly'
+        selectedCycle === 'yearly'
             ? plan.paddlePriceIdYearly ?? plan.paddlePriceIdMonthly
             : plan.paddlePriceIdMonthly ?? plan.paddlePriceIdYearly;
 
@@ -376,25 +546,39 @@ function PlanCTA({
     const hasPaidSub = currentPlanId !== 'free' && currentPlanId !== '';
     const targetRank = planRank(plan.id);
     const currentRank = planRank(currentPlanId);
-    const verb =
-        targetRank > currentRank
-            ? 'Upgrade'
-            : targetRank < currentRank && currentRank > 0
-                ? 'Downgrade'
-                : 'Switch';
-    const label = `${verb} to ${plan.name}`;
-    const processingTitle =
-        verb === 'Upgrade' ? 'Upgrading your plan…'
-            : verb === 'Downgrade' ? 'Switching to ' + plan.name + '…'
-                : 'Updating your plan…';
+
+    // Pick a verb that's accurate for this transition. If the plan is the
+    // same but the cycle differs, that's neither up nor down — it's a billing
+    // cycle change, which deserves its own copy.
+    const samePlanDifferentCycle =
+        plan.id === currentPlanId && currentRank > 0 && selectedCycle !== currentCycle;
+    let label: string;
+    let processingTitle: string;
+    if (samePlanDifferentCycle) {
+        const direction = selectedCycle === 'yearly' ? 'annual' : 'monthly';
+        label = `Switch to ${direction} billing`;
+        processingTitle = `Switching to ${direction} billing…`;
+    } else {
+        const verb =
+            targetRank > currentRank
+                ? 'Upgrade'
+                : targetRank < currentRank && currentRank > 0
+                    ? 'Downgrade'
+                    : 'Switch';
+        label = `${verb} to ${plan.name}`;
+        processingTitle =
+            verb === 'Upgrade' ? 'Upgrading your plan…'
+                : verb === 'Downgrade' ? 'Switching to ' + plan.name + '…'
+                    : 'Updating your plan…';
+    }
 
     const handleClick = async () => {
         setErrorMessage(null);
         if (!hasPaidSub) {
             // First-time purchase: no saved sub to mutate, so route through
-            // the checkout page where Paddle can collect a payment method.
-            // Default to monthly since the modal doesn't expose a cycle picker.
-            router.push(`/checkout/${plan.id}?cycle=monthly`);
+            // the checkout page. Pass through whatever cycle the user picked
+            // so they don't get surprised on the checkout page.
+            router.push(`/checkout/${plan.id}?cycle=${selectedCycle}`);
             return;
         }
         setStatus('processing');
@@ -411,11 +595,11 @@ function PlanCTA({
                 return;
             }
 
-            // Wait for Paddle's webhook to land the new plan_id in our DB.
-            // Polling is more responsive than a fixed delay — we'll proceed as
-            // soon as the row reflects the change, or fall through on timeout.
+            // Wait for Paddle's webhook to land the new state in our DB.
+            // For a plan change we watch plan_id; for a cycle-only switch the
+            // plan_id stays the same so we watch paddle_price_id instead.
             const settled = await pollSubscriptionUntil(
-                (row) => row.plan_id === plan.id,
+                (row) => row.plan_id === plan.id && row.paddle_price_id === targetPriceId,
                 { timeoutMs: 20000 },
             );
 
@@ -440,6 +624,15 @@ function PlanCTA({
         }
     };
 
+    const successTitle = samePlanDifferentCycle
+        ? `Now billed ${selectedCycle === 'yearly' ? 'annually' : 'monthly'}`
+        : `You’re on ${plan.name}`;
+    const successDescription = samePlanDifferentCycle
+        ? selectedCycle === 'yearly'
+            ? 'Your subscription renews once a year. Any unused monthly time was credited toward this year.'
+            : 'Your subscription renews monthly now. Any unused yearly time was credited toward future renewals.'
+        : 'Your new plan is active and your credits have been updated.';
+
     return (
         <>
             <button
@@ -454,8 +647,8 @@ function PlanCTA({
                 status={status}
                 processingTitle={processingTitle}
                 processingDescription="Charging your saved payment method. This usually takes a second or two."
-                successTitle={`You’re on ${plan.name}`}
-                successDescription="Your new plan is active and your credits have been updated."
+                successTitle={successTitle}
+                successDescription={successDescription}
                 errorTitle="Couldn’t change plan"
                 errorMessage={errorMessage}
                 onClose={() => setStatus(null)}

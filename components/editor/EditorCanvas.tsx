@@ -885,7 +885,7 @@ const EditorCanvasInner = ({
                             onMouseDown={(e) => e.stopPropagation()}
                         >
                             {canGroupSelection && (
-                                <Tooltip content="Group selected (Cmd+G)" position="top" delay={1500}>
+                                <Tooltip content="Group selected (Cmd+G)" position="top" delay={600}>
                                     <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleGroupSelected(); }}
@@ -896,7 +896,7 @@ const EditorCanvasInner = ({
                                     </button>
                                 </Tooltip>
                             )}
-                            <Tooltip content="Duplicate selected" position="top" delay={1500}>
+                            <Tooltip content="Duplicate selected" position="top" delay={600}>
                                 <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
@@ -906,7 +906,7 @@ const EditorCanvasInner = ({
                                     <Copy className="w-3 h-3 pointer-events-none" />
                                 </button>
                             </Tooltip>
-                            <Tooltip content="Delete selected" position="top" delay={1500}>
+                            <Tooltip content="Delete selected" position="top" delay={600}>
                                 <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}
@@ -932,7 +932,7 @@ const EditorCanvasInner = ({
                             style={{ pointerEvents: 'auto', zIndex: 50 }}
                             onMouseDown={(e) => e.stopPropagation()}
                         >
-                            <Tooltip content="Ungroup" position="top" delay={1500}>
+                            <Tooltip content="Ungroup" position="top" delay={600}>
                                 <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleUngroup(); }}
@@ -942,7 +942,7 @@ const EditorCanvasInner = ({
                                     <UngroupIcon className="w-3 h-3 pointer-events-none" />
                                 </button>
                             </Tooltip>
-                            <Tooltip content="Duplicate group" position="top" delay={1500}>
+                            <Tooltip content="Duplicate group" position="top" delay={600}>
                                 <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDuplicateSelected(); }}
@@ -952,7 +952,7 @@ const EditorCanvasInner = ({
                                     <Copy className="w-3 h-3 pointer-events-none" />
                                 </button>
                             </Tooltip>
-                            <Tooltip content="Delete group + contents" position="top" delay={1500}>
+                            <Tooltip content="Delete group + contents" position="top" delay={600}>
                                 <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteSelected(); }}

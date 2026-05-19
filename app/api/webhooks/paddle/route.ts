@@ -195,6 +195,13 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
         const priceId: string | undefined = item.price?.id || item.priceId;
         if (!priceId) continue;
 
+        // Skip refund/credit lines. Paddle includes a NEGATIVE line item on
+        // mid-period plan changes (and refunds) that credits back the unused
+        // portion of the previous plan. We don't want to grant credits for
+        // those — the prior plan's credits were already granted on the
+        // original purchase and shouldn't be re-granted on a refund line.
+        if (isRefundLine(item)) continue;
+
         const pack = lookupPackByPriceId(priceId);
         if (pack) {
             // One-time credit packs always grant their full pack size,
@@ -216,6 +223,13 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
 
         const plan = lookupPlanByPriceId(priceId);
         if (plan) {
+            // Same-plan cycle swap (e.g. Studio monthly → Studio yearly):
+            // Paddle emits a positive line for the new cycle's price AND a
+            // negative line for the old cycle's price. Both map to the same
+            // plan_id. The user already has credits for the current billing
+            // period — don't grant again just because the cycle changed.
+            if (isSamePlanCycleSwap(item, lineItems, plan.planId)) continue;
+
             // Match credits to money paid. For first-time purchases and
             // renewals, proration is null (or rate=1) and the user is paying
             // for the full period — grant the full monthly allowance. For
@@ -243,6 +257,55 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
             });
         }
     }
+}
+
+/**
+ * True when this positive line item is the "new cycle" side of a same-plan
+ * cycle swap — meaning some OTHER line in the same transaction is a refund
+ * for the same plan_id on a different priceId. In that case the user has
+ * already been credited for the current period and we must not re-grant.
+ *
+ * Cross-plan refunds (e.g. Pro → Studio) DO get a fresh grant for the new
+ * plan, since the user paid for Studio and didn't previously have Studio
+ * credits — only same-plan, different-cycle is the no-op case.
+ */
+function isSamePlanCycleSwap(item: any, allItems: any[], planId: string): boolean {
+    const positivePriceId = item?.price?.id || item?.priceId;
+    if (!positivePriceId) return false;
+    for (const other of allItems) {
+        if (other === item) continue;
+        const otherPriceId = other?.price?.id || other?.priceId;
+        if (!otherPriceId || otherPriceId === positivePriceId) continue;
+        if (!isRefundLine(other)) continue;
+        const otherPlan = lookupPlanByPriceId(otherPriceId);
+        if (otherPlan && otherPlan.planId === planId) return true;
+    }
+    return false;
+}
+
+/**
+ * A line item is a refund/credit when its totals are negative. Paddle emits
+ * these on subscription updates and refunds — we should never grant credits
+ * for them, regardless of whether the price ID maps to one of our plans.
+ *
+ * Paddle ships totals as decimal strings in minor units (cents), so we parse
+ * defensively and fall back to "not a refund" if anything is unparseable
+ * (better to grant in an ambiguous case than to silently swallow a real
+ * subscription event).
+ */
+function isRefundLine(item: any): boolean {
+    const candidates = [
+        item?.totals?.total,
+        item?.totals?.subtotal,
+        item?.unitTotals?.total,
+        item?.unitTotals?.subtotal,
+    ];
+    for (const raw of candidates) {
+        if (raw == null) continue;
+        const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+        if (Number.isFinite(n)) return n < 0;
+    }
+    return false;
 }
 
 // =============================================================================

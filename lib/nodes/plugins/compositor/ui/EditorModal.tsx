@@ -127,10 +127,10 @@ interface CompositorEditorModalProps {
     onConfigChange?: (config: Partial<CompositorConfig>) => void;
     /** True when the compositor's effective output is video (any wired video layer). */
     canDownload?: boolean;
-    /** Owner triggers client-side recording of the card's liveCanvas + mixed audio. */
+    /** Owner POSTs the compositor's config + resolved layer URLs to the server export route. */
     onRequestDownload?: () => void | Promise<void>;
     /** Driven by the owner: shown in the Download button as a label/spinner. */
-    recordingState?: 'idle' | 'recording' | 'finalizing' | 'success' | 'error';
+    downloadState?: 'idle' | 'rendering' | 'success' | 'error';
 }
 
 export default function CompositorEditorModal({
@@ -139,7 +139,7 @@ export default function CompositorEditorModal({
     onClose,
     canDownload = false,
     onRequestDownload,
-    recordingState = 'idle',
+    downloadState = 'idle',
 }: CompositorEditorModalProps) {
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
     const setIsDragging = useAppStore((state) => state.setIsDragging);
@@ -758,23 +758,21 @@ export default function CompositorEditorModal({
                     <div className="flex items-center gap-2">
                         {canDownload && onRequestDownload && (
                             <button
-                                onClick={() => { if (recordingState === 'idle' || recordingState === 'success' || recordingState === 'error') void onRequestDownload(); }}
-                                disabled={recordingState === 'recording' || recordingState === 'finalizing'}
+                                onClick={() => { if (downloadState !== 'rendering') void onRequestDownload(); }}
+                                disabled={downloadState === 'rendering'}
                                 className={cn(
                                     'px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-black text-xs shadow-lg transition-all uppercase tracking-widest flex items-center gap-2',
                                     'disabled:opacity-70 disabled:cursor-wait disabled:hover:bg-white/10',
                                 )}
                                 title={
-                                    recordingState === 'recording' ? 'Recording the full timeline at canvas resolution with audio…'
-                                    : recordingState === 'finalizing' ? 'Patching duration metadata…'
-                                    : recordingState === 'success' ? 'Saved'
-                                    : recordingState === 'error' ? 'Download failed — click to retry'
+                                    downloadState === 'rendering' ? 'Rendering the full timeline on the server (video + audio, H.264)…'
+                                    : downloadState === 'success' ? 'Saved'
+                                    : downloadState === 'error' ? 'Export failed — click to retry'
                                     : 'Download the full composition (video + audio, exact duration)'
                                 }
                             >
-                                {recordingState === 'recording' ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" />Recording</>)
-                                : recordingState === 'finalizing' ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" />Finalizing</>)
-                                : recordingState === 'success' ? (<><Check className="w-3.5 h-3.5" />Saved</>)
+                                {downloadState === 'rendering' ? (<><Loader2 className="w-3.5 h-3.5 animate-spin" />Rendering</>)
+                                : downloadState === 'success' ? (<><Check className="w-3.5 h-3.5" />Saved</>)
                                 : (<><Download className="w-3.5 h-3.5" />Download</>)}
                             </button>
                         )}
