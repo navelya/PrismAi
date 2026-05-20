@@ -43,6 +43,43 @@ interface CompositorNodeData {
 }
 
 /**
+ * Render a prompt-layer's text content to a transparent PNG sized to the
+ * layer's bounding box, returning a PNG Blob ready to be uploaded as if it
+ * were an image input. The server's compositor pipeline has no `drawtext`
+ * step (still and temporal paths both expect URL → image/video), so this
+ * lets text layers travel through the same overlay path the server
+ * already handles. Font metrics match `drawTextLayer` in graph-renderer.ts
+ * so the downloaded mp4 looks like the editor preview.
+ */
+async function renderTextLayerToBlob(layer: CompositorLayer, text: string): Promise<Blob | null> {
+    if (typeof document === 'undefined') return null;
+    const t = layer.transform || ({} as any);
+    const w = Math.max(1, Math.round(t.width || 100));
+    const h = Math.max(1, Math.round(t.height || 100));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const fontSize = t.fontSize || 48;
+    const fontWeight = (t as any).fontWeight || 'bold';
+    const fontStyle = t.fontStyle || 'normal';
+    const fontFamily = t.fontFamily || 'Inter';
+
+    ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+    ctx.fillStyle = t.fillColor || '#ffffff';
+    ctx.textAlign = (t.textAlign as CanvasTextAlign) || 'center';
+    ctx.textBaseline = 'middle';
+    const xPos = t.textAlign === 'left' ? 0 : t.textAlign === 'right' ? w : w / 2;
+    ctx.fillText(text, xPos, h / 2);
+
+    return new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), 'image/png');
+    });
+}
+
+/**
  * Convert a layer's resolved upstream value (from useResolvedNodeValue /
  * nodeOutputs) into a serializable `GraphLayerSource` for inclusion in the
  * graph description this compositor publishes downstream.
@@ -837,7 +874,37 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 continue;
             }
 
-            // Case 2: live graph upstream. Invoke the upstream's download
+            // Case 2: text upstream (Prompt node → compositor). The server's
+            // ffmpeg pipeline doesn't have a drawtext step, so we render the
+            // text to a transparent PNG client-side at the layer's bounding-
+            // box dimensions and feed it through the same image-overlay path
+            // the server already handles. The visual matches the editor
+            // preview because both use the same canvas font metrics.
+            if (typeof item === 'string') {
+                const textBlob = await renderTextLayerToBlob(layer, item);
+                if (!textBlob) continue;
+                const formData = new FormData();
+                formData.append('file', textBlob, `text-${layer.id}.png`);
+                const uploadResp = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+                if (!uploadResp.ok) {
+                    const errText = await uploadResp.text().catch(() => '');
+                    throw new Error(
+                        `Layer "${layer.name}": text-PNG upload failed (${uploadResp.status}): ${errText}`,
+                    );
+                }
+                const { publicUrl, path } = (await uploadResp.json()) as {
+                    publicUrl: string;
+                    path: string;
+                };
+                if (path) tempUploadPaths.push(path);
+                inputs[layer.sourceHandleId] = publicUrl;
+                continue;
+            }
+
+            // Case 3: live graph upstream. Invoke the upstream's download
             // handler (which is this same fetchCompositorExport for chained
             // compositors), then upload the blob to get a URL the server
             // export can fetch.
@@ -889,6 +956,22 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
             throw new Error('No wired inputs');
         }
+
+        // Diagnostic: log the resolved inputs map so layer-missing bugs can
+        // be triaged from the browser console. Lists each saved layer in
+        // config.layers and whether it ended up with a usable input URL.
+        const savedLayerHandleIds = new Set((config.layers || []).map((l) => l.sourceHandleId));
+        const inputKeys = new Set(Object.keys(inputs));
+        console.log('[Compositor:download] resolved inputs', {
+            nodeId: id,
+            layers: (config.layers || []).map((l) => ({
+                name: l.name,
+                sourceHandleId: l.sourceHandleId,
+                hasInput: inputKeys.has(l.sourceHandleId),
+                inputUrl: inputs[l.sourceHandleId] ?? null,
+            })),
+            missingFromLayers: Object.keys(inputs).filter((k) => !savedLayerHandleIds.has(k)),
+        });
 
         // Cleanup helper — fire and forget; we don't want temp-asset deletion
         // failures to mask the actual download outcome.
