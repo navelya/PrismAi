@@ -2,13 +2,15 @@
 
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Handle, Position, NodeToolbar, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
-import { Copy, X, Loader2, Check, Circle, Trash2 } from 'lucide-react';
+import { Copy, X, Loader2, Check, Circle, Trash2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { NodeStatus } from '@/lib/nodes/types';
 import { useWireDrag } from '@/lib/editor/wire-drag-context';
 import { findHandleForNode, findAllCompatibleHandlesForNode, wouldCreateCycle } from '@/lib/editor/handle-compatibility';
+import { useExecutionValidation } from '@/lib/hooks/use-execution-validation';
+import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { motion } from 'framer-motion';
@@ -114,6 +116,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     //   3. Else: 'idle' (no badge).
     const rawStatus = useAppStore((state) => state.nodeStatuses[id]);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+    const { errorsByNode } = useExecutionValidation();
+    const validationErrors = errorsByNode[id] ?? [];
     const wireDrag = useWireDrag();
     const models = useAppStore((s) => s.models);
     const edges = useEdges();
@@ -450,6 +454,18 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     {status === 'error' && <X className="w-4 h-4 text-content-inverted" />}
                     {status === 'pending' && <Circle className="w-2 h-2 text-content-inverted fill-current" />}
                 </div>
+            )}
+
+            {/* Validation Badge — pre-flight wiring errors */}
+            {validationErrors.length > 0 && (
+                <Tooltip
+                    position="top"
+                    content={validationErrors.map(formatValidationError).join(' · ')}
+                    className="absolute -top-1.5 -right-1.5 z-20 w-5 h-5 rounded-full bg-accent-error border-2 border-surface-elevated shadow-md cursor-help"
+                    popupClassName="whitespace-normal max-w-xs leading-snug normal-case tracking-normal font-semibold"
+                >
+                    <AlertCircle className="w-3 h-3 text-white" strokeWidth={2.5} aria-label={`${validationErrors.length} validation error(s)`} />
+                </Tooltip>
             )}
 
             {/* Input Handles */}
