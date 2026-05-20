@@ -19,6 +19,7 @@ import { getPaddle } from '@/lib/billing/paddle-server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { lookupPlanByPriceId, lookupPackByPriceId } from '@/lib/billing/paddle-mapping';
 import { PLANS } from '@/lib/billing/plans-config';
+import { sendAdminAlert } from '@/lib/email/admin-alerts';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,6 +66,10 @@ export async function POST(request: Request) {
 
             case EventName.TransactionPaymentFailed:
                 console.warn('[Paddle Webhook] Payment failed:', event.data.id);
+                break;
+
+            case EventName.AdjustmentCreated:
+                await handleAdjustmentCreated(event.data, event.eventId, supabase);
                 break;
 
             default:
@@ -252,6 +257,16 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
             //   - Real upgrade: grants the delta up to the new tier.
             //   - Downgrade or cycle-back: no credits (already at cap).
             const periodCap = await computePeriodGrantCap(supabase, userId, plan.planId);
+
+            // Belt: if the SAME plan was already granted in the current
+            // period, mid-period updates are no-ops for credits regardless
+            // of what the cap math says. Catches cycle-swaps where the
+            // refund line lives in adjustments (not lineItems) and
+            // isSamePlanCycleSwap can't see it.
+            if (data.origin === 'subscription_update' && periodCap.samePlanAlreadyGranted) {
+                continue;
+            }
+
             const remaining = Math.max(0, periodCap.maxCredits - periodCap.alreadyGranted);
             const credits = Math.min(wouldGrant, remaining);
             if (credits === 0) continue;
@@ -300,27 +315,32 @@ async function computePeriodGrantCap(
     supabase: ReturnType<typeof createServiceClient>,
     userId: string,
     incomingPlanId: string,
-): Promise<{ maxCredits: number; alreadyGranted: number }> {
+): Promise<{ maxCredits: number; alreadyGranted: number; samePlanAlreadyGranted: boolean }> {
     const incomingPlanCredits = monthlyCreditsForPlan(incomingPlanId);
 
-    // Find the anchor: latest fresh-period grant. `.or()` with the JSON
-    // arrow path is the supabase-js way to express "origin in (...)".
-    const { data: anchorRows } = await supabase
-        .from('token_ledger')
-        .select('created_at, metadata')
-        .eq('user_id', userId)
-        .eq('reason', 'paddle_subscription_grant')
-        .or(
-            'metadata->>transaction_origin.eq.web,' +
-            'metadata->>transaction_origin.eq.subscription_recurring,' +
-            'metadata->>transaction_origin.eq.api',
-        )
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-    const anchorIso = anchorRows && anchorRows.length > 0
-        ? (anchorRows[0] as any).created_at
-        : '1970-01-01T00:00:00.000Z';
+    // Find the period anchor: the timestamp of the most recent
+    // "fresh-period" grant (initial purchase or renewal). We deliberately
+    // exclude `subscription_update` origins — those are mid-period changes
+    // that should NOT advance the anchor, otherwise the cycling exploit
+    // (Studio→Pro→Studio) could "reset" the budget every hop.
+    //
+    // supabase-js `.or()` doesn't reliably parse JSON arrow paths, so we
+    // issue one query per origin and take the latest. Three queries instead
+    // of one — fine on the webhook path.
+    const anchorOrigins = ['web', 'subscription_recurring', 'api'];
+    let anchorIso = '1970-01-01T00:00:00.000Z';
+    for (const origin of anchorOrigins) {
+        const { data } = await supabase
+            .from('token_ledger')
+            .select('created_at')
+            .eq('user_id', userId)
+            .eq('reason', 'paddle_subscription_grant')
+            .filter('metadata->>transaction_origin', 'eq', origin)
+            .order('created_at', { ascending: false })
+            .limit(1);
+        const ts = data?.[0]?.created_at as string | undefined;
+        if (ts && ts > anchorIso) anchorIso = ts;
+    }
 
     // Pull every subscription grant since the anchor (inclusive) — this is
     // our view of "what's already been granted in the current period."
@@ -333,16 +353,18 @@ async function computePeriodGrantCap(
 
     let alreadyGranted = 0;
     let maxCredits = incomingPlanCredits;
+    let samePlanAlreadyGranted = false;
     if (priorGrants) {
         for (const row of priorGrants as any[]) {
             alreadyGranted += row.amount;
             const pid = row.metadata?.plan_id;
             const planCredits = pid ? monthlyCreditsForPlan(pid) : 0;
             if (planCredits > maxCredits) maxCredits = planCredits;
+            if (pid === incomingPlanId && row.amount > 0) samePlanAlreadyGranted = true;
         }
     }
 
-    return { maxCredits, alreadyGranted };
+    return { maxCredits, alreadyGranted, samePlanAlreadyGranted };
 }
 
 function monthlyCreditsForPlan(planId: string): number {
@@ -464,4 +486,50 @@ function mapPaddleStatusToOurs(paddleStatus: string): 'active' | 'canceled' | 'p
         default:
             return 'active';
     }
+}
+
+// =============================================================================
+// ADJUSTMENT (REFUND / CHARGEBACK) HANDLERS
+// =============================================================================
+
+/**
+ * Paddle emits `adjustment.created` for refunds, chargebacks, and chargeback
+ * reversals. We only act when `status === 'approved'` — pending adjustments
+ * may be revoked. Each action routes to its own subhandler. Unknown actions
+ * are logged + ignored so Paddle doesn't retry forever.
+ */
+async function handleAdjustmentCreated(data: any, eventId: string, supabase: ReturnType<typeof createServiceClient>) {
+    if (data?.status !== 'approved') {
+        console.log('[Paddle Webhook] Skipping non-approved adjustment:', data?.id, 'status:', data?.status);
+        return;
+    }
+
+    const action: string = data?.action ?? '';
+    switch (action) {
+        case 'refund':
+            await handleRefund(data, eventId, supabase);
+            break;
+        case 'chargeback':
+            await handleChargeback(data, eventId, supabase);
+            break;
+        case 'chargeback_reverse':
+            await handleChargebackReverse(data, eventId, supabase);
+            break;
+        default:
+            console.warn('[Paddle Webhook] Unknown adjustment action:', action, 'id:', data?.id);
+    }
+}
+
+// Placeholder subhandlers — filled in by tasks 5/6/7.
+async function handleRefund(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
+    console.log('[Paddle Webhook] Refund stub:', data?.id, 'event:', eventId);
+    void sendAdminAlert; // keep import live until task 5 fills this in
+}
+
+async function handleChargeback(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
+    console.log('[Paddle Webhook] Chargeback stub:', data?.id, 'event:', eventId);
+}
+
+async function handleChargebackReverse(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
+    console.log('[Paddle Webhook] Chargeback reverse stub:', data?.id, 'event:', eventId);
 }
