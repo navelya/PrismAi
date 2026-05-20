@@ -25,6 +25,8 @@ import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } 
 import { getAiArrayInputKeys } from '@/lib/workflow/orchestrator';
 import { getAuthenticatedUser } from '@/lib/api/auth';
 import { computeExecutionCost, MAX_EXECUTION_COST, type CostNode } from '@/lib/billing/cost';
+import { validateExecution } from '@/lib/workflow/validate-execution';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
@@ -242,6 +244,48 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[Execution/Start] Target Set: ${nodesToExecute.length} nodes, ${edgesToInclude.length} edges`);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Pre-flight wiring validation (defense in depth — the client should
+    // already have caught these and shown the user a per-node badge / popover).
+    // Done after the target set + preseedInputs are built so we can use them
+    // as the source of "completed upstream" truth, and BEFORE the executions
+    // row is created so a rejected POST writes nothing to the DB and burns
+    // no credits.
+    // ─────────────────────────────────────────────────────────────────────────
+    {
+        // Models needed for ai_generator dynamic handles. Pull only the ids we
+        // see referenced as ai_generator nodes in the target set.
+        const aiGenModelIds = nodesToExecute
+            .filter((n: any) => n.type === 'ai_generator')
+            .map((n: any) => Number((n.data?.config?.model_id) ?? (n.data?.model_id)))
+            .filter((id: number) => Number.isFinite(id));
+        let modelsForValidation: any[] = [];
+        if (aiGenModelIds.length > 0) {
+            const { data: modelRows } = await supabase
+                .from('ai_models')
+                .select('id, inputs_schema, outputs_schema')
+                .in('id', aiGenModelIds);
+            modelsForValidation = modelRows ?? [];
+        }
+
+        const completedNodeIds = new Set<string>(preseedInputs.keys());
+        const errors = validateExecution({
+            workflow: { name: '', nodes: nodesToExecute as any, edges: edgesToInclude as any },
+            runMode: (mode as any) ?? 'all',
+            targetNodeId: targetNodeId ?? null,
+            completedNodeIds,
+            sharedRegistry,
+            models: modelsForValidation as any,
+        });
+        if (errors.length > 0) {
+            console.warn(`[Execution/Start] Validation failed (${errors.length} error(s)) — rejecting before DB write.`);
+            return NextResponse.json(
+                { error: 'VALIDATION_FAILED', errors },
+                { status: 400 }
+            );
+        }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 4: Create an immutable execution record in the DB.
