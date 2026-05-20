@@ -587,15 +587,15 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     }, [canvasW, canvasH]);
 
     // Classify wired layers to derive the effective output kind. Any video
-    // layer → 'video' (temporal render). A canvas-sourced layer (chained
-    // compositor or blur wrapping one) also counts as 'video' — it's a live
-    // signal, same gating semantics. Otherwise any image layer → 'image'
-    // (still composite). No wired media yet (only text, or nothing) → null
-    // (broad polymorphic, "Media").
+    // layer → 'video' (temporal render). A graph-sourced layer (chained
+    // compositor or blur wrapping one) also counts as 'video' — its upstream
+    // is itself a live graph, same gating semantics. Otherwise any image
+    // layer → 'image' (still composite). No wired media yet (only text, or
+    // nothing) → null (broad polymorphic, "Media").
     const outputKind = useMemo<'image' | 'video' | null>(() => {
         let sawImage = false;
         for (const { resolved } of renderable) {
-            if (resolved && typeof resolved === 'object' && (resolved as any).canvas instanceof HTMLCanvasElement) {
+            if (resolved && typeof resolved === 'object' && (resolved as any).graph) {
                 return 'video';
             }
             const url =
@@ -708,12 +708,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // see this compositor's canvas reference — that's local state used only
     // by THIS card's preview + lightbox.
     //
-    // `cssFilter: ''` is the "start of a chain" marker — downstream filter
-    // nodes wrap this graph in a `{ kind: 'filter', upstream, cssFilter }`
-    // graph rather than mutating the cssFilter field directly. The field
-    // stays for any legacy consumer that still pattern-matches on it; new
-    // consumers should descend into the graph instead.
-    //
     // Once the user clicks Run and the server writes a real URL into
     // `nodeOutputs[id]`, we stop republishing — `lastPublishedGraphRef`
     // remembers the graph identity that was current at our last publish, so
@@ -738,7 +732,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             data: [{
                 url: '',
                 graph: publishedGraph,
-                cssFilter: '',
                 resolution: { width: canvasW, height: canvasH },
                 metadata: { source: 'Compositor', processedBy: 'GraphLive' },
             }],
