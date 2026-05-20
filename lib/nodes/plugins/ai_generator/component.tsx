@@ -11,6 +11,8 @@ import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
+import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
+import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
 import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
@@ -180,6 +182,8 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     };
     const textMinHeightClass = "min-h-[140px]";
 
+    const { state: downloadState, canDownload, handleDownload } = useCardDownload(nodeTitle, output);
+
     return (
         <BaseNode
             id={id}
@@ -194,6 +198,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             width={isFixedWidth ? fixedWidth : ""}
             style={isFixedWidth ? undefined : mediaStyle}
             isNew={(data as any).isNew}
+            customActions={canDownload ? <CardDownloadButton state={downloadState} onClick={handleDownload} /> : undefined}
         >
             <motion.div
                 layout={!isDragging && activeType !== 'text' ? "size" : false}

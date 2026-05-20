@@ -10,6 +10,9 @@ import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import BlurryImage from '@/components/ui/BlurryImage';
 import { BlurConfig } from './definition';
 import ImageLightbox from '@/components/ui/ImageLightbox';
+import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
+import { useCardDownload } from '@/lib/hooks/use-card-download';
+import { X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { Select } from '@/components/ui/Select';
 import { NumberInput } from '@/components/ui/NumberInput';
@@ -378,6 +381,15 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         return blurStyle.replace(/blur\(([\d.]+)px\)/g, (_, n) => `blur(${parseFloat(n) * ratio}px)`);
     }, [blurStyle, displayWidth, nativeMediaWidth]);
 
+    // Blur's own output (post-clientExecutor). For image upstream this is a
+    // data URL — useCardDownload picks it up and exposes the Download button.
+    // For video (graph) upstream the envelope has `url: ''` and no real URL
+    // until Run completes; useCardDownload's canDownload is then false and
+    // the button auto-hides. A future server-side blur ffmpeg endpoint will
+    // let us register a custom handler for the chained-video case.
+    const ownOutput = useAppStore((s) => s.nodeOutputs[id]);
+    const { state: cardDownloadState, canDownload, handleDownload } = useCardDownload(data.label, ownOutput);
+
     return (
         <BaseNode
             id={id}
@@ -392,6 +404,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             hideStatus={true}
             width=""
             style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
+            customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
             <motion.div
                 layout={!isDragging ? "size" : false}
@@ -619,6 +632,14 @@ const BlurGraphLightbox = memo(function BlurGraphLightbox({
             className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
             onClick={onClose}
         >
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
+                className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-colors backdrop-blur-md shadow-lg"
+                aria-label="Close preview"
+            >
+                <X className="w-5 h-5" />
+            </button>
             <canvas
                 ref={canvasRef}
                 onClick={(e) => e.stopPropagation()}

@@ -9,6 +9,8 @@ import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import BlurryImage from '@/components/ui/BlurryImage';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { NumberInput } from '@/components/ui/NumberInput';
+import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
+import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { useAppStore } from '@/lib/store/app-store';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { NodeClientDef } from '../../core/types';
@@ -184,6 +186,9 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
         [id, config, updateNodeConfig],
     );
 
+    const ownOutput = useAppStore((s) => s.nodeOutputs[id]);
+    const { state: cardDownloadState, canDownload, handleDownload } = useCardDownload(data.label, ownOutput);
+
     return (
         <BaseNode
             id={id}
@@ -196,6 +201,7 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
             hideStatus={true}
             width=""
             style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
+            customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
             <motion.div
                 layout={!isDragging ? 'size' : false}

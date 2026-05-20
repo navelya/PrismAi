@@ -755,7 +755,14 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // collects the blob into a zip with the rest of the selection). It owns
     // the per-node `downloadState` lifecycle in either case; the caller adds
     // its own UX layer (anchor click vs zip entry) on top of the returned blob.
-    const fetchCompositorExport = useCallback(async (): Promise<{ filename: string; blob: Blob }[]> => {
+    const fetchCompositorExport = useCallback(async (
+        // Optional fine-grained progress reporting. Card-Download passes one of
+        // these to drive the EditorToolbar pill in real time during chained
+        // renders (where a single coarse 0%→100% step is invisible for the
+        // 30+ seconds upstream resolution can take). Bulk-download doesn't
+        // pass it and falls back to the orchestrator's per-handler tick.
+        onSubProgress?: (current: number, total: number) => void,
+    ): Promise<{ filename: string; blob: Blob }[]> => {
         // If another caller's render is in flight, share its result. This
         // collapses the "bulk download + chained-compositor resolver both ask
         // for me" case into one server render. Note this also accepts repeat
@@ -770,6 +777,27 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         // throughout — including the upstream-graph resolution phase below,
         // which can take a full A-render before B's own export even starts.
         setDownloadState('rendering');
+
+        // Count chained layers up front so we can size the progress total
+        // appropriately. Each chained layer contributes two ticks (upstream
+        // render done, upload done); the own render adds one more.
+        const chainedCount = (config.layers || []).reduce((n, layer) => {
+            const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
+            if (!edge) return n;
+            const up = upstreamBySource[edge.source];
+            const normalized = up !== undefined ? toLegacyRenderableOutput(up) : null;
+            const item = Array.isArray(normalized)
+                ? normalized[layer.selectedIndex ?? 0] ?? normalized[0]
+                : normalized;
+            return item && typeof item === 'object' && (item as any).graph ? n + 1 : n;
+        }, 0);
+        const progressTotal = 1 + chainedCount * 2;
+        let progressCurrent = 0;
+        const tick = () => {
+            progressCurrent += 1;
+            onSubProgress?.(progressCurrent, progressTotal);
+        };
+        onSubProgress?.(progressCurrent, progressTotal);
 
         // Resolve each layer to a real URL.
         //
@@ -823,6 +851,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                     );
                 }
                 const upstreamItems = await upstreamHandler();
+                tick(); // upstream render complete
                 const upstreamBlob = upstreamItems[0]?.blob;
                 if (!upstreamBlob) {
                     throw new Error(`Layer "${layer.name}": upstream produced no blob`);
@@ -849,6 +878,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 };
                 if (path) tempUploadPaths.push(path);
                 inputs[layer.sourceHandleId] = publicUrl;
+                tick(); // upstream upload complete
                 continue;
             }
             // Case 3: no usable input — skip this layer.
@@ -888,6 +918,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             }
 
             const blob = await resp.blob();
+            tick(); // own render complete
             const cd = resp.headers.get('Content-Disposition') || '';
             const match = cd.match(/filename="([^"]+)"/);
             const safeLabel = (data.label || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
@@ -928,14 +959,10 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 ? crypto.randomUUID()
                 : `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-        // total=2 covers the typical chained case (upstream render + own
-        // render). For a flat compositor the second tick simply happens
-        // back-to-back; the pill briefly shows full progress before clearing.
-        setBulkDownloadProgress(opId, { current: 0, total: 2 });
-
         try {
-            const [item] = await fetchCompositorExport();
-            setBulkDownloadProgress(opId, { current: 1, total: 2 });
+            const [item] = await fetchCompositorExport((current, total) => {
+                setBulkDownloadProgress(opId, { current, total });
+            });
             if (!item) {
                 clearBulkDownload(opId);
                 return;
@@ -948,7 +975,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-            setBulkDownloadProgress(opId, { current: 2, total: 2 });
         } finally {
             // Hold the completed pill briefly so the user sees "done" before
             // it disappears. Matches the bulk-download cadence in EditorCanvas.

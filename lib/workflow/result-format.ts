@@ -55,7 +55,12 @@ export function extractMediaUrls(value: any): string[] {
     }
 
     if (typeof node === 'object') {
-      if (typeof node.url === 'string') found.add(node.url);
+      // Skip empty strings: live-signal envelopes (chained compositor, blur)
+      // publish `url: ''` as a placeholder alongside `graph: ...`. An empty
+      // URL is never downloadable media — including it makes the bulk-
+      // download fallback fetch against the current page and produce a
+      // corrupted blob.
+      if (typeof node.url === 'string' && node.url.length > 0) found.add(node.url);
       if (node.data !== undefined) visit(node.data);
       if (node.output !== undefined) visit(node.output);
     }
