@@ -160,31 +160,6 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         return (detectMediaTypeFromUrl(mediaUrl) as 'image' | 'video' | null) ?? 'image';
     }, [upstreamGraph, mediaUrl]);
 
-    // If the upstream already carries a cssFilter (e.g. another Blur upstream),
-    // grab it so we can compose our own filter on top in the visible preview.
-    // The client executor handles the same composition for the propagated
-    // envelope; we mirror it here so the in-card preview matches.
-    const upstreamCssFilter = useMemo<string | null>(() => {
-        if (!sourceOutput) return null;
-        const visit = (v: any): string | null => {
-            if (!v) return null;
-            if (typeof v === 'string') return null;
-            if (Array.isArray(v)) {
-                for (const item of v) {
-                    const found = visit(item);
-                    if (found) return found;
-                }
-                return null;
-            }
-            if (typeof v === 'object') {
-                if (typeof v.cssFilter === 'string') return v.cssFilter;
-                if (v.data !== undefined) return visit(v.data);
-            }
-            return null;
-        };
-        return visit(sourceOutput);
-    }, [sourceOutput]);
-
     // Both input and output are single polymorphic handles. The static
     // dataType in definition.ts is the broad union (['image','video']); here
     // we narrow the user-visible LABEL and COLOR based on whatever media kind
@@ -334,22 +309,21 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         };
     }, [upstreamGraph, isHoveringGraphPreview]);
 
-    // Derived blur style. Composes our own blur with any cssFilter the
-    // upstream already declared, so a chained Blur → Blur card preview shows
-    // the same cumulative effect that the propagated envelope describes.
+    // Derived blur style. Blur preview always applies its own filter; for
+    // graph upstreams, the upstream filter chain is already rendered by
+    // `paintGraphFrame` into the preview canvas, so we don't need to
+    // re-compose CSS filters here. The visual result is the same.
     // Pixel values here are at NATIVE source resolution — they get scaled
     // for display by `previewBlurStyle` below.
     const blurStyle = useMemo(() => {
         const sigma = radiusToSigma(localRadius);
         const base = `blur(${sigma}px)`;
-        const ownFilter =
-            config.type === 'box'
-                ? `${base} contrast(1.15) brightness(1.05) saturate(1.1)`
-                : config.type === 'stack'
-                ? `${base} saturate(0.8) opacity(0.9)`
-                : base;
-        return upstreamCssFilter ? `${upstreamCssFilter} ${ownFilter}` : ownFilter;
-    }, [localRadius, config.type, upstreamCssFilter]);
+        return config.type === 'box'
+            ? `${base} contrast(1.15) brightness(1.05) saturate(1.1)`
+            : config.type === 'stack'
+            ? `${base} saturate(0.8) opacity(0.9)`
+            : base;
+    }, [localRadius, config.type]);
 
     // The compositor's LayerVideo applies its filter on a canvas sized to the
     // source's native pixels, then Konva downscales for display — so visible
