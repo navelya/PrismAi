@@ -60,26 +60,6 @@ export const clientBlurExecutor = async (
 };
 
 /**
- * Generic-shape adapter for the auto-compute pipeline.
- *
- * IMAGE → bake the blur into a data URL (one-shot canvas transform).
- * VIDEO (static URL) → pass the upstream URL through with a `cssFilter`
- *   descriptor. Downstream consumers attach their own <video src={url}> and
- *   apply the filter at render time. Preserves duration, seek, and play/pause
- *   semantics — the video is a real seekable resource.
- * VIDEO (live source) → upstream is a Compositor (or another pass-through
- *   filter) whose envelope carries a MediaStream / live HTMLCanvasElement
- *   instead of a finished URL. We propagate the same reference forward,
- *   concatenating our `cssFilter` onto the chain. Downstream consumers
- *   attach via `<video srcObject={stream}>` and the accumulated cssFilter
- *   composes as CSS layered filters at render time — same chaining contract
- *   as the static-URL case, just with a live signal as the source.
- *
- * In all video cases the upstream's pixel data is NEVER re-encoded by this
- * executor — filters are descriptors, not bakes. That's what makes the
- * pipeline truly live (vs. record-then-display).
- */
-/**
  * Synthesize a 1-layer compositor GraphDescription wrapping a raw video URL.
  * Used when blur's upstream is a static-URL video (e.g., MediaInput → Blur
  * directly, with no compositor between). Means blur's output is uniformly a
@@ -175,7 +155,7 @@ export const blurClientExecutor: ClientExecutor<BlurConfig> = async (config, inp
                 graph: filterGraph,
                 resolution,
             }],
-        } as any;
+        };
     }
 
     const dataUrl = await clientBlurExecutor(config, url!);
