@@ -100,6 +100,10 @@ export function validateExecution(ctx: ValidationContext): ValidationError[] {
                     expectedType: typeToString(input.expectedType),
                     actualType: typeToString(sourceOutput.dataType),
                 });
+                // Don't also emit no-upstream-data — the type error is the
+                // user-actionable one. A wrong type is wrong regardless of
+                // whether the upstream has cached data.
+                continue;
             }
 
             if (!executingIds.has(sourceNode.id) && !completedNodeIds.has(sourceNode.id)) {

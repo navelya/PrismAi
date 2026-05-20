@@ -124,6 +124,10 @@ export const useAppStore = create<RootState>()(
                     // re-fires the execution on every page load.
                     'runFromNodeId',
                     'runMode',
+                    // One-shot pan/select trigger from the Run-error popover. If it
+                    // survives rehydration, the canvas would re-center on that node
+                    // on every page load.
+                    'pendingCenterNodeId',
                     'menuTree',
                     'menuFlat',
                     'isMenuLoading',
