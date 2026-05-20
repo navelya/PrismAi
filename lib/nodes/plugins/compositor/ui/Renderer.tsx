@@ -204,7 +204,6 @@ const LayerImage = memo(function LayerImage({
 const LayerVideo = memo(function LayerVideo({
     layer,
     videoUrl,
-    cssFilter,
     interactive,
     onSelect,
     onTransform,
@@ -219,15 +218,6 @@ const LayerVideo = memo(function LayerVideo({
 }: {
     layer: CompositorLayer;
     videoUrl: string;
-    /**
-     * Optional CSS filter string from the upstream envelope (e.g. from a
-     * Blur node: `"blur(8px)"`). When present, frames are drawn through a
-     * per-layer offscreen canvas with `ctx.filter = cssFilter` before Konva
-     * picks them up. Chained filters compose by string concatenation. When
-     * null, the raw pooled HTMLVideoElement is passed to Konva directly —
-     * zero-overhead path for unfiltered video.
-     */
-    cssFilter?: string | null;
     interactive: boolean;
     onSelect?: () => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
@@ -271,57 +261,7 @@ const LayerVideo = memo(function LayerVideo({
     const [ready, setReady] = useState(() => !!pooledEl && (pooledEl as any).readyState >= 1);
     const t = layer.transform;
 
-    // Per-layer offscreen canvas for filtered video. Created lazily on first
-    // need; sized to match the pooled video's natural resolution; redrawn
-    // every animator tick (only while playing) with the upstream cssFilter
-    // applied. Konva uses this canvas as its image source instead of the raw
-    // video, picking up the blurred frame on each batchDraw.
-    const filterCanvasRef = useRef<HTMLCanvasElement | null>(null);
-    if (cssFilter && !filterCanvasRef.current && typeof document !== 'undefined') {
-        filterCanvasRef.current = document.createElement('canvas');
-    }
-    const filterCanvas = cssFilter ? filterCanvasRef.current : null;
-
-    // rAF loop for the filter draw. Runs only while the pooled video is
-    // actively playing OR was just scrubbed; pauses cleanly so we don't burn
-    // CPU on a static frame. The compositor's CompositorAnimator handles
-    // konva.batchDraw on its own rhythm — this loop's job is only to keep
-    // the offscreen canvas's pixels current.
-    useEffect(() => {
-        if (!cssFilter) return;
-        const video = pooledEl;
-        const canvas = filterCanvasRef.current;
-        if (!video || !canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        let stopped = false;
-        let raf = 0;
-        const draw = () => {
-            if (stopped) return;
-            if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-                if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
-                if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
-                ctx.filter = cssFilter;
-                try {
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                } catch {
-                    // CORS-tainted draw can throw; ignore — Konva will keep
-                    // using the last good frame.
-                }
-            }
-            raf = requestAnimationFrame(draw);
-        };
-        raf = requestAnimationFrame(draw);
-        return () => {
-            stopped = true;
-            if (raf) cancelAnimationFrame(raf);
-        };
-    }, [cssFilter, pooledEl]);
-
-    // The image source Konva renders: filtered canvas if cssFilter is set,
-    // otherwise the raw pooled video element.
-    const videoEl = filterCanvas || pooledEl;
+    const videoEl = pooledEl;
 
     // Keep onLoad in a ref so we don't refire the metadata subscription when
     // the parent (CompositorLayerNodes) hands us a fresh arrow callback per
@@ -1144,7 +1084,6 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             key={layer.id}
                             layer={layer}
                             videoUrl={url}
-                            cssFilter={cssFilter}
                             interactive={interactive}
                             onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
                             onTransform={
