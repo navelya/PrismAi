@@ -869,7 +869,13 @@ export default function CompositorEditorModal({
                                     isPlaying={isPlaying}
                                     muted={audioMuted}
                                     intrinsicDurations={intrinsicDurations}
-                                    poolKey={nodeId}
+                                    // Distinct from the card's `poolKey={nodeId}` so the editor
+                                    // gets its own decoders. Pull-model surfaces (LayerSubgraph)
+                                    // seek the pool element every frame when paused; sharing
+                                    // a poolKey with a simultaneously-playing card caused both
+                                    // surfaces to fight over `el.currentTime` and render mostly
+                                    // empty frames in the editor.
+                                    poolKey={`${nodeId}__editor`}
                                 />
                                 <Path data={dimmerPathData} fill="rgba(0,0,0,0.7)" fillRule="evenodd" listening={false} />
                                 {selectedLayer && !selectedLayer.locked && (

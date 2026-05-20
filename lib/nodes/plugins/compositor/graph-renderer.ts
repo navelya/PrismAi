@@ -57,9 +57,30 @@ export class GraphRenderCache {
     private videos = new Map<string, VideoHandle>();
     private scratch: HTMLCanvasElement[] = [];
     private scratchInUse = 0;
+    /**
+     * Per-URL "was active in the previous frame" flag. Drives seek-on-
+     * activation: when a layer transitions inactive → active we seek the
+     * pool element to the expected layer-local time before letting it
+     * play. Without this, the element resumes at wherever it was paused —
+     * usually the previous end-of-window — and the user sees a flash of
+     * the last frame before `el.loop` kicks in to restart playback.
+     */
+    private lastActiveByUrl = new Map<string, boolean>();
 
     constructor(poolKey: string) {
         this.poolKey = poolKey;
+    }
+
+    /**
+     * Returns true if the given URL was marked active in the previous
+     * `markVideoActive` call. False for first-time queries.
+     */
+    wasVideoActive(url: string): boolean {
+        return this.lastActiveByUrl.get(url) ?? false;
+    }
+
+    markVideoActive(url: string, isActive: boolean): void {
+        this.lastActiveByUrl.set(url, isActive);
     }
 
     /**
@@ -182,6 +203,7 @@ export class GraphRenderCache {
         this.videos.clear();
         this.images.clear();
         this.imageLoadingPromises.clear();
+        this.lastActiveByUrl.clear();
         this.scratch = [];
         this.scratchInUse = 0;
     }
@@ -217,18 +239,25 @@ function applyTransform(
  * Pulled out of `drawMediaLayer` so it runs for EVERY video layer in the
  * compositor — including inactive ones. Without this, a layer that played
  * once and then went inactive would keep playing (and emitting audio) in
- * the pool because no consumer would vote it off. With 3 chained clips the
- * result was all three audios stacking and looping simultaneously.
+ * the pool because no consumer would vote it off.
  *
  * `cache.getVideo(url)` is idempotent — first call acquires from the pool,
  * subsequent calls return the same handle. Calling it for every video at
  * paint time means the element starts loading long before its window, so
  * by activation it's already at `readyState >= 2` and the first-frame
  * blink between sequenced clips disappears.
+ *
+ * Seek-on-activation: when a layer transitions inactive → active we
+ * explicitly seek the element to the expected layer-local time. Without
+ * this, an element paused at end-of-window (from its previous activation)
+ * would resume at that position when activated again, briefly showing a
+ * frame from the wrong time before `el.loop` restarted it.
  */
 function voteVideoPoolState(
     cache: GraphRenderCache,
     url: string,
+    layer: CompositorLayer,
+    time: number,
     isActive: boolean,
     isPlaying: boolean,
     muted: boolean,
@@ -236,6 +265,14 @@ function voteVideoPoolState(
     cache.getVideo(url);
     cache.setVideoPlayState(url, isActive && isPlaying);
     cache.setVideoMuted(url, !isActive || muted);
+
+    const wasActive = cache.wasVideoActive(url);
+    cache.markVideoActive(url, isActive);
+
+    if (isActive && !wasActive) {
+        const localTime = Math.max(0, time - (layer.startTime || 0));
+        cache.seekVideo(url, localTime);
+    }
 }
 
 function drawMediaLayer(
@@ -421,7 +458,7 @@ export function paintGraphFrame(
         const kind = sourceKind(source);
         const intrinsic = graph.intrinsicDurations[layer.id] ?? null;
         const active = layer.visible && isLayerActiveAt(layer, kind, intrinsic, time);
-        voteVideoPoolState(cache, source.url, active, isPlaying, muted);
+        voteVideoPoolState(cache, source.url, layer, time, active, isPlaying, muted);
     }
 
     // Second pass: draw active layers. Reverse order so array[0] is on top —
