@@ -3,7 +3,7 @@
 import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { NodeProps, useUpdateNodeInternals } from 'reactflow';
-import { Plus, Edit3 } from 'lucide-react';
+import { Plus, Edit3, Download, Loader2, Check, AlertCircle } from 'lucide-react';
 import { Stage, Layer, Group } from 'react-konva';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
@@ -766,6 +766,11 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         }
 
         const runExport = async (): Promise<{ filename: string; blob: Blob }[]> => {
+        // Show 'rendering' immediately so the UI reflects work in progress
+        // throughout — including the upstream-graph resolution phase below,
+        // which can take a full A-render before B's own export even starts.
+        setDownloadState('rendering');
+
         // Resolve each layer to a real URL.
         //
         // Three cases per layer:
@@ -867,7 +872,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             });
         };
 
-        setDownloadState('rendering');
         try {
             const resp = await fetch('/api/compositor/export', {
                 method: 'POST',
@@ -911,19 +915,46 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         }
     }, [config, layerEdges, upstreamBySource, data.label]);
 
-    // Modal Download button: render the mp4, then save it directly via a click.
+    // Card Download button: render the mp4, save via anchor click. Wires the
+    // global "Preparing download…" pill in the EditorToolbar so the user has
+    // a top-of-screen indicator while a chained compositor is doing its
+    // upstream resolution + upload + own render (which can be 30s+).
+    const setBulkDownloadProgress = useAppStore((s) => s.setBulkDownloadProgress);
+    const clearBulkDownload = useAppStore((s) => s.clearBulkDownload);
+
     const handleRequestDownload = useCallback(async () => {
-        const [item] = await fetchCompositorExport();
-        if (!item) return;
-        const blobUrl = URL.createObjectURL(item.blob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = item.filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-    }, [fetchCompositorExport]);
+        const opId =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        // total=2 covers the typical chained case (upstream render + own
+        // render). For a flat compositor the second tick simply happens
+        // back-to-back; the pill briefly shows full progress before clearing.
+        setBulkDownloadProgress(opId, { current: 0, total: 2 });
+
+        try {
+            const [item] = await fetchCompositorExport();
+            setBulkDownloadProgress(opId, { current: 1, total: 2 });
+            if (!item) {
+                clearBulkDownload(opId);
+                return;
+            }
+            const blobUrl = URL.createObjectURL(item.blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = item.filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            setBulkDownloadProgress(opId, { current: 2, total: 2 });
+        } finally {
+            // Hold the completed pill briefly so the user sees "done" before
+            // it disappears. Matches the bulk-download cadence in EditorCanvas.
+            setTimeout(() => clearBulkDownload(opId), 600);
+        }
+    }, [fetchCompositorExport, setBulkDownloadProgress, clearBulkDownload]);
 
     // Bulk-download path: register the export-to-blob path with the registry.
     // EditorCanvas's multi-select Download zips everything it gets back from
@@ -946,16 +977,49 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 hideStatus={true}
                 customOutputs={customOutputs}
                 customActions={
-                    <Tooltip content="Edit compositor" position="top" delay={600}>
-                        <button
-                            type="button"
-                            onClick={openEditor}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
-                        >
-                            <Edit3 className="w-3 h-3 pointer-events-none" />
-                        </button>
-                    </Tooltip>
+                    <>
+                        {hasVideoLayer && (
+                            <Tooltip
+                                content={
+                                    downloadState === 'rendering' ? 'Rendering on server (video + audio, H.264)…'
+                                    : downloadState === 'success' ? 'Saved'
+                                    : downloadState === 'error' ? 'Export failed — click to retry'
+                                    : 'Download the full composition'
+                                }
+                                position="top"
+                                delay={600}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (downloadState === 'rendering') return;
+                                        // Failures bubble through downloadState; catch here so the
+                                        // promise doesn't reject unhandled at the boundary.
+                                        handleRequestDownload().catch(() => {});
+                                    }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    disabled={downloadState === 'rendering'}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all disabled:cursor-wait"
+                                >
+                                    {downloadState === 'rendering' ? <Loader2 className="w-3 h-3 animate-spin pointer-events-none" />
+                                    : downloadState === 'success' ? <Check className="w-3 h-3 pointer-events-none text-emerald-400" />
+                                    : downloadState === 'error' ? <AlertCircle className="w-3 h-3 pointer-events-none text-red-400" />
+                                    : <Download className="w-3 h-3 pointer-events-none" />}
+                                </button>
+                            </Tooltip>
+                        )}
+                        <Tooltip content="Edit compositor" position="top" delay={600}>
+                            <button
+                                type="button"
+                                onClick={openEditor}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                            >
+                                <Edit3 className="w-3 h-3 pointer-events-none" />
+                            </button>
+                        </Tooltip>
+                    </>
                 }
                 contentClassName="p-0 overflow-hidden"
             >
@@ -1008,9 +1072,6 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                     config={config}
                     onClose={() => setIsEditorOpen(false)}
                     onConfigChange={updateConfig}
-                    canDownload={hasVideoLayer}
-                    onRequestDownload={handleRequestDownload}
-                    downloadState={downloadState}
                 />,
                 document.body
             )}
