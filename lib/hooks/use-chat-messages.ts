@@ -294,6 +294,10 @@ export function useChatMessages({
             // Build the full history using the snapshot taken BEFORE optimistic updates
             const fullHistory = [...historySnapshot, userMsg];
 
+            // Begin a new "AI turn" so <AiAddedZoom /> can track which nodes the
+            // AI touches during this stream and smoothly fit the camera to them.
+            useAppStore.getState().beginAiTurn();
+
             const response = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -503,6 +507,10 @@ export function useChatMessages({
 
                         appStore.setCurrentWorkflow(streamingWorkflowCursor as any, true);
 
+                        // Notify the AI-zoom tracker about the new patch so the
+                        // canvas can debounce-fit the touched nodes into view.
+                        appStore.recordAiPatch(parsed.patch);
+
                         finalWorkflow = streamingWorkflowCursor || undefined;
                         await nextFrame();
                     }
@@ -563,11 +571,18 @@ export function useChatMessages({
                 await drainQueue();
             }
 
+            // Stream finished cleanly — let the AI-zoom tracker run the
+            // definitive "settle" fit on the union of touched nodes.
+            useAppStore.getState().endAiTurn();
+
         } catch (error) {
             console.error("Stream failed:", error);
             useAppStore.getState().updateMessage(assistantMsgId, {
                 content: "Sorry, I encountered a network error while streaming."
             });
+            // End the turn even on failure so the tracker doesn't strand the
+            // active flag and block the next turn's begin/end transition.
+            useAppStore.getState().endAiTurn();
             setIsLoading(false);
             setStatusMessage(null);
         }

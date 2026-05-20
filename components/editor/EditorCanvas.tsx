@@ -28,6 +28,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { Trash2, Copy, Group as GroupIcon, Ungroup as UngroupIcon, Download } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
+import { AiAddedZoom } from './AiAddedZoom';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Toast } from '@/components/ui/Toast';
 import { collectNodeMediaBlobs, triggerBlobDownload, type DownloadItem } from '@/lib/workflow/download-output';
@@ -1153,6 +1154,7 @@ const EditorCanvasInner = ({
             >
                 <BaseGridLayers />
                 <SpotlightGridLayers isMouseActive={isMouseActive} />
+                <AiAddedZoom />
 
                 {selectedNodeIds.length >= 2 && (
                     <NodeToolbar

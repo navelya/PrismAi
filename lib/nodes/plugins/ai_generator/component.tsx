@@ -168,11 +168,14 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     //   image / video / other media → node sizes to the image's natural width,
     //   clamped between min and max. The image already grows the height via
     //   `h-auto`, so this is the symmetric horizontal version.
+    // Empty-state placeholder uses the wider 320 minWidth so the node has a
+    // proper landscape footprint before any result arrives; once a result
+    // exists we drop minWidth to 200 so the node can hug smaller outputs.
     const isFixedWidth = activeType === 'text' || activeType === 'audio';
     const fixedWidth = activeType === 'audio' ? 280 : 320;
     const mediaStyle: React.CSSProperties = {
         width: 'max-content',
-        minWidth: 200,
+        minWidth: output ? 200 : 320,
         maxWidth: 420,
     };
     const textMinHeightClass = "min-h-[140px]";

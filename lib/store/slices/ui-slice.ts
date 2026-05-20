@@ -30,6 +30,36 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     isMenuLoading: false,
     dragHoverGroupId: null,
 
+    aiTurn: null,
+    beginAiTurn: () =>
+        set({ aiTurn: { active: true, touchedNodeIds: [], patchTick: 0 } }),
+    recordAiPatch: (patch) => {
+        if (!patch) return;
+        const current = get().aiTurn;
+        if (!current || !current.active) return;
+
+        const next = new Set(current.touchedNodeIds);
+        for (const n of patch.addedNodes || []) next.add(n.id);
+        for (const u of patch.updatedNodes || []) next.add(u.id);
+        for (const e of patch.addedEdges || []) {
+            if (e.source) next.add(e.source);
+            if (e.target) next.add(e.target);
+        }
+
+        set({
+            aiTurn: {
+                active: true,
+                touchedNodeIds: Array.from(next),
+                patchTick: current.patchTick + 1,
+            },
+        });
+    },
+    endAiTurn: () => {
+        const current = get().aiTurn;
+        if (!current) return;
+        set({ aiTurn: { ...current, active: false } });
+    },
+
     // Bulk-download progress (multi-select toolbar → "Download selected").
     // Map keyed by per-call operation id so concurrent downloads each get
     // their own pill in the EditorToolbar next to the Run button.

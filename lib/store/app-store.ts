@@ -140,6 +140,10 @@ export const useAppStore = create<RootState>()(
                     'dragHoverGroupId',
                     // Bulk-download progress — transient; never persist.
                     'bulkDownloads',
+                    // AI-turn tracker — drives the camera-fit after a chat
+                    // response. Resurrecting it on refresh would replay the
+                    // last turn's zoom against unrelated state.
+                    'aiTurn',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {

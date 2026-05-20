@@ -121,6 +121,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                         selectedCycle={selectedCycle}
                                         currentPeriodEnd={subscription?.currentPeriodEnd ?? null}
                                         cancelAtPeriodEnd={subscription?.cancelAtPeriodEnd ?? false}
+                                        pendingPlanChangePriceId={subscription?.pendingPlanChangePriceId ?? null}
                                         onClose={onClose}
                                     />
                                 ))}
@@ -204,6 +205,7 @@ interface PlanCardProps {
     selectedCycle: 'monthly' | 'yearly';
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
+    pendingPlanChangePriceId: string | null;
     onClose: () => void;
 }
 
@@ -214,6 +216,7 @@ function PlanCard({
     selectedCycle,
     currentPeriodEnd,
     cancelAtPeriodEnd,
+    pendingPlanChangePriceId,
     onClose,
 }: PlanCardProps) {
     // "Current plan" means BOTH the plan and the cycle match what the user
@@ -289,6 +292,7 @@ function PlanCard({
                 selectedCycle={selectedCycle}
                 currentPeriodEnd={currentPeriodEnd}
                 cancelAtPeriodEnd={cancelAtPeriodEnd}
+                pendingPlanChangePriceId={pendingPlanChangePriceId}
                 onClose={onClose}
             />
         </div>
@@ -507,6 +511,7 @@ function PlanCTA({
     selectedCycle,
     currentPeriodEnd,
     cancelAtPeriodEnd,
+    pendingPlanChangePriceId,
     onClose,
 }: {
     plan: PlanDisplay;
@@ -516,14 +521,92 @@ function PlanCTA({
     selectedCycle: 'monthly' | 'yearly';
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
+    pendingPlanChangePriceId: string | null;
     onClose: () => void;
 }) {
     const router = useRouter();
     const [status, setStatus] = useState<BillingStatus | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [confirmingCancel, setConfirmingCancel] = useState(false);
+    const [cancelingPending, setCancelingPending] = useState(false);
+
+    // This card matches the scheduled target plan (regardless of selected
+    // cycle in the toggle). Industry-standard treatment: don't offer the
+    // change again — show "Scheduled" with the date, plus a "Cancel switch"
+    // affordance so the user can back out without leaving the modal.
+    const isPendingTarget =
+        pendingPlanChangePriceId != null &&
+        (plan.paddlePriceIdMonthly === pendingPlanChangePriceId ||
+            plan.paddlePriceIdYearly === pendingPlanChangePriceId);
+
+    if (isPendingTarget) {
+        const endDate = currentPeriodEnd
+            ? new Date(currentPeriodEnd).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+            })
+            : null;
+
+        const handleCancelSwitch = async () => {
+            setCancelingPending(true);
+            try {
+                const res = await fetch('/api/billing/schedule-plan-change', {
+                    method: 'DELETE',
+                });
+                if (res.ok) {
+                    onClose();
+                    setTimeout(() => window.location.reload(), 200);
+                    return;
+                }
+            } catch {
+                // Fall through to enable the button again so the user can retry.
+            }
+            setCancelingPending(false);
+        };
+
+        return (
+            <div className="space-y-2">
+                <button
+                    disabled
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold border border-accent-primary/40 bg-accent-primary/[0.07] text-accent-primary cursor-default"
+                >
+                    Scheduled{endDate ? ` for ${endDate}` : ''}
+                </button>
+                <button
+                    onClick={handleCancelSwitch}
+                    disabled={cancelingPending}
+                    className="w-full py-2 rounded-lg text-xs font-semibold text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary transition-colors disabled:opacity-50"
+                >
+                    {cancelingPending ? 'Canceling switch…' : 'Cancel switch'}
+                </button>
+            </div>
+        );
+    }
 
     if (isCurrent) {
+        // If a downgrade is scheduled, the current-plan card should reflect
+        // that: "You're on this plan (active until [date])". Helps the user
+        // understand they're not losing access right away.
+        if (pendingPlanChangePriceId && currentPeriodEnd) {
+            const endDate = new Date(currentPeriodEnd).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+            });
+            return (
+                <div className="space-y-1">
+                    <button
+                        disabled
+                        className="w-full py-2.5 rounded-xl text-sm font-semibold border border-stroke-subtle text-content-tertiary cursor-default"
+                    >
+                        You&apos;re on this plan
+                    </button>
+                    <p className="text-[11px] text-content-tertiary text-center leading-snug">
+                        Active until {endDate}
+                    </p>
+                </div>
+            );
+        }
         return (
             <button
                 disabled

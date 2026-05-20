@@ -329,6 +329,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // it never affects drag motion. Toggling the class on drag-flip
                 // forced a synchronous style invalidation right when the user
                 // started moving the cursor.
+                // border-width is intentionally NOT transitioned — borderWidthPx
+                // changes continuously during zoom (b1 = 1/zoom), and animating
+                // it would make the ring lag behind the camera.
                 "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40 transition-[border-color,background-color] duration-500 ease-out",
                 selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] outline-none" : "border-stroke-subtle shadow-xl",
                 // Hover affects ONLY borders + a barely-perceptible bg tint.
@@ -341,12 +344,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             )}
             style={{
                 width: typeof width === 'number' ? width : undefined,
-                borderWidth: `${b1}px`,
-                // Constant-width selection ring using outline (which follows border-radius in modern browsers)
-                ...(selected && {
-                    outline: `${b1}px solid rgb(var(--accent-primary) / 0.2)`,
-                    outlineOffset: '0'
-                }),
+                // selected → 3px, hover → 2px, default → 1px, each in constant
+                // screen-space (b1 = 1/zoom). Selected wins over hover so the
+                // ring stays at its thickest while the user interacts with it.
+                borderWidth: `${selected ? b1 * 3 : isHovered ? b1 * 2 : b1}px`,
                 willChange: 'transform',
                 ...props.style
             }}
