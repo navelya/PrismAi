@@ -22,7 +22,7 @@ import {
 } from './shared';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { registerDownloadHandler, unregisterDownloadHandler } from '@/lib/workflow/download-registry';
+import { registerDownloadHandler, unregisterDownloadHandler, getDownloadHandler } from '@/lib/workflow/download-registry';
 import { NodeClientDef } from '../../core/types';
 import { compositorClientExecutor } from './executor.client';
 
@@ -757,7 +757,25 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             throw new Error('Already rendering');
         }
 
+        // Resolve each layer to a real URL.
+        //
+        // Three cases per layer:
+        //   1. Upstream resolved to a static URL (MediaInput, completed AI
+        //      generator): use it directly.
+        //   2. Upstream resolved to a live `GraphDescription` (e.g. another
+        //      Compositor wired into this one): the live preview has no URL
+        //      yet, so recurse via the upstream node's registered download
+        //      handler to render IT first, upload the resulting mp4 to chat-
+        //      assets, and use that URL. Handlers are themselves implemented
+        //      by THIS function, so deeper chains resolve naturally.
+        //   3. Neither: layer skipped.
+        //
+        // Temporary uploads are tracked so we can DELETE them after the parent
+        // render completes (success OR failure) — chat-assets isn't TTL'd and
+        // we don't want orphans from every chained download.
         const inputs: Record<string, string> = {};
+        const tempUploadPaths: string[] = [];
+
         for (const layer of config.layers || []) {
             const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
             if (!edge) continue;
@@ -766,11 +784,60 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             const item = Array.isArray(normalized)
                 ? normalized[layer.selectedIndex ?? 0] ?? normalized[0]
                 : normalized;
-            const url =
+
+            // Case 1: direct URL on the envelope item.
+            const directUrl =
                 item && typeof item === 'object' && typeof (item as any).url === 'string'
                     ? ((item as any).url as string)
                     : null;
-            if (url) inputs[layer.sourceHandleId] = url;
+            if (directUrl && directUrl.length > 0) {
+                inputs[layer.sourceHandleId] = directUrl;
+                continue;
+            }
+
+            // Case 2: live graph upstream. Invoke the upstream's download
+            // handler (which is this same fetchCompositorExport for chained
+            // compositors), then upload the blob to get a URL the server
+            // export can fetch.
+            const hasGraph =
+                item && typeof item === 'object' && !!(item as any).graph;
+            if (hasGraph) {
+                const upstreamHandler = getDownloadHandler(edge.source);
+                if (!upstreamHandler) {
+                    throw new Error(
+                        `Layer "${layer.name}": upstream node has no download handler. Re-open the workflow and retry.`,
+                    );
+                }
+                const upstreamItems = await upstreamHandler();
+                const upstreamBlob = upstreamItems[0]?.blob;
+                if (!upstreamBlob) {
+                    throw new Error(`Layer "${layer.name}": upstream produced no blob`);
+                }
+                const formData = new FormData();
+                formData.append(
+                    'file',
+                    upstreamBlob,
+                    upstreamItems[0]?.filename || 'upstream.mp4',
+                );
+                const uploadResp = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+                if (!uploadResp.ok) {
+                    const errText = await uploadResp.text().catch(() => '');
+                    throw new Error(
+                        `Layer "${layer.name}": upstream upload failed (${uploadResp.status}): ${errText}`,
+                    );
+                }
+                const { publicUrl, path } = (await uploadResp.json()) as {
+                    publicUrl: string;
+                    path: string;
+                };
+                if (path) tempUploadPaths.push(path);
+                inputs[layer.sourceHandleId] = publicUrl;
+                continue;
+            }
+            // Case 3: no usable input — skip this layer.
         }
 
         if (Object.keys(inputs).length === 0) {
@@ -778,6 +845,18 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
             throw new Error('No wired inputs');
         }
+
+        // Cleanup helper — fire and forget; we don't want temp-asset deletion
+        // failures to mask the actual download outcome.
+        const cleanupTempUploads = () => {
+            tempUploadPaths.forEach((p) => {
+                fetch('/api/upload', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: p, isFolder: false }),
+                }).catch(() => { /* swallow */ });
+            });
+        };
 
         setDownloadState('rendering');
         try {
@@ -803,11 +882,13 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
 
             setDownloadState('success');
             setTimeout(() => setDownloadState((s) => (s === 'success' ? 'idle' : s)), 1500);
+            cleanupTempUploads();
             return [{ filename, blob }];
         } catch (err) {
             console.error('[Compositor:download] export failed', err);
             setDownloadState('error');
             setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+            cleanupTempUploads();
             throw err;
         }
     }, [downloadState, config, layerEdges, upstreamBySource, data.label]);
