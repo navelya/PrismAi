@@ -146,20 +146,16 @@ export default function EditorToolbar({
                     >
                         <button
                             onClick={onRun}
-                            className="h-8 px-3 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] shadow-md shadow-accent-primary/20 active:scale-95 transition-colors"
+                            disabled={validationErrors.length > 0}
+                            className={
+                                validationErrors.length > 0
+                                    ? "h-8 px-3 bg-surface-secondary text-content-tertiary rounded-lg flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] cursor-not-allowed opacity-60"
+                                    : "h-8 px-3 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] shadow-md shadow-accent-primary/20 active:scale-95 transition-colors"
+                            }
                         >
                             <Play className="w-3 h-3 fill-current" />
                             Run workflow
                         </button>
-
-                        {validationErrors.length > 0 && (
-                            <div
-                                className="absolute -top-1.5 -right-1.5 z-20 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-accent-error text-white text-[10px] font-bold border-2 border-surface-elevated shadow-md tabular-nums pointer-events-none"
-                                aria-label={`${validationErrors.length} validation errors`}
-                            >
-                                {validationErrors.length}
-                            </div>
-                        )}
 
                         {showErrorPopover && validationErrors.length > 0 && (
                             <div className="absolute top-full right-0 w-80 max-h-96 overflow-y-auto bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle rounded-xl shadow-xl shadow-black/20 z-30 p-2">

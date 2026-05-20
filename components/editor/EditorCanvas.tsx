@@ -212,9 +212,9 @@ const EditorCanvasInner = ({
         return () => cancelAnimationFrame(raf);
     }, [nodesInitialized, reactFlowInstance, hasNodesToMeasure]);
 
-    // One-shot smooth-pan to a node when something elsewhere (e.g. the Run
-    // Workflow error popover) sets `pendingCenterNodeId`. We pan + select +
-    // clear the field.
+    // One-shot smooth fit-to-node when something elsewhere (e.g. the Run
+    // Workflow error popover) sets `pendingCenterNodeId`. We pan + zoom-to-fit
+    // the single node, select it, and clear the field.
     const pendingCenterNodeId = useAppStore((s) => s.pendingCenterNodeId);
     const clearPendingCenterNodeId = useAppStore((s) => s.clearPendingCenterNodeId);
     useEffect(() => {
@@ -224,14 +224,15 @@ const EditorCanvasInner = ({
             clearPendingCenterNodeId();
             return;
         }
-        const w = node.width ?? node.measured?.width ?? 200;
-        const h = node.height ?? node.measured?.height ?? 100;
-        const currentZoom = reactFlowInstance.getViewport().zoom;
-        reactFlowInstance.setCenter(
-            node.position.x + w / 2,
-            node.position.y + h / 2,
-            { duration: 500, zoom: currentZoom },
-        );
+        // fitView with a single-node selection both pans AND zooms so the
+        // node fills the viewport (modulo padding). maxZoom caps the zoom so
+        // a tiny node doesn't pull the camera uncomfortably close.
+        reactFlowInstance.fitView({
+            nodes: [{ id: pendingCenterNodeId }],
+            duration: 500,
+            padding: 0.5,
+            maxZoom: 1.5,
+        });
         // Mirror click-to-select: clear other selections, select the target.
         reactFlowInstance.setNodes((nds: any[]) =>
             nds.map((n) => ({ ...n, selected: n.id === pendingCenterNodeId })),
