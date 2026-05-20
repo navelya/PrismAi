@@ -51,7 +51,7 @@ const baseModels: any[] = [];
             { id: 'm1', type: 'media_input', position: { x: 0, y: 0 }, data: { label: 'Media' } },
             { id: 'b1', type: 'blur', position: { x: 200, y: 0 }, data: { label: 'Blur' } },
         ],
-        edges: [{ id: 'e1', source: 'm1', target: 'b1', sourceHandle: 'output', targetHandle: 'image' }],
+        edges: [{ id: 'e1', source: 'm1', target: 'b1', sourceHandle: 'images_out', targetHandle: 'image' }],
     } as any;
     const errs = validateExecution({
         workflow: wf, runMode: 'solo', targetNodeId: 'b1',
@@ -68,7 +68,7 @@ const baseModels: any[] = [];
             { id: 'm1', type: 'media_input', position: { x: 0, y: 0 }, data: { label: 'Media' } },
             { id: 'b1', type: 'blur', position: { x: 200, y: 0 }, data: { label: 'Blur' } },
         ],
-        edges: [{ id: 'e1', source: 'm1', target: 'b1', sourceHandle: 'output', targetHandle: 'image' }],
+        edges: [{ id: 'e1', source: 'm1', target: 'b1', sourceHandle: 'images_out', targetHandle: 'image' }],
     } as any;
     const errs = validateExecution({
         workflow: wf, runMode: 'all', targetNodeId: null,
@@ -92,6 +92,41 @@ const baseModels: any[] = [];
         completedNodeIds: new Set(), sharedRegistry, models: baseModels as any,
     });
     assert(errs.some((e) => e.kind === 'type-mismatch'), 'type-mismatch case');
+}
+
+// 5) chain: running from a Prompt forward should mark its descendants as
+// executing, so a downstream AI generator whose prompt input is wired but
+// uncached should NOT produce no-upstream-data.
+{
+    const wf = {
+        name: 'chain',
+        nodes: [
+            { id: 'p1', type: 'prompt', position: { x: 0, y: 0 }, data: { label: 'Prompt', config: { text: 'hi' } } },
+            {
+                id: 'gen1',
+                type: 'ai_generator',
+                position: { x: 200, y: 0 },
+                data: { label: 'Gen', config: { model_id: 2 } },
+            },
+        ],
+        edges: [{ id: 'e1', source: 'p1', target: 'gen1', sourceHandle: 'text_out', targetHandle: 'prompt' }],
+    } as any;
+    const models = [
+        {
+            id: 2,
+            inputs_schema: {
+                handles: [
+                    { api_mapping_key: 'prompt', name: 'prompt', type: 'text', is_mandatory: true, is_visible: true, is_array: false },
+                ],
+            },
+            outputs_schema: { handles: [{ api_mapping_key: 'output', name: 'output', type: 'image', is_visible: true, is_array: false }] },
+        },
+    ];
+    const errs = validateExecution({
+        workflow: wf, runMode: 'chain', targetNodeId: 'p1',
+        completedNodeIds: new Set(), sharedRegistry, models: models as any,
+    });
+    assert(errs.every((e) => e.kind !== 'no-upstream-data'), 'chain BFS includes descendants — no-upstream-data not fired');
 }
 
 console.log('\nAll smoke cases passed.');
