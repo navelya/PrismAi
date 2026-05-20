@@ -266,8 +266,11 @@ export interface UISlice {
     fetchDataTypes: () => Promise<void>;
     fetchModels: () => Promise<void>;
     runFromNodeId: string | null;
-    runMode: 'solo' | 'chain' | 'ab_test' | null;
+    runMode: 'solo' | 'chain' | 'ab_test' | 'selection' | null;
+    /** Targets for 'selection' mode — the set of nodes from the multi-select toolbar's Run button. */
+    runSelectionIds: string[] | null;
     triggerRunFromNode: (nodeId: string, runMode?: 'solo' | 'chain' | 'ab_test') => void;
+    triggerRunSelection: (nodeIds: string[]) => void;
     clearRunFromNode: () => void;
     deleteNodeWithAssets: (nodeId: string) => Promise<void>;
     

@@ -25,7 +25,7 @@ import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
 import { CanvasToolbar } from './canvas/CanvasToolbar';
 import { NodeType } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { Trash2, Copy, Group as GroupIcon, Ungroup as UngroupIcon, Download } from 'lucide-react';
+import { Trash2, Copy, Group as GroupIcon, Ungroup as UngroupIcon, Download, Play } from 'lucide-react';
 import { autoLayoutNodesAsync } from '@/lib/utils/graph-layout';
 import CanvasContextMenu from './CanvasContextMenu';
 import { AiAddedZoom } from './AiAddedZoom';
@@ -38,6 +38,8 @@ import JSZip from 'jszip';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import { validateExecution } from '@/lib/workflow/validate-execution';
+import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import {
     PendingConnection,
     getNodeHandleType,
@@ -553,6 +555,73 @@ const EditorCanvasInner = ({
         if (!singleSelectedGroupId) return;
         ungroupNode(singleSelectedGroupId);
     }, [singleSelectedGroupId, ungroupNode]);
+
+    // Selection-mode run: validate the selected set as if they ran together
+    // (treating siblings as fellow executors), so the multi-select toolbar's
+    // Run button can disable itself when any selected node has wiring errors.
+    // Reads the same nodeOutputs the workflow-wide validator does — a cached
+    // upstream from a prior run satisfies missing-input checks.
+    const currentWorkflowForSelectionValidation = useAppStore((s) => s.currentWorkflow);
+    const nodeOutputsForSelectionValidation = useAppStore((s) => s.nodeOutputs);
+    const modelsForSelectionValidation = useAppStore((s) => s.models);
+    const selectionRunErrors = useMemo(() => {
+        if (selectedNodeIds.length < 2 || !currentWorkflowForSelectionValidation) return [];
+        const wf = currentWorkflowForSelectionValidation;
+        // Group containers in the selection have no executor and shouldn't be
+        // counted as run targets — the toolbar runs the actual nodes only.
+        const targetIds = selectedNodeIds.filter((id) => {
+            const n = wf.nodes.find((nn) => nn.id === id);
+            return !!n && n.type !== 'group_container';
+        });
+        if (targetIds.length === 0) return [];
+        const completedNodeIds = new Set<string>();
+        for (const n of wf.nodes) {
+            const liveOut = nodeOutputsForSelectionValidation?.[n.id];
+            const persistedOut = (n.data as any)?.output;
+            if (liveOut != null || persistedOut != null) completedNodeIds.add(n.id);
+        }
+        return validateExecution({
+            workflow: wf,
+            runMode: 'selection',
+            targetNodeId: null,
+            targetNodeIds: targetIds,
+            completedNodeIds,
+            sharedRegistry,
+            models: modelsForSelectionValidation ?? [],
+        });
+    }, [selectedNodeIds, currentWorkflowForSelectionValidation, nodeOutputsForSelectionValidation, modelsForSelectionValidation]);
+
+    const triggerRunSelection = useAppStore((s) => s.triggerRunSelection);
+    const selectNodeAndCenter = useAppStore((s) => s.selectNodeAndCenter);
+    const [showSelectionErrorPopover, setShowSelectionErrorPopover] = useState(false);
+
+    // Only show the Run button if at least one selected node has a "run"
+    // affordance — i.e. a generative node that actually triggers a new
+    // generation. Pure ephemeral selections (prompts, compositors, blurs)
+    // recompute live in the canvas and don't need an explicit run.
+    const selectionHasRunnable = useMemo(() => {
+        if (selectedNodeIds.length < 2 || !currentWorkflowForSelectionValidation) return false;
+        const wf = currentWorkflowForSelectionValidation;
+        return selectedNodeIds.some((id) => {
+            const n = wf.nodes.find((nn) => nn.id === id);
+            if (!n) return false;
+            const def = (sharedRegistry as any)[n.type];
+            return !!def && def.family === 'generative';
+        });
+    }, [selectedNodeIds, currentWorkflowForSelectionValidation]);
+
+    const handleRunSelected = useCallback(() => {
+        if (selectionRunErrors.length > 0) return;
+        const wf = useAppStore.getState().currentWorkflow;
+        if (!wf) return;
+        // Filter group containers — they have no executor.
+        const targetIds = selectedNodeIds.filter((id) => {
+            const n = wf.nodes.find((nn) => nn.id === id);
+            return !!n && n.type !== 'group_container';
+        });
+        if (targetIds.length === 0) return;
+        triggerRunSelection(targetIds);
+    }, [selectionRunErrors.length, selectedNodeIds, triggerRunSelection]);
 
     // Reuse handleDeleteSelected — it already folds group children into the
     // delete set when a group is in the selection (Task 9).
@@ -1170,6 +1239,64 @@ const EditorCanvasInner = ({
                             style={{ pointerEvents: 'auto', zIndex: 50 }}
                             onMouseDown={(e) => e.stopPropagation()}
                         >
+                            {/* Run selected — only rendered when the selection
+                                contains at least one runnable (generative) node.
+                                Disabled when any selected node has a wiring error
+                                in the selection-set context. Hovering a disabled
+                                button opens a popover listing the issues. */}
+                            {selectionHasRunnable && (
+                            <div
+                                className="relative"
+                                onMouseEnter={() => selectionRunErrors.length > 0 && setShowSelectionErrorPopover(true)}
+                                onMouseLeave={() => setShowSelectionErrorPopover(false)}
+                            >
+                                <Tooltip
+                                    content={selectionRunErrors.length > 0
+                                        ? `Can't run — ${selectionRunErrors.length} issue${selectionRunErrors.length === 1 ? '' : 's'}`
+                                        : 'Run selected'}
+                                    position="top"
+                                    delay={600}
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleRunSelected(); }}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        disabled={selectionRunErrors.length > 0}
+                                        className={
+                                            selectionRunErrors.length > 0
+                                                ? "w-6 h-6 rounded flex items-center justify-center text-content-tertiary cursor-not-allowed opacity-50"
+                                                : "w-6 h-6 rounded flex items-center justify-center text-content-primary hover:bg-white/10 hover:text-accent-primary transition-all"
+                                        }
+                                    >
+                                        <Play className="w-3 h-3 pointer-events-none fill-current" />
+                                    </button>
+                                </Tooltip>
+
+                                {showSelectionErrorPopover && selectionRunErrors.length > 0 && (
+                                    <div className="absolute top-full left-0 mt-1 w-72 max-h-80 overflow-y-auto bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle rounded-lg shadow-xl shadow-black/20 z-[60] p-2">
+                                        <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-content-tertiary">
+                                            Can&apos;t run — {selectionRunErrors.length} issue{selectionRunErrors.length === 1 ? '' : 's'}
+                                        </div>
+                                        <div className="flex flex-col gap-0.5">
+                                            {selectionRunErrors.map((err, i) => (
+                                                <button
+                                                    key={i}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        selectNodeAndCenter(err.nodeId);
+                                                        setShowSelectionErrorPopover(false);
+                                                    }}
+                                                    className="text-left px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors"
+                                                >
+                                                    <div className="text-xs font-semibold text-content-primary truncate">{err.nodeLabel}</div>
+                                                    <div className="text-[11px] text-content-secondary">{formatValidationError(err)}</div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            )}
                             {canGroupSelection && (
                                 <Tooltip content="Group selected (Cmd+G)" position="top" delay={600}>
                                     <button

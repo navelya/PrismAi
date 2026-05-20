@@ -45,8 +45,10 @@ type ResolvedOutput = {
 
 export type ValidationContext = {
     workflow: Workflow;
-    runMode: 'all' | 'solo' | 'chain';
+    runMode: 'all' | 'solo' | 'chain' | 'selection';
     targetNodeId: string | null;
+    /** For 'selection' mode: the set of selected node ids that will run together. */
+    targetNodeIds?: string[];
     /** Node ids that have a usable cached completed result (for solo/chain runs). */
     completedNodeIds: Set<string>;
     sharedRegistry: Record<string, NodeSharedDef<any>>;
@@ -55,10 +57,10 @@ export type ValidationContext = {
 };
 
 export function validateExecution(ctx: ValidationContext): ValidationError[] {
-    const { workflow, runMode, targetNodeId, completedNodeIds, sharedRegistry, models } = ctx;
+    const { workflow, runMode, targetNodeId, targetNodeIds, completedNodeIds, sharedRegistry, models } = ctx;
     const errors: ValidationError[] = [];
 
-    const executing = computeExecutingNodes(workflow, runMode, targetNodeId);
+    const executing = computeExecutingNodes(workflow, runMode, targetNodeId, targetNodeIds, sharedRegistry);
     const executingIds = new Set(executing.map((n) => n.id));
     const nodeById = new Map(workflow.nodes.map((n) => [n.id, n]));
 
@@ -69,9 +71,14 @@ export function validateExecution(ctx: ValidationContext): ValidationError[] {
         const incomingEdges = workflow.edges.filter((e) => e.target === node.id);
 
         for (const input of inputs) {
-            const edge = findEdgeForInput(node, input, incomingEdges);
+            // Array-style inputs (compositor `layers`, AI-model array handles)
+            // can accept multiple edges. Validate every edge independently —
+            // checking only the first one silently passes a compositor whose
+            // first layer is fine but whose later layers depend on uncached,
+            // unselected sources.
+            const edgesForInput = findEdgesForInput(node, input, incomingEdges);
 
-            if (!edge) {
+            if (edgesForInput.length === 0) {
                 if (input.isMandatory) {
                     errors.push({
                         kind: 'missing-required-input',
@@ -84,38 +91,58 @@ export function validateExecution(ctx: ValidationContext): ValidationError[] {
                 continue;
             }
 
-            const sourceNode = nodeById.get(edge.source);
-            if (!sourceNode) continue;
+            for (const edge of edgesForInput) {
+                const sourceNode = nodeById.get(edge.source);
+                if (!sourceNode) continue;
 
-            const sourceOutput = resolveSourceOutput(sourceNode, edge.sourceHandle, sharedRegistry, models);
-            if (sourceOutput && !typesAreCompatible(sourceOutput.dataType as any, input.expectedType as any)) {
-                errors.push({
-                    kind: 'type-mismatch',
-                    nodeId: node.id,
-                    nodeLabel: nodeLabelOf(node),
-                    inputId: input.id,
-                    inputLabel: input.label,
-                    sourceNodeId: sourceNode.id,
-                    sourceHandleId: edge.sourceHandle ?? '',
-                    expectedType: typeToString(input.expectedType),
-                    actualType: typeToString(sourceOutput.dataType),
-                });
-                // Don't also emit no-upstream-data — the type error is the
-                // user-actionable one. A wrong type is wrong regardless of
-                // whether the upstream has cached data.
-                continue;
-            }
+                const sourceOutput = resolveSourceOutput(sourceNode, edge.sourceHandle, sharedRegistry, models);
+                if (sourceOutput && !typesAreCompatible(sourceOutput.dataType as any, input.expectedType as any)) {
+                    errors.push({
+                        kind: 'type-mismatch',
+                        nodeId: node.id,
+                        nodeLabel: nodeLabelOf(node),
+                        inputId: input.id,
+                        inputLabel: input.label,
+                        sourceNodeId: sourceNode.id,
+                        sourceHandleId: edge.sourceHandle ?? '',
+                        expectedType: typeToString(input.expectedType),
+                        actualType: typeToString(sourceOutput.dataType),
+                    });
+                    // Don't also emit no-upstream-data — the type error is the
+                    // user-actionable one. A wrong type is wrong regardless of
+                    // whether the upstream has cached data.
+                    continue;
+                }
 
-            if (!executingIds.has(sourceNode.id) && !completedNodeIds.has(sourceNode.id)) {
-                errors.push({
-                    kind: 'no-upstream-data',
-                    nodeId: node.id,
-                    nodeLabel: nodeLabelOf(node),
-                    inputId: input.id,
-                    inputLabel: input.label,
-                    sourceNodeId: sourceNode.id,
-                    sourceNodeLabel: nodeLabelOf(sourceNode),
-                });
+                // `no-upstream-data` answers "this node can't produce a
+                // valid result right now." In 'selection' mode the answer is
+                // implicit — the whole point of selecting a set is to run them
+                // together so their outputs flow through. A chain like
+                //   Scene1 ─┐
+                //   Scene2 ─┼─▶ Final
+                //   Scene3 ─┘
+                // shouldn't fire 5 separate "needs Scene N to run first" errors
+                // when Scene N IS in the selection (or reachable via the
+                // ephemeral expansion that already feeds executingIds). For
+                // selection runs, the only no-upstream-data we still care
+                // about is the unreachable case where a wire dangles off a
+                // node the workflow no longer contains — and that's already
+                // ruled out earlier (`sourceNode` would be null).
+                if (
+                    runMode !== 'selection' &&
+                    !executingIds.has(sourceNode.id) &&
+                    !completedNodeIds.has(sourceNode.id)
+                ) {
+                    errors.push({
+                        kind: 'no-upstream-data',
+                        nodeId: node.id,
+                        nodeLabel: nodeLabelOf(node),
+                        inputId: input.id,
+                        inputLabel: input.label,
+                        sourceNodeId: sourceNode.id,
+                        sourceNodeLabel: nodeLabelOf(sourceNode),
+                    });
+                }
             }
         }
     }
@@ -125,11 +152,42 @@ export function validateExecution(ctx: ValidationContext): ValidationError[] {
 
 function computeExecutingNodes(
     workflow: Workflow,
-    runMode: 'all' | 'solo' | 'chain',
+    runMode: 'all' | 'solo' | 'chain' | 'selection',
     targetNodeId: string | null,
+    targetNodeIds?: string[],
+    sharedRegistry?: Record<string, NodeSharedDef<any>>,
 ): WorkflowNode[] {
     if (runMode === 'all') {
         return workflow.nodes.filter((n) => n.type !== 'group_container');
+    }
+    if (runMode === 'selection') {
+        // Multi-solo: each selected node treats its siblings as fellow executors.
+        // Also auto-include every ephemeral (non-generative) ancestor — these
+        // run for free on the backend (see /api/executions/start), so requiring
+        // them to be cached or selected would falsely flag chains like
+        //   prompt → blur → ai_gen
+        // when the user selects only the leaf. Generative ancestors are NOT
+        // expanded — those must be cached (completedNodeIds) or in the selection.
+        const expanded = new Set(targetNodeIds ?? []);
+        if (sharedRegistry) {
+            const queue = Array.from(expanded);
+            while (queue.length > 0) {
+                const currentId = queue.shift()!;
+                for (const edge of workflow.edges) {
+                    if (edge.target !== currentId) continue;
+                    if (expanded.has(edge.source)) continue;
+                    const parent = workflow.nodes.find((n) => n.id === edge.source);
+                    if (!parent || parent.type === 'group_container') continue;
+                    const def = sharedRegistry[parent.type];
+                    const isEphemeral = !!def && (def as any).family !== 'generative';
+                    if (isEphemeral) {
+                        expanded.add(parent.id);
+                        queue.push(parent.id);
+                    }
+                }
+            }
+        }
+        return workflow.nodes.filter((n) => expanded.has(n.id) && n.type !== 'group_container');
     }
     if (!targetNodeId) return [];
     const target = workflow.nodes.find((n) => n.id === targetNodeId);
@@ -208,25 +266,31 @@ function resolveSourceOutput(
     return { id: match.id, dataType: match.dataType };
 }
 
-function findEdgeForInput(
+function findEdgesForInput(
     node: WorkflowNode,
     input: ResolvedInput,
     incomingEdges: WorkflowEdge[],
-): WorkflowEdge | null {
+): WorkflowEdge[] {
     if (node.type === 'compositor' && input.id === 'layers') {
+        // Each layer is a separate edge, identified by its layer's
+        // sourceHandleId (= the edge id — see orchestrator notes). Returning
+        // the full set lets the caller validate every layer, not just the
+        // first one.
         const layers: any[] = (node.data as any)?.config?.layers ?? [];
         const layerEdgeIds = new Set(layers.map((l) => l?.sourceHandleId).filter(Boolean));
-        const layerEdges = incomingEdges.filter(
+        return incomingEdges.filter(
             (e) => (e.targetHandle === 'layers' || !e.targetHandle) && layerEdgeIds.has(e.id),
         );
-        return layerEdges[0] ?? null;
     }
 
-    return (
-        incomingEdges.find((e) => (e.targetHandle ?? '') === input.id) ??
-        incomingEdges.find((e) => !e.targetHandle && input.id === defaultInputIdForNodeType(node.type)) ??
-        null
-    );
+    const direct = incomingEdges.filter((e) => (e.targetHandle ?? '') === input.id);
+    if (direct.length > 0) return direct;
+
+    const defaultId = defaultInputIdForNodeType(node.type);
+    if (defaultId === input.id) {
+        return incomingEdges.filter((e) => !e.targetHandle);
+    }
+    return [];
 }
 
 function defaultInputIdForNodeType(nodeType: string): string | null {

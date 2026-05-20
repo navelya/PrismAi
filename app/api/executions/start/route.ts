@@ -40,12 +40,25 @@ export async function POST(request: NextRequest) {
     const authedUserId = auth.user.id;
 
     const body = await request.json();
-    const { session_id, workflow, targetNodeId, mode } = body;
+    const { session_id, workflow, targetNodeId, targetNodeIds, mode } = body;
     let graph_json: GraphJson = body.graph_json;
-    
+
     if (!session_id || (!graph_json && !workflow)) {
       return NextResponse.json(
         { error: 'Missing required fields: session_id and either graph_json or workflow' },
+        { status: 400 }
+      );
+    }
+
+    // 'selection' mode runs an arbitrary set of nodes together — the multi-select
+    // toolbar's Run button. Normalize early so the rest of the pipeline can read
+    // a single canonical array regardless of which legacy field was sent.
+    const selectionTargets: string[] = mode === 'selection' && Array.isArray(targetNodeIds)
+      ? Array.from(new Set(targetNodeIds.filter((id: any) => typeof id === 'string')))
+      : [];
+    if (mode === 'selection' && selectionTargets.length === 0) {
+      return NextResponse.json(
+        { error: 'selection mode requires a non-empty targetNodeIds array' },
         { status: 400 }
       );
     }
@@ -111,19 +124,27 @@ export async function POST(request: NextRequest) {
     // generative ancestors outside the set, we pre-build the inputs map from DB.
     const preseedInputs = new Map<string, Record<string, any>>();
 
-    if (!targetNodeId || mode === 'all') {
+    if (mode !== 'selection' && (!targetNodeId || mode === 'all')) {
       // ── ALL mode: run every node in the graph ──────────────────────────────
       // Why: "Run All" means fresh execution of the complete pipeline.
       nodesToExecute = [...executableNodes];
     } else {
-      // ── SOLO and CHAIN mode ────────────────────────────────────────────────
-      const targetNode = executableNodes.find(n => n.id === targetNodeId);
-      if (!targetNode) {
-        return NextResponse.json({ error: 'Target node not found in graph' }, { status: 404 });
+      // ── SOLO, CHAIN, and SELECTION modes ───────────────────────────────────
+      // Selection seeds the BFS with N targets at once and SKIPS chain expansion;
+      // otherwise the logic is identical to solo (auto-include ephemeral
+      // ancestors, pre-seed generative ones from the DB).
+      const seedIds: string[] = mode === 'selection'
+        ? selectionTargets
+        : [targetNodeId];
+
+      for (const id of seedIds) {
+        if (!executableNodes.find(n => n.id === id)) {
+          return NextResponse.json({ error: `Target node not found in graph: ${id}` }, { status: 404 });
+        }
       }
 
-      const executionSet = new Set<string>([targetNodeId]);
-      
+      const executionSet = new Set<string>(seedIds);
+
       // Collect the IDs of generative ancestors we need to read from DB.
       // We build this list while traversing the ancestor tree.
       const generativeAncestorIds = new Set<string>();
@@ -132,7 +153,7 @@ export async function POST(request: NextRequest) {
       // Why BFS and not DFS: we want to process ancestors level by level,
       //   which makes the logic predictable and avoids stack overflows on
       //   very deep graphs.
-      const queue = [targetNodeId];
+      const queue = [...seedIds];
       while (queue.length > 0) {
         const currentId = queue.shift()!;
         const parentEdges = allEdges.filter(e => e.target === currentId);
@@ -274,6 +295,7 @@ export async function POST(request: NextRequest) {
             workflow: { name: '', nodes: nodesToExecute as any, edges: edgesToInclude as any },
             runMode: (mode as any) ?? 'all',
             targetNodeId: targetNodeId ?? null,
+            targetNodeIds: mode === 'selection' ? selectionTargets : undefined,
             completedNodeIds,
             sharedRegistry,
             models: modelsForValidation as any,

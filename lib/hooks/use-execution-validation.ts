@@ -31,12 +31,14 @@ export function useExecutionValidation(): {
 
     // Map store runMode (possibly null / 'ab_test') to validator runMode.
     // No runFromNodeId means "Run Workflow" → 'all'. ab_test runs one node at
-    // a time, so validate it like solo.
+    // a time, so validate it like solo. 'selection' is a transient trigger
+    // signal for the multi-select toolbar — fall back to 'all' here because
+    // the toolbar runs its own per-selection validation.
     const { effectiveMode, targetNodeId } = useMemo<{
         effectiveMode: 'all' | 'solo' | 'chain';
         targetNodeId: string | null;
     }>(() => {
-        if (!runFromNodeId) return { effectiveMode: 'all', targetNodeId: null };
+        if (!runFromNodeId || runMode === 'selection') return { effectiveMode: 'all', targetNodeId: null };
         if (runMode === 'chain') return { effectiveMode: 'chain', targetNodeId: runFromNodeId };
         return { effectiveMode: 'solo', targetNodeId: runFromNodeId };
     }, [runFromNodeId, runMode]);

@@ -420,9 +420,8 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
             }
 
             // Watch the ledger for a fresh pack-purchase grant matching this
-            // pack ID. `createOneTimeCharge` doesn't return the resulting
-            // transaction, so we identify the grant by pack + cutoff time
-            // rather than transaction ID.
+            // pack ID. `transactions.create` returns the tx ID but we filter
+            // by pack + cutoff to stay robust against ordering surprises.
             const grant = await pollLedgerForPack(pack.id, startedAtMs, { timeoutMs: 25000 });
             if (!grant) {
                 setErrorMessage(

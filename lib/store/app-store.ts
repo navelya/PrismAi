@@ -81,6 +81,7 @@ export const useAppStore = create<RootState>()(
                     isModelsLoading: false,
                     runFromNodeId: null,
                     runMode: null,
+                    runSelectionIds: null,
                     liveNodePositions: {},
                     selectedChatModel: undefined,
                 });
@@ -124,6 +125,7 @@ export const useAppStore = create<RootState>()(
                     // re-fires the execution on every page load.
                     'runFromNodeId',
                     'runMode',
+                    'runSelectionIds',
                     // One-shot pan/select trigger from the Run-error popover. If it
                     // survives rehydration, the canvas would re-center on that node
                     // on every page load.
@@ -162,6 +164,7 @@ export const useAppStore = create<RootState>()(
                     // session page renders skeletons until loadSession() resolves.
                     state.runFromNodeId = null;
                     state.runMode = null;
+                    state.runSelectionIds = null;
                 }
             },
         }

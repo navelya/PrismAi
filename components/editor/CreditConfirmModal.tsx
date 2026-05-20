@@ -7,7 +7,7 @@ interface CreditConfirmModalProps {
     isOpen: boolean;
     cost: number;
     nodeCount: number;
-    mode: 'solo' | 'chain' | 'ab_test' | 'all';
+    mode: 'solo' | 'chain' | 'ab_test' | 'all' | 'selection';
     onConfirm: () => void;
     onCancel: () => void;
 }
@@ -29,6 +29,7 @@ export default function CreditConfirmModal({
         'solo': 'Run Selected Node',
         'chain': 'Run Node & Downstream',
         'ab_test': 'Run A/B Test',
+        'selection': 'Run Selected Nodes',
     };
 
     const hasEnough = balance !== null && balance >= cost;

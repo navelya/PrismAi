@@ -25,6 +25,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     isModelsLoading: false,
     runFromNodeId: null,
     runMode: null,
+    runSelectionIds: null,
     menuTree: [],
     menuFlat: [],
     isMenuLoading: false,
@@ -154,8 +155,16 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         }
     },
 
-    triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode }),
-    clearRunFromNode: () => set({ runFromNodeId: null, runMode: null }),
+    triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode, runSelectionIds: null }),
+    triggerRunSelection: (nodeIds) => set({
+        // runFromNodeId stays non-null so the existing SharedWorkflowEditor effect
+        // (which gates on `if (!runFromNodeId || !runMode) return`) still fires.
+        // The first id is a stable sentinel; the actual targets live in runSelectionIds.
+        runFromNodeId: nodeIds[0] ?? null,
+        runMode: 'selection',
+        runSelectionIds: nodeIds,
+    }),
+    clearRunFromNode: () => set({ runFromNodeId: null, runMode: null, runSelectionIds: null }),
 
     setDragHoverGroupId: (id) => {
         // Drag handlers call this on every frame; skip the store write (and

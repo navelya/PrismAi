@@ -100,7 +100,7 @@ export default function SharedWorkflowEditor({
     const abortControllerRef = useRef<AbortController | null>(null);
 
     const [showCreditModal, setShowCreditModal] = useState(false);
-    const [pendingExecutionTarget, setPendingExecutionTarget] = useState<{ id: string | null, mode: 'all' | 'solo' | 'chain' | 'ab_test' } | null>(null);
+    const [pendingExecutionTarget, setPendingExecutionTarget] = useState<{ id: string | null, mode: 'all' | 'solo' | 'chain' | 'ab_test' | 'selection', selectionIds?: string[] } | null>(null);
     const [pendingCost, setPendingCost] = useState(0);
     const [pendingNodeCount, setPendingNodeCount] = useState(0);
     const executionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -282,7 +282,7 @@ export default function SharedWorkflowEditor({
         }
     };
 
-    const commitExecution = async (targetNodeId: string | null, mode: string) => {
+    const commitExecution = async (targetNodeId: string | null, mode: string, selectionIds?: string[]) => {
         // Pre-flight validation. The validator is pure; we can re-run it here with
         // fresh store state to gate the POST. (The hook can't be called here —
         // we're inside a callback, not a render — but the same logic still applies.)
@@ -300,12 +300,14 @@ export default function SharedWorkflowEditor({
                 }
                 // Map store runMode (possibly 'ab_test' or 'all') to validator runMode
                 // exactly like the useExecutionValidation hook does.
-                const effectiveMode: 'all' | 'solo' | 'chain' =
+                const effectiveMode: 'all' | 'solo' | 'chain' | 'selection' =
+                    mode === 'selection' ? 'selection' :
                     !targetNodeId ? 'all' : mode === 'chain' ? 'chain' : 'solo';
                 const errors = validateExecution({
                     workflow: wf,
                     runMode: effectiveMode,
                     targetNodeId,
+                    targetNodeIds: mode === 'selection' ? selectionIds : undefined,
                     completedNodeIds,
                     sharedRegistry,
                     models: state.models ?? [],
@@ -354,7 +356,12 @@ export default function SharedWorkflowEditor({
                 });
         };
 
-        if (targetNodeId && mode === 'solo') {
+        if (mode === 'selection' && selectionIds && selectionIds.length > 0) {
+            // Mirror solo's optimistic status seed for every selected target,
+            // so the user sees activity on click without waiting for the
+            // server's realtime event.
+            selectionIds.forEach((id) => store.setNodeStatus(id, 'running'));
+        } else if (targetNodeId && mode === 'solo') {
             store.setNodeStatus(targetNodeId, 'running');
         } else if (targetNodeId && mode === 'chain') {
             const { getDescendants } = require('@/lib/utils/graph-traversal');
@@ -392,6 +399,7 @@ export default function SharedWorkflowEditor({
                     },
                     execution_id: executionId,
                     targetNodeId,
+                    targetNodeIds: mode === 'selection' ? selectionIds : undefined,
                     mode,
                 })
             });
@@ -459,10 +467,13 @@ export default function SharedWorkflowEditor({
     const models = useAppStore((state) => state.models);
     const modelsById = useMemo(() => buildModelsMap(models as any[]), [models]);
 
-    const calculateExecutionCost = useCallback((targetNodeId: string | null, mode: string) => {
+    const calculateExecutionCost = useCallback((targetNodeId: string | null, mode: string, selectionIds?: string[]) => {
         let executionNodes: typeof nodes = [];
 
-        if (targetNodeId && mode === 'solo') {
+        if (mode === 'selection' && selectionIds && selectionIds.length > 0) {
+            const idSet = new Set(selectionIds);
+            executionNodes = nodes.filter(n => idSet.has(n.id));
+        } else if (targetNodeId && mode === 'solo') {
             const targetNode = nodes.find(n => n.id === targetNodeId);
             if (targetNode) executionNodes = [targetNode];
         } else if (targetNodeId && mode === 'chain') {
@@ -500,6 +511,7 @@ export default function SharedWorkflowEditor({
 
     const runFromNodeId = useAppStore((state) => state.runFromNodeId);
     const runMode = useAppStore((state) => state.runMode);
+    const runSelectionIds = useAppStore((state) => state.runSelectionIds);
 
     useEffect(() => {
         if (!hasHandledInitialRunSignalRef.current) {
@@ -513,8 +525,28 @@ export default function SharedWorkflowEditor({
         const clearRunFromNode = useAppStore.getState().clearRunFromNode;
         const targetId = runFromNodeId;
         const mode = runMode;
+        // Snapshot before clearing the store — clearRunFromNode wipes runSelectionIds too.
+        const selectionIds = runSelectionIds ? [...runSelectionIds] : undefined;
 
         clearRunFromNode();
+
+        if (mode === 'selection') {
+            if (!selectionIds || selectionIds.length === 0) return;
+            const present = selectionIds.filter((id) => nodes.some((n) => n.id === id));
+            if (present.length === 0) return;
+
+            const { cost, count } = calculateExecutionCost(null, 'selection', present);
+
+            if (cost > 0) {
+                setPendingExecutionTarget({ id: null, mode: 'selection', selectionIds: present });
+                setPendingCost(cost);
+                setPendingNodeCount(count);
+                setShowCreditModal(true);
+            } else {
+                commitExecution(null, 'selection', present);
+            }
+            return;
+        }
 
         if (targetId && !nodes.some(n => n.id === targetId)) {
             return;
@@ -530,11 +562,15 @@ export default function SharedWorkflowEditor({
         } else {
             commitExecution(targetId, mode);
         }
-    }, [runFromNodeId, runMode, nodes, calculateExecutionCost]);
+    }, [runFromNodeId, runMode, runSelectionIds, nodes, calculateExecutionCost]);
 
     const confirmCreditRun = () => {
         if (pendingExecutionTarget) {
-            commitExecution(pendingExecutionTarget.id, pendingExecutionTarget.mode);
+            commitExecution(
+                pendingExecutionTarget.id,
+                pendingExecutionTarget.mode,
+                pendingExecutionTarget.selectionIds,
+            );
         }
         setShowCreditModal(false);
         setPendingExecutionTarget(null);
