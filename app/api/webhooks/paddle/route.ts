@@ -651,8 +651,100 @@ async function handleRefund(data: any, eventId: string, supabase: ReturnType<typ
     }
 }
 
-async function handleChargeback(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
-    console.log('[Paddle Webhook] Chargeback stub:', data?.id, 'event:', eventId);
+async function handleChargeback(data: any, eventId: string, supabase: ReturnType<typeof createServiceClient>) {
+    const adjustmentId: string = data?.id ?? '';
+    const txId: string = data?.transactionId ?? '';
+
+    if (!txId) {
+        console.error('[Paddle Webhook] Chargeback missing transactionId:', adjustmentId);
+        void sendAdminAlert({
+            kind: 'unknown_user',
+            summary: 'Chargeback event without transactionId',
+            details: { adjustmentId, eventId, raw: data },
+        });
+        return;
+    }
+
+    const grants = await findOriginalGrants(supabase, txId);
+    if (grants.length === 0) {
+        console.warn('[Paddle Webhook] Chargeback for unknown transaction:', txId);
+        void sendAdminAlert({
+            kind: 'unknown_user',
+            summary: `Chargeback for transaction with no recorded grants`,
+            details: { adjustmentId, eventId, paddleTransactionId: txId },
+        });
+        return;
+    }
+
+    const userId = grants[0].user_id;
+    let totalClawedBack = 0;
+    let anyWentNegative = false;
+
+    // Force-clawback every grant. RPC allows negative balance.
+    for (const grant of grants) {
+        const idemKey = `paddle:adj:${adjustmentId}:row:${grant.id}`;
+        const { data: rpcResult, error } = await supabase.rpc('paddle_chargeback_clawback', {
+            p_user_id: userId,
+            p_event_id: eventId,
+            p_original_grant_id: grant.id,
+            p_idempotency_key: idemKey,
+            p_metadata: {
+                paddle_adjustment_id: adjustmentId,
+                paddle_transaction_id: txId,
+                chargeback_reason: data?.reason ?? null,
+            },
+        });
+
+        if (error) {
+            console.error('[Paddle Webhook] paddle_chargeback_clawback RPC failed:', error);
+            throw new Error(error.message);
+        }
+
+        const result = rpcResult as { clawed_back?: number; went_negative?: boolean };
+        totalClawedBack += Number(result?.clawed_back ?? 0);
+        if (result?.went_negative) anyWentNegative = true;
+    }
+
+    // Cancel the active subscription (if any) via Paddle API. The resulting
+    // subscription.canceled webhook will sync our DB row.
+    let subscriptionCanceled: { ok: boolean; subscriptionId?: string; error?: string } = { ok: false };
+    const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('paddle_subscription_id, status')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (sub?.paddle_subscription_id && sub.status === 'active') {
+        try {
+            const paddle = getPaddle();
+            await paddle.subscriptions.cancel(sub.paddle_subscription_id, {
+                effectiveFrom: 'immediately',
+            });
+            subscriptionCanceled = { ok: true, subscriptionId: sub.paddle_subscription_id };
+        } catch (cancelErr: any) {
+            subscriptionCanceled = {
+                ok: false,
+                subscriptionId: sub.paddle_subscription_id,
+                error: cancelErr?.message ?? String(cancelErr),
+            };
+            console.error('[Paddle Webhook] Failed to cancel sub after chargeback:', cancelErr);
+        }
+    }
+
+    void sendAdminAlert({
+        kind: 'chargeback',
+        summary: `Chargeback received for user ${userId} (${totalClawedBack} credits clawed back)`,
+        details: {
+            userId,
+            adjustmentId,
+            eventId,
+            paddleTransactionId: txId,
+            totalClawedBack,
+            anyWentNegative,
+            subscriptionCanceled,
+            chargebackReason: data?.reason ?? null,
+        },
+    });
 }
 
 async function handleChargebackReverse(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
