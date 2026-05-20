@@ -747,6 +747,28 @@ async function handleChargeback(data: any, eventId: string, supabase: ReturnType
     });
 }
 
-async function handleChargebackReverse(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
-    console.log('[Paddle Webhook] Chargeback reverse stub:', data?.id, 'event:', eventId);
+async function handleChargebackReverse(data: any, eventId: string, supabase: ReturnType<typeof createServiceClient>) {
+    const adjustmentId: string = data?.id ?? '';
+    const txId: string = data?.transactionId ?? '';
+
+    // Best-effort user lookup so the alert is actionable.
+    let userId: string | null = null;
+    if (txId) {
+        const grants = await findOriginalGrants(supabase, txId);
+        if (grants.length > 0) userId = grants[0].user_id;
+    }
+
+    void sendAdminAlert({
+        kind: 'chargeback_reverse',
+        summary: userId
+            ? `Chargeback reversed for user ${userId} — review whether to restore credits`
+            : `Chargeback reversed for unknown user — investigate`,
+        details: {
+            userId,
+            adjustmentId,
+            eventId,
+            paddleTransactionId: txId,
+            note: 'No automatic credit restoration. Admin must decide manually based on dispute outcome and user behavior.',
+        },
+    });
 }
