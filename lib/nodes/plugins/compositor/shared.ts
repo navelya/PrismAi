@@ -90,6 +90,7 @@ export function flattenFilters(graph: GraphDescription): {
  * Best-effort detection of a layer's source kind from its resolved upstream
  * value. The renderer hands us either:
  *   - a string (text from Prompt nodes)
+ *   - an object with `.graph` (live `GraphDescription` — pull-model upstream)
  *   - an object with `.url` (image or video media object)
  *   - null/undefined when the upstream hasn't produced anything yet
  */
@@ -98,8 +99,14 @@ export function detectSourceKind(resolved: any): LayerSourceKind {
     if (typeof resolved === 'string') return 'text';
     if (typeof resolved !== 'object') return 'unknown';
 
+    // A pull-model graph is always video-like for gating + transport purposes;
+    // even a still-image-only subgraph behaves as a temporal surface here.
+    if ((resolved as any).graph) return 'video';
+
     const url: string | undefined =
-        typeof (resolved as any).url === 'string' ? (resolved as any).url : undefined;
+        typeof (resolved as any).url === 'string' && (resolved as any).url.length > 0
+            ? (resolved as any).url
+            : undefined;
     if (!url) return 'unknown';
     return detectSourceKindFromUrl(url);
 }

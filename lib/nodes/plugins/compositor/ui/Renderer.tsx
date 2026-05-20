@@ -21,7 +21,7 @@ import { Image as KonvaImage, Text as KonvaText, Group } from 'react-konva';
 import useImage from 'use-image';
 import Konva from 'konva';
 import { CompositorLayer, LayerTransform } from '../definition';
-import { detectSourceKindFromUrl, isLayerActiveAt, LayerSourceKind, GraphDescription, graphDimensions } from '../shared';
+import { detectSourceKindFromUrl, isLayerActiveAt, LayerSourceKind, GraphDescription, graphDimensions, graphDuration } from '../shared';
 import { acquireVideo, onVideoMetadata, releaseVideo, setPlayState, setMuted } from '../video-pool';
 import { GraphRenderCache, paintGraphFrame } from '../graph-renderer';
 
@@ -412,6 +412,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
     onInteractStart,
     onInteractEnd,
     visible = true,
+    muted = true,
 }: {
     layer: CompositorLayer;
     graph: GraphDescription;
@@ -425,6 +426,13 @@ const LayerSubgraph = memo(function LayerSubgraph({
     onInteractStart?: () => void;
     onInteractEnd?: () => void;
     visible?: boolean;
+    /**
+     * Mute vote forwarded to the upstream graph's media layers. Without this,
+     * pull-model surfaces (chained compositor, downstream blur) had no path
+     * for their transport's volume toggle to reach the pooled <video>, so
+     * chained graphs stayed silent regardless of UI state.
+     */
+    muted?: boolean;
 }) {
     const shapeRef = useRef<any>(null);
     const t = layer.transform;
@@ -462,16 +470,19 @@ const LayerSubgraph = memo(function LayerSubgraph({
         if (c.height !== dims.height) c.height = Math.max(1, dims.height);
     }, [dims.width, dims.height]);
 
-    // Fire onLoad once we know the subgraph's dimensions. Duration is taken
-    // from the graph; intrinsic subgraph durations don't drive activity
-    // gating at the parent level (the subgraph manages its own timeline).
+    // Fire onLoad once we know the subgraph's dimensions AND its timeline
+    // length. Reporting the upstream graph's duration here is what lets the
+    // parent compositor populate `intrinsicDurations[layerId]` correctly, so
+    // its own `computeTimelineDuration` sums to the right total instead of
+    // falling through to the 1-second fallback.
+    const reportedDuration = graphDuration(graph);
     const onLoadRef = useRef(onLoad);
     onLoadRef.current = onLoad;
     useEffect(() => {
         if (dims.width > 0 && dims.height > 0) {
-            onLoadRef.current?.({ duration: 0, width: dims.width, height: dims.height });
+            onLoadRef.current?.({ duration: reportedDuration, width: dims.width, height: dims.height });
         }
-    }, [dims.width, dims.height]);
+    }, [dims.width, dims.height, reportedDuration]);
 
     // rAF loop driving the subgraph repaint. We don't gate on isPlaying here
     // — even when the consumer is paused, the subgraph might still need to
@@ -481,6 +492,8 @@ const LayerSubgraph = memo(function LayerSubgraph({
     playheadRef.current = playhead;
     const isPlayingRef = useRef(isPlaying);
     isPlayingRef.current = isPlaying;
+    const mutedRef = useRef(muted);
+    mutedRef.current = muted;
     useEffect(() => {
         const c = offscreenRef.current;
         const cache = cacheRef.current;
@@ -492,7 +505,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
             const ctx = c.getContext('2d');
             if (ctx) {
                 cache.releaseAllScratch();
-                paintGraphFrame(graph, playheadRef.current, ctx, cache, isPlayingRef.current);
+                paintGraphFrame(graph, playheadRef.current, ctx, cache, isPlayingRef.current, mutedRef.current);
             }
             raf = requestAnimationFrame(draw);
         };
@@ -791,6 +804,11 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                     // it as a layer in our scene. Independent of any other
                     // consumer of the same upstream — each downstream node
                     // is its own renderer with its own time cursor.
+                    //
+                    // Subgraphs ignore per-layer time gating at the parent
+                    // level (LayerSubgraph manages its own internal timeline),
+                    // so the surface's `muted` flag is forwarded directly —
+                    // unlike LayerVideo below which also gates on activity.
                     return (
                         <LayerSubgraph
                             key={layer.id}
@@ -814,6 +832,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             onInteractStart={onInteractStart}
                             onInteractEnd={onInteractEnd}
                             visible={true}
+                            muted={muted || !!layer.muted}
                         />
                     );
                 }

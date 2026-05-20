@@ -28,7 +28,7 @@ import {
     isLayerActiveAt,
     LayerSourceKind,
 } from './shared';
-import { acquireVideo, releaseVideo, setPlayState } from './video-pool';
+import { acquireVideo, releaseVideo, setMuted, setPlayState } from './video-pool';
 
 /** Convert a graph layer's source to the kind enum used by activity gating. */
 function sourceKind(source: GraphLayerSource): LayerSourceKind {
@@ -113,6 +113,18 @@ export class GraphRenderCache {
         const handle = this.videos.get(url);
         if (!handle) return;
         setPlayState(url, handle.id, wantsPlay, this.poolKey);
+    }
+
+    /**
+     * Vote on the mute state for a particular video. OR-ed across consumers
+     * in the pool — without this method, pull-model surfaces had no way to
+     * vote unmuted, so chained compositors never emitted audio even when the
+     * transport's mute toggle was off.
+     */
+    setVideoMuted(url: string, muted: boolean): void {
+        const handle = this.videos.get(url);
+        if (!handle) return;
+        setMuted(url, handle.id, muted, this.poolKey);
     }
 
     /**
@@ -204,14 +216,16 @@ function drawMediaLayer(
     time: number,
     isPlaying: boolean,
     cache: GraphRenderCache,
+    muted: boolean,
 ): void {
     const { layer, source } = gl;
     if (source.kind !== 'media') return;
     const url = source.url;
 
     if (source.mediaKind === 'video') {
-        // Vote play state and seek if paused; pool reconciles across voters.
+        // Vote play + mute state and seek if paused; pool reconciles across voters.
         cache.setVideoPlayState(url, isPlaying);
+        cache.setVideoMuted(url, muted);
         if (!isPlaying) {
             const localTime = Math.max(0, time - (layer.startTime || 0));
             cache.seekVideo(url, localTime);
@@ -289,6 +303,7 @@ function drawGraphLayer(
     time: number,
     isPlaying: boolean,
     cache: GraphRenderCache,
+    muted: boolean,
 ): void {
     const { layer, source } = gl;
     if (source.kind !== 'graph') return;
@@ -307,7 +322,7 @@ function drawGraphLayer(
     const scratch = cache.borrowScratch(dims.width, dims.height);
     const sctx = scratch.getContext('2d');
     if (!sctx) return;
-    paintGraphFrame(sub, time, sctx, cache, isPlaying);
+    paintGraphFrame(sub, time, sctx, cache, isPlaying, muted);
 
     applyTransform(ctx, layer, (w, h) => {
         try {
@@ -325,6 +340,10 @@ function drawGraphLayer(
  * Driven by the caller's repaint loop — typically rAF in `LayerSubgraph`.
  * The cache holds video/image refs across frames; release with `cache.dispose()`
  * when the consumer unmounts.
+ *
+ * `muted` defaults to true so existing callers (blur preview, etc.) keep their
+ * silent behavior without a code change; LayerSubgraph passes the consumer's
+ * mute vote through so chained compositors can carry audio.
  */
 export function paintGraphFrame(
     graph: GraphDescription,
@@ -332,6 +351,7 @@ export function paintGraphFrame(
     ctx: CanvasRenderingContext2D,
     cache: GraphRenderCache,
     isPlaying: boolean,
+    muted: boolean = true,
 ): void {
     if (graph.kind === 'filter') {
         // Recurse into the base graph onto a scratch, then draw with filter.
@@ -346,7 +366,7 @@ export function paintGraphFrame(
         const scratch = cache.borrowScratch(baseGraph.canvasWidth, baseGraph.canvasHeight);
         const sctx = scratch.getContext('2d');
         if (!sctx) return;
-        paintGraphFrame(base, time, sctx, cache, isPlaying);
+        paintGraphFrame(base, time, sctx, cache, isPlaying, muted);
         const targetW = ctx.canvas.width;
         const targetH = ctx.canvas.height;
         ctx.save();
@@ -378,11 +398,11 @@ export function paintGraphFrame(
         if (!isLayerActiveAt(layer, kind, intrinsic, time)) continue;
 
         if (source.kind === 'media') {
-            drawMediaLayer(ctx, gl, time, isPlaying, cache);
+            drawMediaLayer(ctx, gl, time, isPlaying, cache, muted);
         } else if (source.kind === 'text') {
             drawTextLayer(ctx, gl);
         } else if (source.kind === 'graph') {
-            drawGraphLayer(ctx, gl, time, isPlaying, cache);
+            drawGraphLayer(ctx, gl, time, isPlaying, cache, muted);
         }
     }
 }
