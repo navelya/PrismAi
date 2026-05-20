@@ -162,7 +162,7 @@ export default function EditorToolbar({
                         )}
 
                         {showErrorPopover && validationErrors.length > 0 && (
-                            <div className="absolute top-full right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle rounded-xl shadow-xl shadow-black/20 z-30 p-2">
+                            <div className="absolute top-full right-0 w-80 max-h-96 overflow-y-auto bg-surface-elevated/95 backdrop-blur-md border border-stroke-subtle rounded-xl shadow-xl shadow-black/20 z-30 p-2">
                                 <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-content-tertiary">
                                     Can&apos;t run — {validationErrors.length} issue{validationErrors.length === 1 ? '' : 's'}
                                 </div>
