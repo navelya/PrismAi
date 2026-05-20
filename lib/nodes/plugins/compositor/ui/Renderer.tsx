@@ -261,8 +261,6 @@ const LayerVideo = memo(function LayerVideo({
     const [ready, setReady] = useState(() => !!pooledEl && (pooledEl as any).readyState >= 1);
     const t = layer.transform;
 
-    const videoEl = pooledEl;
-
     // Keep onLoad in a ref so we don't refire the metadata subscription when
     // the parent (CompositorLayerNodes) hands us a fresh arrow callback per
     // render. Without this, every parent re-render unsubscribed + resubscribed
@@ -313,9 +311,6 @@ const LayerVideo = memo(function LayerVideo({
     // nearest keyframe rather than the exact PTS, which paints a frame much
     // sooner during a scrub (Chrome/Firefox/Safari all support it).
     useEffect(() => {
-        // Always seek on the underlying pooled HTMLVideoElement, even when
-        // we're rendering the offscreen filter canvas — only the real video
-        // element has meaningful duration/currentTime/fastSeek.
         if (!pooledEl || !ready || isPlaying) return;
         if (typeof localTime !== 'number') return;
         const clamped = Math.max(0, Math.min(localTime, Math.max(0, pooledEl.duration || 0)));
@@ -328,10 +323,10 @@ const LayerVideo = memo(function LayerVideo({
         }
     }, [localTime, ready, isPlaying, pooledEl]);
 
-    if (!ready || !videoEl) return null;
+    if (!ready || !pooledEl) return null;
 
     const commonProps: any = {
-        image: videoEl,
+        image: pooledEl,
         ref: shapeRef,
         visible,
         x: t.x,
