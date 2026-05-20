@@ -10,7 +10,6 @@ export function useExecutionValidation(): {
     const workflow = useAppStore((s) => s.currentWorkflow);
     const runFromNodeId = useAppStore((s) => s.runFromNodeId);
     const runMode = useAppStore((s) => s.runMode);
-    const nodeStatuses = useAppStore((s) => s.nodeStatuses);
     const nodeOutputs = useAppStore((s) => s.nodeOutputs);
     const models = useAppStore((s) => s.models);
 
@@ -28,7 +27,7 @@ export function useExecutionValidation(): {
             }
         }
         return ids;
-    }, [workflow, nodeStatuses, nodeOutputs]);
+    }, [workflow, nodeOutputs]);
 
     // Map store runMode (possibly null / 'ab_test') to validator runMode.
     // No runFromNodeId means "Run Workflow" → 'all'. ab_test runs one node at
@@ -50,7 +49,7 @@ export function useExecutionValidation(): {
             targetNodeId,
             completedNodeIds,
             sharedRegistry,
-            models: (models as any) ?? [],
+            models: models,
         });
     }, [workflow, effectiveMode, targetNodeId, completedNodeIds, models]);
 
