@@ -29,13 +29,12 @@ import { GraphRenderCache, paintGraphFrame } from '../graph-renderer';
  * What the shared renderer needs to draw one layer:
  *   - the layer record (transform, visibility, etc.)
  *   - its resolved upstream value: an image object `{ url, ... }`, a text
- *     string, an object carrying a live `canvas` reference (legacy push model),
- *     an object carrying a `graph` description (pull model), or null when the
- *     upstream hasn't produced anything yet
+ *     string, an object carrying a `graph` description (pull model), or
+ *     null when the upstream hasn't produced anything yet
  */
 export interface RenderableLayer {
     layer: CompositorLayer;
-    resolved: { url?: string; canvas?: HTMLCanvasElement; graph?: GraphDescription; cssFilter?: string } | string | null;
+    resolved: { url?: string; graph?: GraphDescription; resolution?: { width: number; height: number } } | string | null;
 }
 
 interface CompositorLayerNodesProps {
@@ -386,207 +385,14 @@ const LayerVideo = memo(function LayerVideo({
 });
 
 /**
- * Render a layer whose source is an HTMLCanvasElement (e.g. another
- * Compositor's live canvas, or a Blur node that wraps it). No video pool,
- * no decoder warm-up — Konva accepts HTMLCanvasElement as a `KonvaImage`
- * source directly, and the shared `CompositorAnimator` on this Layer
- * batches the redraw that re-reads the canvas pixels each frame. That's
- * what makes compositor-to-compositor chaining feel instant: zero encoding,
- * zero round-trip, just pointer-passing.
- *
- * Activity gating: a canvas source has no intrinsic duration. We treat it
- * image-style — always active whenever the parent says it's visible (its
- * own playhead is owned by the upstream compositor, which already gates
- * what frames the canvas shows).
- */
-const LayerCanvas = memo(function LayerCanvas({
-    layer,
-    sourceCanvas,
-    cssFilter,
-    interactive,
-    onSelect,
-    onTransform,
-    onLoad,
-    onInteractStart,
-    onInteractEnd,
-    visible = true,
-}: {
-    layer: CompositorLayer;
-    sourceCanvas: HTMLCanvasElement;
-    /**
-     * Same contract as LayerVideo's cssFilter. When present, frames are
-     * copied through an offscreen canvas with `ctx.filter = cssFilter`
-     * before Konva picks them up. Chained filters compose by concatenation.
-     */
-    cssFilter?: string | null;
-    interactive: boolean;
-    onSelect?: () => void;
-    onTransform?: (updates: Partial<LayerTransform>) => void;
-    onLoad?: (meta: { duration: number; width: number; height: number }) => void;
-    onInteractStart?: () => void;
-    onInteractEnd?: () => void;
-    visible?: boolean;
-}) {
-    const shapeRef = useRef<any>(null);
-    const t = layer.transform;
-
-    // Always route through a managed wrapper canvas — never hand the
-    // upstream canvas to Konva directly. Two reasons:
-    //   (1) The upstream canvas can briefly be 0×0 during layout/mount
-    //       transitions; Konva's internal `drawImage` throws an
-    //       InvalidStateError on a 0-dim source. Our wrapper retains its
-    //       last-good dimensions across transitions so Konva never sees 0.
-    //   (2) The cssFilter path needs an offscreen canvas anyway. Using the
-    //       same wrapper for both filter-on and filter-off cases keeps the
-    //       code one path; the per-frame copy at typical canvas sizes is
-    //       ~1ms and the simplicity is worth it.
-    const wrapperRef = useRef<HTMLCanvasElement | null>(null);
-    if (!wrapperRef.current && typeof document !== 'undefined') {
-        const c = document.createElement('canvas');
-        // HTML5 default is 300×150, but force a non-zero start for safety —
-        // Konva's drawImage will refuse a 0-dim image even on first paint.
-        if (!c.width) c.width = 1;
-        if (!c.height) c.height = 1;
-        wrapperRef.current = c;
-    }
-
-    // Copy frames from the upstream canvas through the wrapper. When
-    // cssFilter is set, apply it during the copy. Konva's CompositorAnimator
-    // drives the redraw rate; this loop's job is only to keep the wrapper's
-    // pixels current with the upstream so each Konva redraw reads a fresh
-    // frame.
-    useEffect(() => {
-        const dst = wrapperRef.current;
-        if (!dst || !sourceCanvas) return;
-        const ctx = dst.getContext('2d');
-        if (!ctx) return;
-        let stopped = false;
-        let raf = 0;
-        const draw = () => {
-            if (stopped) return;
-            const sw = sourceCanvas.width;
-            const sh = sourceCanvas.height;
-            // Only resize + copy when the upstream has real dimensions.
-            // If it transiently drops to 0 (mount/unmount), the wrapper
-            // retains its last-good content so Konva keeps rendering.
-            if (sw > 0 && sh > 0) {
-                if (dst.width !== sw) dst.width = sw;
-                if (dst.height !== sh) dst.height = sh;
-                ctx.filter = cssFilter || 'none';
-                try {
-                    ctx.drawImage(sourceCanvas, 0, 0, sw, sh);
-                } catch {
-                    // Defensive: cross-origin taint shouldn't happen for our
-                    // own in-app canvases, but keep the loop alive.
-                }
-            }
-            raf = requestAnimationFrame(draw);
-        };
-        raf = requestAnimationFrame(draw);
-        return () => {
-            stopped = true;
-            if (raf) cancelAnimationFrame(raf);
-        };
-    }, [cssFilter, sourceCanvas]);
-
-    // Report intrinsic dimensions to the parent's auto-fit logic. Poll once
-    // per rAF until the upstream canvas has non-zero dims, then fire and
-    // stop. Duration is 0 — a live canvas has no intrinsic timeline of its
-    // own; the upstream owns the playhead.
-    const onLoadRef = useRef(onLoad);
-    onLoadRef.current = onLoad;
-    useEffect(() => {
-        if (!sourceCanvas) return;
-        let raf = 0;
-        let fired = false;
-        const tick = () => {
-            if (fired) return;
-            const w = sourceCanvas.width;
-            const h = sourceCanvas.height;
-            if (w > 0 && h > 0) {
-                fired = true;
-                onLoadRef.current?.({ duration: 0, width: w, height: h });
-                return;
-            }
-            raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        return () => { if (raf) cancelAnimationFrame(raf); };
-    }, [sourceCanvas]);
-
-    const imageEl = wrapperRef.current;
-    if (!imageEl) return null;
-
-    const commonProps: any = {
-        image: imageEl,
-        ref: shapeRef,
-        visible,
-        x: t.x,
-        y: t.y,
-        width: t.width,
-        height: t.height,
-        rotation: t.rotation,
-        opacity: t.opacity,
-        scaleX: t.flipX ? -1 : 1,
-        scaleY: t.flipY ? -1 : 1,
-        offsetX: t.flipX ? t.width : 0,
-        offsetY: t.flipY ? t.height : 0,
-        globalCompositeOperation: (t.blendMode as any) || 'source-over',
-    };
-
-    if (!interactive) {
-        return <KonvaImage {...commonProps} listening={false} />;
-    }
-
-    return (
-        <KonvaImage
-            {...commonProps}
-            name={`img-${layer.id}`}
-            draggable={!layer.locked && visible}
-            onClick={onSelect}
-            onTap={onSelect}
-            onDragStart={() => {
-                onSelect?.();
-                onInteractStart?.();
-            }}
-            onDragEnd={(e) => {
-                onTransform?.({ x: e.target.x(), y: e.target.y() });
-                onInteractEnd?.();
-            }}
-            onTransformStart={() => onInteractStart?.()}
-            onTransformEnd={() => {
-                const node = shapeRef.current;
-                if (!node) {
-                    onInteractEnd?.();
-                    return;
-                }
-                const scaleX = node.scaleX();
-                const scaleY = node.scaleY();
-                node.scaleX(t.flipX ? -1 : 1);
-                node.scaleY(t.flipY ? -1 : 1);
-                onTransform?.({
-                    x: node.x(),
-                    y: node.y(),
-                    rotation: node.rotation(),
-                    width: Math.max(5, node.width() * Math.abs(scaleX)),
-                    height: Math.max(5, node.height() * Math.abs(scaleY)),
-                });
-                onInteractEnd?.();
-            }}
-        />
-    );
-});
-
-/**
  * Render a layer whose source is a pull-model `GraphDescription`.
  *
  * Each instance owns an offscreen canvas at the subgraph's natural
  * dimensions. A rAF loop paints the subgraph into it at THIS consumer's
  * playhead via the imperative `paintGraphFrame` renderer (see
  * graph-renderer.ts). The painted canvas is then exposed to the enclosing
- * Konva tree as a KonvaImage source — same trick as `LayerCanvas`, but the
- * canvas's contents are computed locally instead of being a reference to
- * an upstream node's surface.
+ * Konva tree as a KonvaImage source — the canvas's contents are computed
+ * locally instead of being a reference to an upstream node's surface.
  *
  * This is the core of the pull-model: instead of every downstream node
  * pointing at the same source canvas (which has one shared playhead), each
@@ -922,18 +728,14 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
     muted = true,
 }: CompositorLayerNodesProps) {
     // Detect if any visible layer needs the continuous redraw loop. That's
-    // true when the layer is a video URL (frames decode over time), an
-    // upstream canvas reference (legacy push model), or a graph description
-    // (pull model — the subgraph might be animating). Image-only compositors
-    // don't need the rAF loop.
+    // true when the layer is a video URL (frames decode over time) or a
+    // graph description (pull model — the subgraph might be animating).
+    // Image-only compositors don't need the rAF loop.
     const hasVideo = useMemo(
         () =>
             layers.some(({ layer, resolved }) => {
                 if (!layer.visible) return false;
-                if (resolved && typeof resolved === 'object') {
-                    if ((resolved as any).graph) return true;
-                    if ((resolved as any).canvas instanceof HTMLCanvasElement) return true;
-                }
+                if (resolved && typeof resolved === 'object' && (resolved as any).graph) return true;
                 const url =
                     resolved && typeof resolved === 'object' && typeof (resolved as any).url === 'string'
                         ? ((resolved as any).url as string)
@@ -964,29 +766,11 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                     resolved && typeof resolved === 'object' && (resolved as any).graph
                         ? ((resolved as any).graph as GraphDescription)
                         : null;
-                // Live canvas reference from an upstream renderer (legacy
-                // push model — kept for non-graph sources that still publish
-                // a direct canvas ref). The pull-model graph branch above
-                // takes precedence whenever both are present.
-                const sourceCanvas =
-                    !sourceGraph &&
-                    resolved && typeof resolved === 'object' && (resolved as any).canvas instanceof HTMLCanvasElement
-                        ? ((resolved as any).canvas as HTMLCanvasElement)
-                        : null;
-                // Filter descriptor carried from an upstream effect node
-                // (e.g. Blur). When present, the LayerVideo routes frames
-                // through an offscreen canvas with `ctx.filter = cssFilter`
-                // before Konva renders them.
-                const cssFilter =
-                    resolved && typeof resolved === 'object' && typeof (resolved as any).cssFilter === 'string'
-                        ? ((resolved as any).cssFilter as string)
-                        : null;
                 const asText = typeof resolved === 'string' ? resolved : null;
 
                 let kind: LayerSourceKind = 'unknown';
                 if (asText !== null) kind = 'text';
                 else if (sourceGraph) kind = 'video'; // graphs behave like video for gating/redraw
-                else if (sourceCanvas) kind = 'video'; // canvas behaves like video for gating/redraw
                 else if (url) kind = detectSourceKindFromUrl(url);
 
                 // Activity gating. Video layers stay mounted even when
@@ -1015,37 +799,6 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             playhead={typeof playhead === 'number' ? playhead : 0}
                             isPlaying={isPlaying}
                             poolKey={poolKey || '_global_'}
-                            interactive={interactive}
-                            onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
-                            onTransform={
-                                interactive && onTransformLayer
-                                    ? (u) => onTransformLayer(layer.id, u)
-                                    : undefined
-                            }
-                            onLoad={
-                                onLayerVideoLoad
-                                    ? (meta) => onLayerVideoLoad(layer.id, meta)
-                                    : undefined
-                            }
-                            onInteractStart={onInteractStart}
-                            onInteractEnd={onInteractEnd}
-                            visible={true}
-                        />
-                    );
-                }
-
-                if (sourceCanvas) {
-                    // Canvas-sourced layer: ignore the playhead, ignore
-                    // activity gating (a live canvas has no intrinsic
-                    // timeline of its own). The upstream renderer's playhead
-                    // already decides which frames the canvas shows; here we
-                    // just composite whatever's currently in it.
-                    return (
-                        <LayerCanvas
-                            key={layer.id}
-                            layer={layer}
-                            sourceCanvas={sourceCanvas}
-                            cssFilter={cssFilter}
                             interactive={interactive}
                             onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
                             onTransform={
