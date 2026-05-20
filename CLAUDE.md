@@ -19,7 +19,7 @@ There is no test runner. Ad-hoc integration scripts in [scripts/](scripts/) are 
 
 A separate Python background-removal service runs on port 8000 (see [STARTUP.md](STARTUP.md), [DEPLOYMENT.md](DEPLOYMENT.md)) — its `python-backend/` directory ships separately to Hugging Face Spaces and is not in this repo.
 
-Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY` (chat brain), `GEMINI_API_KEY` (used by session-title generation and other Gemini features), `REPLICATE_API_TOKEN`, `REPLICATE_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_APP_URL` (used as the Replicate webhook base URL — must be publicly reachable), `CRON_SECRET`.
+Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY` (chat brain), `GEMINI_API_KEY` (used by session-title generation and other Gemini features), `REPLICATE_API_TOKEN`, `REPLICATE_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_APP_URL` (used as the Replicate webhook base URL — must be publicly reachable), `CRON_SECRET`, `RESEND_API_KEY` (admin alert emails for billing exceptions), `ADMIN_ALERT_EMAIL` (destination for billing alerts), `ADMIN_ALERT_FROM` (optional, defaults to `alerts@prismai.local`).
 
 ## Things that bite
 
