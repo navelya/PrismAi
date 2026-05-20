@@ -13,6 +13,8 @@ import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import { validateExecution } from '@/lib/workflow/validate-execution';
+import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
 import { createClient } from '@/lib/supabase/client';
@@ -281,6 +283,45 @@ export default function SharedWorkflowEditor({
     };
 
     const commitExecution = async (targetNodeId: string | null, mode: string) => {
+        // Pre-flight validation. The validator is pure; we can re-run it here with
+        // fresh store state to gate the POST. (The hook can't be called here —
+        // we're inside a callback, not a render — but the same logic still applies.)
+        {
+            const state = useAppStore.getState();
+            const wf = state.currentWorkflow;
+            if (wf) {
+                const completedNodeIds = new Set<string>();
+                for (const n of wf.nodes) {
+                    const liveOut = state.nodeOutputs?.[n.id];
+                    const persistedOut = (n.data as any)?.output;
+                    if (liveOut != null || persistedOut != null) {
+                        completedNodeIds.add(n.id);
+                    }
+                }
+                // Map store runMode (possibly 'ab_test' or 'all') to validator runMode
+                // exactly like the useExecutionValidation hook does.
+                const effectiveMode: 'all' | 'solo' | 'chain' =
+                    !targetNodeId ? 'all' : mode === 'chain' ? 'chain' : 'solo';
+                const errors = validateExecution({
+                    workflow: wf,
+                    runMode: effectiveMode,
+                    targetNodeId,
+                    completedNodeIds,
+                    sharedRegistry,
+                    models: state.models ?? [],
+                });
+                if (errors.length > 0) {
+                    if (mode !== 'solo') {
+                        setExecutionError(
+                            `Can't run — ${errors.length} issue${errors.length === 1 ? '' : 's'}. Hover the Run Workflow button to see them.`,
+                        );
+                    }
+                    // Solo: the per-node badge on the offending node is already loud
+                    // enough; no banner.
+                    return;
+                }
+            }
+        }
         activeRunCountRef.current += 1;
         setIsExecuting(true);
         setExecutionError(null);
@@ -352,8 +393,16 @@ export default function SharedWorkflowEditor({
             });
 
             if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.error || 'Execution request failed');
+                const data = await res.json().catch(() => ({} as any));
+                if (data?.error === 'VALIDATION_FAILED' && Array.isArray(data.errors)) {
+                    const msgs = (data.errors as any[])
+                        .slice(0, 3)
+                        .map((e) => formatValidationError(e))
+                        .join('; ');
+                    const more = data.errors.length > 3 ? `; +${data.errors.length - 3} more` : '';
+                    throw new Error(`Validation failed — ${msgs}${more}`);
+                }
+                throw new Error(data?.error || 'Execution request failed');
             }
 
             const data = await res.json();
