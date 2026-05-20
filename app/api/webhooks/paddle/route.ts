@@ -493,6 +493,42 @@ function mapPaddleStatusToOurs(paddleStatus: string): 'active' | 'canceled' | 'p
 // =============================================================================
 
 /**
+ * Find the ledger rows that recorded the original positive grant(s) for a
+ * given Paddle transaction. grantCredits() stores paddle_transaction_id in
+ * metadata, which is how we re-locate them on a refund/chargeback.
+ */
+async function findOriginalGrants(
+    supabase: ReturnType<typeof createServiceClient>,
+    paddleTransactionId: string,
+): Promise<Array<{ id: string; user_id: string; amount: number; reason: string; metadata: any }>> {
+    const { data, error } = await supabase
+        .from('token_ledger')
+        .select('id, user_id, amount, reason, metadata')
+        .in('reason', ['paddle_pack_purchase', 'paddle_subscription_grant'])
+        .filter('metadata->>paddle_transaction_id', 'eq', paddleTransactionId);
+
+    if (error) {
+        console.error('[Paddle Webhook] findOriginalGrants failed:', error);
+        return [];
+    }
+    return (data ?? []) as any;
+}
+
+/**
+ * Classify a Paddle adjustment as a full refund relative to the original
+ * transaction total. Paddle ships totals as decimal strings in minor units
+ * (cents). We compare adjustment.totals.total against the original
+ * transaction's total — equal within 1 cent → full refund.
+ */
+function isFullRefund(adjustment: any, originalTxTotalCents: number): boolean {
+    const totalsRaw = adjustment?.totals?.total ?? adjustment?.payoutTotals?.total;
+    if (totalsRaw == null) return false;
+    const adjustmentTotal = typeof totalsRaw === 'number' ? totalsRaw : Number.parseFloat(String(totalsRaw));
+    if (!Number.isFinite(adjustmentTotal)) return false;
+    return Math.abs(adjustmentTotal - originalTxTotalCents) < 1;
+}
+
+/**
  * Paddle emits `adjustment.created` for refunds, chargebacks, and chargeback
  * reversals. We only act when `status === 'approved'` — pending adjustments
  * may be revoked. Each action routes to its own subhandler. Unknown actions
@@ -520,10 +556,99 @@ async function handleAdjustmentCreated(data: any, eventId: string, supabase: Ret
     }
 }
 
-// Placeholder subhandlers — filled in by tasks 5/6/7.
-async function handleRefund(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
-    console.log('[Paddle Webhook] Refund stub:', data?.id, 'event:', eventId);
-    void sendAdminAlert; // keep import live until task 5 fills this in
+async function handleRefund(data: any, eventId: string, supabase: ReturnType<typeof createServiceClient>) {
+    const adjustmentId: string = data?.id ?? '';
+    const txId: string = data?.transactionId ?? '';
+
+    if (!txId) {
+        console.error('[Paddle Webhook] Refund missing transactionId:', adjustmentId);
+        void sendAdminAlert({
+            kind: 'unknown_user',
+            summary: 'Refund event without transactionId',
+            details: { adjustmentId, eventId, raw: data },
+        });
+        return;
+    }
+
+    const grants = await findOriginalGrants(supabase, txId);
+    if (grants.length === 0) {
+        console.warn('[Paddle Webhook] Refund for unknown transaction:', txId);
+        void sendAdminAlert({
+            kind: 'unknown_user',
+            summary: `Refund for transaction with no recorded grants`,
+            details: { adjustmentId, eventId, paddleTransactionId: txId },
+        });
+        return;
+    }
+
+    const userId = grants[0].user_id;
+    const grantedCredits = grants.reduce((sum, g) => sum + Number(g.amount), 0);
+
+    const originalTotalCents = Number(data?.originalTotals?.total ?? data?.transactionTotals?.total ?? 0);
+    const adjustmentTotalCents = Number(data?.totals?.total ?? 0);
+    const fullRefund = originalTotalCents > 0 && isFullRefund(data, originalTotalCents);
+
+    if (!fullRefund) {
+        // Partial refund — admin handles credit adjustment manually.
+        void sendAdminAlert({
+            kind: 'partial_refund',
+            summary: `Partial refund seen for user ${userId} — no auto-clawback`,
+            details: {
+                userId,
+                adjustmentId,
+                eventId,
+                paddleTransactionId: txId,
+                originalTotalCents,
+                adjustmentTotalCents,
+                grantedCredits,
+            },
+        });
+        return;
+    }
+
+    // Full refund — claw back each grant row independently.
+    let totalClawedBack = 0;
+    let totalShortfall = 0;
+
+    for (const grant of grants) {
+        const idemKey = `paddle:adj:${adjustmentId}:row:${grant.id}`;
+        const { data: rpcResult, error } = await supabase.rpc('paddle_refund_clawback', {
+            p_user_id: userId,
+            p_event_id: eventId,
+            p_original_grant_id: grant.id,
+            p_idempotency_key: idemKey,
+            p_metadata: {
+                paddle_adjustment_id: adjustmentId,
+                paddle_transaction_id: txId,
+                refund_reason: data?.reason ?? null,
+            },
+        });
+
+        if (error) {
+            console.error('[Paddle Webhook] paddle_refund_clawback RPC failed:', error);
+            throw new Error(error.message);
+        }
+
+        const result = rpcResult as { clawed_back?: number; shortfall?: number };
+        totalClawedBack += Number(result?.clawed_back ?? 0);
+        totalShortfall  += Number(result?.shortfall  ?? 0);
+    }
+
+    if (totalShortfall > 0) {
+        void sendAdminAlert({
+            kind: 'clawback_shortfall',
+            summary: `Refund clawback short by ${totalShortfall} credits for user ${userId}`,
+            details: {
+                userId,
+                adjustmentId,
+                eventId,
+                paddleTransactionId: txId,
+                totalGranted: grantedCredits,
+                totalClawedBack,
+                totalShortfall,
+            },
+        });
+    }
 }
 
 async function handleChargeback(data: any, eventId: string, _supabase: ReturnType<typeof createServiceClient>) {
