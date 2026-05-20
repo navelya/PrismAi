@@ -58,29 +58,38 @@ export class GraphRenderCache {
     private scratch: HTMLCanvasElement[] = [];
     private scratchInUse = 0;
     /**
-     * Per-URL "was active in the previous frame" flag. Drives seek-on-
-     * activation: when a layer transitions inactive → active we seek the
-     * pool element to the expected layer-local time before letting it
-     * play. Without this, the element resumes at wherever it was paused —
-     * usually the previous end-of-window — and the user sees a flash of
-     * the last frame before `el.loop` kicks in to restart playback.
+     * Per-URL "was active in the previous frame" flag. Drives the
+     * transition handling in `voteVideoPoolState`: activation seeks to
+     * layer-local time, deactivation pre-positions the element back to 0
+     * so the next activation can play instantly without a seek delay.
      */
     private lastActiveByUrl = new Map<string, boolean>();
+    /**
+     * Per-URL "what local time were we at on the previous frame." Lets
+     * `voteVideoPoolState` distinguish natural frame-to-frame advancement
+     * (~16ms steady-state) from user-initiated scrubs (large jumps) and
+     * seek only on the latter — keeping the element stable during pause.
+     */
+    private lastLocalTimeByUrl = new Map<string, number>();
 
     constructor(poolKey: string) {
         this.poolKey = poolKey;
     }
 
-    /**
-     * Returns true if the given URL was marked active in the previous
-     * `markVideoActive` call. False for first-time queries.
-     */
     wasVideoActive(url: string): boolean {
         return this.lastActiveByUrl.get(url) ?? false;
     }
 
     markVideoActive(url: string, isActive: boolean): void {
         this.lastActiveByUrl.set(url, isActive);
+    }
+
+    getLastLocalTime(url: string): number | null {
+        return this.lastLocalTimeByUrl.has(url) ? this.lastLocalTimeByUrl.get(url)! : null;
+    }
+
+    setLastLocalTime(url: string, localTime: number): void {
+        this.lastLocalTimeByUrl.set(url, localTime);
     }
 
     /**
@@ -204,6 +213,7 @@ export class GraphRenderCache {
         this.images.clear();
         this.imageLoadingPromises.clear();
         this.lastActiveByUrl.clear();
+        this.lastLocalTimeByUrl.clear();
         this.scratch = [];
         this.scratchInUse = 0;
     }
@@ -233,26 +243,20 @@ function applyTransform(
 }
 
 /**
- * Update the pool vote for one video layer and ensure its element is
- * acquired so it can warm up before its active window arrives.
+ * Per-frame state update for one video layer's pool element.
  *
- * Pulled out of `drawMediaLayer` so it runs for EVERY video layer in the
- * compositor — including inactive ones. Without this, a layer that played
- * once and then went inactive would keep playing (and emitting audio) in
- * the pool because no consumer would vote it off.
+ * Three responsibilities:
+ *   - Acquire the element (idempotent) so it warms up before its window.
+ *   - Vote on the pool's play + mute state based on activity.
+ *   - Issue seeks ONLY on real transitions: layer activation, deactivation,
+ *     and user scrubs (large jumps in layer-local time between frames).
  *
- * `cache.getVideo(url)` is idempotent — first call acquires from the pool,
- * subsequent calls return the same handle. Calling it for every video at
- * paint time means the element starts loading long before its window, so
- * by activation it's already at `readyState >= 2` and the first-frame
- * blink between sequenced clips disappears.
- *
- * Seek-on-activation: when a layer transitions inactive → active we
- * explicitly seek the element to the expected layer-local time. Without
- * this, an element paused at end-of-window (from its previous activation)
- * would resume at that position when activated again, briefly showing a
- * frame from the wrong time before `el.loop` restarted it.
+ * `drawMediaLayer` is intentionally pure-draw — it does not seek. All
+ * timing concerns live here so we never seek-on-pause-while-already-at-the-
+ * right-position, which used to cause a visible blank frame on pause.
  */
+const SCRUB_JUMP_THRESHOLD_SEC = 0.5;
+
 function voteVideoPoolState(
     cache: GraphRenderCache,
     url: string,
@@ -263,23 +267,54 @@ function voteVideoPoolState(
     muted: boolean,
 ): void {
     cache.getVideo(url);
-    cache.setVideoPlayState(url, isActive && isPlaying);
-    cache.setVideoMuted(url, !isActive || muted);
 
     const wasActive = cache.wasVideoActive(url);
     cache.markVideoActive(url, isActive);
 
+    const localTime = Math.max(0, time - (layer.startTime || 0));
+    const lastLocalTime = cache.getLastLocalTime(url);
+    cache.setLastLocalTime(url, localTime);
+
+    cache.setVideoMuted(url, !isActive || muted);
+
     if (isActive && !wasActive) {
-        const localTime = Math.max(0, time - (layer.startTime || 0));
+        // Activation edge — seek to layer-local time BEFORE voting play
+        // so the browser doesn't start playback from a stale currentTime
+        // and then teleport, which renders as a blank frame.
         cache.seekVideo(url, localTime);
+        cache.setVideoPlayState(url, isPlaying);
+        return;
     }
+
+    if (!isActive && wasActive) {
+        // Deactivation edge — pause, then pre-position to 0 so the next
+        // activation has the element already at the start and can play
+        // instantly. The seek is invisible to the user because the layer
+        // isn't being drawn anyway.
+        cache.setVideoPlayState(url, false);
+        cache.seekVideo(url, 0);
+        return;
+    }
+
+    if (isActive) {
+        // Steady active state. Only seek on user-scrub-like jumps; natural
+        // frame-to-frame advancement is ~16ms which stays well under the
+        // threshold. This is what keeps pause stable: pausing doesn't jump
+        // the playhead, so we don't seek, and the element holds its frame.
+        if (
+            lastLocalTime !== null &&
+            Math.abs(localTime - lastLocalTime) > SCRUB_JUMP_THRESHOLD_SEC
+        ) {
+            cache.seekVideo(url, localTime);
+        }
+        cache.setVideoPlayState(url, isPlaying);
+    }
+    // !isActive && !wasActive: nothing to do; element stays paused at 0.
 }
 
 function drawMediaLayer(
     ctx: CanvasRenderingContext2D,
     gl: GraphLayer,
-    time: number,
-    isPlaying: boolean,
     cache: GraphRenderCache,
 ): void {
     const { layer, source } = gl;
@@ -287,10 +322,6 @@ function drawMediaLayer(
     const url = source.url;
 
     if (source.mediaKind === 'video') {
-        if (!isPlaying) {
-            const localTime = Math.max(0, time - (layer.startTime || 0));
-            cache.seekVideo(url, localTime);
-        }
         const el = cache.getVideo(url);
         if (!el || el.videoWidth === 0) return;
         const t = layer.transform;
@@ -473,7 +504,7 @@ export function paintGraphFrame(
         if (!isLayerActiveAt(layer, kind, intrinsic, time)) continue;
 
         if (source.kind === 'media') {
-            drawMediaLayer(ctx, gl, time, isPlaying, cache);
+            drawMediaLayer(ctx, gl, cache);
         } else if (source.kind === 'text') {
             drawTextLayer(ctx, gl);
         } else if (source.kind === 'graph') {
