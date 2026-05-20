@@ -297,14 +297,24 @@ function voteVideoPoolState(
     }
 
     if (isActive) {
-        // Steady active state. Only seek on user-scrub-like jumps; natural
-        // frame-to-frame advancement is ~16ms which stays well under the
-        // threshold. This is what keeps pause stable: pausing doesn't jump
-        // the playhead, so we don't seek, and the element holds its frame.
-        if (
+        // Steady active state. Two reasons to seek; otherwise leave the
+        // element alone so pause stays visually stable (no flicker).
+        //
+        // 1. User-scrub-like jumps in layer-local time. Natural frame-to-
+        //    frame playback advances ~16ms which is well under the threshold;
+        //    scrubbing jumps further.
+        // 2. Element acquired but not yet decoded a frame (readyState 1, not
+        //    yet 2). A paused HTMLVideoElement that loaded metadata won't
+        //    decode its first frame on its own — drawImage stays empty until
+        //    something seeks it. The card's Konva-based LayerVideo has its
+        //    own seek effect for this; LayerSubgraph relies on us. The
+        //    `getVideo` call returns null while readyState < 2, so we seek
+        //    in that case and stop the moment it returns the element.
+        const ready = cache.getVideo(url) !== null;
+        const scrubbed =
             lastLocalTime !== null &&
-            Math.abs(localTime - lastLocalTime) > SCRUB_JUMP_THRESHOLD_SEC
-        ) {
+            Math.abs(localTime - lastLocalTime) > SCRUB_JUMP_THRESHOLD_SEC;
+        if (!ready || scrubbed) {
             cache.seekVideo(url, localTime);
         }
         cache.setVideoPlayState(url, isPlaying);
