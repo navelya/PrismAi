@@ -566,6 +566,12 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [downloadState, setDownloadState] =
         useState<'idle' | 'rendering' | 'success' | 'error'>('idle');
 
+    // Share a single in-flight Promise across overlapping callers (e.g. bulk
+    // download triggers A's handler directly AND B's resolver also asks for
+    // A — both should get the same blob from one render, not two parallel
+    // renders or a "Already rendering" throw on the second caller).
+    const inFlightExportRef = useRef<Promise<{ filename: string; blob: Blob }[]> | null>(null);
+
     const canvasW = config.canvasWidth || 1920;
     const canvasH = config.canvasHeight || 1080;
 
@@ -750,13 +756,16 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // the per-node `downloadState` lifecycle in either case; the caller adds
     // its own UX layer (anchor click vs zip entry) on top of the returned blob.
     const fetchCompositorExport = useCallback(async (): Promise<{ filename: string; blob: Blob }[]> => {
-        // Reject (rather than silently return) on early-out branches so callers
-        // — including Promise.allSettled in the bulk orchestrator — see an
-        // accurate success/failure outcome.
-        if (downloadState === 'rendering') {
-            throw new Error('Already rendering');
+        // If another caller's render is in flight, share its result. This
+        // collapses the "bulk download + chained-compositor resolver both ask
+        // for me" case into one server render. Note this also accepts repeat
+        // calls from the same surface (e.g. user spam-clicking Download) and
+        // returns the existing Promise.
+        if (inFlightExportRef.current) {
+            return inFlightExportRef.current;
         }
 
+        const runExport = async (): Promise<{ filename: string; blob: Blob }[]> => {
         // Resolve each layer to a real URL.
         //
         // Three cases per layer:
@@ -891,7 +900,16 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             cleanupTempUploads();
             throw err;
         }
-    }, [downloadState, config, layerEdges, upstreamBySource, data.label]);
+        };
+
+        const promise = runExport();
+        inFlightExportRef.current = promise;
+        try {
+            return await promise;
+        } finally {
+            inFlightExportRef.current = null;
+        }
+    }, [config, layerEdges, upstreamBySource, data.label]);
 
     // Modal Download button: render the mp4, then save it directly via a click.
     const handleRequestDownload = useCallback(async () => {
