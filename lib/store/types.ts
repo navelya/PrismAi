@@ -88,6 +88,13 @@ export interface WorkflowSlice {
     selectedNodeId: string | null;
     setSelectedNodeId: (nodeId: string | null) => void;
 
+    // One-shot: when set, EditorCanvas smooth-pans to this node, selects it,
+    // and clears the field. Used by the Run Workflow error popover to jump
+    // to the offending node when an entry is clicked.
+    pendingCenterNodeId: string | null;
+    selectNodeAndCenter: (nodeId: string) => void;
+    clearPendingCenterNodeId: () => void;
+
     // History (Undo/Redo)
     past: Workflow[];
     future: Workflow[];

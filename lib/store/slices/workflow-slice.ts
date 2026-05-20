@@ -68,6 +68,10 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     selectedNodeId: null,
     setSelectedNodeId: (nodeId) => set({ selectedNodeId: nodeId }),
 
+    pendingCenterNodeId: null,
+    selectNodeAndCenter: (nodeId) => set({ pendingCenterNodeId: nodeId }),
+    clearPendingCenterNodeId: () => set({ pendingCenterNodeId: null }),
+
     // History
     past: [],
     future: [],

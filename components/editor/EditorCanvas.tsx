@@ -212,6 +212,33 @@ const EditorCanvasInner = ({
         return () => cancelAnimationFrame(raf);
     }, [nodesInitialized, reactFlowInstance, hasNodesToMeasure]);
 
+    // One-shot smooth-pan to a node when something elsewhere (e.g. the Run
+    // Workflow error popover) sets `pendingCenterNodeId`. We pan + select +
+    // clear the field.
+    const pendingCenterNodeId = useAppStore((s) => s.pendingCenterNodeId);
+    const clearPendingCenterNodeId = useAppStore((s) => s.clearPendingCenterNodeId);
+    useEffect(() => {
+        if (!pendingCenterNodeId || !reactFlowInstance) return;
+        const node = reactFlowInstance.getNode(pendingCenterNodeId);
+        if (!node) {
+            clearPendingCenterNodeId();
+            return;
+        }
+        const w = node.width ?? node.measured?.width ?? 200;
+        const h = node.height ?? node.measured?.height ?? 100;
+        const currentZoom = reactFlowInstance.getViewport().zoom;
+        reactFlowInstance.setCenter(
+            node.position.x + w / 2,
+            node.position.y + h / 2,
+            { duration: 500, zoom: currentZoom },
+        );
+        // Mirror click-to-select: clear other selections, select the target.
+        reactFlowInstance.setNodes((nds: any[]) =>
+            nds.map((n) => ({ ...n, selected: n.id === pendingCenterNodeId })),
+        );
+        clearPendingCenterNodeId();
+    }, [pendingCenterNodeId, reactFlowInstance, clearPendingCenterNodeId]);
+
     const { resolvedTheme } = useTheme();
 
     const edgeStyle = useMemo(() => ({
