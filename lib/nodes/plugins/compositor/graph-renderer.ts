@@ -210,22 +210,46 @@ function applyTransform(
     ctx.restore();
 }
 
+/**
+ * Update the pool vote for one video layer and ensure its element is
+ * acquired so it can warm up before its active window arrives.
+ *
+ * Pulled out of `drawMediaLayer` so it runs for EVERY video layer in the
+ * compositor — including inactive ones. Without this, a layer that played
+ * once and then went inactive would keep playing (and emitting audio) in
+ * the pool because no consumer would vote it off. With 3 chained clips the
+ * result was all three audios stacking and looping simultaneously.
+ *
+ * `cache.getVideo(url)` is idempotent — first call acquires from the pool,
+ * subsequent calls return the same handle. Calling it for every video at
+ * paint time means the element starts loading long before its window, so
+ * by activation it's already at `readyState >= 2` and the first-frame
+ * blink between sequenced clips disappears.
+ */
+function voteVideoPoolState(
+    cache: GraphRenderCache,
+    url: string,
+    isActive: boolean,
+    isPlaying: boolean,
+    muted: boolean,
+): void {
+    cache.getVideo(url);
+    cache.setVideoPlayState(url, isActive && isPlaying);
+    cache.setVideoMuted(url, !isActive || muted);
+}
+
 function drawMediaLayer(
     ctx: CanvasRenderingContext2D,
     gl: GraphLayer,
     time: number,
     isPlaying: boolean,
     cache: GraphRenderCache,
-    muted: boolean,
 ): void {
     const { layer, source } = gl;
     if (source.kind !== 'media') return;
     const url = source.url;
 
     if (source.mediaKind === 'video') {
-        // Vote play + mute state and seek if paused; pool reconciles across voters.
-        cache.setVideoPlayState(url, isPlaying);
-        cache.setVideoMuted(url, muted);
         if (!isPlaying) {
             const localTime = Math.max(0, time - (layer.startTime || 0));
             cache.seekVideo(url, localTime);
@@ -386,8 +410,22 @@ export function paintGraphFrame(
     const h = graph.canvasHeight;
     ctx.clearRect(0, 0, w, h);
 
-    // Iterate in reverse so array[0] is drawn last on top — matches the
-    // top-level Konva renderer's convention.
+    // First pass: vote pool state for every video layer regardless of
+    // activity. Inactive layers MUST be voted paused+muted; otherwise an
+    // earlier active window leaves them playing in the pool and we end up
+    // with all clips' audio stacking simultaneously. Iteration order here
+    // doesn't matter because votes are per-URL.
+    for (const gl of graph.layers) {
+        const { layer, source } = gl;
+        if (source.kind !== 'media' || source.mediaKind !== 'video') continue;
+        const kind = sourceKind(source);
+        const intrinsic = graph.intrinsicDurations[layer.id] ?? null;
+        const active = layer.visible && isLayerActiveAt(layer, kind, intrinsic, time);
+        voteVideoPoolState(cache, source.url, active, isPlaying, muted);
+    }
+
+    // Second pass: draw active layers. Reverse order so array[0] is on top —
+    // matches the top-level Konva renderer's convention.
     const layers = [...graph.layers].reverse();
     for (const gl of layers) {
         const { layer, source } = gl;
@@ -398,7 +436,7 @@ export function paintGraphFrame(
         if (!isLayerActiveAt(layer, kind, intrinsic, time)) continue;
 
         if (source.kind === 'media') {
-            drawMediaLayer(ctx, gl, time, isPlaying, cache, muted);
+            drawMediaLayer(ctx, gl, time, isPlaying, cache);
         } else if (source.kind === 'text') {
             drawTextLayer(ctx, gl);
         } else if (source.kind === 'graph') {
