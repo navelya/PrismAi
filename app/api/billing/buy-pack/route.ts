@@ -44,6 +44,28 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
         }
 
+        // Dispute gate: refuse new purchases while a chargeback is unresolved.
+        // Admin clears profiles.payment_disputed_at directly in the DB once the
+        // dispute is resolved (no admin UI in v1).
+        {
+            const service = createServiceClient();
+            const { data: profile } = await service
+                .from('profiles')
+                .select('payment_disputed_at')
+                .eq('id', user.id)
+                .maybeSingle();
+
+            if (profile?.payment_disputed_at) {
+                return NextResponse.json(
+                    {
+                        error: 'account_disputed',
+                        message: 'Your account has a pending payment dispute. Contact support.',
+                    },
+                    { status: 403 },
+                );
+            }
+        }
+
         const body = (await request.json().catch(() => ({}))) as BuyPackBody;
         if (!body.packId) {
             return NextResponse.json({ error: 'packId is required' }, { status: 400 });
