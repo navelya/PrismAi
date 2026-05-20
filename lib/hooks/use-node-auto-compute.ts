@@ -27,10 +27,11 @@ const COMPUTE_DEBOUNCE_MS = 150;
  *   - per data-item: shallow key compare
  *   - resolution {width,height}: compared by value (it's commonly a fresh
  *     object literal but trivially shallow-comparable)
- *   - graph / canvas / stream / other live-signal handles: ref equality
- *     (upstream stabilization makes these stable by reference when content
- *     hasn't changed; if a writer doesn't follow that contract, we
- *     pessimistically treat the envelope as changed — correct fallback)
+ *   - graph (the sole live-signal shape): ref equality. Publishers
+ *     stabilize the graph reference via content-equality at their publish
+ *     site, so identical content produces identical reference. If a writer
+ *     doesn't follow that contract, we pessimistically treat the envelope
+ *     as changed — correct fallback.
  */
 function envelopeContentEqual(a: any, b: any): boolean {
     if (a === b) return true;
