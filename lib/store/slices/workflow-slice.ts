@@ -57,6 +57,10 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     // multiple times to revert one logical action.
     let snapshotPending = false;
 
+    // Reset on every flashErrors() call so a rapid second Run-click restarts
+    // the 4s window instead of letting the original timer cut it short.
+    let flashTimer: ReturnType<typeof setTimeout> | null = null;
+
     return {
     activeSessionId: null,
     currentWorkflow: null,
@@ -71,6 +75,16 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     pendingCenterNodeId: null,
     selectNodeAndCenter: (nodeId) => set({ pendingCenterNodeId: nodeId }),
     clearPendingCenterNodeId: () => set({ pendingCenterNodeId: null }),
+
+    errorFlashActive: false,
+    flashErrors: () => {
+        if (flashTimer) clearTimeout(flashTimer);
+        set({ errorFlashActive: true });
+        flashTimer = setTimeout(() => {
+            set({ errorFlashActive: false });
+            flashTimer = null;
+        }, 4000);
+    },
 
     // History
     past: [],

@@ -117,7 +117,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const rawStatus = useAppStore((state) => state.nodeStatuses[id]);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
     const { errorsByNode } = useExecutionValidation();
-    const validationErrors = errorsByNode[id] ?? [];
+    const errorFlashActive = useAppStore((s) => s.errorFlashActive);
+    const validationErrors = errorFlashActive ? (errorsByNode[id] ?? []) : [];
     const wireDrag = useWireDrag();
     const models = useAppStore((s) => s.models);
     const edges = useEdges();

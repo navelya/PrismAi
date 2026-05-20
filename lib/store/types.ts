@@ -95,6 +95,13 @@ export interface WorkflowSlice {
     selectNodeAndCenter: (nodeId: string) => void;
     clearPendingCenterNodeId: () => void;
 
+    // Transient flag flipped true when the user attempts to Run a workflow
+    // with validation errors. Per-node error badges only render while this
+    // is active (4 seconds), then hide until the next Run attempt — keeps
+    // the canvas uncluttered by default.
+    errorFlashActive: boolean;
+    flashErrors: () => void;
+
     // History (Undo/Redo)
     past: Workflow[];
     future: Workflow[];
@@ -283,6 +290,27 @@ export interface UISlice {
     bulkDownloads: Record<string, { current: number; total: number }>;
     setBulkDownloadProgress: (id: string, state: { current: number; total: number }) => void;
     clearBulkDownload: (id: string) => void;
+
+    /**
+     * Tracks which nodes the AI has touched during the current chat turn so
+     * the canvas can smoothly fit them into view. Driven by use-chat-messages
+     * (begin → record per patch → end) and consumed by <AiAddedZoom />.
+     * Ephemeral — never persisted.
+     *
+     * `touchedNodeIds` is the union of every `addedNodes`, `updatedNodes`, and
+     * both endpoints of every `addedEdges` entry seen this turn. `patchTick`
+     * is a monotonic counter bumped on each `recordAiPatch` so subscribers
+     * fire even when the id set is unchanged (e.g. position-only update on a
+     * node already tracked).
+     */
+    aiTurn: {
+        active: boolean;
+        touchedNodeIds: string[];
+        patchTick: number;
+    } | null;
+    beginAiTurn: () => void;
+    recordAiPatch: (patch: import('@/lib/workflow/workflow-patch').WorkflowPatch | null | undefined) => void;
+    endAiTurn: () => void;
 }
 
 export interface LivePositionSlice {

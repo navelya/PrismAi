@@ -311,13 +311,17 @@ export default function SharedWorkflowEditor({
                     models: state.models ?? [],
                 });
                 if (errors.length > 0) {
+                    // Flash the per-node badges for 4 seconds so the user sees
+                    // exactly which nodes are bad. Outside of this window the
+                    // canvas stays uncluttered — the Run-button count + popover
+                    // is the always-on awareness surface.
+                    state.flashErrors();
                     if (mode !== 'solo') {
                         setExecutionError(
                             `Can't run — ${errors.length} issue${errors.length === 1 ? '' : 's'}. Hover the Run Workflow button to see them.`,
                         );
                     }
-                    // Solo: the per-node badge on the offending node is already loud
-                    // enough; no banner.
+                    // Solo: the brief badge flash is the only feedback; no banner.
                     return;
                 }
             }

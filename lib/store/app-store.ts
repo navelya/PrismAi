@@ -128,6 +128,9 @@ export const useAppStore = create<RootState>()(
                     // survives rehydration, the canvas would re-center on that node
                     // on every page load.
                     'pendingCenterNodeId',
+                    // Transient flash window for per-node validation badges. Never
+                    // persisted — refresh should always start with a clean canvas.
+                    'errorFlashActive',
                     'menuTree',
                     'menuFlat',
                     'isMenuLoading',
