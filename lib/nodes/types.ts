@@ -88,28 +88,15 @@ export interface AiModel {
 export type NodeStatus = 'idle' | 'pending' | 'running' | 'success' | 'error';
 
 /**
- * Image object structure.
- *
- * `url` is the canonical, serializable representation. `canvas` is an optional
- * LIVE reference used by client-side ephemeral nodes that render directly into
- * a `<canvas>` (compositor with video content, future live-blur, etc.) — it
- * lets downstream consumers draw frames in real time without round-tripping
- * through a dataURL on every tick. Anything that persists or serializes
- * `nodeOutputs` MUST ignore the `canvas` field.
+ * Image object structure. `url` is the canonical, serializable representation.
+ * Live ephemeral output is published as a `GraphDescription` on a sibling
+ * `graph` field (currently accessed via cast); see
+ * `lib/nodes/plugins/compositor/shared.ts` for the type and
+ * `docs/superpowers/specs/2026-05-20-ephemeral-envelope-unification-design.md`
+ * for the contract.
  */
 export interface ImageObject {
     url: string;
-    /** Live canvas surface. Present on outputs from canvas-driven ephemeral nodes; consume with `drawImage` per frame. */
-    canvas?: HTMLCanvasElement;
-    /**
-     * Live MediaStream captured from the canvas (`canvas.captureStream(fps)`).
-     * Present on video-producing nodes whose output is meant to be played
-     * directly in a `<video>` element or recorded with MediaRecorder.
-     * Consumers can pick whichever surface fits their pipeline:
-     *   - canvas → per-frame drawImage (sync, cheap)
-     *   - stream → <video srcObject> / MediaStreamTrackProcessor (async, audio-capable later)
-     */
-    stream?: MediaStream;
     resolution: {
         width: number;
         height: number;
