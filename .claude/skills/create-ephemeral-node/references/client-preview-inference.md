@@ -38,19 +38,20 @@ Same as image but loop over the array. The preview can show a grid (CSS `grid-co
 
 ### `video` outputs
 
-**STOP. Read [live-data-flow.md](live-data-flow.md) first.** Video is the one data type with two distinct envelope shapes (static URL vs live MediaStream/canvas), and most video-related bugs come from treating one as the other. The rules below are the abbreviated version.
+**STOP. Read [live-data-flow.md](live-data-flow.md) first.** Video envelope items carry exactly one of `url` (a static asset) or `graph` (a live `GraphDescription`). Most video-related bugs come from treating one as the other. The rules below are the abbreviated version.
 
-**→ `<video>` element + MediaSource API or canvas frame extraction.**
+**→ `<video>` element for static URLs, or `paintGraphFrame` / `LayerSubgraph` for live graphs.**
 
 Video transforms (blur, brightness, contrast, etc.) are **filter-shaped** — they should NOT re-encode the pixels:
-- Load source via `<video src={url}>` for static-URL upstreams, or `<video srcObject={stream}>` for live-stream upstreams (e.g. compositor output). `srcObject` can't be set declaratively in JSX — bind it via a `useEffect` on a ref.
-- Apply CSS filters at render time: `style={{ filter: cssFilter }}` on the video element. No canvas, no executor work on pixels.
-- Propagate forward: your executor returns the upstream `url` AND `stream` AND `canvas` unchanged, with your filter string appended to the accumulated `cssFilter`. Chained filters compose by string concatenation. This is what `lib/nodes/plugins/blur/executor.client.ts` does — read it.
+- For static-URL upstreams, use `<video src={url}>` and let the renderer handle it.
+- For live-graph upstreams, render via `paintGraphFrame` from `lib/nodes/plugins/compositor/graph-renderer.ts` (or mount a `LayerSubgraph`-style consumer).
+- Propagate forward by wrapping: when upstream is already a graph, return `{ kind: 'filter', upstream: upstreamGraph, cssFilter: ownFilter }`; when upstream is a raw URL, synthesize a 1-layer compositor graph first (see `wrapUrlAsCompositorGraph` in `lib/nodes/plugins/blur/executor.client.ts`) and then wrap that. Output is uniformly a `kind: 'filter'` graph. Chained filters compose because the renderer flattens nested `kind: 'filter'` nodes during paint.
 - DO NOT do `ctx.drawImage(videoEl, 0, 0)` + `canvas.toDataURL()` for live video. That captures one frame, not a video, and breaks the chain.
+- DO NOT put `cssFilter` as a sibling on the envelope data item — that field was removed in 2026-05. It belongs inside the graph.
 
 Live video producers (compositor, future timeline/mixer nodes):
-- Render into an HTMLCanvasElement.
-- Publish `{ type: 'video', data: [{ url: '', stream, canvas, cssFilter: '', resolution, metadata }] }` into `nodeOutputs[id]` directly from the component (not the client executor).
+- Build a `GraphDescription` (e.g. `kind: 'compositor'`) describing the timeline.
+- Publish `{ type: 'video', data: [{ url: '', graph, resolution, metadata }] }` into `nodeOutputs[id]` directly from the component (not the client executor).
 - Server-side, your `executor.server.ts` produces a real MP4 with a real URL (Shape A) — see live-data-flow.md.
 
 For genuinely heavy frame-by-frame transforms that CAN'T be expressed as a CSS filter (custom shader, ML inference, etc.):

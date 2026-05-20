@@ -18,6 +18,40 @@ Single image (or other media) input, single output, a few inline numeric/select 
 - **`component.tsx`**: `BaseNode` + image preview at top + 1–3 controls below. Controls update via `updateNodeConfig`. `useNodeAutoCompute(id)` to wire the live preview.
 - **No** `properties.tsx`, **no** `ui/` folder.
 
+### Video-aware variant (filter that must accept compositor/graph upstream)
+
+If the transform is video-capable (blur, contrast, grayscale of a clip…), its client executor must NOT bake pixels. Instead it wraps the upstream into a `kind: 'filter'` `GraphDescription` and re-publishes a graph envelope. See [live-data-flow.md](live-data-flow.md) for the full envelope contract; the canonical implementation is `lib/nodes/plugins/blur/executor.client.ts`.
+
+Sketch:
+
+```ts
+import { GraphDescription } from '../compositor/shared';
+import { CompositorLayer } from '../compositor/definition';
+// Reuse the synthesis helper from blur, or copy the pattern:
+//   wrapUrlAsCompositorGraph(url, resolution): GraphDescription
+// (one-layer compositor graph around a raw URL). See blur/executor.client.ts.
+
+// In the video branch of the executor:
+const baseGraph: GraphDescription =
+    upstreamGraph ?? wrapUrlAsCompositorGraph(url!, resolution);
+
+const filterGraph: GraphDescription = {
+    kind: 'filter',
+    upstream: baseGraph,
+    cssFilter: '<your css filter string>',
+};
+
+return {
+    type: 'video',
+    data: [{ url: '', graph: filterGraph, resolution }],
+};
+```
+
+Notes:
+- `cssFilter` belongs **inside the graph**, never as a sibling on the envelope data item.
+- Output is uniformly a `kind: 'filter'` graph whether upstream was raw URL or already a graph — downstream consumers see one shape.
+- The image branch stays a baked data URL as before; only the video branch produces a graph.
+
 ### Common pitfalls
 
 - Don't carry forward UI-rescale logic from a Sharp call (e.g. `(radius/100)*20`). The runtime expects raw values consistent with what handlers.ts used historically. Check `git log -p lib/workflow/handlers.ts` (in pre-refactor history) for the canonical behavior.
