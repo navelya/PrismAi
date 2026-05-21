@@ -33,7 +33,7 @@ export default function NodeLibraryFlyout({ mode, left, top, height, onMouseEnte
                 <h4 className="text-[12px] font-semibold text-content-primary truncate">{title}</h4>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-0.5">
                 {isEmpty ? (
                     <div className="flex flex-col items-center justify-center py-10 text-content-tertiary">
                         <Icons.Inbox className="w-7 h-7 mb-2 opacity-20" />

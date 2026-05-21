@@ -13,13 +13,13 @@ function startDrag(e: React.DragEvent, payload: DragPayload, onAfterStart?: () =
 }
 
 const ROW_CLASS =
-    'flex items-center gap-2.5 p-2 rounded-lg border border-stroke-subtle/40 bg-surface-primary/40 hover:border-accent-primary/40 hover:bg-accent-primary/5 transition-all group';
+    'flex items-center gap-2 px-1.5 py-1 rounded-md hover:bg-white/[0.04] transition-colors group';
 
 const ICON_CHIP_CLASS =
-    'w-7 h-7 rounded-md bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors';
+    'w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 bg-surface-secondary/40 group-hover:bg-accent-primary/10 transition-colors';
 
 const ICON_CLASS =
-    'w-3.5 h-3.5 text-content-secondary group-hover:text-accent-primary transition-colors';
+    'w-3 h-3 text-content-secondary group-hover:text-accent-primary transition-colors';
 
 export interface BasicsTileProps {
     name: string;
@@ -59,15 +59,15 @@ export function CategoryRow({ id, category, active, onMouseEnter, onFocus }: Cat
             data-active={active}
             onMouseEnter={onMouseEnter}
             onFocus={onFocus}
-            className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:border-accent-primary/40 data-[active=true]:bg-accent-primary/5`}
+            className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
                 <div className={ICON_CHIP_CLASS}>
                     <IconComponent className={ICON_CLASS} />
                 </div>
                 <span className="text-[11px] font-medium text-content-primary truncate">{category.display_name}</span>
             </div>
-            <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-60 group-hover:opacity-100 group-hover:text-accent-primary transition" />
+            <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-50 group-hover:opacity-100 group-hover:text-accent-primary transition" />
         </button>
     );
 }
@@ -87,9 +87,9 @@ export function ProviderRow({ id, provider, active, onMouseEnter, onFocus }: Pro
             data-active={active}
             onMouseEnter={onMouseEnter}
             onFocus={onFocus}
-            className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:border-accent-primary/40 data-[active=true]:bg-accent-primary/5`}
+            className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
                 <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
                     {provider.logo_url
                         ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
@@ -97,13 +97,13 @@ export function ProviderRow({ id, provider, active, onMouseEnter, onFocus }: Pro
                 </div>
                 <span className="text-[11px] font-medium text-content-primary truncate">{provider.name}</span>
             </div>
-            <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-60 group-hover:opacity-100 group-hover:text-accent-primary transition" />
+            <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-50 group-hover:opacity-100 group-hover:text-accent-primary transition" />
         </button>
     );
 }
 
 /** Two-line row whose subtitle is hidden by default and slides up from below
- *  on hover. The row's height is fixed by the icon chip (28 px) + padding,
+ *  on hover. The row's height is fixed by the icon chip (24 px) + padding,
  *  so revealing the subtitle never reflows neighbours. */
 function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDragPayload }: {
     name: string;

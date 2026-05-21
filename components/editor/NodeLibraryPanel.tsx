@@ -7,11 +7,12 @@ import type { NodeTypeRecord, AiModel, Category } from '@/lib/nodes/types';
 import { BasicsTile, CategoryRow, ProviderRow, NodeItemRow, ModelItemRow } from './node-library/rows';
 import NodeLibraryFlyout, { FlyoutMode } from './NodeLibraryFlyout';
 
-const HOVER_OPEN_MS = 80;
-const HOVER_CLOSE_MS = 180;
+const HOVER_OPEN_MS = 60;
+const HOVER_CLOSE_MS = 160;
 // Horizontal distance from the master panel's right edge to the flyout's
-// left edge. Covers: master→rail gap (8) + rail width (~48) + rail→flyout gap (12).
-const FLYOUT_OFFSET_FROM_MASTER = 68;
+// left edge. Small — the flyout sits immediately next to the master and
+// renders on top of the tool rail (rail is z-1, flyout is z-55).
+const FLYOUT_OFFSET_FROM_MASTER = 8;
 const FLYOUT_MAX_HEIGHT = 480;
 
 interface Tile {
@@ -89,34 +90,35 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         }).filter((x): x is { tile: Tile; payload: Record<string, unknown> } => x !== null);
     }, [nodeTypes]);
 
-    const positionFlyoutForRow = useCallback((rowEl: HTMLElement) => {
-        const rect = rowEl.getBoundingClientRect();
-        const container = containerRef.current?.getBoundingClientRect();
-        const viewportBottom = window.innerHeight - 8;
-        const containerBottom = container?.bottom ?? viewportBottom;
-        const maxBottom = Math.min(containerBottom, viewportBottom);
-        const available = Math.max(120, maxBottom - rect.top);
-        const desiredHeight = Math.min(FLYOUT_MAX_HEIGHT, available);
-        const clampedTop = Math.min(rect.top, viewportBottom - desiredHeight);
-        setFlyoutTop(clampedTop);
-        setFlyoutHeight(desiredHeight);
-    }, []);
-
     const scheduleOpen = useCallback((kind: 'category' | 'provider', id: string, rowEl: HTMLElement) => {
         if (openTimer.current) { window.clearTimeout(openTimer.current); openTimer.current = null; }
         if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
-        if (hoveredKind && hoveredId) {
-            positionFlyoutForRow(rowEl);
+
+        const applyPosition = () => {
+            const rect = rowEl.getBoundingClientRect();
+            const container = containerRef.current?.getBoundingClientRect();
+            if (!container) return;
+            const viewportBottom = window.innerHeight - 8;
+            const maxBottom = Math.min(container.bottom, viewportBottom);
+            const available = Math.max(120, maxBottom - rect.top);
+            const desiredHeight = Math.min(FLYOUT_MAX_HEIGHT, available);
+            const clampedTop = Math.min(rect.top, viewportBottom - desiredHeight);
+            // All five state updates are batched in a single render (React 18
+            // automatic batching), so the flyout never appears at the stale
+            // left=0 position even for one frame.
+            setFlyoutTop(clampedTop);
+            setFlyoutHeight(desiredHeight);
+            setFlyoutLeft(container.right + FLYOUT_OFFSET_FROM_MASTER);
             setHoveredKind(kind);
             setHoveredId(id);
+        };
+
+        if (hoveredKind && hoveredId) {
+            applyPosition();
             return;
         }
-        openTimer.current = window.setTimeout(() => {
-            positionFlyoutForRow(rowEl);
-            setHoveredKind(kind);
-            setHoveredId(id);
-        }, HOVER_OPEN_MS);
-    }, [hoveredKind, hoveredId, positionFlyoutForRow]);
+        openTimer.current = window.setTimeout(applyPosition, HOVER_OPEN_MS);
+    }, [hoveredKind, hoveredId]);
 
     const scheduleClose = useCallback(() => {
         if (openTimer.current) { window.clearTimeout(openTimer.current); openTimer.current = null; }
@@ -144,13 +146,6 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
             setHoveredId(null);
         }
     }, [debouncedQuery]);
-
-    useEffect(() => {
-        if (!hoveredKind || !hoveredId) return;
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        setFlyoutLeft(rect.right + FLYOUT_OFFSET_FROM_MASTER);
-    }, [hoveredKind, hoveredId]);
 
     const q = debouncedQuery.trim().toLowerCase();
     const basicsHits = q
@@ -222,7 +217,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         {basicsHits.length > 0 && (
                             <section>
                                 <SectionLabel>Basics</SectionLabel>
-                                <div className="grid grid-cols-2 gap-1.5">
+                                <div className="grid grid-cols-2 gap-1">
                                     {basicsHits.map(({ tile, payload }) => (
                                         <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
                                     ))}
@@ -232,7 +227,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         {nodeHits.length > 0 && (
                             <section>
                                 <SectionLabel>Nodes</SectionLabel>
-                                <div className="space-y-1.5">
+                                <div className="space-y-0.5">
                                     {nodeHits.map(nt => <NodeItemRow key={nt.id} nodeType={nt} onDragStart={handleDragStartClose} />)}
                                 </div>
                             </section>
@@ -240,7 +235,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         {modelHits.length > 0 && (
                             <section>
                                 <SectionLabel>Models</SectionLabel>
-                                <div className="space-y-1.5">
+                                <div className="space-y-0.5">
                                     {modelHits.map(m => {
                                         const provider = providers.find(p => p.id === String(m.provider_id));
                                         return <ModelItemRow key={m.id} model={m} provider={provider} onDragStart={handleDragStartClose} />;
@@ -256,10 +251,10 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         )}
                     </div>
                 ) : (
-                    <div className="p-2.5 space-y-5 pb-4">
+                    <div className="p-2.5 space-y-3 pb-4">
                         <section onMouseEnter={scheduleClose}>
                             <SectionLabel>Basics</SectionLabel>
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-2 gap-1">
                                 {resolvedBasics.map(({ tile, payload }) => (
                                     <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
                                 ))}
@@ -269,7 +264,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         {categories.length > 0 && (
                             <section>
                                 <SectionLabel>Categories</SectionLabel>
-                                <div className="space-y-1.5">
+                                <div className="space-y-0.5">
                                     {categories.map(cat => (
                                         <CategoryRow
                                             key={cat.id}
@@ -286,7 +281,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         {providers.length > 0 && (
                             <section>
                                 <SectionLabel>Providers</SectionLabel>
-                                <div className="space-y-1.5">
+                                <div className="space-y-0.5">
                                     {providers.map(p => (
                                         <ProviderRow
                                             key={p.id}
