@@ -1,5 +1,6 @@
 'use client';
 import React from 'react';
+import { motion } from 'framer-motion';
 import * as Icons from 'lucide-react';
 import { NodeTypeRecord, AiModel } from '@/lib/nodes/types';
 import { NodeItemRow, ModelItemRow } from './node-library/rows';
@@ -12,31 +13,31 @@ export interface NodeLibraryFlyoutProps {
     mode: FlyoutMode;
     left: number;
     top: number;
-    height: number;
     onMouseEnter: () => void;
     onMouseLeave: () => void;
     onDragStartClose: () => void;
 }
 
-export default function NodeLibraryFlyout({ mode, left, top, height, onMouseEnter, onMouseLeave, onDragStartClose }: NodeLibraryFlyoutProps) {
-    const title = mode.kind === 'category' ? mode.categoryName : mode.providerName;
+export const FLYOUT_MAX_HEIGHT = 320;
+
+export default function NodeLibraryFlyout({ mode, left, top, onMouseEnter, onMouseLeave, onDragStartClose }: NodeLibraryFlyoutProps) {
     const isEmpty = mode.items.length === 0;
 
     return (
-        <div
+        <motion.div
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
+            style={{ left, top, maxHeight: FLYOUT_MAX_HEIGHT, width: 260, transformOrigin: 'left center' }}
             className="fixed z-[55] pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-            style={{ left, top, height, width: 260 }}
         >
-            <div className="px-3 py-2 border-b border-stroke-subtle/60">
-                <h4 className="text-[12px] font-semibold text-content-primary truncate">{title}</h4>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-2.5 space-y-0.5">
+            <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
                 {isEmpty ? (
-                    <div className="flex flex-col items-center justify-center py-10 text-content-tertiary">
-                        <Icons.Inbox className="w-7 h-7 mb-2 opacity-20" />
+                    <div className="flex flex-col items-center justify-center py-8 text-content-tertiary">
+                        <Icons.Inbox className="w-6 h-6 mb-1.5 opacity-20" />
                         <span className="text-[11px]">No items found</span>
                     </div>
                 ) : mode.kind === 'category' ? (
@@ -50,6 +51,6 @@ export default function NodeLibraryFlyout({ mode, left, top, height, onMouseEnte
                     })
                 )}
             </div>
-        </div>
+        </motion.div>
     );
 }

@@ -1,12 +1,13 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence } from 'framer-motion';
 import * as Icons from 'lucide-react';
 import { Search, X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import type { NodeTypeRecord, AiModel, Category } from '@/lib/nodes/types';
 import { BasicsTile, CategoryRow, ProviderRow, NodeItemRow, ModelItemRow } from './node-library/rows';
-import NodeLibraryFlyout, { FlyoutMode } from './NodeLibraryFlyout';
+import NodeLibraryFlyout, { FlyoutMode, FLYOUT_MAX_HEIGHT } from './NodeLibraryFlyout';
 
 const HOVER_OPEN_MS = 60;
 const HOVER_CLOSE_MS = 160;
@@ -14,7 +15,6 @@ const HOVER_CLOSE_MS = 160;
 // left edge. Small — the flyout sits immediately next to the master and
 // renders on top of the tool rail (rail is z-1, flyout is z-55).
 const FLYOUT_OFFSET_FROM_MASTER = 8;
-const FLYOUT_MAX_HEIGHT = 480;
 
 interface Tile {
     name: string;
@@ -64,7 +64,6 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const [hoveredKind, setHoveredKind] = useState<null | 'category' | 'provider'>(null);
     const [hoveredId, setHoveredId] = useState<string | null>(null);
     const [flyoutTop, setFlyoutTop] = useState(0);
-    const [flyoutHeight, setFlyoutHeight] = useState(0);
     const [flyoutLeft, setFlyoutLeft] = useState(0);
     const [mounted, setMounted] = useState(false);
 
@@ -103,15 +102,14 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
             const container = containerRef.current?.getBoundingClientRect();
             if (!container) return;
             const viewportBottom = window.innerHeight - 8;
-            const maxBottom = Math.min(container.bottom, viewportBottom);
-            const available = Math.max(120, maxBottom - rect.top);
-            const desiredHeight = Math.min(FLYOUT_MAX_HEIGHT, available);
-            const clampedTop = Math.min(rect.top, viewportBottom - desiredHeight);
-            // All five state updates are batched in a single render (React 18
-            // automatic batching), so the flyout never appears at the stale
+            // Clamp top so a worst-case-max-height flyout still fits. Actual
+            // height is content-driven via the flyout's maxHeight CSS, so
+            // shorter content may leave space below — acceptable.
+            const clampedTop = Math.max(8, Math.min(rect.top, viewportBottom - FLYOUT_MAX_HEIGHT));
+            // All four state updates batch into a single render (React 18
+            // automatic batching), so the flyout never renders at the stale
             // left=0 position even for one frame.
             setFlyoutTop(clampedTop);
-            setFlyoutHeight(desiredHeight);
             setFlyoutLeft(container.right + FLYOUT_OFFSET_FROM_MASTER);
             setHoveredKind(kind);
             setHoveredId(id);
@@ -306,16 +304,19 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                 overflow-hidden and the framer-motion wrapper's transform
                 (which would otherwise become the containing block for
                 the flyout's position:fixed coordinates and clip it). */}
-            {mounted && flyoutMode && createPortal(
-                <NodeLibraryFlyout
-                    mode={flyoutMode}
-                    left={flyoutLeft}
-                    top={flyoutTop}
-                    height={flyoutHeight}
-                    onMouseEnter={cancelClose}
-                    onMouseLeave={scheduleClose}
-                    onDragStartClose={handleDragStartClose}
-                />,
+            {mounted && createPortal(
+                <AnimatePresence>
+                    {flyoutMode && (
+                        <NodeLibraryFlyout
+                            mode={flyoutMode}
+                            left={flyoutLeft}
+                            top={flyoutTop}
+                            onMouseEnter={cancelClose}
+                            onMouseLeave={scheduleClose}
+                            onDragStartClose={handleDragStartClose}
+                        />
+                    )}
+                </AnimatePresence>,
                 document.body,
             )}
         </div>
