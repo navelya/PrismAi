@@ -395,26 +395,41 @@ export async function renderCompositorVideo(
         const filters: string[] = [];
         filters.push(`color=c=black:s=${width}x${height}:r=${fps}:d=${total}[bg]`);
 
-        let currentChain = 'bg';
         processed.forEach((p, idx) => {
             const tf = p.layer.transform || ({} as any);
             const w = Math.max(2, Math.round(tf.width || width));
             const h = Math.max(2, Math.round(tf.height || height));
-            const x = Math.round(tf.x || 0);
-            const y = Math.round(tf.y || 0);
             const eff = p.effectiveDuration;
             const startT = p.startTime;
-            const endT = startT + eff;
             const setpts = `setpts=PTS-STARTPTS+${startT.toFixed(3)}/TB`;
 
             const layerLabel = `L${idx}`;
             filters.push(
                 `[${idx}:v]trim=duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
             );
+        });
 
-            const nextChain = idx === processed.length - 1 ? 'vout' : `s${idx}`;
+        let currentChain = 'bg';
+        const reversedOverlay = [...processed].reverse();
+        reversedOverlay.forEach((p, reverseIdx) => {
+            const idx = processed.indexOf(p);
+            const tf = p.layer.transform || ({} as any);
+            const x = Math.round(tf.x || 0);
+            const y = Math.round(tf.y || 0);
+            const eff = p.effectiveDuration;
+            const startT = p.startTime;
+            const endT = startT + eff;
+            const layerLabel = `L${idx}`;
+
+            let overlayArgs = `x=${x}:y=${y}:enable='between(t,${startT.toFixed(3)},${endT.toFixed(3)})':format=auto`;
+            // Repeat the single frame generated from image inputs so it covers the entire enabled window
+            if (p.sourceKind === 'image' || p.sourceKind === 'text') {
+                overlayArgs += ':eof_action=repeat';
+            }
+
+            const nextChain = reverseIdx === reversedOverlay.length - 1 ? 'vout' : `s${reverseIdx}`;
             filters.push(
-                `[${currentChain}][${layerLabel}]overlay=x=${x}:y=${y}:enable='between(t,${startT.toFixed(3)},${endT.toFixed(3)})':format=auto[${nextChain}]`,
+                `[${currentChain}][${layerLabel}]overlay=${overlayArgs}[${nextChain}]`,
             );
             currentChain = nextChain;
         });

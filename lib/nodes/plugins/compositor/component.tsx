@@ -72,7 +72,7 @@ async function renderTextLayerToBlob(layer: CompositorLayer, text: string): Prom
     ctx.textAlign = (t.textAlign as CanvasTextAlign) || 'center';
     ctx.textBaseline = 'middle';
     const xPos = t.textAlign === 'left' ? 0 : t.textAlign === 'right' ? w : w / 2;
-    ctx.fillText(text, xPos, h / 2);
+    ctx.fillText(text, xPos, h / 2, w);
 
     return new Promise((resolve) => {
         canvas.toBlob((blob) => resolve(blob), 'image/png');
