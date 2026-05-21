@@ -13,13 +13,13 @@ function startDrag(e: React.DragEvent, payload: DragPayload, onAfterStart?: () =
 }
 
 const ROW_CLASS =
-    'flex items-center gap-2 px-1.5 py-1 rounded-md hover:bg-white/[0.04] transition-colors group';
+    'flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors group';
 
 const ICON_CHIP_CLASS =
-    'w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 bg-surface-secondary/40 group-hover:bg-accent-primary/10 transition-colors';
+    'w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-surface-secondary/40 group-hover:bg-accent-primary/10 transition-colors';
 
 const ICON_CLASS =
-    'w-3 h-3 text-content-secondary group-hover:text-accent-primary transition-colors';
+    'w-3.5 h-3.5 text-content-secondary group-hover:text-accent-primary transition-colors';
 
 export interface BasicsTileProps {
     name: string;
@@ -61,7 +61,7 @@ export function CategoryRow({ id, category, active, onMouseEnter, onFocus }: Cat
             onFocus={onFocus}
             className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2.5 min-w-0">
                 <div className={ICON_CHIP_CLASS}>
                     <IconComponent className={ICON_CLASS} />
                 </div>
@@ -89,7 +89,7 @@ export function ProviderRow({ id, provider, active, onMouseEnter, onFocus }: Pro
             onFocus={onFocus}
             className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2.5 min-w-0">
                 <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
                     {provider.logo_url
                         ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />

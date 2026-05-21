@@ -1,5 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import * as Icons from 'lucide-react';
 import { Search, X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
@@ -65,6 +66,9 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const [flyoutTop, setFlyoutTop] = useState(0);
     const [flyoutHeight, setFlyoutHeight] = useState(0);
     const [flyoutLeft, setFlyoutLeft] = useState(0);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => setMounted(true), []);
 
     const containerRef = useRef<HTMLDivElement | null>(null);
     const openTimer = useRef<number | null>(null);
@@ -298,7 +302,11 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                 )}
             </div>
 
-            {flyoutMode && (
+            {/* Portal the flyout to <body> so it escapes the panel's
+                overflow-hidden and the framer-motion wrapper's transform
+                (which would otherwise become the containing block for
+                the flyout's position:fixed coordinates and clip it). */}
+            {mounted && flyoutMode && createPortal(
                 <NodeLibraryFlyout
                     mode={flyoutMode}
                     left={flyoutLeft}
@@ -307,7 +315,8 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                     onMouseEnter={cancelClose}
                     onMouseLeave={scheduleClose}
                     onDragStartClose={handleDragStartClose}
-                />
+                />,
+                document.body,
             )}
         </div>
     );
