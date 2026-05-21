@@ -182,7 +182,7 @@ export interface WorkflowSlice {
         groupId: string,
         width: number,
         height: number,
-        opts?: { anchorRight?: boolean; anchorBottom?: boolean }
+        opts?: { anchorRight?: boolean; anchorBottom?: boolean; skipSnapshot?: boolean }
     ) => void;
     /**
      * Rename a group's title (stored in data.label).

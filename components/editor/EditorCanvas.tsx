@@ -762,8 +762,16 @@ const EditorCanvasInner = ({
         setLocalNodes((nds) => applyNodeChanges(transformed, nds));
 
         // Only propagate non-position changes to the global store immediately.
-        // Position changes are batched and sent onDragStop.
-        const structuralChanges = transformed.filter(c => c.type !== 'position');
+        // Position changes are batched and sent onDragStop. Dimension changes
+        // mid-resize (NodeResizer emits one per pointer tick with resizing:true)
+        // are likewise skipped — the node component commits the final size on
+        // resize-end so per-tick writes don't cascade through every Zustand
+        // subscriber.
+        const structuralChanges = transformed.filter(c => {
+            if (c.type === 'position') return false;
+            if (c.type === 'dimensions' && (c as any).resizing === true) return false;
+            return true;
+        });
         if (structuralChanges.length > 0) {
             onNodesChange(structuralChanges);
         }

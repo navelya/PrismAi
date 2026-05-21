@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { NodeProps, NodeToolbar, Position } from 'reactflow';
+import { NodeProps, NodeToolbar, Position, useReactFlow } from 'reactflow';
 import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
-import { GROUP_RESIZE_HANDLE_SIZE, GROUP_PADDING } from '@/lib/nodes/group-constants';
+import { GROUP_PADDING, GROUP_RESIZE_HANDLE_SIZE } from '@/lib/nodes/group-constants';
 import { GroupHeaderToolbar } from './GroupHeaderToolbar';
 import { useWireDrag } from '@/lib/editor/wire-drag-context';
 
@@ -103,11 +103,28 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     //     storedWidth/Height wins — we never shrink below user intent.
     //   • If the user dragged the group SMALLER than its children, required
     //     wins — you can't squeeze a group below its contents.
-    const width  = Math.max(storedWidth,  requiredWidth);
-    const height = Math.max(storedHeight, requiredHeight);
-
     const renameGroup = useAppStore((s) => s.renameGroup);
     const resizeGroup = useAppStore((s) => s.resizeGroup);
+    const takeSnapshot = useAppStore((s) => s.takeSnapshot);
+    const { getZoom } = useReactFlow();
+
+    // Transient drag state, paired:
+    //   • liveSize     — current displayed width/height during the drag
+    //   • liveShift    — CSS transform applied to the inner div for anchored
+    //                    edges (W/N). Children are flat DOM siblings (not
+    //                    nested inside the group's div), so a transform on
+    //                    THIS div doesn't move them — they stay world-pinned
+    //                    for free, with zero setNodes / zero Zustand writes
+    //                    per pointer tick.
+    // Both clear on pointerup once resizeGroup commits the final geometry.
+    const [liveSize, setLiveSize] = useState<{ w: number; h: number } | null>(null);
+    const [liveShift, setLiveShift] = useState<{ x: number; y: number } | null>(null);
+
+    const baseWidth  = Math.max(storedWidth,  requiredWidth);
+    const baseHeight = Math.max(storedHeight, requiredHeight);
+    const width  = liveSize?.w ?? baseWidth;
+    const height = liveSize?.h ?? baseHeight;
+
     const hoveredGroupId = useAppStore((s) => s.dragHoverGroupId);
     const isHoverTarget = hoveredGroupId === id;
     const updateNodeConfig = useAppStore((s) => s.updateNodeConfig);
@@ -163,9 +180,6 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
         }
     }, [titleDraft, isEditingTitle]);
 
-    // Pointer-driven resize. We capture the pointer on mousedown, then the
-    // active-direction state and starting geometry are read from refs (NOT
-    // React state) so the handler fires at native rate without re-renders.
     const dragStateRef = useRef<{
         dir: ResizeDir;
         startX: number;
@@ -174,24 +188,21 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
         startH: number;
     } | null>(null);
 
-    const onResizePointerDown = useCallback((e: React.PointerEvent, dir: ResizeDir) => {
-        e.stopPropagation();
-        e.preventDefault();
-        (e.target as Element).setPointerCapture(e.pointerId);
-        dragStateRef.current = {
-            dir,
-            startX: e.clientX,
-            startY: e.clientY,
-            startW: width,
-            startH: height,
-        };
-    }, [width, height]);
+    // rAF-coalesce per-tick work to one update per frame; high-poll mice can
+    // fire 240–1000 Hz pointermoves which would otherwise do redundant work.
+    const rafIdRef = useRef<number | null>(null);
+    const latestPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
 
-    const onResizePointerMove = useCallback((e: React.PointerEvent) => {
+    const flushResize = useCallback(() => {
+        rafIdRef.current = null;
         const s = dragStateRef.current;
-        if (!s) return;
-        const dx = e.clientX - s.startX;
-        const dy = e.clientY - s.startY;
+        const pos = latestPointerRef.current;
+        if (!s || !pos) return;
+
+        // Screen→canvas conversion: RF viewport is `transform: scale(zoom)`.
+        const zoom = getZoom() || 1;
+        const dx = (pos.clientX - s.startX) / zoom;
+        const dy = (pos.clientY - s.startY) / zoom;
 
         let newW = s.startW;
         let newH = s.startH;
@@ -200,22 +211,85 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
         if (s.dir.includes('s')) newH = s.startH + dy;
         if (s.dir.includes('n')) newH = s.startH - dy;
 
-        // W/N drags need to ANCHOR the opposite edge so the dragged edge moves
-        // visually. Without this the slice would only resize from the top-left
-        // and the user-visible result is the wrong edge moving.
+        // Hard floor only — soft floor (children-bbox) is enforced by the
+        // slice on commit. During the drag we let the user push toward it
+        // and the slice clamps cleanly when they release.
+        newW = Math.max(newW, GROUP_PADDING * 2);
+        newH = Math.max(newH, GROUP_PADDING * 2);
+
+        setLiveSize({ w: newW, h: newH });
+
+        // Anchored axes: shift the inner div left/up via CSS transform so the
+        // un-dragged edge stays pinned in world space. Children are flat DOM
+        // siblings (not nested), so the transform doesn't touch them —
+        // world-pinning happens for free.
         const anchorRight = s.dir.includes('w');
         const anchorBottom = s.dir.includes('n');
+        if (anchorRight || anchorBottom) {
+            setLiveShift({
+                x: anchorRight ? -(newW - s.startW) : 0,
+                y: anchorBottom ? -(newH - s.startH) : 0,
+            });
+        } else if (liveShift !== null) {
+            setLiveShift(null);
+        }
+    }, [getZoom, liveShift]);
 
-        // The slice clamps min size; we don't double-clamp here.
-        resizeGroup(id, newW, newH, { anchorRight, anchorBottom });
-    }, [id, resizeGroup]);
+    const onResizePointerDown = useCallback((e: React.PointerEvent, dir: ResizeDir) => {
+        e.stopPropagation();
+        e.preventDefault();
+        (e.target as Element).setPointerCapture(e.pointerId);
+        // Single undo snapshot covering the whole drag.
+        takeSnapshot();
+        dragStateRef.current = {
+            dir,
+            startX: e.clientX,
+            startY: e.clientY,
+            startW: width,
+            startH: height,
+        };
+        latestPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
+    }, [width, height, takeSnapshot]);
+
+    const onResizePointerMove = useCallback((e: React.PointerEvent) => {
+        if (!dragStateRef.current) return;
+        latestPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
+        if (rafIdRef.current !== null) return;
+        rafIdRef.current = requestAnimationFrame(flushResize);
+    }, [flushResize]);
 
     const onResizePointerUp = useCallback((e: React.PointerEvent) => {
         if ((e.target as Element).hasPointerCapture(e.pointerId)) {
             (e.target as Element).releasePointerCapture(e.pointerId);
         }
+        if (rafIdRef.current !== null) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = null;
+        }
+        const s = dragStateRef.current;
+        const pos = latestPointerRef.current;
+        if (s && pos) {
+            const zoom = getZoom() || 1;
+            const dx = (pos.clientX - s.startX) / zoom;
+            const dy = (pos.clientY - s.startY) / zoom;
+            let newW = s.startW;
+            let newH = s.startH;
+            if (s.dir.includes('e')) newW = s.startW + dx;
+            if (s.dir.includes('w')) newW = s.startW - dx;
+            if (s.dir.includes('s')) newH = s.startH + dy;
+            if (s.dir.includes('n')) newH = s.startH - dy;
+            const anchorRight = s.dir.includes('w');
+            const anchorBottom = s.dir.includes('n');
+            // Slice owns the soft-floor clamp, the group-origin shift, and the
+            // inverse child-local-position shift that keeps children world-
+            // pinned. Snapshot already taken at pointerdown.
+            resizeGroup(id, newW, newH, { anchorRight, anchorBottom, skipSnapshot: true });
+        }
+        setLiveSize(null);
+        setLiveShift(null);
         dragStateRef.current = null;
-    }, []);
+        latestPointerRef.current = null;
+    }, [id, resizeGroup, getZoom]);
 
     return (
         <>
@@ -309,6 +383,10 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     background: GROUP_COLOR_CLASSES[colorToken]?.bgRgba ?? GROUP_COLOR_CLASSES.neutral.bgRgba,
                     // Tinted border when not selected/hover-target.
                     borderColor: (isHoverTarget || selected) ? undefined : GROUP_COLOR_CLASSES[colorToken]?.borderRgba,
+                    // CSS transform during anchored-axis drags (W/N) — shifts
+                    // the inner div visually without touching RF's data model
+                    // for the group OR its children. Cleared on pointerup.
+                    transform: liveShift ? `translate(${liveShift.x}px, ${liveShift.y}px)` : undefined,
                     // Let pointer events pass through the body so edges (wires)
                     // routed inside the group remain clickable. Interactive bits
                     // (resize handles, title bubble) opt back in below.

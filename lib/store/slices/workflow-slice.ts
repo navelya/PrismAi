@@ -1098,6 +1098,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     resizeGroup: (groupId, width, height, opts) => {
         const anchorRight = !!opts?.anchorRight;
         const anchorBottom = !!opts?.anchorBottom;
+        const skipSnapshot = !!opts?.skipSnapshot;
 
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;
@@ -1106,10 +1107,28 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         if (!group) return;
 
         const cfg = (group.data?.config as any) || {};
-        const oldW = cfg.width ?? width;
-        const oldH = cfg.height ?? height;
+        const storedW = cfg.width ?? width;
+        const storedH = cfg.height ?? height;
 
         const children = currentWorkflow.nodes.filter((n) => n.parentNode === groupId);
+
+        // The DISPLAYED dimensions before this resize — what the user can
+        // actually see on the canvas. Mirrors GroupNode's render formula
+        // (`max(storedW, requiredW)`). The shift math below uses these as
+        // the baseline: if we used `cfg.width` (stored) alone, anchored
+        // drags would over-shift the group by `(displayed - stored)` on
+        // every commit whenever the children-bbox floor was binding —
+        // user-visible symptom: "border moves further than the mouse".
+        const requiredW = children.reduce((acc, c) => {
+            const w = c.measured?.width ?? c.width ?? 200;
+            return Math.max(acc, c.position.x + w + GROUP_PADDING);
+        }, 0);
+        const requiredH = children.reduce((acc, c) => {
+            const h = c.measured?.height ?? c.height ?? 100;
+            return Math.max(acc, c.position.y + h + GROUP_PADDING);
+        }, 0);
+        const oldW = Math.max(storedW, requiredW);
+        const oldH = Math.max(storedH, requiredH);
 
         // Per-axis clamp. When an edge is anchored (the OPPOSITE edge is being
         // dragged), the rightmost/bottommost-child clamp is auto-satisfied
@@ -1152,7 +1171,11 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             clampedH = Math.max(height, minHeight);
         }
 
-        if (cfg.width === clampedW && cfg.height === clampedH) return;
+        // Compare against displayed (oldW/oldH), not stored — otherwise a
+        // floor-bound group resized to its current visible size would still
+        // trip the writeback path, bumping storedW up to requiredW for no
+        // user-visible reason.
+        if (oldW === clampedW && oldH === clampedH) return;
 
         // Anchored axes: shift the group origin by -delta and inverse-shift
         // each child by +delta so children stay world-pinned. Mirrors the
@@ -1164,7 +1187,12 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const childShiftX = anchorRight ? deltaW : 0;
         const childShiftY = anchorBottom ? deltaH : 0;
 
-        get().takeSnapshot();
+        // Callers driving a live resize drag (one resizeGroup call per
+        // pointermove) pass `skipSnapshot: true` and snapshot ONCE on
+        // pointerdown themselves — otherwise the undo stack collects one
+        // entry per pointer tick and the user has to mash ctrl-z to revert
+        // a single drag.
+        if (!skipSnapshot) get().takeSnapshot();
 
         const updatedNodes = currentWorkflow.nodes.map((n) => {
             if (n.id === groupId) {
