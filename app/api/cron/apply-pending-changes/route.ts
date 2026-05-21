@@ -1,9 +1,10 @@
 /**
  * Cron: Apply scheduled plan changes.
  *
- * Runs frequently (every 15 minutes is the recommended cadence). For every
- * subscription with `pending_plan_change_price_id IS NOT NULL`, applies the
- * change via Paddle's API as soon as the current billing period ends.
+ * Runs daily (Vercel Hobby plan caps cron frequency at once per day). For
+ * every subscription with `pending_plan_change_price_id IS NOT NULL`, applies
+ * the change via Paddle's API once the current billing period has ended. On a
+ * paid Vercel plan this can safely move to 15-minute cadence.
  *
  * Timing model:
  *   - We apply the change immediately upon detecting `current_period_end <=
