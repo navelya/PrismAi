@@ -135,6 +135,16 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
     }, []);
 
+    // Close when cursor leaves a row toward up/down/left, but NOT when it
+    // exits rightward — that direction is the path toward the flyout, and
+    // closing there would force the user to chase the flyout faster than
+    // the close timer fires.
+    const handleRowLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (e.clientX >= rect.right - 2) return;
+        scheduleClose();
+    }, [scheduleClose]);
+
     useEffect(() => () => {
         if (openTimer.current) window.clearTimeout(openTimer.current);
         if (closeTimer.current) window.clearTimeout(closeTimer.current);
@@ -274,6 +284,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                             category={cat}
                                             active={hoveredKind === 'category' && hoveredId === cat.id}
                                             onMouseEnter={e => { cancelClose(); scheduleOpen('category', cat.id, e.currentTarget); }}
+                                            onMouseLeave={handleRowLeave}
                                         />
                                     ))}
                                 </div>
@@ -291,6 +302,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                             provider={p}
                                             active={hoveredKind === 'provider' && hoveredId === p.id}
                                             onMouseEnter={e => { cancelClose(); scheduleOpen('provider', p.id, e.currentTarget); }}
+                                            onMouseLeave={handleRowLeave}
                                         />
                                     ))}
                                 </div>

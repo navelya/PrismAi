@@ -48,16 +48,18 @@ export interface CategoryRowProps {
     category: Category;
     active: boolean;
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => void;
+    onMouseLeave?: (e: React.MouseEvent<HTMLButtonElement>) => void;
     onFocus?: () => void;
 }
 
-export function CategoryRow({ id, category, active, onMouseEnter, onFocus }: CategoryRowProps) {
+export function CategoryRow({ id, category, active, onMouseEnter, onMouseLeave, onFocus }: CategoryRowProps) {
     const IconComponent = (Icons[category.icon_reference as keyof typeof Icons] as React.ComponentType<{ className?: string }>) || Icons.Folder;
     return (
         <button
             id={id}
             data-active={active}
             onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
             onFocus={onFocus}
             className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
@@ -77,15 +79,17 @@ export interface ProviderRowProps {
     provider: { id: string; name: string; logo_url: string | null };
     active: boolean;
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => void;
+    onMouseLeave?: (e: React.MouseEvent<HTMLButtonElement>) => void;
     onFocus?: () => void;
 }
 
-export function ProviderRow({ id, provider, active, onMouseEnter, onFocus }: ProviderRowProps) {
+export function ProviderRow({ id, provider, active, onMouseEnter, onMouseLeave, onFocus }: ProviderRowProps) {
     return (
         <button
             id={id}
             data-active={active}
             onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
             onFocus={onFocus}
             className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
