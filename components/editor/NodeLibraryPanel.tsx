@@ -8,13 +8,15 @@ import { BasicsTile, CategoryRow, ProviderRow, NodeItemRow, ModelItemRow } from 
 import NodeLibraryFlyout, { FlyoutMode } from './NodeLibraryFlyout';
 
 const HOVER_OPEN_MS = 80;
-const HOVER_CLOSE_MS = 150;
-const TOOL_RAIL_GUTTER = 44;
-const FLYOUT_GAP = 12;
+const HOVER_CLOSE_MS = 180;
+// Horizontal distance from the master panel's right edge to the flyout's
+// left edge. Covers: master→rail gap (8) + rail width (~48) + rail→flyout gap (12).
+const FLYOUT_OFFSET_FROM_MASTER = 68;
 const FLYOUT_MAX_HEIGHT = 480;
 
 interface Tile {
     name: string;
+    /** Search-only metadata; not displayed. */
     desc: string;
     icon: React.ComponentType<{ className?: string }>;
     /** If set, this tile is hidden when no nodeType matches any candidate id. */
@@ -24,12 +26,12 @@ interface Tile {
 }
 
 const BASICS_TILES: Tile[] = [
-    { name: 'Text prompt', desc: 'Plain text input', icon: Icons.Type, payload: { type: 'prompt' } },
-    { name: 'Upload image', desc: 'Image / video', icon: Icons.Image, payload: { type: 'media_input' } },
-    { name: 'Generate text', desc: 'AI text output', icon: Icons.Type, nodeTypeCandidates: ['text_generation', 'generate_text', 'generate-text'] },
-    { name: 'Generate image', desc: 'AI image output', icon: Icons.Image, nodeTypeCandidates: ['image_generation', 'generate_image', 'generate-image'] },
-    { name: 'Generate video', desc: 'AI video output', icon: Icons.Video, nodeTypeCandidates: ['video_generation', 'generate_video', 'generate-video'] },
-    { name: 'Compositor', desc: 'Combine layers', icon: Icons.Layers, payload: { type: 'compositor' } },
+    { name: 'Text prompt', desc: 'plain text input', icon: Icons.Type, payload: { type: 'prompt' } },
+    { name: 'Upload image', desc: 'image video upload media', icon: Icons.Image, payload: { type: 'media_input' } },
+    { name: 'Generate text', desc: 'ai text llm', icon: Icons.Type, nodeTypeCandidates: ['text_generation', 'generate_text', 'generate-text'] },
+    { name: 'Generate image', desc: 'ai image picture', icon: Icons.Image, nodeTypeCandidates: ['image_generation', 'generate_image', 'generate-image'] },
+    { name: 'Generate video', desc: 'ai video animation', icon: Icons.Video, nodeTypeCandidates: ['video_generation', 'generate_video', 'generate-video'] },
+    { name: 'Compositor', desc: 'combine layers canvas', icon: Icons.Layers, payload: { type: 'compositor' } },
 ];
 
 interface ProviderRec { id: string; name: string; logo_url: string | null }
@@ -48,8 +50,6 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const fetchProviders = useAppStore(s => s.fetchProviders);
     const fetchModels = useAppStore(s => s.fetchModels);
 
-    // Fetch catalog data on mount. The store fetchers are no-ops if data is
-    // already loaded, so this is safe to call every time the panel opens.
     useEffect(() => {
         fetchCategories();
         fetchNodeTypes();
@@ -69,21 +69,17 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const openTimer = useRef<number | null>(null);
     const closeTimer = useRef<number | null>(null);
 
-    // Debounced search (80ms).
     useEffect(() => {
         const t = window.setTimeout(() => setDebouncedQuery(query), 80);
         return () => window.clearTimeout(t);
     }, [query]);
 
-    // Esc closes the entire panel.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
 
-    // Resolve Basics tiles against loaded nodeTypes. Generate-X tiles are
-    // dropped if no candidate id matches a loaded node type.
     const resolvedBasics = useMemo(() => {
         return BASICS_TILES.map(t => {
             if (t.payload) return { tile: t, payload: t.payload as Record<string, unknown> };
@@ -93,12 +89,6 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         }).filter((x): x is { tile: Tile; payload: Record<string, unknown> } => x !== null);
     }, [nodeTypes]);
 
-    const clearTimers = useCallback(() => {
-        if (openTimer.current) { window.clearTimeout(openTimer.current); openTimer.current = null; }
-        if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
-    }, []);
-
-    // Compute and apply the flyout's top/height for a given row element.
     const positionFlyoutForRow = useCallback((rowEl: HTMLElement) => {
         const rect = rowEl.getBoundingClientRect();
         const container = containerRef.current?.getBoundingClientRect();
@@ -107,17 +97,14 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         const maxBottom = Math.min(containerBottom, viewportBottom);
         const available = Math.max(120, maxBottom - rect.top);
         const desiredHeight = Math.min(FLYOUT_MAX_HEIGHT, available);
-        // Clamp top so the flyout fits if the row sits very low in the panel.
         const clampedTop = Math.min(rect.top, viewportBottom - desiredHeight);
         setFlyoutTop(clampedTop);
         setFlyoutHeight(desiredHeight);
     }, []);
 
     const scheduleOpen = useCallback((kind: 'category' | 'provider', id: string, rowEl: HTMLElement) => {
-        // Cancel any pending open from a previous row.
         if (openTimer.current) { window.clearTimeout(openTimer.current); openTimer.current = null; }
         if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
-        // If a flyout is already open, swap content immediately (no delay/flash).
         if (hoveredKind && hoveredId) {
             positionFlyoutForRow(rowEl);
             setHoveredKind(kind);
@@ -144,26 +131,27 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
     }, []);
 
-    useEffect(() => () => clearTimers(), [clearTimers]);
+    useEffect(() => () => {
+        if (openTimer.current) window.clearTimeout(openTimer.current);
+        if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    }, []);
 
-    // Close flyout when searching.
     useEffect(() => {
         if (debouncedQuery) {
-            clearTimers();
+            if (openTimer.current) { window.clearTimeout(openTimer.current); openTimer.current = null; }
+            if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
             setHoveredKind(null);
             setHoveredId(null);
         }
-    }, [debouncedQuery, clearTimers]);
+    }, [debouncedQuery]);
 
-    // Recompute flyout's viewport-relative left whenever it opens.
     useEffect(() => {
         if (!hoveredKind || !hoveredId) return;
         const rect = containerRef.current?.getBoundingClientRect();
         if (!rect) return;
-        setFlyoutLeft(rect.right + TOOL_RAIL_GUTTER + FLYOUT_GAP);
+        setFlyoutLeft(rect.right + FLYOUT_OFFSET_FROM_MASTER);
     }, [hoveredKind, hoveredId]);
 
-    // ── Search results ────────────────────────────────────────────────────
     const q = debouncedQuery.trim().toLowerCase();
     const basicsHits = q
         ? resolvedBasics.filter(({ tile }) => tile.name.toLowerCase().includes(q) || tile.desc.toLowerCase().includes(q))
@@ -176,7 +164,6 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         : [];
     const noHits = !!q && basicsHits.length === 0 && nodeHits.length === 0 && modelHits.length === 0;
 
-    // ── Flyout content ────────────────────────────────────────────────────
     const flyoutMode: FlyoutMode | null = useMemo(() => {
         if (!hoveredKind || !hoveredId) return null;
         if (hoveredKind === 'category') {
@@ -194,24 +181,20 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const handleDragStartClose = useCallback(() => onClose(), [onClose]);
 
     return (
-        <div ref={containerRef} className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-stroke-subtle/60">
-                <span className="text-[13px] font-semibold text-content-primary">Add node</span>
-                <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-md transition-colors group" title="Close">
-                    <X className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary" />
-                </button>
-            </div>
-
-            {/* Search */}
-            <div className="px-3 pt-2 pb-2" onMouseEnter={scheduleClose}>
-                <div className="relative">
+        <div
+            ref={containerRef}
+            onMouseLeave={scheduleClose}
+            className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        >
+            {/* Search bar IS the header — close button sits next to it. */}
+            <div className="flex items-center gap-2 px-2.5 py-2 border-b border-stroke-subtle/60" onMouseEnter={scheduleClose}>
+                <div className="relative flex-1">
                     <Search className="w-3.5 h-3.5 text-content-tertiary absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         placeholder="Search nodes or models"
-                        className="w-full bg-surface-secondary border border-stroke-subtle rounded-lg pl-7 pr-7 py-1.5 text-[12px] text-content-primary placeholder:text-content-tertiary focus:border-accent-primary focus:outline-none"
+                        className="w-full bg-surface-secondary border border-stroke-subtle rounded-md pl-7 pr-7 py-1.5 text-[12px] text-content-primary placeholder:text-content-tertiary focus:border-accent-primary focus:outline-none"
                     />
                     {query && (
                         <button
@@ -224,34 +207,40 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         </button>
                     )}
                 </div>
+                <button
+                    onClick={onClose}
+                    className="p-1 hover:bg-white/10 rounded-md transition-colors group"
+                    title="Close"
+                >
+                    <X className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary" />
+                </button>
             </div>
 
-            {/* Body */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden">
                 {q ? (
-                    <div className="p-3 space-y-4">
+                    <div className="p-2.5 space-y-4">
                         {basicsHits.length > 0 && (
                             <section>
-                                <SectionLabel icon={Icons.Sparkles}>Basics</SectionLabel>
-                                <div className="grid grid-cols-2 gap-2">
+                                <SectionLabel>Basics</SectionLabel>
+                                <div className="grid grid-cols-2 gap-1.5">
                                     {basicsHits.map(({ tile, payload }) => (
-                                        <BasicsTile key={tile.name} name={tile.name} desc={tile.desc} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
+                                        <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
                                     ))}
                                 </div>
                             </section>
                         )}
                         {nodeHits.length > 0 && (
                             <section>
-                                <SectionLabel icon={Icons.Grid}>Nodes</SectionLabel>
-                                <div className="space-y-2">
+                                <SectionLabel>Nodes</SectionLabel>
+                                <div className="space-y-1.5">
                                     {nodeHits.map(nt => <NodeItemRow key={nt.id} nodeType={nt} onDragStart={handleDragStartClose} />)}
                                 </div>
                             </section>
                         )}
                         {modelHits.length > 0 && (
                             <section>
-                                <SectionLabel icon={Icons.Server}>Models</SectionLabel>
-                                <div className="space-y-2">
+                                <SectionLabel>Models</SectionLabel>
+                                <div className="space-y-1.5">
                                     {modelHits.map(m => {
                                         const provider = providers.find(p => p.id === String(m.provider_id));
                                         return <ModelItemRow key={m.id} model={m} provider={provider} onDragStart={handleDragStartClose} />;
@@ -261,26 +250,26 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         )}
                         {noHits && (
                             <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
-                                <Icons.Inbox className="w-8 h-8 mb-2 opacity-20" />
-                                <span className="text-xs">No nodes or models match &ldquo;{query}&rdquo;</span>
+                                <Icons.Inbox className="w-7 h-7 mb-2 opacity-20" />
+                                <span className="text-[11px]">No nodes or models match &ldquo;{query}&rdquo;</span>
                             </div>
                         )}
                     </div>
                 ) : (
-                    <div className="p-3 space-y-6 pb-6">
-                        <section>
-                            <SectionLabel icon={Icons.Sparkles}>Basics</SectionLabel>
-                            <div className="grid grid-cols-2 gap-2">
+                    <div className="p-2.5 space-y-5 pb-4">
+                        <section onMouseEnter={scheduleClose}>
+                            <SectionLabel>Basics</SectionLabel>
+                            <div className="grid grid-cols-2 gap-1.5">
                                 {resolvedBasics.map(({ tile, payload }) => (
-                                    <BasicsTile key={tile.name} name={tile.name} desc={tile.desc} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
+                                    <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
                                 ))}
                             </div>
                         </section>
 
                         {categories.length > 0 && (
-                            <section onMouseLeave={scheduleClose}>
-                                <SectionLabel icon={Icons.Grid}>Categories</SectionLabel>
-                                <div className="space-y-2">
+                            <section>
+                                <SectionLabel>Categories</SectionLabel>
+                                <div className="space-y-1.5">
                                     {categories.map(cat => (
                                         <CategoryRow
                                             key={cat.id}
@@ -295,9 +284,9 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         )}
 
                         {providers.length > 0 && (
-                            <section onMouseLeave={scheduleClose}>
-                                <SectionLabel icon={Icons.Server}>Providers</SectionLabel>
-                                <div className="space-y-2">
+                            <section>
+                                <SectionLabel>Providers</SectionLabel>
+                                <div className="space-y-1.5">
                                     {providers.map(p => (
                                         <ProviderRow
                                             key={p.id}
@@ -329,13 +318,8 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     );
 }
 
-function SectionLabel({ icon: Icon, children }: { icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
     return (
-        <div className="flex items-center gap-2 mb-2">
-            <div className="w-4 h-4 rounded-md bg-accent-primary/10 flex items-center justify-center">
-                <Icon className="w-2.5 h-2.5 text-accent-primary" />
-            </div>
-            <h4 className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">{children}</h4>
-        </div>
+        <h4 className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-content-tertiary mb-1.5 px-1">{children}</h4>
     );
 }

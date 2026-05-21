@@ -10,24 +10,16 @@ export type FlyoutMode =
 
 export interface NodeLibraryFlyoutProps {
     mode: FlyoutMode;
-    /** Viewport-relative left offset of the flyout in px. */
     left: number;
-    /** Viewport-relative top offset in px, already clamped by the parent. */
     top: number;
-    /** Height of the flyout in px. */
     height: number;
-    /** Called when the cursor enters the flyout — cancels the parent's pending close. */
     onMouseEnter: () => void;
-    /** Called when the cursor leaves the flyout — schedules a close in the parent. */
     onMouseLeave: () => void;
-    /** Called from row drag-start to dismiss the entire panel stack. */
     onDragStartClose: () => void;
 }
 
 export default function NodeLibraryFlyout({ mode, left, top, height, onMouseEnter, onMouseLeave, onDragStartClose }: NodeLibraryFlyoutProps) {
-    const isCategory = mode.kind === 'category';
-    const eyebrow = isCategory ? 'Nodes' : `Models from ${mode.providerName}`;
-    const title = isCategory ? mode.categoryName : mode.providerName;
+    const title = mode.kind === 'category' ? mode.categoryName : mode.providerName;
     const isEmpty = mode.items.length === 0;
 
     return (
@@ -35,18 +27,17 @@ export default function NodeLibraryFlyout({ mode, left, top, height, onMouseEnte
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
             className="fixed z-[55] pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-            style={{ left, top, height, width: 280 }}
+            style={{ left, top, height, width: 260 }}
         >
-            <div className="px-3 pt-3 pb-2 border-b border-stroke-subtle/60">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">{eyebrow}</p>
-                <h4 className="text-sm font-bold text-content-primary truncate">{title}</h4>
+            <div className="px-3 py-2 border-b border-stroke-subtle/60">
+                <h4 className="text-[12px] font-semibold text-content-primary truncate">{title}</h4>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
                 {isEmpty ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
-                        <Icons.Inbox className="w-8 h-8 mb-2 opacity-20" />
-                        <span className="text-xs">No items found</span>
+                    <div className="flex flex-col items-center justify-center py-10 text-content-tertiary">
+                        <Icons.Inbox className="w-7 h-7 mb-2 opacity-20" />
+                        <span className="text-[11px]">No items found</span>
                     </div>
                 ) : mode.kind === 'category' ? (
                     mode.items.map(nt => (

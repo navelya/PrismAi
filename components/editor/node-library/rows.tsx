@@ -12,28 +12,33 @@ function startDrag(e: React.DragEvent, payload: DragPayload, onAfterStart?: () =
     if (onAfterStart) onAfterStart();
 }
 
+const ROW_CLASS =
+    'flex items-center gap-2.5 p-2 rounded-lg border border-stroke-subtle/40 bg-surface-primary/40 hover:border-accent-primary/40 hover:bg-accent-primary/5 transition-all group';
+
+const ICON_CHIP_CLASS =
+    'w-7 h-7 rounded-md bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors';
+
+const ICON_CLASS =
+    'w-3.5 h-3.5 text-content-secondary group-hover:text-accent-primary transition-colors';
+
 export interface BasicsTileProps {
     name: string;
-    desc: string;
     icon: React.ComponentType<{ className?: string }>;
     payload: DragPayload;
     onDragStart?: () => void;
 }
 
-export function BasicsTile({ name, desc, icon: Icon, payload, onDragStart }: BasicsTileProps) {
+export function BasicsTile({ name, icon: Icon, payload, onDragStart }: BasicsTileProps) {
     return (
         <div
             draggable
             onDragStart={e => startDrag(e, payload, onDragStart)}
-            className="flex items-center gap-3 p-2.5 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all cursor-move group shadow-sm"
+            className={`${ROW_CLASS} cursor-move`}
         >
-            <div className="w-8 h-8 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
-                <Icon className="w-4 h-4 text-content-secondary group-hover:text-accent-primary transition-colors" />
+            <div className={ICON_CHIP_CLASS}>
+                <Icon className={ICON_CLASS} />
             </div>
-            <div className="flex-1 min-w-0">
-                <div className="font-semibold text-[11px] text-content-primary truncate">{name}</div>
-                <div className="text-[9px] text-content-tertiary truncate">{desc}</div>
-            </div>
+            <span className="font-medium text-[11px] text-content-primary truncate">{name}</span>
         </div>
     );
 }
@@ -54,15 +59,15 @@ export function CategoryRow({ id, category, active, onMouseEnter, onFocus }: Cat
             data-active={active}
             onMouseEnter={onMouseEnter}
             onFocus={onFocus}
-            className="w-full flex items-center justify-between gap-3 p-2.5 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm text-left data-[active=true]:border-accent-primary/30 data-[active=true]:bg-accent-primary/5"
+            className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:border-accent-primary/40 data-[active=true]:bg-accent-primary/5`}
         >
-            <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
-                    <IconComponent className="w-4 h-4 text-content-primary group-hover:text-accent-primary transition-colors" />
+            <div className="flex items-center gap-2.5 min-w-0">
+                <div className={ICON_CHIP_CLASS}>
+                    <IconComponent className={ICON_CLASS} />
                 </div>
-                <span className="text-[11px] font-semibold text-content-primary truncate">{category.display_name}</span>
+                <span className="text-[11px] font-medium text-content-primary truncate">{category.display_name}</span>
             </div>
-            <ChevronRight className="w-3.5 h-3.5 text-content-tertiary flex-shrink-0" />
+            <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-60 group-hover:opacity-100 group-hover:text-accent-primary transition" />
         </button>
     );
 }
@@ -82,18 +87,48 @@ export function ProviderRow({ id, provider, active, onMouseEnter, onFocus }: Pro
             data-active={active}
             onMouseEnter={onMouseEnter}
             onFocus={onFocus}
-            className="w-full flex items-center justify-between gap-3 p-2.5 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm text-left data-[active=true]:border-accent-primary/30 data-[active=true]:bg-accent-primary/5"
+            className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:border-accent-primary/40 data-[active=true]:bg-accent-primary/5`}
         >
-            <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors overflow-hidden p-1.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
                     {provider.logo_url
                         ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
-                        : <Building2 className="w-4 h-4 text-content-primary group-hover:text-accent-primary transition-colors" />}
+                        : <Building2 className={ICON_CLASS} />}
                 </div>
-                <span className="text-[11px] font-semibold text-content-primary truncate">{provider.name}</span>
+                <span className="text-[11px] font-medium text-content-primary truncate">{provider.name}</span>
             </div>
-            <ChevronRight className="w-3.5 h-3.5 text-content-tertiary flex-shrink-0" />
+            <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-60 group-hover:opacity-100 group-hover:text-accent-primary transition" />
         </button>
+    );
+}
+
+/** Two-line row whose subtitle is hidden by default and slides up from below
+ *  on hover. The row's height is fixed by the icon chip (28 px) + padding,
+ *  so revealing the subtitle never reflows neighbours. */
+function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDragPayload }: {
+    name: string;
+    subtitle: string;
+    leftSlot: React.ReactNode;
+    draggable: boolean;
+    onDragStart?: () => void;
+    onDragPayload?: DragPayload;
+}) {
+    return (
+        <div
+            draggable={draggable}
+            onDragStart={draggable && onDragPayload ? e => startDrag(e, onDragPayload, onDragStart) : undefined}
+            className={`${ROW_CLASS} ${draggable ? 'cursor-move' : ''}`}
+        >
+            {leftSlot}
+            <div className="flex-1 min-w-0 relative">
+                <div className="text-[11px] font-medium text-content-primary truncate leading-[14px] transition-transform duration-200 group-hover:-translate-y-1">
+                    {name}
+                </div>
+                <div className="absolute left-0 right-0 top-full mt-0.5 text-[9px] text-content-tertiary uppercase tracking-wider truncate leading-[10px] opacity-0 -translate-y-1 group-hover:opacity-100 group-hover:-translate-y-[5px] transition-all duration-200">
+                    {subtitle}
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -105,19 +140,18 @@ export interface NodeItemRowProps {
 export function NodeItemRow({ nodeType, onDragStart }: NodeItemRowProps) {
     const IconComp = (Icons[nodeType.icon_reference as keyof typeof Icons] as React.ComponentType<{ className?: string }>) || Icons.Zap;
     return (
-        <div
+        <RevealingRow
+            name={nodeType.display_name}
+            subtitle="Dynamic node"
             draggable
-            onDragStart={e => startDrag(e, { type: 'ai_generator', node_type_id: nodeType.id, archetype_id: nodeType.archetype_id }, onDragStart)}
-            className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group shadow-sm"
-        >
-            <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
-                <IconComp className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm text-content-primary truncate">{nodeType.display_name}</div>
-                <div className="text-[10px] text-content-tertiary uppercase tracking-wider">Dynamic node</div>
-            </div>
-        </div>
+            onDragStart={onDragStart}
+            onDragPayload={{ type: 'ai_generator', node_type_id: nodeType.id, archetype_id: nodeType.archetype_id }}
+            leftSlot={
+                <div className={ICON_CHIP_CLASS}>
+                    <IconComp className={ICON_CLASS} />
+                </div>
+            }
+        />
     );
 }
 
@@ -129,20 +163,19 @@ export interface ModelItemRowProps {
 
 export function ModelItemRow({ model, provider, onDragStart }: ModelItemRowProps) {
     return (
-        <div
+        <RevealingRow
+            name={model.display_name}
+            subtitle={model.replicate_model_id.split(':')[0]}
             draggable
-            onDragStart={e => startDrag(e, { type: 'ai_generator', node_type_id: model.node_type_id, model_id: model.id }, onDragStart)}
-            className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group shadow-sm"
-        >
-            <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors overflow-hidden p-1.5">
-                {provider?.logo_url
-                    ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
-                    : <Icons.Box className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />}
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm text-content-primary truncate">{model.display_name}</div>
-                <div className="text-[10px] text-content-tertiary uppercase tracking-wider">{model.replicate_model_id.split(':')[0]}</div>
-            </div>
-        </div>
+            onDragStart={onDragStart}
+            onDragPayload={{ type: 'ai_generator', node_type_id: model.node_type_id, model_id: model.id }}
+            leftSlot={
+                <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
+                    {provider?.logo_url
+                        ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
+                        : <Icons.Box className={ICON_CLASS} />}
+                </div>
+            }
+        />
     );
 }
