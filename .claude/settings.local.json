@@ -48,7 +48,13 @@
       "Bash(node -e \"const d = require\\('@paddle/paddle-node-sdk'\\); console.log\\('ProrationBillingMode:', d.ProrationBillingMode\\); console.log\\('SubscriptionEffectiveFrom:', d.SubscriptionEffectiveFrom\\);\")",
       "Bash(node -e \"['package.json','tsconfig.json','next.config.json','vercel.json','components.json'].forEach\\(f=>{try{require\\('fs'\\).accessSync\\(f\\);JSON.parse\\(require\\('fs'\\).readFileSync\\(f,'utf8'\\)\\);console.log\\('OK',f\\)}catch\\(e\\){if\\(e.code!=='ENOENT'\\)console.log\\('FAIL',f,e.message\\);else console.log\\('--',f,'\\(missing\\)'\\)}}\\)\")",
       "Skill(superpowers:verification-before-completion)",
-      "Skill(superpowers:verification-before-completion:*)"
+      "Skill(superpowers:verification-before-completion:*)",
+      "Skill(superpowers:systematic-debugging)",
+      "Skill(superpowers:systematic-debugging:*)",
+      "Skill(superpowers:writing-plans)",
+      "Skill(superpowers:writing-plans:*)",
+      "Skill(superpowers:executing-plans)",
+      "Skill(superpowers:executing-plans:*)"
     ]
   }
 }

@@ -1,6 +1,6 @@
 import type { Workflow, WorkflowNode, WorkflowEdge, AiModel } from '@/lib/nodes/types';
 import type { NodeSharedDef, NodeDataType } from '@/lib/nodes/core/types';
-import { typesAreCompatible } from '@/lib/editor/handle-compatibility';
+import { typesAreCompatible } from '@/lib/editor/handle-compatibility-utils';
 
 export type ValidationError =
     | {

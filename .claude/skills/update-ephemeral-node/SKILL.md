@@ -70,9 +70,9 @@ Execute the plan in this order to minimize broken-intermediate-state risk:
 
 1. **`definition.ts`** first — the source of truth for types, schema, handles.
 2. **`shared.ts`** (if exists and affected) — pure helpers used by both executors.
-3. **`executor.server.ts`** — server logic. Implement compat shims here (default values for missing config fields).
+3. **`executor.server.ts`** — server logic. Implement compat shims here (default values for missing config fields). If uploading results to `workflow-ephemeral-tmp`, you MUST use the `uploadEphemeralResult` helper from `lib/nodes/plugins/utils/ephemeral.ts`.
 4. **`executor.client.ts`** — client preview. Mirror server behavior.
-5. **`component.tsx`** — UI changes. Render new controls, handle the new state.
+5. **`component.tsx`** — UI changes. Render new controls, handle the new state. Ensure any `DownloadHandler` registration explicitly wraps the export function to correctly forward the `isInternal` flag: `registerDownloadHandler(id, (isInternal?: boolean) => fetchYourExport(undefined, isInternal))`. When invoking upstream handlers, explicitly pass the `isInternal` flag (e.g., `await upstreamHandler(isInternal ?? true)`). Explicitly wrap UI state modifications (like `setDownloadState('rendering')`) in an `if (!isInternal)` check.
 6. **`properties.tsx`** / `ui/<...>.tsx` (if affected).
 7. **Registry barrels** — only if you're adding new exports to the `index.ts` barrel that the registries import.
 8. **New shared components** in `components/ui/` if Phase 2 identified them.

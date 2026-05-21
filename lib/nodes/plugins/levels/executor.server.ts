@@ -3,6 +3,7 @@ import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types'
 import { LevelsConfig } from './definition';
 import { applyLutInPlace, buildLevelsLut } from './shared';
 import { createServiceClient } from '@/lib/supabase/service';
+import { uploadEphemeralResult } from '../utils/ephemeral';
 
 /**
  * Levels server executor.
@@ -58,33 +59,21 @@ export const levelsExecutor = async (
 
         const meta = await sharp(outputBuffer.data).metadata();
 
-        const supabase = createServiceClient();
-        const filename = `${context.executionId}/${context.nodeId}/levels_${Date.now()}.png`;
-
-        const { error: uploadError } = await supabase.storage
-            .from('workflow-ephemeral-tmp')
-            .upload(filename, outputBuffer.data, { contentType: 'image/png', cacheControl: '3600' });
-        if (uploadError) {
-            return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
-        }
-
-        const { data: urlData } = supabase.storage
-            .from('workflow-ephemeral-tmp')
-            .getPublicUrl(filename);
-
-        const result: ImageObject = {
-            url: urlData.publicUrl,
+        const result = await uploadEphemeralResult(context, outputBuffer.data, {
+            prefix: 'levels',
+            extension: 'png',
+            contentType: 'image/png',
             resolution: { width: meta.width || 0, height: meta.height || 0 },
             metadata: {
                 format: meta.format || 'png',
                 size: outputBuffer.info.size,
                 hasTransparency: meta.hasAlpha || false,
-            },
-        };
+            }
+        });
 
-        console.log(`[LevelsExecutor] uploaded ${result.url} (${meta.width}x${meta.height})`);
+        console.log(`[LevelsExecutor] uploaded ${result.data?.[0]?.url || 'unknown'} (${meta.width}x${meta.height})`);
 
-        return { success: true, data: [result] };
+        return result;
     } catch (err) {
         return {
             success: false,

@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types';
 import { CompositorConfig, CompositorLayer } from './definition';
-import { createServiceClient } from '@/lib/supabase/service';
+import { uploadEphemeralResult } from '../utils/ephemeral';
 import {
     detectSourceKindFromUrl,
     LayerSourceKind,
@@ -147,26 +147,15 @@ async function runStillComposite(
         contentType = 'image/png';
     }
 
-    const supabase = createServiceClient();
     const ext = outputFormat === 'jpg' ? 'jpg' : outputFormat === 'jpeg' ? 'jpeg' : outputFormat === 'webp' ? 'webp' : 'png';
-    const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .upload(filename, finalBuffer, { contentType, cacheControl: '3600' });
-    if (uploadError) {
-        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
-    }
-
-    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
-
-    const result: ImageObject = {
-        url: urlData.publicUrl,
+    return uploadEphemeralResult(context, finalBuffer, {
+        prefix: 'compositor',
+        extension: ext,
+        contentType,
         resolution: { width, height },
-        metadata: { format: outputFormat, source: 'Compositor', processedBy: 'ServerSharp' },
-    };
-
-    return { success: true, data: [result] };
+        metadata: { format: outputFormat, source: 'Compositor', processedBy: 'ServerSharp' }
+    });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -542,31 +531,17 @@ async function runTemporalRender(
         };
     }
 
-    const supabase = createServiceClient();
-    const filename = `${context.executionId}/${context.nodeId}/compositor_${Date.now()}.mp4`;
-    const { error: uploadError } = await supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .upload(filename, outputBuffer, { contentType: 'video/mp4', cacheControl: '3600' });
-    if (uploadError) {
-        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
-    }
-
-    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
-
-    return {
-        success: true,
-        data: [
-            {
-                url: urlData.publicUrl,
-                resolution: { width, height },
-                metadata: {
-                    format: 'mp4',
-                    source: 'Compositor',
-                    processedBy: 'ServerFluentFfmpeg',
-                },
-            },
-        ],
-    };
+    return uploadEphemeralResult(context, outputBuffer, {
+        prefix: 'compositor',
+        extension: 'mp4',
+        contentType: 'video/mp4',
+        resolution: { width, height },
+        metadata: {
+            format: 'mp4',
+            source: 'Compositor',
+            processedBy: 'ServerFluentFfmpeg',
+        }
+    });
 }
 
 /**

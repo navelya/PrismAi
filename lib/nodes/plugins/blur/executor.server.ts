@@ -6,6 +6,7 @@ import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types'
 import { BlurConfig, BlurType } from './definition';
 import { createServiceClient } from '@/lib/supabase/service';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
+import { uploadEphemeralResult } from '../utils/ephemeral';
 
 /**
  * Blur server executor.
@@ -83,29 +84,17 @@ async function blurImage(
     const outputBuffer = await pipeline.toBuffer({ resolveWithObject: true });
     const meta = await sharp(outputBuffer.data).metadata();
 
-    const supabase = createServiceClient();
-    const filename = `${context.executionId}/${context.nodeId}/blur_${Date.now()}.png`;
-
-    const { error: uploadError } = await supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .upload(filename, outputBuffer.data, { contentType: 'image/png', cacheControl: '3600' });
-    if (uploadError) {
-        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
-    }
-
-    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
-
-    const result: ImageObject = {
-        url: urlData.publicUrl,
+    return uploadEphemeralResult(context, outputBuffer.data, {
+        prefix: 'blur',
+        extension: 'png',
+        contentType: 'image/png',
         resolution: { width: meta.width || 0, height: meta.height || 0 },
         metadata: {
             format: meta.format || 'png',
             size: outputBuffer.info.size,
             hasTransparency: meta.hasAlpha || false,
-        },
-    };
-
-    return { success: true, data: [result] };
+        }
+    });
 }
 
 async function blurVideo(
@@ -193,28 +182,14 @@ async function blurVideo(
 
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 
-    const supabase = createServiceClient();
-    const filename = `${context.executionId}/${context.nodeId}/blur_${Date.now()}.mp4`;
-    const { error: uploadError } = await supabase.storage
-        .from('workflow-ephemeral-tmp')
-        .upload(filename, outputBuffer, { contentType: 'video/mp4', cacheControl: '3600' });
-    if (uploadError) {
-        return { success: false, data: null, error: `Storage upload failed: ${uploadError.message}` };
-    }
-
-    const { data: urlData } = supabase.storage.from('workflow-ephemeral-tmp').getPublicUrl(filename);
-
-    return {
-        success: true,
-        data: [
-            {
-                url: urlData.publicUrl,
-                metadata: {
-                    format: 'mp4',
-                    size: outputBuffer.byteLength,
-                    processedBy: 'ServerFluentFfmpeg',
-                },
-            },
-        ],
-    };
+    return uploadEphemeralResult(context, outputBuffer, {
+        prefix: 'blur',
+        extension: 'mp4',
+        contentType: 'video/mp4',
+        metadata: {
+            format: 'mp4',
+            size: outputBuffer.byteLength,
+            processedBy: 'ServerFluentFfmpeg',
+        }
+    });
 }
