@@ -72,6 +72,12 @@ function isReplicateHostedUrl(value: string): boolean {
   return value.includes('replicate.delivery') || value.includes('replicate.com');
 }
 
+// Cap on simultaneous fetch+upload pairs. Each in-flight item holds the full
+// media payload in memory as a Buffer, so unbounded Promise.all would OOM the
+// function on large batches of video. 5 is enough parallelism for typical
+// 4-image outputs while keeping peak memory bounded.
+const MIRROR_CONCURRENCY = 5;
+
 async function mirrorMediaToStorage(
   supabase: ReturnType<typeof createServiceClient>,
   urls: string[],
@@ -80,15 +86,18 @@ async function mirrorMediaToStorage(
   sessionId: string,
   nodeId: string
 ): Promise<string[]> {
-  const mirroredUrls: string[] = [];
   const now = Date.now();
+  // Pre-sized and written by index — downstream consumers rely on positional
+  // alignment with the input `urls` array, so order must be preserved across
+  // parallel workers.
+  const mirroredUrls: string[] = new Array(urls.length);
 
-  for (let i = 0; i < urls.length; i++) {
+  const processOne = async (i: number): Promise<void> => {
     const sourceUrl = urls[i];
 
     if (!sourceUrl.startsWith('http')) {
-      mirroredUrls.push(sourceUrl);
-      continue;
+      mirroredUrls[i] = sourceUrl;
+      return;
     }
 
     const response = await fetchWithRetry(sourceUrl);
@@ -110,8 +119,23 @@ async function mirrorMediaToStorage(
     }
 
     const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
-    mirroredUrls.push(urlData.publicUrl);
-  }
+    mirroredUrls[i] = urlData.publicUrl;
+  };
+
+  // Worker pool: N workers pull from a shared cursor. If a worker throws,
+  // Promise.all rejects with that error; other workers may finish their
+  // current task harmlessly (uploads are idempotent via upsert:true) before
+  // the rejection propagates to the caller's try/catch.
+  let cursor = 0;
+  const workerCount = Math.min(MIRROR_CONCURRENCY, urls.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= urls.length) return;
+      await processOne(i);
+    }
+  });
+  await Promise.all(workers);
 
   return mirroredUrls;
 }
