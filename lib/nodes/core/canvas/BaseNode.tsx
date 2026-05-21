@@ -96,6 +96,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     onAnimationStart,
     onAnimationEnd,
     onTransitionEnd,
+    // Destructured out of `props` so the trailing `{...props}` spread on the
+    // motion.div CAN'T re-apply it as a flat replacement that clobbers the
+    // merged style object below — `borderWidth: 1/zoom` and the selection
+    // outline live in that merged object, and losing them on plugins that
+    // pass a `style` (Blur, Levels, AI Generator, …) is exactly why their
+    // selection ring went sub-pixel on zoom out.
+    style: propsStyle,
     ...props
 }, ref) => {
     const isDragging = dragging;
@@ -348,7 +355,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     outlineOffset: '0'
                 }),
                 willChange: 'transform',
-                ...props.style
+                ...propsStyle
             }}
             {...props}
         >
