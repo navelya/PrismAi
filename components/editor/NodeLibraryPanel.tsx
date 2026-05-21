@@ -43,6 +43,19 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const nodeTypes = useAppStore(s => s.nodeTypes) as NodeTypeRecord[];
     const providers = useAppStore(s => s.providers) as ProviderRec[];
     const models = useAppStore(s => s.models) as AiModel[];
+    const fetchCategories = useAppStore(s => s.fetchCategories);
+    const fetchNodeTypes = useAppStore(s => s.fetchNodeTypes);
+    const fetchProviders = useAppStore(s => s.fetchProviders);
+    const fetchModels = useAppStore(s => s.fetchModels);
+
+    // Fetch catalog data on mount. The store fetchers are no-ops if data is
+    // already loaded, so this is safe to call every time the panel opens.
+    useEffect(() => {
+        fetchCategories();
+        fetchNodeTypes();
+        fetchProviders();
+        fetchModels();
+    }, [fetchCategories, fetchNodeTypes, fetchProviders, fetchModels]);
 
     const [query, setQuery] = useState('');
     const [debouncedQuery, setDebouncedQuery] = useState('');

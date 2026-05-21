@@ -1,19 +1,18 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    MessageSquare, Minimize2, Plus, X, Zap,
-    ArrowLeft, Folder, Box, Building2,
+    MessageSquare, Minimize2, Plus,
     Image as ImageIcon, BookOpen
 } from 'lucide-react';
-import * as Icons from 'lucide-react';
 import SharedWorkflowEditor from '@/components/editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { Workflow } from '@/lib/nodes/types';
 import { AssetsPanel } from '@/components/editor/AssetsPanel';
 import { TemplatesModal } from '@/components/editor/TemplatesModal';
+import NodeLibraryPanel from '@/components/editor/NodeLibraryPanel';
 
 interface WorkspaceLayoutProps {
     chatPanel: React.ReactNode;
@@ -78,25 +77,6 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     }, [isChatOpen, setIsCopilotMinimized]);
 
 
-    // ── Node Library catalog ─────────────────────────────────────────────────
-    const categories = useAppStore(s => s.categories);
-    const nodeTypes = useAppStore(s => s.nodeTypes);
-    const providers = useAppStore(s => s.providers);
-    const models = useAppStore(s => s.models);
-    const fetchCategories = useAppStore(s => s.fetchCategories);
-    const fetchNodeTypes = useAppStore(s => s.fetchNodeTypes);
-    const fetchProviders = useAppStore(s => s.fetchProviders);
-    const fetchModels = useAppStore(s => s.fetchModels);
-
-    const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-    const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (isNodeLibraryOpen) {
-            fetchCategories(); fetchNodeTypes(); fetchProviders(); fetchModels();
-        }
-    }, [isNodeLibraryOpen, fetchCategories, fetchNodeTypes, fetchProviders, fetchModels]);
-
     const containerRef = useRef<HTMLDivElement>(null);
     const PAD = 16;
     const TOP_BAR_OFFSET = 64; // clears the credits/upgrade pill at top-left of the canvas
@@ -156,150 +136,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                         exit={{ opacity: 0, x: -24 }}
                         transition={{ duration: 0.18, ease: 'easeOut' }}
                     >
-                        <div className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-                            {/* Floating controls */}
-                            <div className="absolute top-2 left-2 right-2 z-10 flex items-center justify-between pointer-events-none">
-                                <div className="pointer-events-auto">
-                                    {(selectedCategoryId || selectedProviderId) && (
-                                        <button onClick={() => { if (selectedProviderId) setSelectedProviderId(null); else setSelectedCategoryId(null); }} className="flex items-center gap-2 px-2 py-1.5 bg-surface-elevated/80 backdrop-blur-md rounded-lg text-content-primary hover:text-accent-primary transition-colors group">
-                                            <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
-                                            <span className="text-xs font-bold uppercase tracking-widest">Back</span>
-                                        </button>
-                                    )}
-                                </div>
-                                <button onClick={() => { setActivePanel(null); setSelectedCategoryId(null); setSelectedProviderId(null); }} className="pointer-events-auto p-1.5 bg-surface-elevated/80 backdrop-blur-md hover:bg-white/10 rounded-lg transition-colors group" title="Close">
-                                    <X className="w-4 h-4 text-content-tertiary group-hover:text-content-primary" />
-                                </button>
-                            </div>
-
-                            {/* Content */}
-                            <div className="flex-1 overflow-y-auto overflow-x-hidden relative pt-10">
-                                {/* Level 1 */}
-                                <div className={cn('absolute inset-0 p-4 space-y-8 transition-all duration-300', (selectedCategoryId || selectedProviderId) ? '-translate-x-full opacity-0 pointer-events-none' : 'translate-x-0 opacity-100')}>
-                                    {/* Common Tools */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <div className="w-4 h-4 rounded-md bg-accent-primary/10 flex items-center justify-center">
-                                                <Icons.Wrench className="w-2.5 h-2.5 text-accent-primary" />
-                                            </div>
-                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">Common Tools</h4>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {[
-                                                { id: 'media_input', name: 'Media Input', icon: Icons.Image, desc: 'Image/Video' },
-                                                { id: 'compositor', name: 'Compositor', icon: Icons.Layers, desc: 'Canvas' },
-                                                { id: 'prompt', name: 'Prompt', icon: Icons.Type, desc: 'Text input' },
-                                                { id: 'blur', name: 'Blur Filter', icon: Icons.Droplet, desc: 'Effect' }
-                                            ].map(tool => (
-                                                <div key={tool.id} draggable onDragStart={e => { e.dataTransfer.setData('application/reactflow', JSON.stringify({ type: tool.id })); e.dataTransfer.effectAllowed = 'move'; setActivePanel(null); }} className="flex items-center gap-3 p-2.5 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all cursor-move group shadow-sm">
-                                                    <div className="w-8 h-8 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
-                                                        <tool.icon className="w-4 h-4 text-content-secondary group-hover:text-accent-primary transition-colors" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="font-semibold text-[11px] text-content-primary truncate">{tool.name}</div>
-                                                        <div className="text-[9px] text-content-tertiary truncate">{tool.desc}</div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Categories */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <div className="w-4 h-4 rounded-md bg-accent-primary/10 flex items-center justify-center">
-                                                <Icons.Grid className="w-2.5 h-2.5 text-accent-primary" />
-                                            </div>
-                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">Categories</h4>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {categories.map(category => {
-                                                const IconComponent = (Icons[category.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Folder;
-                                                return (
-                                                    <button key={category.id} onClick={() => setSelectedCategoryId(category.id)} className="flex items-center gap-3 p-2.5 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm text-left">
-                                                        <div className="w-8 h-8 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
-                                                            <IconComponent className="w-4 h-4 text-content-primary group-hover:text-accent-primary transition-colors" />
-                                                        </div>
-                                                        <span className="text-[11px] font-semibold text-content-primary truncate">{category.display_name}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    {/* Providers */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <div className="w-4 h-4 rounded-md bg-accent-primary/10 flex items-center justify-center">
-                                                <Icons.Server className="w-2.5 h-2.5 text-accent-primary" />
-                                            </div>
-                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">Providers</h4>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {providers.map(provider => (
-                                                <button key={provider.id} onClick={() => setSelectedProviderId(provider.id)} className="flex items-center gap-3 p-2.5 rounded-xl border border-stroke-subtle bg-surface-primary hover:border-accent-primary hover:bg-accent-primary/5 transition-all group shadow-sm text-left">
-                                                    <div className="w-8 h-8 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors overflow-hidden p-1.5">
-                                                        {provider.logo_url ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" /> : <Building2 className="w-4 h-4 text-content-primary group-hover:text-accent-primary transition-colors" />}
-                                                    </div>
-                                                    <span className="text-[11px] font-semibold text-content-primary truncate">{provider.name}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    {/* Spacer to ensure scrolling hits the bottom comfortably */}
-                                    <div className="h-4" />
-                                </div>
-
-                                {/* Level 2 */}
-                                <div className={cn('absolute inset-0 p-4 space-y-3 transition-all duration-300', (selectedCategoryId || selectedProviderId) ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none')}>
-                                    <div className="mb-4">
-                                        <p className="text-[10px] font-bold uppercase tracking-widest text-content-tertiary">{selectedCategoryId ? 'Nodes for Category' : 'Models from Provider'}</p>
-                                        <h4 className="text-lg font-bold text-content-primary">
-                                            {selectedCategoryId ? categories.find(c => c.id === selectedCategoryId)?.display_name : providers.find(p => p.id === selectedProviderId)?.name}
-                                        </h4>
-                                    </div>
-                                    <div className="space-y-2 pb-8">
-                                        {selectedCategoryId ? (
-                                            nodeTypes.filter(nt => nt.parent_categories?.includes(selectedCategoryId)).map(nt => {
-                                                const IconComp = (Icons[nt.icon_reference as keyof typeof Icons] as React.ComponentType<any>) || Zap;
-                                                return (
-                                                    <div key={nt.id} draggable onDragStart={e => { e.dataTransfer.setData('application/reactflow', JSON.stringify({ type: 'ai_generator', node_type_id: nt.id, archetype_id: nt.archetype_id })); e.dataTransfer.effectAllowed = 'move'; setActivePanel(null); }} className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group shadow-sm">
-                                                        <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors">
-                                                            <IconComp className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="font-bold text-sm text-content-primary">{nt.display_name}</div>
-                                                            <div className="text-[10px] text-content-tertiary uppercase tracking-wider">Dynamic Node</div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })
-                                        ) : (
-                                            models.filter(m => m.provider_id === selectedProviderId).map(model => {
-                                                const p = providers.find(prov => prov.id === model.provider_id);
-                                                return (
-                                                    <div key={model.id} draggable onDragStart={e => { e.dataTransfer.setData('application/reactflow', JSON.stringify({ type: 'ai_generator', node_type_id: model.node_type_id, model_id: model.id })); e.dataTransfer.effectAllowed = 'move'; setActivePanel(null); }} className="flex items-center gap-3 p-3 border border-stroke-subtle rounded-xl cursor-move hover:border-accent-primary hover:bg-accent-primary/5 transition-all bg-surface-primary group shadow-sm">
-                                                        <div className="w-10 h-10 rounded-lg bg-surface-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-accent-primary/10 transition-colors overflow-hidden p-1.5">
-                                                            {p?.logo_url ? <img src={p.logo_url} alt={p.name} className="w-full h-full object-contain" /> : <Box className="w-5 h-5 text-content-secondary group-hover:text-accent-primary transition-colors" />}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="font-bold text-sm text-content-primary truncate">{model.display_name}</div>
-                                                            <div className="text-[10px] text-content-tertiary uppercase tracking-wider">{model.replicate_model_id.split(':')[0]}</div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })
-                                        )}
-                                        {((selectedCategoryId && nodeTypes.filter(nt => nt.parent_categories?.includes(selectedCategoryId)).length === 0) || (selectedProviderId && models.filter(m => m.provider_id === selectedProviderId).length === 0)) && (
-                                            <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
-                                                <Icons.Inbox className="w-8 h-8 mb-2 opacity-20" />
-                                                <span className="text-xs">No items found</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <NodeLibraryPanel onClose={() => setActivePanel(null)} />
                     </motion.div>
                 )}
             </AnimatePresence>
