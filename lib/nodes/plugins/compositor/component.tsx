@@ -88,8 +88,14 @@ async function renderTextLayerToBlob(layer: CompositorLayer, text: string): Prom
  * skipped in the published graph so downstream renderers don't see partial
  * data. The compositor's own preview keeps rendering whatever it can locally
  * even if a layer is skipped here.
+ *
+ * `envelopeType` is the OUTER `{ type: 'image' | 'video' | ... }` from the
+ * upstream envelope (which `toLegacyRenderableOutput` discards). It's the
+ * authoritative classifier when the inner URL has no recognizable extension
+ * (signed URLs, model-proxy paths). Falls back to URL detection only when
+ * envelopeType doesn't disambiguate.
  */
-function resolveToGraphSource(resolved: any): GraphLayerSource | null {
+function resolveToGraphSource(resolved: any, envelopeType?: string): GraphLayerSource | null {
     if (resolved === null || resolved === undefined) return null;
     if (typeof resolved === 'string') return { kind: 'text', text: resolved };
     if (typeof resolved !== 'object') return null;
@@ -101,7 +107,15 @@ function resolveToGraphSource(resolved: any): GraphLayerSource | null {
     }
     const url = (resolved as any).url;
     if (typeof url === 'string' && url.length > 0) {
-        const mediaKind = detectSourceKindFromUrl(url);
+        let mediaKind = detectSourceKindFromUrl(url);
+        // Envelope-level fallback: a URL like `.../uuid` with no extension
+        // would classify as 'unknown' and be filtered out, dropping the layer
+        // from the downstream graph. The upstream node already published the
+        // envelope type ('image' / 'video'); honor it.
+        if (mediaKind !== 'image' && mediaKind !== 'video') {
+            if (envelopeType === 'image') mediaKind = 'image';
+            else if (envelopeType === 'video') mediaKind = 'video';
+        }
         if (mediaKind === 'image' || mediaKind === 'video') {
             return { kind: 'media', url, mediaKind };
         }
@@ -110,14 +124,57 @@ function resolveToGraphSource(resolved: any): GraphLayerSource | null {
 }
 
 /**
- * Content-equality check for a GraphLayer pair. Compares the layer ref
- * (stable from config.layers) and the source fields by value. Used to keep
- * the compositor's published graphLayers reference stable across renders
- * that produce identical content, so downstream republishing converges.
+ * Deep content comparison for a CompositorLayer pair — covers all fields the
+ * graph renderer actually reads. Used in place of a ref check because layer
+ * objects can be re-created across renders even when their content didn't
+ * change (orphan layers, store re-spreads of config), and a ref-only check
+ * caused graphLayers identity to churn → publishedGraph to churn → infinite
+ * publish/repaint loops in downstream consumers.
+ */
+function layerContentEqual(a: CompositorLayer, b: CompositorLayer): boolean {
+    if (a === b) return true;
+    if (a.id !== b.id) return false;
+    if (a.sourceHandleId !== b.sourceHandleId) return false;
+    if (a.visible !== b.visible) return false;
+    if (a.startTime !== b.startTime) return false;
+    if (a.duration !== b.duration) return false;
+    if (a.selectedIndex !== b.selectedIndex) return false;
+    if ((a.muted ?? false) !== (b.muted ?? false)) return false;
+    const at = a.transform;
+    const bt = b.transform;
+    if (at === bt) return true;
+    if (!at || !bt) return false;
+    return (
+        at.x === bt.x &&
+        at.y === bt.y &&
+        at.width === bt.width &&
+        at.height === bt.height &&
+        at.rotation === bt.rotation &&
+        at.opacity === bt.opacity &&
+        at.flipX === bt.flipX &&
+        at.flipY === bt.flipY &&
+        at.blendMode === bt.blendMode &&
+        at.fontSize === bt.fontSize &&
+        at.fontFamily === bt.fontFamily &&
+        at.fontStyle === bt.fontStyle &&
+        (at as any).fontWeight === (bt as any).fontWeight &&
+        at.fillColor === bt.fillColor &&
+        at.textAlign === bt.textAlign &&
+        at.lineHeight === bt.lineHeight &&
+        at.letterSpacing === bt.letterSpacing
+    );
+}
+
+/**
+ * Content-equality check for a GraphLayer pair. Compares the layer's actual
+ * fields (not ref) and the source fields by value. Ref-only comparison
+ * caused churn whenever the layer object was reconstructed for the same
+ * content (orphan creation, store spreads), which translated into
+ * downstream graph identity changes and infinite paint loops.
  */
 function graphLayerContentEqual(a: GraphLayer, b: GraphLayer): boolean {
     if (a === b) return true;
-    if (a.layer !== b.layer) return false;
+    if (!layerContentEqual(a.layer, b.layer)) return false;
     if (a.source.kind !== b.source.kind) return false;
     if (a.source.kind === 'media' && b.source.kind === 'media') {
         return a.source.url === b.source.url && a.source.mediaKind === b.source.mediaKind;
@@ -417,6 +474,17 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
      * oversized — downscaling cuts the GPU's backdrop-blur sample cost
      * dramatically without any visible quality loss at the rendered size.
      */
+    // Orphan-layer ref cache. The orphan branch below synthesizes a layer
+    // object for edges that don't yet have a saved entry in config.layers
+    // (the narrow window before onConnect's auto-create lands, plus legacy
+    // data). Creating a fresh object on every renderable computation gave
+    // those layers unstable refs across renders, which propagated through
+    // graphLayers / publishedGraph and caused B to republish on every store
+    // tick — a feedback loop that downstream consumers (Blur, chained
+    // compositor) re-rendered through. Caching by edge id keeps the ref
+    // stable so the memoized content-equality check actually converges.
+    const orphanLayerCacheRef = useRef<Map<string, CompositorLayer>>(new Map());
+
     const renderable: RenderableLayer[] = useMemo(() => {
         const savedById = new Map<string, CompositorLayer>(
             (config.layers || []).map((l) => [l.sourceHandleId, l])
@@ -436,6 +504,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
 
         const out: RenderableLayer[] = [];
         const seenEdgeIds = new Set<string>();
+        const liveEdgeIds = new Set(layerEdges.map((e) => e.id));
 
         // 1. Saved layers in user-controlled z-order.
         (config.layers || []).forEach((layer) => {
@@ -448,24 +517,36 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         // 2. Orphan edges (no saved layer yet) — appended on top.
         layerEdges.forEach((edge) => {
             if (seenEdgeIds.has(edge.id)) return;
-            const layer: CompositorLayer = savedById.get(edge.id) ?? {
-                id: `layer_${edge.id}`,
-                name: 'Layer',
-                sourceHandleId: edge.id,
-                selectedIndex: 0,
-                transform: { ...calculateInitialTransform(400, 300, canvasW, canvasH), isAutoCentered: false },
-                visible: true,
-                locked: false,
-                startTime: 0,
-                duration: null,
-                trimIn: 0,
-                trimOut: null,
-                speed: 1,
-                muted: false,
-                transition: { type: 'none', duration: 0 },
-            };
+            let layer = savedById.get(edge.id) ?? orphanLayerCacheRef.current.get(edge.id);
+            if (!layer) {
+                layer = {
+                    id: `layer_${edge.id}`,
+                    name: 'Layer',
+                    sourceHandleId: edge.id,
+                    selectedIndex: 0,
+                    transform: { ...calculateInitialTransform(400, 300, canvasW, canvasH), isAutoCentered: false },
+                    visible: true,
+                    locked: false,
+                    startTime: 0,
+                    duration: null,
+                    trimIn: 0,
+                    trimOut: null,
+                    speed: 1,
+                    muted: false,
+                    transition: { type: 'none', duration: 0 },
+                };
+                orphanLayerCacheRef.current.set(edge.id, layer);
+            }
             out.push({ layer, resolved: resolveUpstream(edge, layer.selectedIndex ?? 0) });
         });
+
+        // Evict cache entries for edges that no longer exist so the map
+        // doesn't grow unbounded across the workflow's lifetime.
+        for (const cachedId of Array.from(orphanLayerCacheRef.current.keys())) {
+            if (!liveEdgeIds.has(cachedId)) {
+                orphanLayerCacheRef.current.delete(cachedId);
+            }
+        }
 
         return out;
     }, [layerEdges, upstreamBySource, config.layers, config.canvasWidth, config.canvasHeight]);
@@ -705,11 +786,30 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // The propagation never converges; React's commit phase keeps detaching
     // and reattaching refs (Radix's composedRefs chain), hitting React #185
     // ("Maximum update depth exceeded") inside the setRef recursion.
+    // Map sourceHandleId → envelope `type` for the per-layer upstream. Lets
+    // resolveToGraphSource classify URLs whose extension is unrecognizable
+    // (signed Supabase URLs, AI proxy paths) by trusting the envelope the
+    // upstream node already declared. Without this, those layers got dropped
+    // from the published graph and disappeared downstream.
+    const envelopeTypeByHandleId = useMemo<Record<string, string | undefined>>(() => {
+        const out: Record<string, string | undefined> = {};
+        for (const edge of layerEdges) {
+            const upstream = upstreamBySource[edge.source];
+            const type =
+                upstream && typeof upstream === 'object' && typeof (upstream as any).type === 'string'
+                    ? ((upstream as any).type as string)
+                    : undefined;
+            out[edge.id] = type;
+        }
+        return out;
+    }, [layerEdges, upstreamBySource]);
+
     const lastGraphLayersRef = useRef<GraphLayer[]>([]);
     const graphLayers: GraphLayer[] = useMemo(() => {
         const next: GraphLayer[] = [];
         for (const { layer, resolved } of renderable) {
-            const source = resolveToGraphSource(resolved);
+            const envelopeType = envelopeTypeByHandleId[layer.sourceHandleId];
+            const source = resolveToGraphSource(resolved, envelopeType);
             if (!source) continue;
             next.push({ layer, source });
         }
@@ -718,7 +818,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         }
         lastGraphLayersRef.current = next;
         return next;
-    }, [renderable]);
+    }, [renderable, envelopeTypeByHandleId]);
 
     const lastStablePublishedGraphRef = useRef<GraphDescription | null>(null);
     const publishedGraph: GraphDescription | null = useMemo(() => {
@@ -799,6 +899,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         // 30+ seconds upstream resolution can take). Bulk-download doesn't
         // pass it and falls back to the orchestrator's per-handler tick.
         onSubProgress?: (current: number, total: number) => void,
+        isInternal?: boolean,
     ): Promise<{ filename: string; blob: Blob }[]> => {
         // If another caller's render is in flight, share its result. This
         // collapses the "bulk download + chained-compositor resolver both ask
@@ -813,7 +914,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         // Show 'rendering' immediately so the UI reflects work in progress
         // throughout — including the upstream-graph resolution phase below,
         // which can take a full A-render before B's own export even starts.
-        setDownloadState('rendering');
+        if (!isInternal) setDownloadState('rendering');
 
         // Count chained layers up front so we can size the progress total
         // appropriately. Each chained layer contributes two ticks (upstream
@@ -917,7 +1018,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                         `Layer "${layer.name}": upstream node has no download handler. Re-open the workflow and retry.`,
                     );
                 }
-                const upstreamItems = await upstreamHandler();
+                const upstreamItems = await upstreamHandler(true);
                 tick(); // upstream render complete
                 const upstreamBlob = upstreamItems[0]?.blob;
                 if (!upstreamBlob) {
@@ -952,8 +1053,10 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         }
 
         if (Object.keys(inputs).length === 0) {
-            setDownloadState('error');
-            setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+            if (!isInternal) {
+                setDownloadState('error');
+                setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+            }
             throw new Error('No wired inputs');
         }
 
@@ -1007,14 +1110,18 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             const safeLabel = (data.label || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
             const filename = match?.[1] || `${safeLabel}.mp4`;
 
-            setDownloadState('success');
-            setTimeout(() => setDownloadState((s) => (s === 'success' ? 'idle' : s)), 1500);
+            if (!isInternal) {
+                setDownloadState('success');
+                setTimeout(() => setDownloadState((s) => (s === 'success' ? 'idle' : s)), 1500);
+            }
             cleanupTempUploads();
             return [{ filename, blob }];
         } catch (err) {
             console.error('[Compositor:download] export failed', err);
-            setDownloadState('error');
-            setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+            if (!isInternal) {
+                setDownloadState('error');
+                setTimeout(() => setDownloadState((s) => (s === 'error' ? 'idle' : s)), 2500);
+            }
             cleanupTempUploads();
             throw err;
         }
@@ -1069,7 +1176,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // EditorCanvas's multi-select Download zips everything it gets back from
     // selected nodes' registered handlers + the generic media-URL fallback.
     useEffect(() => {
-        registerDownloadHandler(id, fetchCompositorExport);
+        registerDownloadHandler(id, (isInternal?: boolean) => fetchCompositorExport(undefined, isInternal));
         return () => unregisterDownloadHandler(id);
     }, [id, fetchCompositorExport]);
 
@@ -1090,10 +1197,10 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                         {hasVideoLayer && (
                             <Tooltip
                                 content={
-                                    downloadState === 'rendering' ? 'Rendering on server (video + audio, H.264)…'
+                                    downloadState === 'rendering' ? 'Rendering'
                                     : downloadState === 'success' ? 'Saved'
                                     : downloadState === 'error' ? 'Export failed — click to retry'
-                                    : 'Download the full composition'
+                                    : 'Download'
                                 }
                                 position="top"
                                 delay={600}

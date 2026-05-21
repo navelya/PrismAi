@@ -46,7 +46,9 @@
       "Bash(node -e \"const sdk = require\\('@paddle/paddle-node-sdk'\\); const p = new sdk.Paddle\\('test'\\); console.log\\('subs methods:', Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(p.subscriptions\\)\\)\\); console.log\\('tx methods:', Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(p.transactions\\)\\)\\);\")",
       "Bash(node -e \"const d = require\\('@paddle/paddle-node-sdk'\\); console.log\\('EffectiveFrom:', d.EffectiveFrom\\); console.log\\('ProrationBillingMode:', d.ProrationBillingMode\\);\")",
       "Bash(node -e \"const d = require\\('@paddle/paddle-node-sdk'\\); console.log\\('ProrationBillingMode:', d.ProrationBillingMode\\); console.log\\('SubscriptionEffectiveFrom:', d.SubscriptionEffectiveFrom\\);\")",
-      "Bash(node -e \"['package.json','tsconfig.json','next.config.json','vercel.json','components.json'].forEach\\(f=>{try{require\\('fs'\\).accessSync\\(f\\);JSON.parse\\(require\\('fs'\\).readFileSync\\(f,'utf8'\\)\\);console.log\\('OK',f\\)}catch\\(e\\){if\\(e.code!=='ENOENT'\\)console.log\\('FAIL',f,e.message\\);else console.log\\('--',f,'\\(missing\\)'\\)}}\\)\")"
+      "Bash(node -e \"['package.json','tsconfig.json','next.config.json','vercel.json','components.json'].forEach\\(f=>{try{require\\('fs'\\).accessSync\\(f\\);JSON.parse\\(require\\('fs'\\).readFileSync\\(f,'utf8'\\)\\);console.log\\('OK',f\\)}catch\\(e\\){if\\(e.code!=='ENOENT'\\)console.log\\('FAIL',f,e.message\\);else console.log\\('--',f,'\\(missing\\)'\\)}}\\)\")",
+      "Skill(superpowers:verification-before-completion)",
+      "Skill(superpowers:verification-before-completion:*)"
     ]
   }
 }

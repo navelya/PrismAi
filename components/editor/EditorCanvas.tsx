@@ -564,15 +564,32 @@ const EditorCanvasInner = ({
     const currentWorkflowForSelectionValidation = useAppStore((s) => s.currentWorkflow);
     const nodeOutputsForSelectionValidation = useAppStore((s) => s.nodeOutputs);
     const modelsForSelectionValidation = useAppStore((s) => s.models);
+
+    // Expand selectedNodeIds to also include children of any selected group
+    // containers. Mirrors the fold pattern used by delete/download so that
+    // selecting a group acts on its contents. Returns a list of actual
+    // executable node ids (groups themselves filtered out).
+    const expandSelectionWithGroupChildren = useCallback((selIds: string[]): string[] => {
+        const wf = useAppStore.getState().currentWorkflow;
+        if (!wf) return [];
+        const out = new Set<string>();
+        const selSet = new Set(selIds);
+        for (const n of wf.nodes) {
+            if (selSet.has(n.id) && n.type !== 'group_container') out.add(n.id);
+            // Child of a selected group → include the child (but never the group).
+            if (n.parentNode && selSet.has(n.parentNode) && n.type !== 'group_container') {
+                out.add(n.id);
+            }
+        }
+        return Array.from(out);
+    }, []);
+
     const selectionRunErrors = useMemo(() => {
         if (selectedNodeIds.length < 2 || !currentWorkflowForSelectionValidation) return [];
         const wf = currentWorkflowForSelectionValidation;
-        // Group containers in the selection have no executor and shouldn't be
-        // counted as run targets — the toolbar runs the actual nodes only.
-        const targetIds = selectedNodeIds.filter((id) => {
-            const n = wf.nodes.find((nn) => nn.id === id);
-            return !!n && n.type !== 'group_container';
-        });
+        // Fold group children in so selecting a group with an AI gen inside
+        // counts the AI gen as a run target.
+        const targetIds = expandSelectionWithGroupChildren(selectedNodeIds);
         if (targetIds.length === 0) return [];
         const completedNodeIds = new Set<string>();
         for (const n of wf.nodes) {
@@ -595,33 +612,32 @@ const EditorCanvasInner = ({
     const selectNodeAndCenter = useAppStore((s) => s.selectNodeAndCenter);
     const [showSelectionErrorPopover, setShowSelectionErrorPopover] = useState(false);
 
-    // Only show the Run button if at least one selected node has a "run"
-    // affordance — i.e. a generative node that actually triggers a new
-    // generation. Pure ephemeral selections (prompts, compositors, blurs)
+    // Only show the Run button if at least one effectively-selected node has
+    // a "run" affordance — i.e. a generative node that actually triggers a
+    // new generation. "Effectively selected" includes children of any selected
+    // group container, so selecting a group with an AI gen inside still shows
+    // the button. Pure ephemeral selections (prompts, compositors, blurs)
     // recompute live in the canvas and don't need an explicit run.
     const selectionHasRunnable = useMemo(() => {
         if (selectedNodeIds.length < 2 || !currentWorkflowForSelectionValidation) return false;
         const wf = currentWorkflowForSelectionValidation;
-        return selectedNodeIds.some((id) => {
+        const expandedIds = expandSelectionWithGroupChildren(selectedNodeIds);
+        return expandedIds.some((id) => {
             const n = wf.nodes.find((nn) => nn.id === id);
             if (!n) return false;
             const def = (sharedRegistry as any)[n.type];
             return !!def && def.family === 'generative';
         });
-    }, [selectedNodeIds, currentWorkflowForSelectionValidation]);
+    }, [selectedNodeIds, currentWorkflowForSelectionValidation, expandSelectionWithGroupChildren]);
 
     const handleRunSelected = useCallback(() => {
         if (selectionRunErrors.length > 0) return;
-        const wf = useAppStore.getState().currentWorkflow;
-        if (!wf) return;
-        // Filter group containers — they have no executor.
-        const targetIds = selectedNodeIds.filter((id) => {
-            const n = wf.nodes.find((nn) => nn.id === id);
-            return !!n && n.type !== 'group_container';
-        });
+        // Same expansion as the validator — selecting a group runs its
+        // contents, not the group itself.
+        const targetIds = expandSelectionWithGroupChildren(selectedNodeIds);
         if (targetIds.length === 0) return;
         triggerRunSelection(targetIds);
-    }, [selectionRunErrors.length, selectedNodeIds, triggerRunSelection]);
+    }, [selectionRunErrors.length, selectedNodeIds, triggerRunSelection, expandSelectionWithGroupChildren]);
 
     // Reuse handleDeleteSelected — it already folds group children into the
     // delete set when a group is in the selection (Task 9).
@@ -1145,6 +1161,46 @@ const EditorCanvasInner = ({
         window.addEventListener('resize', updateRect);
         return () => window.removeEventListener('resize', updateRect);
     }, []);
+
+    // RF's wheel handler skips events whose target sits inside a `.nowheel`
+    // element (toolbars, group title, etc.) — correct for plain wheel-pan, but
+    // it also means Ctrl+wheel over those elements falls through to the
+    // browser, which zooms the whole page. Catch that case at the wrapper and
+    // do a cursor-anchored canvas zoom instead. Native listener with
+    // passive:false is required so preventDefault() actually blocks the
+    // browser zoom.
+    useEffect(() => {
+        const wrapper = reactFlowWrapper.current;
+        if (!wrapper || !reactFlowInstance) return;
+
+        const handleWheel = (e: WheelEvent) => {
+            if (!(e.ctrlKey || e.metaKey)) return;
+            const target = e.target as HTMLElement | null;
+            if (!target || !target.closest('.nowheel')) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const { x, y, zoom } = reactFlowInstance.getViewport();
+            const zoomFactor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+            const newZoom = Math.min(2, Math.max(0.1, zoom * zoomFactor));
+            if (newZoom === zoom) return;
+
+            const rect = wrapper.getBoundingClientRect();
+            const cursorX = e.clientX - rect.left;
+            const cursorY = e.clientY - rect.top;
+            const worldX = (cursorX - x) / zoom;
+            const worldY = (cursorY - y) / zoom;
+            reactFlowInstance.setViewport({
+                x: cursorX - worldX * newZoom,
+                y: cursorY - worldY * newZoom,
+                zoom: newZoom,
+            });
+        };
+
+        wrapper.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+        return () => wrapper.removeEventListener('wheel', handleWheel, { capture: true } as any);
+    }, [reactFlowInstance]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (!reactFlowWrapper.current) return;

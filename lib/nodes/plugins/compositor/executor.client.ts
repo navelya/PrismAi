@@ -108,6 +108,7 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
         const normalized = toLegacyRenderableOutput(upstream);
         const arr: ImageObject[] = Array.isArray(normalized) ? normalized : [normalized];
         const item = arr[layer.selectedIndex ?? 0] || arr[0];
+        if (item && typeof item === 'object' && (item as any).graph) return true;
         return !!(item?.url && detectSourceKindFromUrl(item.url) === 'video');
     });
     if (hasVideoLayer) return null;

@@ -241,18 +241,66 @@ export async function renderCompositorVideo(
         const visibleLayers = allLayers.filter((l) => l.visible);
         const processed: ProcessedLayer[] = [];
 
+        // Per-layer diagnostic so a missing layer in the final mp4 can be
+        // triaged from the server log: shows whether the URL classified to a
+        // usable kind, what Content-Type came back from the fetch, and which
+        // skip path (if any) fired.
+        const layerDiagnostics: Array<{
+            layerName: string;
+            url: string | undefined;
+            urlKind: LayerSourceKind;
+            contentType?: string;
+            finalKind?: 'video' | 'image';
+            skipped?: string;
+        }> = [];
+
         for (let i = 0; i < visibleLayers.length; i++) {
             const layer = visibleLayers[i];
             const url = inputs[layer.sourceHandleId];
-            if (!url || typeof url !== 'string') continue;
-            const kind = detectSourceKindFromUrl(url);
-            if (kind !== 'video' && kind !== 'image') continue;
+            if (!url || typeof url !== 'string') {
+                layerDiagnostics.push({ layerName: layer.name, url: undefined, urlKind: 'unknown', skipped: 'no-input-url' });
+                continue;
+            }
+            let kind: 'video' | 'image' | 'text' | 'unknown' = detectSourceKindFromUrl(url);
+
+            // Content-Type fallback: when the URL doesn't carry a recognizable
+            // extension (e.g. signed Supabase URLs, AI model proxy paths), do
+            // a HEAD to ask the server. Without this, a layer with a valid
+            // image-but-no-extension URL was silently dropped here and never
+            // overlaid into the final mp4.
+            let contentType: string | undefined;
+            if (kind !== 'video' && kind !== 'image') {
+                try {
+                    const head = await fetch(url, { method: 'HEAD' });
+                    contentType = head.headers.get('content-type') || undefined;
+                    if (contentType?.startsWith('video/')) kind = 'video';
+                    else if (contentType?.startsWith('image/')) kind = 'image';
+                } catch {
+                    // HEAD failed — fall through; the GET below will still try.
+                }
+            }
+
+            if (kind !== 'video' && kind !== 'image') {
+                layerDiagnostics.push({
+                    layerName: layer.name,
+                    url,
+                    urlKind: detectSourceKindFromUrl(url),
+                    contentType,
+                    skipped: `unsupported-kind:${kind}`,
+                });
+                continue;
+            }
 
             const ext = kind === 'video' ? 'mp4' : 'png';
             const inputPath = path.join(tmpDir, `in_${i}.${ext}`);
             try {
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                // Secondary classification refinement: if we still aren't
+                // sure and the GET gives us a Content-Type, use it.
+                if (!contentType) {
+                    contentType = resp.headers.get('content-type') || undefined;
+                }
                 const buf = Buffer.from(await resp.arrayBuffer());
                 await fs.writeFile(inputPath, buf);
             } catch (err) {
@@ -260,6 +308,13 @@ export async function renderCompositorVideo(
                     `[renderCompositorVideo] Skipping layer ${layer.name}: fetch failed`,
                     err,
                 );
+                layerDiagnostics.push({
+                    layerName: layer.name,
+                    url,
+                    urlKind: detectSourceKindFromUrl(url),
+                    contentType,
+                    skipped: `fetch-failed:${err instanceof Error ? err.message : 'unknown'}`,
+                });
                 continue;
             }
 
@@ -271,6 +326,14 @@ export async function renderCompositorVideo(
                 hasAudio = probe.hasAudio;
             }
 
+            layerDiagnostics.push({
+                layerName: layer.name,
+                url,
+                urlKind: detectSourceKindFromUrl(url),
+                contentType,
+                finalKind: kind,
+            });
+
             processed.push({
                 layer,
                 inputPath,
@@ -281,6 +344,11 @@ export async function renderCompositorVideo(
                 hasAudio,
             });
         }
+
+        console.log(
+            '[renderCompositorVideo] layer-resolution diagnostic',
+            JSON.stringify(layerDiagnostics, null, 2),
+        );
 
         if (processed.length === 0) {
             throw new Error('No renderable layers on temporal compositor.');
@@ -340,15 +408,9 @@ export async function renderCompositorVideo(
             const setpts = `setpts=PTS-STARTPTS+${startT.toFixed(3)}/TB`;
 
             const layerLabel = `L${idx}`;
-            if (p.sourceKind === 'image') {
-                filters.push(
-                    `[${idx}:v]loop=loop=-1:size=1:start=0,trim=duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
-                );
-            } else {
-                filters.push(
-                    `[${idx}:v]trim=duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
-                );
-            }
+            filters.push(
+                `[${idx}:v]trim=duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
+            );
 
             const nextChain = idx === processed.length - 1 ? 'vout' : `s${idx}`;
             filters.push(
@@ -407,11 +469,7 @@ export async function renderCompositorVideo(
             // Add inputs in array order so [N:v] in the filter graph
             // matches the layer index.
             for (const p of processed) {
-                if (p.sourceKind === 'image') {
-                    cmd.input(p.inputPath).inputOptions(['-loop', '1']);
-                } else {
-                    cmd.input(p.inputPath);
-                }
+                cmd.input(p.inputPath);
             }
             const outputOptions: string[] = [
                 '-t', total.toFixed(3),

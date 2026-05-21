@@ -159,7 +159,9 @@ export class GraphRenderCache {
 
     /**
      * Seek a pooled video to `time` (clamped). No-op if the video isn't ready.
-     * Uses fastSeek when available for snappier scrubs.
+     * Uses fastSeek when available for snappier scrubs (only when the element
+     * is already decoded — `fastSeek` on a readyState 1 element can silently
+     * no-op without firing a seek event in some browsers).
      */
     seekVideo(url: string, time: number): void {
         const handle = this.videos.get(url);
@@ -169,11 +171,54 @@ export class GraphRenderCache {
         const clamped = Math.max(0, Math.min(time, Math.max(0, el.duration || 0)));
         if (Math.abs(el.currentTime - clamped) > 0.05) {
             const fastSeek = (el as any).fastSeek;
-            if (typeof fastSeek === 'function') {
+            // Only use fastSeek once the element is decoded; otherwise the
+            // call can silently no-op (Chrome was observed doing this on
+            // readyState 1 elements).
+            if (el.readyState >= 2 && typeof fastSeek === 'function') {
                 try { fastSeek.call(el, clamped); return; } catch { /* fall through */ }
             }
             try { el.currentTime = clamped; } catch { /* not ready */ }
         }
+    }
+
+    /**
+     * Force a paused, metadata-loaded video element to decode its first frame.
+     *
+     * The setup we hit: pool acquires an element with preload="auto", browser
+     * reaches readyState 1 (metadata), then stops because nothing is asking
+     * for frames. drawImage stays empty — we never see the layer. Setting
+     * `currentTime` to a no-op value doesn't fire a seek (so no decode). The
+     * reliable wakeup is `play()` (which forces frame decoding) followed by
+     * an immediate `pause()` so the element ends up paused on a decoded frame
+     * rather than playing.
+     *
+     * Play votes are reconciled via `setPlayState` so the pool's consensus
+     * isn't disturbed: this is a side-channel kick to the actual element,
+     * not a play-state vote.
+     */
+    forceFirstFrameDecode(url: string): void {
+        const handle = this.videos.get(url);
+        if (!handle) return;
+        const el = handle.el;
+        if (el.readyState >= 2) return;
+        // Element must be muted before play() in all major browsers'
+        // autoplay-without-gesture policies. The pool already initializes
+        // elements muted (see video-pool.ts el.muted = true), so this is
+        // usually a no-op but kept defensive.
+        const wasMuted = el.muted;
+        try { el.muted = true; } catch { /* noop */ }
+        el.play()
+            .then(() => {
+                try { el.pause(); } catch { /* noop */ }
+                if (!wasMuted) {
+                    try { el.muted = false; } catch { /* noop */ }
+                }
+            })
+            .catch(() => {
+                if (!wasMuted) {
+                    try { el.muted = false; } catch { /* noop */ }
+                }
+            });
     }
 
     /**
@@ -280,8 +325,11 @@ function voteVideoPoolState(
     if (isActive && !wasActive) {
         // Activation edge — seek to layer-local time BEFORE voting play
         // so the browser doesn't start playback from a stale currentTime
-        // and then teleport, which renders as a blank frame.
+        // and then teleport, which renders as a blank frame. Also kick
+        // the decoder so a paused not-yet-decoded element doesn't stay
+        // stuck at readyState 1 (see forceFirstFrameDecode docstring).
         cache.seekVideo(url, localTime);
+        cache.forceFirstFrameDecode(url);
         cache.setVideoPlayState(url, isPlaying);
         return;
     }
@@ -306,15 +354,20 @@ function voteVideoPoolState(
         // 2. Element acquired but not yet decoded a frame (readyState 1, not
         //    yet 2). A paused HTMLVideoElement that loaded metadata won't
         //    decode its first frame on its own — drawImage stays empty until
-        //    something seeks it. The card's Konva-based LayerVideo has its
-        //    own seek effect for this; LayerSubgraph relies on us. The
-        //    `getVideo` call returns null while readyState < 2, so we seek
-        //    in that case and stop the moment it returns the element.
+        //    something seeks OR plays it. The card's Konva-based LayerVideo
+        //    has its own seek effect for this; LayerSubgraph relies on us.
+        //    `getVideo` returns null while readyState < 2, so we both seek
+        //    AND play→pause to wake the decoder. The play+pause kick is the
+        //    reliable fallback when fastSeek silently no-ops on a not-yet-
+        //    decoded element.
         const ready = cache.getVideo(url) !== null;
         const scrubbed =
             lastLocalTime !== null &&
             Math.abs(localTime - lastLocalTime) > SCRUB_JUMP_THRESHOLD_SEC;
-        if (!ready || scrubbed) {
+        if (!ready) {
+            cache.seekVideo(url, localTime);
+            cache.forceFirstFrameDecode(url);
+        } else if (scrubbed) {
             cache.seekVideo(url, localTime);
         }
         cache.setVideoPlayState(url, isPlaying);

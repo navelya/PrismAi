@@ -18,7 +18,7 @@ import type { DownloadItem } from './download-output';
  * orchestrator zips together with everything else. Handlers should throw on
  * failure so Promise.allSettled in the orchestrator can count accurately.
  */
-export type DownloadCollector = () => Promise<DownloadItem[]>;
+export type DownloadCollector = (isInternal?: boolean) => Promise<DownloadItem[]>;
 
 const handlers = new Map<string, DownloadCollector>();
 

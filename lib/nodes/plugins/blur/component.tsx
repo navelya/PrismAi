@@ -263,6 +263,11 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         };
     }, []);
 
+    // Hover state via ref so the rAF closure reads the current value without
+    // restarting the loop on every hover toggle.
+    const isHoveringRef = useRef(isHoveringGraphPreview);
+    isHoveringRef.current = isHoveringGraphPreview;
+
     useEffect(() => {
         if (!upstreamGraph) return;
         const canvas = previewGraphCanvasRef.current;
@@ -273,18 +278,18 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         if (canvas.width !== dims.width) canvas.width = Math.max(1, dims.width);
         if (canvas.height !== dims.height) canvas.height = Math.max(1, dims.height);
 
-        // Not hovering → render a single frame at t=0 and bail. Matches the
-        // static-URL hover-to-play: video element sits paused at currentTime=0
-        // until the user enters the preview area.
-        if (!isHoveringGraphPreview) {
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                cache.releaseAllScratch();
-                paintGraphFrame(upstreamGraph, 0, ctx, cache, false);
-            }
-            return;
-        }
-
+        // Continuous rAF — same pattern LayerSubgraph uses for downstream
+        // compositor consumers. Paints every frame even when the user isn't
+        // hovering, with playhead held at 0.
+        //
+        // Why continuous (not one-shot when paused): videos in the cache
+        // decode asynchronously after their first acquisition. A single
+        // paint-on-graph-change misses the frame that becomes available
+        // 100-500ms later, so the canvas freezes with whatever was loaded
+        // at first-paint time (typically just the image and the prompt).
+        // Browsers may also evict the held frame of a paused HTMLVideoElement
+        // under memory pressure — a continuous loop quietly re-decodes via
+        // voteVideoPoolState's readyState-aware seek.
         const duration = graphDuration(upstreamGraph);
         let stopped = false;
         let raf = 0;
@@ -293,15 +298,23 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
 
         const tick = (now: number) => {
             if (stopped) return;
-            const dt = (now - last) / 1000;
-            last = now;
-            playhead += dt;
-            if (duration > 0 && playhead >= duration) playhead = 0;
+            if (isHoveringRef.current) {
+                const dt = (now - last) / 1000;
+                last = now;
+                playhead += dt;
+                if (duration > 0 && playhead >= duration) playhead = 0;
+            } else {
+                // Not hovering — playhead frozen at 0; reset `last` so when
+                // the user enters the preview area we don't burn the
+                // accumulated dt as a giant initial jump.
+                playhead = 0;
+                last = now;
+            }
 
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 cache.releaseAllScratch();
-                paintGraphFrame(upstreamGraph, playhead, ctx, cache, true);
+                paintGraphFrame(upstreamGraph, playhead, ctx, cache, isHoveringRef.current);
             }
             raf = requestAnimationFrame(tick);
         };
@@ -310,7 +323,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             stopped = true;
             if (raf) cancelAnimationFrame(raf);
         };
-    }, [upstreamGraph, isHoveringGraphPreview]);
+    }, [upstreamGraph]);
 
     // Derived blur style. Blur preview always applies its own filter; for
     // graph upstreams, the upstream filter chain is already rendered by
