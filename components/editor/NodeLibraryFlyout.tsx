@@ -13,6 +13,9 @@ export interface NodeLibraryFlyoutProps {
     mode: FlyoutMode;
     left: number;
     top: number;
+    /** Caller-computed max height (typically the available space below the
+     *  triggering row, clamped to FLYOUT_MAX_HEIGHT). */
+    maxHeight: number;
     onMouseEnter: () => void;
     onMouseLeave: () => void;
     onDragStartClose: () => void;
@@ -20,7 +23,7 @@ export interface NodeLibraryFlyoutProps {
 
 export const FLYOUT_MAX_HEIGHT = 320;
 
-export default function NodeLibraryFlyout({ mode, left, top, onMouseEnter, onMouseLeave, onDragStartClose }: NodeLibraryFlyoutProps) {
+export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseEnter, onMouseLeave, onDragStartClose }: NodeLibraryFlyoutProps) {
     const isEmpty = mode.items.length === 0;
 
     return (
@@ -31,7 +34,7 @@ export default function NodeLibraryFlyout({ mode, left, top, onMouseEnter, onMou
             transition={{ duration: 0.16, ease: 'easeOut' }}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
-            style={{ left, top, maxHeight: FLYOUT_MAX_HEIGHT, width: 260, transformOrigin: 'left center' }}
+            style={{ left, top, maxHeight, width: 260, transformOrigin: 'left center' }}
             className="fixed z-[55] pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         >
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5">

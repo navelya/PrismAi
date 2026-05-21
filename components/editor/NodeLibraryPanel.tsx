@@ -65,6 +65,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const [hoveredId, setHoveredId] = useState<string | null>(null);
     const [flyoutTop, setFlyoutTop] = useState(0);
     const [flyoutLeft, setFlyoutLeft] = useState(0);
+    const [flyoutMaxHeight, setFlyoutMaxHeight] = useState(FLYOUT_MAX_HEIGHT);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => setMounted(true), []);
@@ -102,14 +103,22 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
             const container = containerRef.current?.getBoundingClientRect();
             if (!container) return;
             const viewportBottom = window.innerHeight - 8;
-            // Clamp top so a worst-case-max-height flyout still fits. Actual
-            // height is content-driven via the flyout's maxHeight CSS, so
-            // shorter content may leave space below — acceptable.
-            const clampedTop = Math.max(8, Math.min(rect.top, viewportBottom - FLYOUT_MAX_HEIGHT));
-            // All four state updates batch into a single render (React 18
-            // automatic batching), so the flyout never renders at the stale
-            // left=0 position even for one frame.
-            setFlyoutTop(clampedTop);
+            // Anchor to the row's top. The flyout's max-height absorbs the
+            // remaining vertical space; if that gets too small to be
+            // usable (< 140 px), shift the top upward enough to give the
+            // flyout 140 px of breathing room. Short-content flyouts stay
+            // pinned next to their row regardless of how far down it sits.
+            const MIN_USABLE = 140;
+            const available = viewportBottom - rect.top;
+            let top = rect.top;
+            let maxHeight = Math.min(FLYOUT_MAX_HEIGHT, Math.max(MIN_USABLE, available));
+            if (available < MIN_USABLE) {
+                top = viewportBottom - MIN_USABLE;
+                maxHeight = MIN_USABLE;
+            }
+            top = Math.max(8, top);
+            setFlyoutTop(top);
+            setFlyoutMaxHeight(maxHeight);
             setFlyoutLeft(container.right + FLYOUT_OFFSET_FROM_MASTER);
             setHoveredKind(kind);
             setHoveredId(id);
@@ -323,6 +332,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                             mode={flyoutMode}
                             left={flyoutLeft}
                             top={flyoutTop}
+                            maxHeight={flyoutMaxHeight}
                             onMouseEnter={cancelClose}
                             onMouseLeave={scheduleClose}
                             onDragStartClose={handleDragStartClose}
