@@ -1,4 +1,4 @@
-import type { Workflow } from '@/lib/nodes/types';
+import type { Workflow, WorkflowNode } from '@/lib/nodes/types';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 
 /** A node the user pointed at in chat. Snapshotted at send-time so labels
@@ -17,9 +17,9 @@ export interface NodeRef {
 export const MAX_NODE_REFS = 25;
 
 /** Resolve a node's display name: user label → registry label → raw type. */
-function resolveLabel(node: any): string {
+function resolveLabel(node: WorkflowNode): string {
   return (
-    (typeof node?.data?.label === 'string' && node.data.label.trim().length > 0
+    (typeof node?.data?.label === 'string' && node.data?.label.trim().length > 0
       ? node.data.label
       : undefined) ??
     sharedRegistry[node?.type as string]?.meta?.label ??
@@ -43,7 +43,21 @@ export function expandSelectionForChat(
   if (!workflow || !Array.isArray(workflow.nodes) || selectedIds.length === 0) {
     return [];
   }
-  const byId = new Map<string, any>(workflow.nodes.map((n: any) => [n.id, n]));
+  const byId = new Map<string, WorkflowNode>(workflow.nodes.map((n) => [n.id, n]));
+
+  // O(n) pre-pass: index children by their parent group id.
+  const childrenByGroup = new Map<string, WorkflowNode[]>();
+  for (const n of workflow.nodes) {
+    if (n.parentNode) {
+      const siblings = childrenByGroup.get(n.parentNode);
+      if (siblings) {
+        siblings.push(n);
+      } else {
+        childrenByGroup.set(n.parentNode, [n]);
+      }
+    }
+  }
+
   const collected = new Map<string, NodeRef>();
 
   for (const id of selectedIds) {
@@ -51,11 +65,11 @@ export function expandSelectionForChat(
     if (!node) continue; // dropped between select and send
     const isGroup = node.type === 'group_container';
     if (!collected.has(id)) {
-      collected.set(id, { id, label: resolveLabel(node), type: node.type, isGroup: isGroup || undefined });
+      collected.set(id, { id, label: resolveLabel(node), type: node.type, isGroup: isGroup ? true : undefined });
     }
     if (isGroup) {
-      for (const child of workflow.nodes as any[]) {
-        if (child.parentNode === id && !collected.has(child.id)) {
+      for (const child of childrenByGroup.get(id) ?? []) {
+        if (!collected.has(child.id)) {
           collected.set(child.id, {
             id: child.id,
             label: resolveLabel(child),
