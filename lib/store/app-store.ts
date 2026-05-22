@@ -82,6 +82,8 @@ export const useAppStore = create<RootState>()(
                     runFromNodeId: null,
                     runMode: null,
                     runSelectionIds: null,
+                    currentSelectedNodeIds: [],
+                    selectionClearToken: 0,
                     liveNodePositions: {},
                     selectedChatModel: undefined,
                 });
@@ -171,6 +173,7 @@ export const useAppStore = create<RootState>()(
                     state.runMode = null;
                     state.runSelectionIds = null;
                     state.currentSelectedNodeIds = [];
+                    state.selectionClearToken = 0;
                 }
             },
         }
