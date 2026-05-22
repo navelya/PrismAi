@@ -190,3 +190,52 @@ export const userApi = {
     },
 };
 
+// ─── Character APIs ────────────────────────────────────────────────────
+
+export interface CharacterRefImage { url: string; path: string; }
+
+export interface Character {
+    id: string;
+    name: string;
+    description: string | null;
+    reference_images: CharacterRefImage[];
+    thumbnail_url: string | null;
+    weight: number;
+    created_at: string;
+    updated_at: string;
+    last_used_at: string | null;
+}
+
+export interface CharacterInput {
+    name: string;
+    description?: string | null;
+    referenceImages: CharacterRefImage[];
+    thumbnailUrl?: string;
+    weight?: number;
+}
+
+export const charactersApi = {
+    list: () => apiFetch<{ characters: Character[] }>('/api/characters', { cache: 'no-store' }),
+
+    create: (input: CharacterInput) =>
+        apiFetch<{ character: Character }>('/api/characters', {
+            method: 'POST',
+            body: JSON.stringify(input),
+        }),
+
+    update: (id: string, input: Partial<CharacterInput>) =>
+        apiFetch<{ character: Character }>(`/api/characters/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(input),
+        }),
+
+    delete: (id: string) =>
+        apiFetch<{ success: boolean }>(`/api/characters/${id}`, { method: 'DELETE' }),
+
+    autoDescribe: (imageUrl: string) =>
+        apiFetch<{ description: string }>('/api/characters/auto-describe', {
+            method: 'POST',
+            body: JSON.stringify({ imageUrl }),
+        }),
+};
+
