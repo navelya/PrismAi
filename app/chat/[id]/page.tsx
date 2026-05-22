@@ -39,6 +39,11 @@ export default function ActiveSessionPage({ params }: { params: { id: string } }
         const hasMessages = useAppStore.getState().chatMessages.some(m => m.sessionId === sessionId);
         if (hasMessages) {
             console.log('[DEBUG] Store already has messages for session, skipping load to preserve optimistic UI');
+            // We're not running loadSession, so release the session-loading guard
+            // ourselves — otherwise it stays true (set by clearAllState / the slice
+            // default) and the canvas loader never settles. The workflow is already
+            // in the store, so the canvas can settle immediately.
+            store.setIsLoadingSession(false);
             setIsSessionReady(true);
             return;
         }

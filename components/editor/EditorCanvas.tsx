@@ -204,16 +204,28 @@ const EditorCanvasInner = ({
     // empty workflow would otherwise leave the loader spinning forever. Treat
     // a zero-node canvas as immediately ready — there's nothing to measure.
     const hasNodesToMeasure = localNodes.length > 0;
+    // A session's workflow loads on a separate async path (loadSession ->
+    // setCurrentWorkflow) that the catalog boot flags don't gate. Until that
+    // settles, currentWorkflow is empty, so the zero-node shortcut above would
+    // fire ready against an empty canvas — dismissing the loader, then nodes
+    // pop in seconds later. Hold the ready signal while a session is still
+    // loading so "empty" means "genuinely empty", not "not fetched yet".
+    // Scoped to activeSessionId so the welcome page (no session, isLoadingSession
+    // stays true) isn't stranded with the loader spinning forever.
+    const isLoadingSession = useAppStore((s) => s.isLoadingSession);
+    const activeSessionId = useAppStore((s) => s.activeSessionId);
+    const sessionLoadPending = !!activeSessionId && isLoadingSession;
     useEffect(() => {
         if (hasFiredReadyRef.current) return;
         if (!reactFlowInstance) return;
+        if (sessionLoadPending) return;
         if (hasNodesToMeasure && !nodesInitialized) return;
         const raf = requestAnimationFrame(() => {
             hasFiredReadyRef.current = true;
             onCanvasReadyRef.current?.();
         });
         return () => cancelAnimationFrame(raf);
-    }, [nodesInitialized, reactFlowInstance, hasNodesToMeasure]);
+    }, [nodesInitialized, reactFlowInstance, hasNodesToMeasure, sessionLoadPending]);
 
     // One-shot smooth fit-to-node when something elsewhere (e.g. the Run
     // Workflow error popover) sets `pendingCenterNodeId`. We pan + zoom-to-fit
