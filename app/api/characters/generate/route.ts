@@ -51,6 +51,17 @@ function firstImagePart(resp: any): GenImage | null {
     return null;
 }
 
+/**
+ * Streams NDJSON so the client can fill each reference slot the moment that
+ * pose is ready, instead of waiting for the whole set. Events:
+ *   { type: 'start', total }
+ *   { type: 'image', index, url, path }
+ *   { type: 'pose_failed', index }
+ *   { type: 'error', message }
+ *   { type: 'done' }
+ * The base (index 0) streams first because the other poses are conditioned on
+ * it; the remaining poses run in parallel and stream as each settles.
+ */
 export async function POST(request: NextRequest) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
@@ -73,66 +84,89 @@ export async function POST(request: NextRequest) {
     const ai = new GoogleGenAI({ apiKey });
     const genConfig = { responseModalities: [Modality.IMAGE] };
 
-    try {
-        // 1. Base image (text → image).
-        const baseResp = await ai.models.generateContent({
-            model: IMAGE_MODEL,
-            contents: basePrompt(description),
-            config: genConfig,
-        });
-        const base = firstImagePart(baseResp);
-        if (!base) {
-            return NextResponse.json({ error: 'The model did not return a base image. Try a more descriptive prompt.' }, { status: 502 });
+    const uploadImage = async (img: GenImage, index: number): Promise<{ url: string; path: string } | null> => {
+        const ext = img.mimeType.includes('png') ? 'png' : img.mimeType.includes('webp') ? 'webp' : 'jpg';
+        const path = `${user.id}/characters/${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const buffer = Buffer.from(img.data, 'base64');
+        const { error: upErr } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .upload(path, buffer, { contentType: img.mimeType, upsert: false });
+        if (upErr) {
+            console.error('[characters/generate] upload failed:', upErr.message);
+            return null;
         }
+        const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+        return { url: pub.publicUrl, path };
+    };
 
-        // 2. Four more poses, each conditioned on the base image. Run in
-        //    parallel — they all depend only on the base, not on each other.
-        const poseResults = await Promise.allSettled(
-            CONDITIONED_POSES.map((pose) =>
-                ai.models.generateContent({
+    const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+            const enc = new TextEncoder();
+            const send = (obj: any) => controller.enqueue(enc.encode(JSON.stringify(obj) + '\n'));
+
+            try {
+                send({ type: 'start', total: 1 + CONDITIONED_POSES.length });
+
+                // 1. Base image (text → image) — must finish first; poses condition on it.
+                const baseResp = await ai.models.generateContent({
                     model: IMAGE_MODEL,
-                    contents: [
-                        { inlineData: { mimeType: base.mimeType, data: base.data } },
-                        { text: conditionedPrompt(pose) },
-                    ],
+                    contents: basePrompt(description),
                     config: genConfig,
-                }),
-            ),
-        );
+                });
+                const base = firstImagePart(baseResp);
+                if (!base) {
+                    send({ type: 'error', message: 'The model did not return a base image. Try a more descriptive prompt.' });
+                    controller.close();
+                    return;
+                }
+                const baseUp = await uploadImage(base, 0);
+                if (!baseUp) {
+                    send({ type: 'error', message: 'Could not save the generated image. Please try again.' });
+                    controller.close();
+                    return;
+                }
+                send({ type: 'image', index: 0, url: baseUp.url, path: baseUp.path });
 
-        const generated: GenImage[] = [base];
-        for (const r of poseResults) {
-            if (r.status === 'fulfilled') {
-                const img = firstImagePart(r.value);
-                if (img) generated.push(img);
+                // 2. Remaining poses in parallel, each conditioned on the base.
+                //    Stream each the moment it uploads.
+                await Promise.all(
+                    CONDITIONED_POSES.map(async (pose, i) => {
+                        const index = i + 1;
+                        try {
+                            const resp = await ai.models.generateContent({
+                                model: IMAGE_MODEL,
+                                contents: [
+                                    { inlineData: { mimeType: base.mimeType, data: base.data } },
+                                    { text: conditionedPrompt(pose) },
+                                ],
+                                config: genConfig,
+                            });
+                            const img = firstImagePart(resp);
+                            if (!img) { send({ type: 'pose_failed', index }); return; }
+                            const up = await uploadImage(img, index);
+                            if (up) send({ type: 'image', index, url: up.url, path: up.path });
+                            else send({ type: 'pose_failed', index });
+                        } catch (e: any) {
+                            console.error('[characters/generate] pose failed:', e?.message);
+                            send({ type: 'pose_failed', index });
+                        }
+                    }),
+                );
+
+                send({ type: 'done' });
+                controller.close();
+            } catch (err: any) {
+                console.error('[characters/generate] error:', err);
+                try { send({ type: 'error', message: err?.message || 'Character generation failed' }); } catch {}
+                try { controller.close(); } catch {}
             }
-        }
+        },
+    });
 
-        // 3. Upload each generated image to storage under the user's folder.
-        const uploaded: { url: string; path: string }[] = [];
-        for (let i = 0; i < generated.length; i++) {
-            const img = generated[i];
-            const ext = img.mimeType.includes('png') ? 'png' : img.mimeType.includes('webp') ? 'webp' : 'jpg';
-            const path = `${user.id}/characters/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-            const buffer = Buffer.from(img.data, 'base64');
-            const { error: upErr } = await supabase.storage
-                .from(STORAGE_BUCKET)
-                .upload(path, buffer, { contentType: img.mimeType, upsert: false });
-            if (upErr) {
-                console.error('[characters/generate] upload failed:', upErr.message);
-                continue;
-            }
-            const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-            uploaded.push({ url: pub.publicUrl, path });
-        }
-
-        if (uploaded.length === 0) {
-            return NextResponse.json({ error: 'Generated images could not be saved. Please try again.' }, { status: 500 });
-        }
-
-        return NextResponse.json({ images: uploaded });
-    } catch (err: any) {
-        console.error('[characters/generate] error:', err);
-        return NextResponse.json({ error: err?.message || 'Character generation failed' }, { status: 500 });
-    }
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'application/x-ndjson; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+        },
+    });
 }

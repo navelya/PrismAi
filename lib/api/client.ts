@@ -237,11 +237,71 @@ export const charactersApi = {
             method: 'POST',
             body: JSON.stringify({ imageUrl }),
         }),
-
-    generate: (description: string) =>
-        apiFetch<{ images: CharacterRefImage[] }>('/api/characters/generate', {
-            method: 'POST',
-            body: JSON.stringify({ description }),
-        }),
 };
+
+export interface GenerateCharacterHandlers {
+    /** Total number of poses that will be generated (fires once, first). */
+    onStart?: (total: number) => void;
+    /** A pose finished and uploaded — fill slot `index` (0 = primary). */
+    onImage: (img: { index: number; url: string; path: string }) => void;
+    /** A non-base pose failed to generate (its slot will stay empty). */
+    onPoseFailed?: (index: number) => void;
+    /** Fatal error (no images, or a pre-stream 4xx/5xx). */
+    onError?: (message: string) => void;
+    /** Stream finished. */
+    onDone?: () => void;
+}
+
+/**
+ * Stream character-reference generation. The server emits NDJSON, one line per
+ * event, so each pose can fill its slot the moment it's ready instead of
+ * waiting for the whole set.
+ */
+export async function generateCharacterStream(
+    description: string,
+    handlers: GenerateCharacterHandlers,
+): Promise<void> {
+    const res = await fetch('/api/characters/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description }),
+    });
+
+    if (!res.ok || !res.body) {
+        let message = `Generation failed (${res.status})`;
+        try { const j = await res.json(); if (j?.error) message = j.error; } catch { /* not json */ }
+        handlers.onError?.(message);
+        return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    const handleLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        let evt: any;
+        try { evt = JSON.parse(trimmed); } catch { return; }
+        switch (evt.type) {
+            case 'start': handlers.onStart?.(typeof evt.total === 'number' ? evt.total : 0); break;
+            case 'image': handlers.onImage({ index: evt.index, url: evt.url, path: evt.path }); break;
+            case 'pose_failed': handlers.onPoseFailed?.(evt.index); break;
+            case 'error': handlers.onError?.(evt.message || 'Generation failed'); break;
+            case 'done': handlers.onDone?.(); break;
+        }
+    };
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+            handleLine(buf.slice(0, nl));
+            buf = buf.slice(nl + 1);
+        }
+    }
+    if (buf.trim()) handleLine(buf);
+}
 

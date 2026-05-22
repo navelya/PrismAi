@@ -2,7 +2,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Upload, Sparkles, Star, Loader2, Wand2 } from 'lucide-react';
-import { uploadApi, charactersApi, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
+import { uploadApi, charactersApi, generateCharacterStream, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
+import ImageLightbox from '@/components/ui/ImageLightbox';
+
+type GenSlot = CharacterRefImage | null | 'failed';
 
 interface CharacterModalProps {
     open: boolean;
@@ -21,6 +24,8 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
     const [uploading, setUploading] = useState(false);
     const [describing, setDescribing] = useState(false);
     const [generating, setGenerating] = useState(false);
+    const [genSlots, setGenSlots] = useState<GenSlot[]>([]);
+    const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,6 +37,8 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
             setWeight(initial?.weight ?? 70);
             setImages(Array.isArray(initial?.reference_images) ? initial!.reference_images : []);
             setErrorMsg(null);
+            setGenSlots([]);
+            setLightboxIndex(null);
         }
     }, [open, initial]);
 
@@ -93,13 +100,38 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
         if (description.trim().length < 3) { setErrorMsg('Describe the character first, then generate'); return; }
         setGenerating(true);
         setErrorMsg(null);
+        setImages([]);
+        setGenSlots([]);
+
+        // Local accumulator persists across stream callbacks; React state mirrors
+        // it for rendering. Each pose fills its own slot the moment it arrives.
+        const slots: GenSlot[] = [];
         try {
-            const { images: gen } = await charactersApi.generate(description.trim());
-            if (gen.length > 0) setImages(gen.slice(0, MAX_IMAGES));
+            await generateCharacterStream(description.trim(), {
+                onStart: (total) => {
+                    slots.length = 0;
+                    for (let i = 0; i < total; i++) slots.push(null);
+                    setGenSlots([...slots]);
+                },
+                onImage: ({ index, url, path }) => {
+                    if (index >= 0 && index < slots.length) slots[index] = { url, path };
+                    setGenSlots([...slots]);
+                },
+                onPoseFailed: (index) => {
+                    if (index >= 0 && index < slots.length && slots[index] === null) slots[index] = 'failed';
+                    setGenSlots([...slots]);
+                },
+                onError: (message) => { setErrorMsg(message); },
+                onDone: () => {
+                    const final = slots.filter((s): s is CharacterRefImage => !!s && s !== 'failed');
+                    if (final.length > 0) setImages(final.slice(0, MAX_IMAGES));
+                },
+            });
         } catch (err) {
             setErrorMsg(err instanceof Error ? err.message : 'Generation failed');
         } finally {
             setGenerating(false);
+            setGenSlots([]);
         }
     };
 
@@ -140,36 +172,61 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                     </button>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                    {images.map((img, index) => (
-                        <div key={img.path || img.url} className="relative w-16 h-16 rounded-lg overflow-hidden group border border-stroke-subtle">
-                            <img src={img.url} alt="" className="w-full h-full object-cover" />
-                            {index === 0 && (
-                                <span className="absolute top-0.5 left-0.5 text-amber-300"><Star className="w-3 h-3 fill-current" /></span>
-                            )}
-                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
-                                {index !== 0 && (
-                                    <button onClick={() => makePrimary(index)} title="Make primary" className="p-1 text-white hover:text-amber-300">
-                                        <Star className="w-3.5 h-3.5" />
-                                    </button>
+                {generating ? (
+                    // Progressive generation: one tile per pose. Each shows a
+                    // pulsing skeleton until its image streams in.
+                    <div className="flex flex-wrap gap-2">
+                        {genSlots.map((slot, index) => (
+                            <div key={index} className="relative w-16 h-16 rounded-lg overflow-hidden border border-stroke-subtle">
+                                {slot && slot !== 'failed' ? (
+                                    <img src={slot.url} alt="" className="w-full h-full object-cover animate-in fade-in duration-300" />
+                                ) : slot === 'failed' ? (
+                                    <div className="w-full h-full flex items-center justify-center bg-surface-tertiary text-content-tertiary">
+                                        <X className="w-4 h-4" />
+                                    </div>
+                                ) : (
+                                    <div className="w-full h-full bg-surface-tertiary animate-pulse" />
                                 )}
-                                <button onClick={() => removeImage(index)} title="Remove" className="p-1 text-white hover:text-red-400">
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
                             </div>
-                        </div>
-                    ))}
-                    {images.length < MAX_IMAGES && (
-                        <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="w-16 h-16 rounded-lg border border-dashed border-stroke-subtle flex items-center justify-center text-content-tertiary hover:text-accent-primary hover:border-accent-primary/50"
-                        >
-                            {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
-                        </button>
-                    )}
-                </div>
-                <p className="text-xs text-content-tertiary -mt-2">First image (★) is the primary. Up to {MAX_IMAGES}.</p>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {images.map((img, index) => (
+                            <div key={img.path || img.url} className="relative w-16 h-16 rounded-lg overflow-hidden group border border-stroke-subtle">
+                                <img
+                                    src={img.url}
+                                    alt=""
+                                    onClick={() => setLightboxIndex(index)}
+                                    className="w-full h-full object-cover cursor-zoom-in"
+                                />
+                                {index === 0 && (
+                                    <span className="absolute top-0.5 left-0.5 text-amber-300 pointer-events-none"><Star className="w-3 h-3 fill-current" /></span>
+                                )}
+                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 pointer-events-none">
+                                    {index !== 0 && (
+                                        <button onClick={(e) => { e.stopPropagation(); makePrimary(index); }} title="Make primary" className="pointer-events-auto p-1 text-white hover:text-amber-300">
+                                            <Star className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                    <button onClick={(e) => { e.stopPropagation(); removeImage(index); }} title="Remove" className="pointer-events-auto p-1 text-white hover:text-red-400">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                        {images.length < MAX_IMAGES && (
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="w-16 h-16 rounded-lg border border-dashed border-stroke-subtle flex items-center justify-center text-content-tertiary hover:text-accent-primary hover:border-accent-primary/50"
+                            >
+                                {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                            </button>
+                        )}
+                    </div>
+                )}
+                <p className="text-xs text-content-tertiary -mt-2">First image (★) is the primary. Click a pose to view it. Up to {MAX_IMAGES}.</p>
 
                 {/* Generate the whole reference set from the description alone. */}
                 <button
@@ -235,6 +292,15 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
 
                 <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleFiles(e.target.files)} className="hidden" />
             </div>
+
+            {lightboxIndex !== null && images.length > 0 && (
+                <ImageLightbox
+                    media={images.map((i) => i.url)}
+                    type="any"
+                    initialIndex={Math.min(lightboxIndex, images.length - 1)}
+                    onClose={() => setLightboxIndex(null)}
+                />
+            )}
         </div>
     );
 }
