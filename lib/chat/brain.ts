@@ -28,6 +28,9 @@ export interface BrainInput {
   attachedImageUrls?: string[];
   /** Which Claude model to use. Defaults to 'sonnet' for backwards-compat. */
   model?: 'haiku' | 'sonnet';
+  /** Nodes the user has selected on the canvas this turn. Surfaced to the
+   *  model as a focus hint; does NOT restrict scope. Consumed in a later change. */
+  nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
 }
 
 /**

@@ -323,6 +323,21 @@ async function handlePlanApprove(opts: {
 async function handleWithNewBrain(req: Request): Promise<Response> {
   const body = await req.json();
   const { messages, sessionId, previousWorkflow, attachedImages } = body ?? {};
+  const nodeRefs: import('@/lib/utils/selection-refs').NodeRef[] = Array.isArray(body?.nodeRefs)
+    ? body.nodeRefs
+        .filter(
+          (r: any) =>
+            r && typeof r.id === 'string' && typeof r.label === 'string' && typeof r.type === 'string',
+        )
+        .slice(0, 25)
+        .map((r: any) => ({
+          id: r.id,
+          label: r.label,
+          type: r.type,
+          ...(r.isGroup === true ? { isGroup: true } : {}),
+          ...(typeof r.fromGroup === 'string' ? { fromGroup: r.fromGroup } : {}),
+        }))
+    : [];
   const clarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =
     body?.clarificationAnswer && typeof body.clarificationAnswer === 'object'
       ? {
@@ -464,6 +479,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           encoder,
           attachedImageUrls,
           model,
+          nodeRefs,
         });
 
         if (sessionId && (result.hadAnyOutput || result.clarification || result.plan) && messages?.length > 0) {
@@ -481,6 +497,9 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                 action: 'feedback',
                 feedbackText: planAnswer.feedbackText,
               };
+            }
+            if (nodeRefs.length > 0) {
+              userMetadata.node_refs = nodeRefs;
             }
             dbOps.push(
               Promise.resolve(supabase.from('messages').insert({
