@@ -161,55 +161,76 @@ function computeExecutingNodes(
         return workflow.nodes.filter((n) => n.type !== 'group_container');
     }
     if (runMode === 'selection') {
-        // Multi-solo: each selected node treats its siblings as fellow executors.
-        // Also auto-include every ephemeral (non-generative) ancestor — these
-        // run for free on the backend (see /api/executions/start), so requiring
-        // them to be cached or selected would falsely flag chains like
-        //   prompt → blur → ai_gen
-        // when the user selects only the leaf. Generative ancestors are NOT
-        // expanded — those must be cached (completedNodeIds) or in the selection.
-        const expanded = new Set(targetNodeIds ?? []);
-        if (sharedRegistry) {
-            const queue = Array.from(expanded);
-            while (queue.length > 0) {
-                const currentId = queue.shift()!;
-                for (const edge of workflow.edges) {
-                    if (edge.target !== currentId) continue;
-                    if (expanded.has(edge.source)) continue;
-                    const parent = workflow.nodes.find((n) => n.id === edge.source);
-                    if (!parent || parent.type === 'group_container') continue;
-                    const def = sharedRegistry[parent.type];
-                    const isEphemeral = !!def && (def as any).family !== 'generative';
-                    if (isEphemeral) {
-                        expanded.add(parent.id);
-                        queue.push(parent.id);
-                    }
-                }
-            }
-        }
+        // Multi-solo: each selected node treats its siblings as fellow executors,
+        // plus their ephemeral ancestors (see expandEphemeralAncestors). Without
+        // the expansion a chain like prompt → blur → ai_gen would falsely flag
+        // the leaf when only it is selected.
+        const expanded = expandEphemeralAncestors(workflow, targetNodeIds ?? [], sharedRegistry);
         return workflow.nodes.filter((n) => expanded.has(n.id) && n.type !== 'group_container');
     }
     if (!targetNodeId) return [];
     const target = workflow.nodes.find((n) => n.id === targetNodeId);
     if (!target) return [];
-    if (runMode === 'solo') return [target];
 
-    const adj = new Map<string, string[]>();
-    for (const e of workflow.edges) {
-        if (!adj.has(e.source)) adj.set(e.source, []);
-        adj.get(e.source)!.push(e.target);
-    }
-    const seen = new Set<string>([targetNodeId]);
-    const queue = [targetNodeId];
-    while (queue.length) {
-        const id = queue.shift()!;
-        for (const child of adj.get(id) ?? []) {
-            if (seen.has(child)) continue;
-            seen.add(child);
-            queue.push(child);
+    // Mirror /api/executions/start STEP 3 exactly: start from the target, pull
+    // in its ephemeral ancestors (they run for free), and — for chain — also add
+    // every downstream descendant. Solo skips the descendant walk. The ephemeral
+    // expansion is what stops a solo/chain run on an ai_generator from falsely
+    // reporting no-upstream-data for its wired-but-uncached prompt/blur ancestors.
+    const executing = expandEphemeralAncestors(workflow, [targetNodeId], sharedRegistry);
+    if (runMode === 'chain') {
+        const adj = new Map<string, string[]>();
+        for (const e of workflow.edges) {
+            if (!adj.has(e.source)) adj.set(e.source, []);
+            adj.get(e.source)!.push(e.target);
+        }
+        const queue = [targetNodeId];
+        while (queue.length) {
+            const id = queue.shift()!;
+            for (const child of adj.get(id) ?? []) {
+                if (executing.has(child)) continue;
+                executing.add(child);
+                queue.push(child);
+            }
         }
     }
-    return workflow.nodes.filter((n) => seen.has(n.id) && n.type !== 'group_container');
+    return workflow.nodes.filter((n) => executing.has(n.id) && n.type !== 'group_container');
+}
+
+/**
+ * Grow a seed set of node ids to include every ephemeral (non-generative)
+ * ancestor, recursively. Ephemeral nodes (prompt, media_input, blur, compositor)
+ * run for free in the backend's execution-set builder (see /api/executions/start
+ * STEP 3), so a solo/chain/selection run targeting a leaf implicitly runs them
+ * too. Treating them as "will execute" keeps no-upstream-data from firing on a
+ * wired-but-uncached ephemeral ancestor. Generative ancestors are NOT added —
+ * the backend pre-seeds those from the DB, so they must be cached
+ * (completedNodeIds) or explicitly in the run set to count as available.
+ */
+function expandEphemeralAncestors(
+    workflow: Workflow,
+    seedIds: Iterable<string>,
+    sharedRegistry?: Record<string, NodeSharedDef<any>>,
+): Set<string> {
+    const expanded = new Set<string>(seedIds);
+    if (!sharedRegistry) return expanded;
+    const queue = Array.from(expanded);
+    while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        for (const edge of workflow.edges) {
+            if (edge.target !== currentId) continue;
+            if (expanded.has(edge.source)) continue;
+            const parent = workflow.nodes.find((n) => n.id === edge.source);
+            if (!parent || parent.type === 'group_container') continue;
+            const def = sharedRegistry[parent.type];
+            const isEphemeral = !!def && (def as any).family !== 'generative';
+            if (isEphemeral) {
+                expanded.add(parent.id);
+                queue.push(parent.id);
+            }
+        }
+    }
+    return expanded;
 }
 
 function resolveNodeInputs(
