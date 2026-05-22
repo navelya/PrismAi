@@ -69,6 +69,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     workflow: baseWorkflow,
     registry: input.registry,
     attachedImageUrls: input.attachedImageUrls ?? [],
+    nodeRefs: input.nodeRefs ?? [],
   });
 
   let finalText = '';

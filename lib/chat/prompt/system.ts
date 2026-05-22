@@ -138,6 +138,7 @@ export interface BuildSystemInput {
   workflow: Workflow | null | undefined;
   registry: RegistryContextInput;
   attachedImageUrls?: string[];
+  nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
 }
 
 function formatAttachedImagesBlock(urls: string[] | undefined): string {
@@ -147,6 +148,22 @@ function formatAttachedImagesBlock(urls: string[] | undefined): string {
 ${list}
 
 When the user wants to use one of these images in their workflow, add a media_input node and set config.images to an array containing the matching URL(s) above. The image is already uploaded — these URLs are stable and the workflow can read them at run time.`;
+}
+
+function formatSelectionFocusBlock(
+  refs: import('@/lib/utils/selection-refs').NodeRef[] | undefined,
+): string {
+  if (!refs || refs.length === 0) return '';
+  const list = refs
+    .map((r) => `- "${r.label}" (id: ${r.id}, type: ${r.type})${r.fromGroup ? ` [in group ${r.fromGroup}]` : ''}`)
+    .join('\n');
+  return `USER'S CURRENT SELECTION (focus hint — NOT a scope restriction):
+The user has these nodes selected on the canvas right now:
+${list}
+
+Treat these as the user's focus. When their request is ambiguous about which
+nodes to modify (e.g. "make it stronger", "remove that one"), prefer this set.
+You can still see and edit the entire workflow when the request calls for it.`;
 }
 
 /**
@@ -180,6 +197,9 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
 
   const attachedBlock = formatAttachedImagesBlock(input.attachedImageUrls);
   if (attachedBlock) blocks.push({ type: 'text', text: attachedBlock });
+
+  const selectionBlock = formatSelectionFocusBlock(input.nodeRefs);
+  if (selectionBlock) blocks.push({ type: 'text', text: selectionBlock });
 
   return blocks;
 }
