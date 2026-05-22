@@ -3,7 +3,7 @@ import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { validateExecution, type ValidationError } from '@/lib/workflow/validate-execution';
 
-export function useExecutionValidation(): {
+export function useExecutionValidation(enabled: boolean = true): {
     errors: ValidationError[];
     errorsByNode: Record<string, ValidationError[]>;
 } {
@@ -18,7 +18,7 @@ export function useExecutionValidation(): {
     // can be 'success' but the output may not be a usable envelope.
     const completedNodeIds = useMemo(() => {
         const ids = new Set<string>();
-        if (!workflow) return ids;
+        if (!enabled || !workflow) return ids;
         for (const n of workflow.nodes) {
             const liveOut = nodeOutputs?.[n.id];
             const persistedOut = (n.data as any)?.output;
@@ -27,7 +27,7 @@ export function useExecutionValidation(): {
             }
         }
         return ids;
-    }, [workflow, nodeOutputs]);
+    }, [enabled, workflow, nodeOutputs]);
 
     // Map store runMode (possibly null / 'ab_test') to validator runMode.
     // No runFromNodeId means "Run Workflow" → 'all'. ab_test runs one node at
@@ -44,7 +44,12 @@ export function useExecutionValidation(): {
     }, [runFromNodeId, runMode]);
 
     const errors = useMemo(() => {
-        if (!workflow) return [] as ValidationError[];
+        // `enabled` lets callers that only need validation occasionally (e.g.
+        // per-node error badges, shown solely during the run-time error flash)
+        // skip the whole-workflow traversal on every render. Without this, every
+        // BaseNode re-ran validateExecution on every currentWorkflow change —
+        // O(n²) across the canvas, almost always discarded.
+        if (!enabled || !workflow) return [] as ValidationError[];
         return validateExecution({
             workflow,
             runMode: effectiveMode,
@@ -53,7 +58,7 @@ export function useExecutionValidation(): {
             sharedRegistry,
             models: models,
         });
-    }, [workflow, effectiveMode, targetNodeId, completedNodeIds, models]);
+    }, [enabled, workflow, effectiveMode, targetNodeId, completedNodeIds, models]);
 
     const errorsByNode = useMemo(() => {
         const map: Record<string, ValidationError[]> = {};

@@ -4,12 +4,17 @@ import React, { useMemo } from 'react';
 import { Background, BackgroundVariant, useViewport } from 'reactflow';
 
 /**
- * 🚀 PERFORMANCE OPTIMIZATION: 
+ * 🚀 PERFORMANCE OPTIMIZATION:
  * We isolate the Background layers into their own component.
- * This ensures that when 'zoom' changes (at 60fps during animation), 
+ * This ensures that when 'zoom' changes (at 60fps during animation),
  * ONLY these grid components re-render.
+ *
+ * They are React.memo'd so that a re-render of the parent canvas (e.g. the
+ * per-tick setLocalNodes during a marquee box-selection) does NOT cascade
+ * into re-rendering these full-viewport SVG dot patterns. They re-render
+ * only when their own viewport subscription changes.
  */
-export function BaseGridLayers() {
+function BaseGridLayersInner() {
     const { zoom } = useViewport();
 
     const activeLevel = useMemo(() => {
@@ -58,7 +63,9 @@ export function BaseGridLayers() {
     );
 }
 
-export function SpotlightGridLayers({ isMouseActive }: { isMouseActive: boolean }) {
+export const BaseGridLayers = React.memo(BaseGridLayersInner);
+
+function SpotlightGridLayersInner({ isMouseActive }: { isMouseActive: boolean }) {
     const { zoom } = useViewport();
 
     const activeLevel = useMemo(() => {
@@ -112,3 +119,5 @@ export function SpotlightGridLayers({ isMouseActive }: { isMouseActive: boolean 
         </div>
     );
 }
+
+export const SpotlightGridLayers = React.memo(SpotlightGridLayersInner);

@@ -54,7 +54,23 @@
       "Skill(superpowers:writing-plans)",
       "Skill(superpowers:writing-plans:*)",
       "Skill(superpowers:executing-plans)",
-      "Skill(superpowers:executing-plans:*)"
+      "Skill(superpowers:executing-plans:*)",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:brainstorming:*)",
+      "WebSearch",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/reactflow/package.json'\\).version\\)\")",
+      "Bash(rg -n \"onSelectionStart|onSelectionEnd\" node_modules/reactflow/dist/esm/*.d.ts node_modules/@reactflow/core/dist/esm/**/*.d.ts)",
+      "Bash(rg -rn \"onSelectionStart\\\\??:\" node_modules/@reactflow)",
+      "Skill(superpowers:subagent-driven-development)",
+      "Skill(superpowers:subagent-driven-development:*)",
+      "Bash(rg -rn \"mouse-x|mouse-y|setProperty\\\\\\(|isMouseActive|setIsMouseActive\" components lib --glob '*.ts' --glob '*.tsx')",
+      "Bash(rg -rn \"mousemove|pointermove|onMouseMove|onPointerMove\" components lib --glob '*.ts' --glob '*.tsx')",
+      "Bash(rg -rn \"setInterval\" components lib app --glob '*.ts' --glob '*.tsx')",
+      "Bash(rg -rn \"requestAnimationFrame\" components lib app --glob '*.ts' --glob '*.tsx')",
+      "Bash(npx tsx *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Projects\\Prisfol\\PrismAi\\.git"
     ]
   }
 }

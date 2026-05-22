@@ -683,12 +683,11 @@ export default function SharedWorkflowEditor({
                             exit={{ opacity: 0, x: 20, scale: 0.95 }}
                             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                             className="absolute top-[72px] right-3 bottom-3 z-40 pointer-events-none flex flex-col items-end"
-                            style={{ 
+                            style={{
                                 visibility: isPropertyPanelVisible ? 'visible' : 'hidden',
-                                pointerEvents: 'auto'
                             }}
                         >
-                            <div className="pointer-events-auto max-h-full flex flex-col">
+                            <div className="marquee-passthrough pointer-events-auto max-h-full flex flex-col">
                                 <PropertyPanel
                                     nodeId={selectedNodeData.id}
                                     nodeType={selectedNodeData.type}

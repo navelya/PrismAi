@@ -47,6 +47,20 @@
 }
 
 @layer utilities {
+  /* While a canvas marquee selection is in progress, floating overlays must
+     not intercept the drag. React Flow binds its selection move/up handlers to
+     the pane element and ends the selection on the pane's `mouseleave` — so an
+     overlay sitting on top of the pane (chat, side panels, property panel) with
+     pointer-events: auto would steal the pointer, fire mouseleave, and cancel
+     the marquee (and select chat text). Making them click-through for the drag
+     keeps the pointer "over" the pane the whole time. `!important` overrides the
+     inline pointer-events set by framer-motion / Tailwind on these overlays.
+     The class is toggled imperatively from EditorCanvas (no React re-render). */
+  body.marquee-selecting .marquee-passthrough {
+    pointer-events: none !important;
+    user-select: none !important;
+  }
+
   .glassmorphism {
     background: rgb(var(--glass-bg) / var(--glass-opacity));
     backdrop-filter: blur(24px);
@@ -242,6 +256,28 @@
 
 .react-flow__node:active {
   cursor: grabbing;
+}
+
+/* Marquee/drag-selecting nodes on the canvas must not also trigger the
+   browser's native text selection (prompt textareas, group titles, node
+   labels). Node toolbars (group title bubble, action pills) render in a
+   portal outside .react-flow__node, so they're targeted separately. Text
+   selection is re-enabled only inside a FOCUSED editable field so that
+   actually editing prompt/title text still works. */
+.react-flow__node,
+.react-flow__node-toolbar {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.react-flow__node input:focus,
+.react-flow__node textarea:focus,
+.react-flow__node [contenteditable]:focus,
+.react-flow__node-toolbar input:focus,
+.react-flow__node-toolbar textarea:focus,
+.react-flow__node-toolbar [contenteditable]:focus {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .react-flow__edge-path {

@@ -9,7 +9,7 @@ import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { NodeStatus } from '@/lib/nodes/types';
 import { useWireDrag } from '@/lib/editor/wire-drag-context';
 import { findHandleForNode, findAllCompatibleHandlesForNode, wouldCreateCycle } from '@/lib/editor/handle-compatibility';
-import { useExecutionValidation } from '@/lib/hooks/use-execution-validation';
+import { useNodeValidationErrors } from '@/lib/hooks/use-node-validation';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -123,9 +123,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     //   3. Else: 'idle' (no badge).
     const rawStatus = useAppStore((state) => state.nodeStatuses[id]);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
-    const { errorsByNode } = useExecutionValidation();
-    const errorFlashActive = useAppStore((s) => s.errorFlashActive);
-    const validationErrors = errorFlashActive ? (errorsByNode[id] ?? []) : [];
+    // Per-node validation comes from the canvas-wide NodeValidationProvider,
+    // which computes it once and only while the error flash is active. Reading
+    // it here (instead of calling useExecutionValidation per node) means a node
+    // no longer subscribes to currentWorkflow, so selecting a node doesn't
+    // re-render — or re-validate — the entire canvas.
+    const validationErrors = useNodeValidationErrors(id);
     const wireDrag = useWireDrag();
     const models = useAppStore((s) => s.models);
     const edges = useEdges();
@@ -250,12 +253,26 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const b1 = 1 / zoom;
     const b2 = 2 / zoom;
 
+    // Below ~25% zoom the selection border reads as a heavy band, so taper its
+    // weight: full width at/above 25%, thinning toward 0.4x as zoom nears 0.
+    const selBorderScale = Math.min(1, Math.max(0.4, zoom / 0.25));
+    const selBorderWidth = b1 * selBorderScale;
+
     // Hide the per-node hover Copy/Delete buttons in multi-select mode (2+
     // selected). The floating multi-select toolbar handles the bulk action,
     // and per-node buttons would only act on this one node — confusing UX.
-    const isMultiSelectActive = useStore(
-        (s: ReactFlowState) => Array.from(s.nodeInternals.values()).filter(n => n.selected).length >= 2,
-    );
+    // Runs for EVERY node on every React Flow store change (incl. each node
+    // entering a marquee). Count with an early-exit and no array allocation —
+    // the previous Array.from(...).filter(...).length was O(n) + a fresh n-sized
+    // array per node per tick (O(n²) + GC churn across the canvas). Returns a
+    // boolean, so nodes only re-render when the 1↔2 threshold actually flips.
+    const isMultiSelectActive = useStore((s: ReactFlowState) => {
+        let count = 0;
+        for (const n of s.nodeInternals.values()) {
+            if (n.selected && ++count >= 2) return true;
+        }
+        return false;
+    });
 
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
@@ -337,7 +354,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // forced a synchronous style invalidation right when the user
                 // started moving the cursor.
                 "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40 transition-[border-color,background-color] duration-500 ease-out",
-                selected ? "border-accent-primary shadow-[0_0_20px_rgb(var(--accent-primary)/0.15)] outline-none" : "border-stroke-subtle shadow-xl",
+                selected ? "border-accent-primary shadow-xl outline-none" : "border-stroke-subtle shadow-xl",
                 // Hover affects ONLY borders + a barely-perceptible bg tint.
                 // Shadow stays constant on hover/drag/click — only the border
                 // is allowed to indicate interaction state.
@@ -348,10 +365,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             )}
             style={{
                 width: typeof width === 'number' ? width : undefined,
-                borderWidth: `${b1}px`,
+                borderWidth: `${selected ? selBorderWidth : b1}px`,
                 // Constant-width selection ring using outline (which follows border-radius in modern browsers)
                 ...(selected && {
-                    outline: `${b1}px solid rgb(var(--accent-primary) / 0.2)`,
+                    outline: `${selBorderWidth}px solid rgb(var(--accent-primary) / 0.2)`,
                     outlineOffset: '0'
                 }),
                 willChange: 'transform',

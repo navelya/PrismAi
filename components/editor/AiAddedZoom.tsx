@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { useReactFlow, useStore } from 'reactflow';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -38,7 +38,7 @@ interface Rect {
  *
  * Returns null — no visual output.
  */
-export function AiAddedZoom() {
+function AiAddedZoomInner() {
     const { getNodes, getViewport, fitBounds } = useReactFlow();
     const aiTurn = useAppStore((s) => s.aiTurn);
 
@@ -179,6 +179,12 @@ export function AiAddedZoom() {
 
     return null;
 }
+
+// Memo'd: AiAddedZoom returns null (no visual) and drives the camera purely
+// from its own store/viewport subscriptions. Without memo it re-runs its hook
+// body on every parent canvas re-render — including the per-tick setLocalNodes
+// during a marquee box-selection.
+export const AiAddedZoom = memo(AiAddedZoomInner);
 
 /**
  * Bounding box of the given ids using their measured width/height when

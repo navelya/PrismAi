@@ -129,7 +129,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 {isCanvasMode && isNodeLibraryOpen && (
                     <motion.div
                         key="node-library"
-                        className="absolute left-4 bottom-4 z-[55] pointer-events-auto"
+                        className="marquee-passthrough absolute left-4 bottom-4 z-[55] pointer-events-auto"
                         style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
                         initial={{ opacity: 0, x: -24 }}
                         animate={{ opacity: 1, x: 0 }}
@@ -146,7 +146,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 {isCanvasMode && isAssetsOpen && (
                     <motion.div
                         key="assets-panel"
-                        className="absolute left-4 bottom-4 z-[55] pointer-events-auto"
+                        className="marquee-passthrough absolute left-4 bottom-4 z-[55] pointer-events-auto"
                         style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
                         initial={{ opacity: 0, x: -24 }}
                         animate={{ opacity: 1, x: 0 }}
@@ -170,7 +170,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 {isCanvasMode && (
                     <motion.div
                         key="tool-rail"
-                        className="absolute top-1/2 -translate-y-1/2 z-[1] pointer-events-auto"
+                        className="marquee-passthrough absolute top-1/2 -translate-y-1/2 z-[1] pointer-events-auto"
                         animate={{ left: railLeft, opacity: 1, x: 0 }}
                         initial={{ opacity: 0, x: -16 }}
                         exit={{ opacity: 0, x: -16 }}
@@ -190,7 +190,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
             {/* ── LAYER 2 · Chat / Copilot ───────────────────────────────────── */}
             <motion.div
                 key="chat"
-                className={['absolute flex flex-col overflow-hidden', isCanvasMode ? 'z-[55] rounded-2xl border border-white/10 shadow-2xl shadow-black/50' : 'z-20'].join(' ')}
+                className={['marquee-passthrough absolute flex flex-col overflow-hidden', isCanvasMode ? 'z-[55] rounded-2xl border border-white/10 shadow-2xl shadow-black/50' : 'z-20'].join(' ')}
                 initial={false}
                 animate={
                     !isCanvasMode

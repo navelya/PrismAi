@@ -48,6 +48,7 @@ import {
     wouldCreateCycle,
 } from '@/lib/editor/handle-compatibility';
 import { WireDragProvider, type WireDragState } from '@/lib/editor/wire-drag-context';
+import { NodeValidationProvider } from '@/lib/hooks/use-node-validation';
 
 // Stable references for <ReactFlow> object props — see
 // https://reactflow.dev/learn/advanced-use/performance. Hoisted to module
@@ -169,13 +170,46 @@ const EditorCanvasInner = ({
     // 🚀 THE CORE FIX: Local state for nodes during interaction
     const [localNodes, setLocalNodes] = useState(propNodes);
 
-    // Sync local nodes when prop nodes change externally (but NOT while dragging)
     const isDraggingRef = useRef(false);
+    const isSelectingRef = useRef(false);
+    // Reactive mirror of isSelectingRef used to gate selection-derived render
+    // work (validation memos, pill mirror, multi-select toolbar) so it computes
+    // once on selection-end rather than per node entering the marquee.
+    const [isMarqueeActive, setIsMarqueeActive] = useState(false);
+
+    // Sync local nodes when prop nodes change externally (but NOT while dragging
+    // or marquee-selecting). Selection is a VIEW-ONLY concern: it lives in
+    // localNodes and is never written to currentWorkflow (see handleNodesChange),
+    // so a structural store update carries no `selected` flags. We re-apply the
+    // live selection here so a structural change (add/remove/config/group) never
+    // wipes the visual selection. A previously-selected node that just became a
+    // group child redirects its selection to the parent group — this is what
+    // makes "Group selected" leave the new group highlighted without the store
+    // driving selection.
     useEffect(() => {
-        if (!isDraggingRef.current) {
-            setLocalNodes(propNodes);
-        }
+        if (isDraggingRef.current || isSelectingRef.current) return;
+        setLocalNodes((prev) => {
+            const prevSelected = new Set<string>();
+            for (const n of prev) if ((n as any).selected) prevSelected.add(n.id);
+            if (prevSelected.size === 0) return propNodes;
+            const want = new Set<string>();
+            for (const n of propNodes as any[]) {
+                if (prevSelected.has(n.id)) want.add(n.parentNode ?? n.id);
+            }
+            let changed = false;
+            const next = (propNodes as any[]).map((n) => {
+                const sel = want.has(n.id);
+                if (!!n.selected === sel) return n;
+                changed = true;
+                return { ...n, selected: sel };
+            });
+            return changed ? (next as typeof propNodes) : propNodes;
+        });
     }, [propNodes]);
+
+    // Defensive: if the canvas unmounts while a marquee is active, make sure the
+    // body class doesn't get stuck and leave overlays click-through.
+    useEffect(() => () => { document.body.classList.remove('marquee-selecting'); }, []);
 
     // ── Canvas-ready signal ──────────────────────────────────────────────
     // useNodesInitialized() flips true once every node has been measured by
@@ -282,8 +316,13 @@ const EditorCanvasInner = ({
     // on the same stable string key the memo uses, so it only fires when the
     // selected SET changes — not on drag/hover re-renders.
     useEffect(() => {
+        // During a marquee, hold off mirroring to the store — the chat pill is
+        // a downstream effect that doesn't need per-node updates mid-drag. When
+        // isMarqueeActive flips false on selection-end, this re-runs with the
+        // final selectedNodeIds and writes once.
+        if (isMarqueeActive) return;
         setCurrentSelectedNodeIds(selectedNodeIds);
-    }, [selectedNodeIds, setCurrentSelectedNodeIds]);
+    }, [isMarqueeActive, selectedNodeIds, setCurrentSelectedNodeIds]);
 
     // When the chat pill's X button bumps selectionClearToken, deselect every
     // node on the canvas. Skip the initial mount (token unchanged) so we don't
@@ -620,6 +659,9 @@ const EditorCanvasInner = ({
     }, []);
 
     const selectionRunErrors = useMemo(() => {
+        // Skip the full-workflow validation while a marquee is in flight — it'd
+        // run once per node entering the box. Recomputes on selection-end.
+        if (isMarqueeActive) return [];
         if (selectedNodeIds.length < 2 || !currentWorkflowForSelectionValidation) return [];
         const wf = currentWorkflowForSelectionValidation;
         // Fold group children in so selecting a group with an AI gen inside
@@ -641,7 +683,7 @@ const EditorCanvasInner = ({
             sharedRegistry,
             models: modelsForSelectionValidation ?? [],
         });
-    }, [selectedNodeIds, currentWorkflowForSelectionValidation, nodeOutputsForSelectionValidation, modelsForSelectionValidation]);
+    }, [isMarqueeActive, selectedNodeIds, currentWorkflowForSelectionValidation, nodeOutputsForSelectionValidation, modelsForSelectionValidation]);
 
     const triggerRunSelection = useAppStore((s) => s.triggerRunSelection);
     const selectNodeAndCenter = useAppStore((s) => s.selectNodeAndCenter);
@@ -654,6 +696,7 @@ const EditorCanvasInner = ({
     // the button. Pure ephemeral selections (prompts, compositors, blurs)
     // recompute live in the canvas and don't need an explicit run.
     const selectionHasRunnable = useMemo(() => {
+        if (isMarqueeActive) return false;
         if (selectedNodeIds.length < 2 || !currentWorkflowForSelectionValidation) return false;
         const wf = currentWorkflowForSelectionValidation;
         const expandedIds = expandSelectionWithGroupChildren(selectedNodeIds);
@@ -663,7 +706,7 @@ const EditorCanvasInner = ({
             const def = (sharedRegistry as any)[n.type];
             return !!def && def.family === 'generative';
         });
-    }, [selectedNodeIds, currentWorkflowForSelectionValidation, expandSelectionWithGroupChildren]);
+    }, [isMarqueeActive, selectedNodeIds, currentWorkflowForSelectionValidation, expandSelectionWithGroupChildren]);
 
     const handleRunSelected = useCallback(() => {
         if (selectionRunErrors.length > 0) return;
@@ -679,6 +722,11 @@ const EditorCanvasInner = ({
 
     const mouseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const wrapperRectRef = useRef<{ left: number; top: number } | null>(null);
+    // Cursor-spotlight throttling: high-poll mice fire many mousemove events per
+    // frame, and each `--mouse-x/y` write repositions a full-viewport gradient
+    // mask (a full-layer repaint). We coalesce to at most one write per frame.
+    const mouseRafRef = useRef<number | null>(null);
+    const latestMousePosRef = useRef<{ x: number; y: number } | null>(null);
 
     const setIsDragging = useAppStore((state) => state.setIsDragging);
     const models = useAppStore((state) => state.models);
@@ -805,12 +853,52 @@ const EditorCanvasInner = ({
         const structuralChanges = transformed.filter(c => {
             if (c.type === 'position') return false;
             if (c.type === 'dimensions' && (c as any).resizing === true) return false;
+            // Selection is view-only — it lives in localNodes (applied above for
+            // an instant highlight) and is NEVER pushed to currentWorkflow.
+            // Writing it to the store rebuilt currentWorkflow on every select,
+            // re-rendering every subscriber (chat Messages, GroupNodes,
+            // AppLayout, panels, toolbar validation) — O(workflow) per click,
+            // the residual large-graph lag. Nothing reads currentWorkflow's
+            // `.selected` (only RF's internal store), so dropping it is safe.
+            if (c.type === 'select') return false;
             return true;
         });
         if (structuralChanges.length > 0) {
             onNodesChange(structuralChanges);
         }
     }, [onNodesChange, reactFlowInstance, localNodes]);
+
+    // Marquee box-selection lifecycle. Selection lives only in localNodes; these
+    // handlers just gate the downstream (pill/validation/toolbar) work so it runs
+    // once on release rather than per node entering the box.
+    const handleSelectionStart = useCallback(() => {
+        isSelectingRef.current = true;
+        // Make floating overlays click-through for the drag so the marquee
+        // pointer never leaves the React Flow pane (which would fire the pane's
+        // mouseleave → onSelectionEnd and cancel the selection) and so it can't
+        // start a native text selection in the chat — see the
+        // `.marquee-passthrough` rule in globals.css. Toggled imperatively to
+        // avoid re-rendering the canvas/overlays mid-drag.
+        document.body.classList.add('marquee-selecting');
+        // Suspends the selection-derived heavy work (run-validation, pill
+        // mirror, multi-select toolbar) for the duration of the drag — see the
+        // gates below. The live node highlight is unaffected (it rides on
+        // localNodes), so nodes still select instantly; only the downstream
+        // logic waits until the box is released.
+        setIsMarqueeActive(true);
+    }, []);
+
+    const handleSelectionEnd = useCallback(() => {
+        // Always restore overlay interactivity, even if we early-return below.
+        document.body.classList.remove('marquee-selecting');
+        if (!isSelectingRef.current) return;
+        isSelectingRef.current = false;
+        // Un-gating isMarqueeActive lets the pill mirror + validation memos run
+        // once now, against the final localNodes selection. Selection itself is
+        // already committed locally (handleNodesChange) — there's nothing to push
+        // to the store, since selection no longer lives in currentWorkflow.
+        setIsMarqueeActive(false);
+    }, []);
 
     const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = true;
@@ -1247,17 +1335,32 @@ const EditorCanvasInner = ({
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         if (!reactFlowWrapper.current) return;
-        setIsMouseActive(true);
-        if (mouseTimeoutRef.current) clearTimeout(mouseTimeoutRef.current);
-        mouseTimeoutRef.current = setTimeout(() => setIsMouseActive(false), 600);
+        // While a selection box, pan, or node drag is in flight, do NOT move the
+        // cursor spotlight. Repositioning its full-viewport gradient mask repaints
+        // a screen-sized layer every frame, which competes with the drag for the
+        // frame budget and makes the box stutter. Freezing the mask (no var change
+        // → no repaint) keeps the drag buttery; the spotlight resumes on release.
+        if (isSelectingRef.current || isDraggingRef.current) return;
 
         const rect = wrapperRectRef.current;
         if (!rect) return;
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        reactFlowWrapper.current.style.setProperty('--mouse-x', `${x}px`);
-        reactFlowWrapper.current.style.setProperty('--mouse-y', `${y}px`);
-    }, []);
+        latestMousePosRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+        if (!isMouseActive) setIsMouseActive(true);
+        if (mouseTimeoutRef.current) clearTimeout(mouseTimeoutRef.current);
+        mouseTimeoutRef.current = setTimeout(() => setIsMouseActive(false), 600);
+
+        // Coalesce to one mask reposition per animation frame.
+        if (mouseRafRef.current !== null) return;
+        mouseRafRef.current = requestAnimationFrame(() => {
+            mouseRafRef.current = null;
+            const pos = latestMousePosRef.current;
+            const el = reactFlowWrapper.current;
+            if (!pos || !el) return;
+            el.style.setProperty('--mouse-x', `${pos.x}px`);
+            el.style.setProperty('--mouse-y', `${pos.y}px`);
+        });
+    }, [isMouseActive]);
 
     return (
         <div
@@ -1279,6 +1382,7 @@ const EditorCanvasInner = ({
             onMouseLeave={() => setIsMouseActive(false)}
         >
             <WireDragProvider value={wireDrag}>
+            <NodeValidationProvider>
             <ReactFlow
                 nodes={localNodes}
                 edges={memoizedEdges}
@@ -1291,6 +1395,8 @@ const EditorCanvasInner = ({
                 onNodeDragStart={handleNodeDragStart}
                 onNodeDrag={handleNodeDrag}
                 onNodeDragStop={handleNodeDragStop}
+                onSelectionStart={handleSelectionStart}
+                onSelectionEnd={handleSelectionEnd}
                 onSelectionDragStart={handleSelectionDragStart}
                 onSelectionDragStop={handleSelectionDragStop}
                 onEdgeClick={handleEdgeClick}
@@ -1324,7 +1430,7 @@ const EditorCanvasInner = ({
                 <SpotlightGridLayers isMouseActive={isMouseActive} />
                 <AiAddedZoom />
 
-                {selectedNodeIds.length >= 2 && (
+                {!isMarqueeActive && selectedNodeIds.length >= 2 && (
                     <NodeToolbar
                         isVisible={true}
                         nodeId={selectedNodeIds}
@@ -1513,6 +1619,7 @@ const EditorCanvasInner = ({
                     isNodesEmpty={localNodes.length === 0}
                 />
             </ReactFlow>
+            </NodeValidationProvider>
             </WireDragProvider>
 
             {/* Hide the just-placed wire-drop node on its first commit, until we

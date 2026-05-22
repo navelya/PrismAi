@@ -429,7 +429,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                                         )}
 
                                         {!isExpanded && (
-                                            <div className="absolute left-full ml-2 px-3 py-1.5 bg-content-primary text-surface-primary text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50 shadow-lg">
+                                            <div className="absolute left-full ml-2 px-3 py-1.5 bg-content-primary text-surface-primary text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-[100] shadow-lg">
                                                 {item.name}
                                             </div>
                                         )}
