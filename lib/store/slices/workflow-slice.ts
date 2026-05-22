@@ -76,6 +76,15 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     selectNodeAndCenter: (nodeId) => set({ pendingCenterNodeId: nodeId }),
     clearPendingCenterNodeId: () => set({ pendingCenterNodeId: null }),
 
+    currentSelectedNodeIds: [],
+    setCurrentSelectedNodeIds: (ids) => set({ currentSelectedNodeIds: ids }),
+    selectionClearToken: 0,
+    clearCanvasSelection: () =>
+        set((s) => ({
+            currentSelectedNodeIds: [],
+            selectionClearToken: s.selectionClearToken + 1,
+        })),
+
     errorFlashActive: false,
     flashErrors: () => {
         if (flashTimer) clearTimeout(flashTimer);

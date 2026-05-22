@@ -8,6 +8,10 @@ export interface Message {
     content: string;
     result?: any;
     images?: string[];
+    // Snapshot of canvas nodes the user referenced when sending this message.
+    // Captured at send-time so labels survive later renames/deletes. Persisted
+    // to messages.metadata.node_refs. Rendered as a marker strip on the bubble.
+    nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
     timestamp: Date;
     sessionId?: string;
     status?: 'running' | 'completed' | 'error';
@@ -94,6 +98,17 @@ export interface WorkflowSlice {
     pendingCenterNodeId: string | null;
     selectNodeAndCenter: (nodeId: string) => void;
     clearPendingCenterNodeId: () => void;
+
+    // Live multi-select set, mirrored from React Flow's per-node `selected`
+    // flag in EditorCanvas. Read by the chat to render the selection pill and
+    // to build the NodeRef focus hint on send. Ephemeral — never persisted.
+    currentSelectedNodeIds: string[];
+    setCurrentSelectedNodeIds: (ids: string[]) => void;
+    // One-shot trigger: bumping this counter tells EditorCanvas to deselect
+    // every node. Used by the chat pill's clear (X) button, since emptying
+    // currentSelectedNodeIds alone would be re-filled by the canvas on next render.
+    selectionClearToken: number;
+    clearCanvasSelection: () => void;
 
     // Transient flag flipped true when the user attempts to Run a workflow
     // with validation errors. Per-node error badges only render while this

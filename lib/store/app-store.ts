@@ -130,6 +130,11 @@ export const useAppStore = create<RootState>()(
                     // survives rehydration, the canvas would re-center on that node
                     // on every page load.
                     'pendingCenterNodeId',
+                    // Live canvas selection + its clear trigger — ephemeral UI
+                    // state like cursor position. Resurrecting on refresh would
+                    // show a stale chip referencing nodes the user isn't looking at.
+                    'currentSelectedNodeIds',
+                    'selectionClearToken',
                     // Transient flash window for per-node validation badges. Never
                     // persisted — refresh should always start with a clean canvas.
                     'errorFlashActive',
@@ -165,6 +170,7 @@ export const useAppStore = create<RootState>()(
                     state.runFromNodeId = null;
                     state.runMode = null;
                     state.runSelectionIds = null;
+                    state.currentSelectedNodeIds = [];
                 }
             },
         }
