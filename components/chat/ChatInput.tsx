@@ -73,6 +73,8 @@ interface ChatInputProps {
     selectedModel?: 'haiku' | 'sonnet';
     onModelSelect?: (m: 'haiku' | 'sonnet') => void;
     hasMessages?: boolean;
+    selectedNodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
+    onClearSelection?: () => void;
 }
 
 const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
@@ -94,6 +96,8 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             selectedModel = 'sonnet',
             onModelSelect,
             hasMessages = false,
+            selectedNodeRefs = [],
+            onClearSelection,
         },
         ref
     ) {
@@ -245,6 +249,41 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                             : 'border-accent-primary/10'
                         }`}
                 >
+                    {selectedNodeRefs.length > 0 && (
+                        <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary shrink-0">
+                                Editing
+                            </span>
+                            {selectedNodeRefs.slice(0, 5).map((ref) => (
+                                <span
+                                    key={ref.id}
+                                    className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+                                               bg-accent-primary/10 border border-accent-primary/20
+                                               text-[11px] text-content-secondary max-w-[140px]"
+                                    title={ref.label}
+                                >
+                                    <span className="truncate">{ref.label}</span>
+                                </span>
+                            ))}
+                            {selectedNodeRefs.length > 5 && (
+                                <span className="shrink-0 text-[11px] text-content-tertiary">
+                                    … +{selectedNodeRefs.length - 5} more
+                                </span>
+                            )}
+                            {onClearSelection && (
+                                <button
+                                    type="button"
+                                    onClick={onClearSelection}
+                                    aria-label="Clear node selection"
+                                    className="shrink-0 ml-auto p-1 rounded-md text-content-tertiary
+                                               hover:text-content-primary hover:bg-surface-tertiary transition-colors"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+                    )}
+
                     {attachedImages.length > 0 && (
                         <div
                             className={`flex gap-2 px-3 pt-3 pb-1 overflow-x-auto ${isCanvasMode ? 'px-2 pt-2' : 'px-3 pt-3'}`}
