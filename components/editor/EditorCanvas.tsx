@@ -220,6 +220,8 @@ const EditorCanvasInner = ({
     // the single node, select it, and clear the field.
     const pendingCenterNodeId = useAppStore((s) => s.pendingCenterNodeId);
     const clearPendingCenterNodeId = useAppStore((s) => s.clearPendingCenterNodeId);
+    const setCurrentSelectedNodeIds = useAppStore((s) => s.setCurrentSelectedNodeIds);
+    const selectionClearToken = useAppStore((s) => s.selectionClearToken);
     useEffect(() => {
         if (!pendingCenterNodeId || !reactFlowInstance) return;
         const node = reactFlowInstance.getNode(pendingCenterNodeId);
@@ -262,6 +264,26 @@ const EditorCanvasInner = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [localNodes.filter(n => n.selected).map(n => n.id).sort().join('|')],
     );
+
+    // Mirror the live React Flow selection into the global store so the chat
+    // can render the selection pill and build the NodeRef focus hint. Depends
+    // on the same stable string key the memo uses, so it only fires when the
+    // selected SET changes — not on drag/hover re-renders.
+    useEffect(() => {
+        setCurrentSelectedNodeIds(selectedNodeIds);
+    }, [selectedNodeIds, setCurrentSelectedNodeIds]);
+
+    // When the chat pill's X button bumps selectionClearToken, deselect every
+    // node on the canvas. Skip the initial mount (token unchanged) so we don't
+    // fight an existing selection on load. Mirrors the pendingCenterNodeId pattern.
+    const lastClearTokenRef = useRef(selectionClearToken);
+    useEffect(() => {
+        if (selectionClearToken === lastClearTokenRef.current) return;
+        lastClearTokenRef.current = selectionClearToken;
+        reactFlowInstance.setNodes((nds: any[]) =>
+            nds.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        );
+    }, [selectionClearToken, reactFlowInstance]);
 
     const handleDuplicateSelected = useCallback(() => {
         const rfNodes = reactFlowInstance?.getNodes() ?? localNodes;
