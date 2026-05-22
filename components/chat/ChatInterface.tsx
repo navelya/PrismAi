@@ -13,6 +13,7 @@ import { WorkflowEmptyState, ChatSkeletons } from './ChatHelpers';
 export { ExecutionUserFeedback, ChatSkeletons } from './ChatHelpers';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
+import { expandSelectionForChat } from '@/lib/utils/selection-refs';
 import { Toast } from '@/components/ui/Toast';
 
 import { useIsMobile } from '@/lib/hooks/use-mobile';
@@ -81,6 +82,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const isMobile = useIsMobile();
     const messages = useAppStore((state) => state.chatMessages);
     const addMessage = useAppStore((state) => state.addMessage);
+
+    const currentSelectedNodeIds = useAppStore((state) => state.currentSelectedNodeIds);
+    const currentWorkflowForRefs = useAppStore((state) => state.currentWorkflow);
+    const clearCanvasSelection = useAppStore((state) => state.clearCanvasSelection);
+    const selectedNodeRefs = React.useMemo(
+        () => expandSelectionForChat(currentSelectedNodeIds, currentWorkflowForRefs),
+        [currentSelectedNodeIds, currentWorkflowForRefs],
+    );
 
     const [input, setInput] = useState('');
     const isLoading = useAppStore((state) => state.isLoading);
@@ -454,7 +463,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         </button>
                     </div>
                 )}
-                <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={messages.length > 0} />
+                <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={messages.length > 0} selectedNodeRefs={selectedNodeRefs} onClearSelection={clearCanvasSelection} />
             </div>
             {evictionToast && (
                 <Toast

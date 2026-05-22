@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
+import { expandSelectionForChat } from '@/lib/utils/selection-refs';
 
 
 
@@ -221,12 +222,18 @@ export function useChatMessages({
         const userMsgId = crypto.randomUUID();
         const assistantMsgId = crypto.randomUUID();
 
+        const nodeRefs = expandSelectionForChat(
+            useAppStore.getState().currentSelectedNodeIds,
+            useAppStore.getState().currentWorkflow,
+        );
+
         addMessage({
             id: userMsgId,
             type: 'user',
             content: trimmedInput,
             images: imagesToSend.length > 0 ? imagesToSend : undefined,
             timestamp: new Date(),
+            nodeRefs: nodeRefs.length > 0 ? nodeRefs : undefined,
         });
 
         // Skip the optimistic empty assistant bubble for the approve path —
@@ -289,6 +296,7 @@ export function useChatMessages({
                 content: trimmedInput,
                 images: imagesToSend.length > 0 ? imagesToSend : undefined,
                 timestamp: new Date(),
+                nodeRefs: nodeRefs.length > 0 ? nodeRefs : undefined,
             };
 
             // Build the full history using the snapshot taken BEFORE optimistic updates
@@ -311,6 +319,7 @@ export function useChatMessages({
                     planAnswer: resolvedPlanAnswer,
                     userMessageId: userMsgId,
                     assistantMessageId: assistantMsgId,
+                    nodeRefs: nodeRefs.length > 0 ? nodeRefs : undefined,
                 }),
             });
 
