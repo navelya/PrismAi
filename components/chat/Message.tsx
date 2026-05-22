@@ -23,7 +23,7 @@ interface Message {
     type: 'user' | 'assistant';
     content: string;
     images?: string[];
-    nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
+    nodeRefs?: NodeRef[];
     result?: any;
     workflow?: Workflow;
     timestamp: Date;
