@@ -237,5 +237,11 @@ export const charactersApi = {
             method: 'POST',
             body: JSON.stringify({ imageUrl }),
         }),
+
+    generate: (description: string) =>
+        apiFetch<{ images: CharacterRefImage[] }>('/api/characters/generate', {
+            method: 'POST',
+            body: JSON.stringify({ description }),
+        }),
 };
 

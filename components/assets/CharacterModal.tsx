@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Upload, Sparkles, Star, Loader2 } from 'lucide-react';
+import { X, Upload, Sparkles, Star, Loader2, Wand2 } from 'lucide-react';
 import { uploadApi, charactersApi, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
 
 interface CharacterModalProps {
@@ -20,6 +20,7 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
     const [images, setImages] = useState<CharacterRefImage[]>([]);
     const [uploading, setUploading] = useState(false);
     const [describing, setDescribing] = useState(false);
+    const [generating, setGenerating] = useState(false);
     const [saving, setSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +83,23 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
             setErrorMsg(err instanceof Error ? err.message : 'Auto-describe failed');
         } finally {
             setDescribing(false);
+        }
+    };
+
+    // Generate 5 consistent reference poses from the description alone (Gemini
+    // Nano Banana: a base front view + 4 poses conditioned on it). Replaces the
+    // current image set with the generated poses.
+    const handleGenerate = async () => {
+        if (description.trim().length < 3) { setErrorMsg('Describe the character first, then generate'); return; }
+        setGenerating(true);
+        setErrorMsg(null);
+        try {
+            const { images: gen } = await charactersApi.generate(description.trim());
+            if (gen.length > 0) setImages(gen.slice(0, MAX_IMAGES));
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Generation failed');
+        } finally {
+            setGenerating(false);
         }
     };
 
@@ -152,6 +170,17 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                     )}
                 </div>
                 <p className="text-xs text-content-tertiary -mt-2">First image (★) is the primary. Up to {MAX_IMAGES}.</p>
+
+                {/* Generate the whole reference set from the description alone. */}
+                <button
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={generating}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-accent-primary/30 bg-accent-primary/10 text-sm text-accent-primary hover:bg-accent-primary/20 disabled:opacity-60"
+                >
+                    {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                    {generating ? 'Generating 5 poses…' : 'Generate 5 poses from description'}
+                </button>
 
                 <div>
                     <label className="block text-xs font-medium text-content-secondary mb-1">Name *</label>
