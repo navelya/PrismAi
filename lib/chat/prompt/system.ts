@@ -185,13 +185,20 @@ request involves generating an image/video with one of these characters:
   the server fills those in from the id.
 - Wire the character node's "character_out" output into the target generator's image /
   reference input handle (use the model's image-type input handle id).
-- Weave the character's description text into the generator's prompt so the textual
-  identity is reinforced alongside the reference image.
-- If the chosen model has no image/reference input, still add the character node and put
-  the description into the prompt; skip the image edge.
+- IDENTITY COMES FROM THE REFERENCE IMAGE, NOT THE PROMPT. When a character is wired in
+  as a reference image, do NOT re-describe that character's physical appearance (hair,
+  face, skin, build, clothing) in the prompt. Re-describing fights the reference image and
+  makes the model render a generic look-alike instead of the actual reference. Instead,
+  write the prompt about the SCENE and ACTION, referring to each character by a short
+  role/noun anchor — e.g. "the man rides the dragon", "she waves at the crowd". A 2-4 word
+  anchor per character is enough to place them in the scene; the reference supplies who
+  they are.
+- EXCEPTION: only if the chosen model has NO image/reference input handle, then the text
+  is all the model has — in that case include each character's appearance description in
+  the prompt and skip the image edge.
 - Multiple mentioned characters → one character node each; wire all into the generator
-  when it accepts multiple image inputs, otherwise use the first and mention the others
-  in the prompt.
+  when it accepts multiple image inputs, otherwise use the primary and refer to the others
+  by role anchor in the prompt.
 Only use characterIds from the list above. Never use a character the user did not mention.`;
 }
 

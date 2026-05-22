@@ -171,6 +171,26 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
   // thin { type: 'character', data: { config: { characterId } } }; we fill in
   // name/referenceImages/description/weight from the allow-list so URLs never
   // round-trip through the model. An id not in the map is rejected.
+  //
+  // Reference-image budget: when 2+ distinct characters share a workflow, feed
+  // only each character's PRIMARY image. Stacking every pose of multiple
+  // subjects (e.g. 5 + 5) dilutes identity and lets the most dramatic subject
+  // dominate. A single strong reference per subject holds identity far better.
+  // Single-character builds keep all poses.
+  const newCharIds = new Set<string>();
+  for (const n of (args.nodes || [])) {
+    if (n?.type === 'character' && typeof n?.data?.config?.characterId === 'string') {
+      newCharIds.add(n.data.config.characterId);
+    }
+  }
+  const existingCharIds = new Set<string>();
+  for (const n of state.workflow.nodes as any[]) {
+    if (n?.type === 'character' && typeof n?.data?.config?.characterId === 'string') {
+      existingCharIds.add(n.data.config.characterId);
+    }
+  }
+  const multiCharacter = new Set([...newCharIds, ...existingCharIds]).size >= 2;
+
   for (const node of (args.nodes || [])) {
     if (node?.type !== 'character') continue;
     const characterId = node?.data?.config?.characterId;
@@ -181,11 +201,12 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
     if (!snap) {
       return { success: false, error: `character node references unknown or unmentioned characterId "${characterId}". Only characters the user @-mentioned this turn can be used.` };
     }
+    const referenceImages = multiCharacter ? snap.referenceImages.slice(0, 1) : snap.referenceImages;
     node.data = node.data || {};
     node.data.config = {
       characterId: snap.characterId,
       name: snap.name,
-      referenceImages: snap.referenceImages,
+      referenceImages,
       description: snap.description ?? '',
       weight: snap.weight,
     };
