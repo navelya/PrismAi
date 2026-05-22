@@ -5,6 +5,7 @@ import { promptClientDef } from '../plugins/prompt';
 import { blurClientDef } from '../plugins/blur';
 import { levelsClientDef } from '../plugins/levels';
 import { aiGeneratorClientDef, AIGeneratorNode } from '../plugins/ai_generator';
+import { characterClientDef } from '../plugins/character';
 
 export const clientRegistry: Record<string, NodeClientDef> = {
     prompt: promptClientDef,
@@ -13,6 +14,7 @@ export const clientRegistry: Record<string, NodeClientDef> = {
     blur: blurClientDef,
     levels: levelsClientDef,
     ai_generator: aiGeneratorClientDef,
+    character: characterClientDef,
 };
 
 export const FallbackNode = AIGeneratorNode;

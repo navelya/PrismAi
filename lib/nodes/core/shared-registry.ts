@@ -5,6 +5,7 @@ import { compositorSharedDef } from '../plugins/compositor/definition';
 import { blurSharedDef } from '../plugins/blur/definition';
 import { levelsSharedDef } from '../plugins/levels/definition';
 import { aiGeneratorSharedDef } from '../plugins/ai_generator/definition';
+import { characterSharedDef } from '../plugins/character/definition';
 
 export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     prompt: promptSharedDef,
@@ -13,6 +14,7 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     blur: blurSharedDef,
     levels: levelsSharedDef,
     ai_generator: aiGeneratorSharedDef,
+    character: characterSharedDef,
     group_container: {
         type: 'group_container',
         family: 'organization',
