@@ -110,6 +110,25 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         const [openMenu, setOpenMenu] = useState<'none' | 'plus' | 'model'>('none');
         const plusTriggerRef = useRef<HTMLButtonElement>(null);
         const modelTriggerRef = useRef<HTMLButtonElement>(null);
+        const selectionRowRef = useRef<HTMLDivElement>(null);
+
+        // Translate a vertical mouse wheel into horizontal scroll while hovering
+        // the selection-pill row, so users can reach pills that overflow the
+        // single line. React attaches `wheel` as a passive listener, so we add a
+        // native non-passive one to be able to preventDefault. Re-runs when the
+        // row mounts/unmounts (gated on whether any pills are present).
+        useEffect(() => {
+            const el = selectionRowRef.current;
+            if (!el) return;
+            const onWheel = (e: WheelEvent) => {
+                if (e.deltaY === 0) return;
+                if (el.scrollWidth <= el.clientWidth) return; // nothing to scroll
+                e.preventDefault();
+                el.scrollLeft += e.deltaY;
+            };
+            el.addEventListener('wheel', onWheel, { passive: false });
+            return () => el.removeEventListener('wheel', onWheel);
+        }, [selectedNodeRefs.length]);
 
         /**
          * Radix Select disables pointer events on the page while open, so a
@@ -250,7 +269,10 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         }`}
                 >
                     {selectedNodeRefs.length > 0 && (
-                        <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+                        <div
+                            ref={selectionRowRef}
+                            className="flex items-center gap-1.5 px-3 pt-2.5 pb-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden"
+                        >
                             <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary shrink-0">
                                 Editing
                             </span>
