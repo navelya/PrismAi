@@ -139,6 +139,7 @@ export interface BuildSystemInput {
   registry: RegistryContextInput;
   attachedImageUrls?: string[];
   nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
+  characterRefs?: import('@/lib/utils/character-refs').CharacterSnapshot[];
 }
 
 function formatAttachedImagesBlock(urls: string[] | undefined): string {
@@ -165,6 +166,33 @@ Treat these as the user's focus. When their request is ambiguous about which
 nodes to modify (e.g. "make it stronger", "remove that one"), prefer this set.
 For a selected group, the focus is its members (look them up in the workflow).
 You can still see and edit the entire workflow when the request calls for it.`;
+}
+
+function formatCharacterMentionsBlock(
+  refs: import('@/lib/utils/character-refs').CharacterSnapshot[] | undefined,
+): string {
+  if (!refs || refs.length === 0) return '';
+  const list = refs
+    .map((c) => `- ${c.name} (characterId: ${c.characterId})${c.description ? ` — ${c.description}` : ''}`)
+    .join('\n');
+  return `USER-MENTIONED CHARACTERS (the user typed @ to reference these this turn):
+${list}
+
+A "character" is a reusable subject the user wants to appear consistently. When the
+request involves generating an image/video with one of these characters:
+- Add a node of type "character" for each referenced character. Its ONLY config field
+  is { "characterId": "<the id above>" } — do NOT invent name, images, or description;
+  the server fills those in from the id.
+- Wire the character node's "character_out" output into the target generator's image /
+  reference input handle (use the model's image-type input handle id).
+- Weave the character's description text into the generator's prompt so the textual
+  identity is reinforced alongside the reference image.
+- If the chosen model has no image/reference input, still add the character node and put
+  the description into the prompt; skip the image edge.
+- Multiple mentioned characters → one character node each; wire all into the generator
+  when it accepts multiple image inputs, otherwise use the first and mention the others
+  in the prompt.
+Only use characterIds from the list above. Never use a character the user did not mention.`;
 }
 
 /**
@@ -201,6 +229,9 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
 
   const selectionBlock = formatSelectionFocusBlock(input.nodeRefs);
   if (selectionBlock) blocks.push({ type: 'text', text: selectionBlock });
+
+  const characterBlock = formatCharacterMentionsBlock(input.characterRefs);
+  if (characterBlock) blocks.push({ type: 'text', text: characterBlock });
 
   return blocks;
 }

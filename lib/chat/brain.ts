@@ -31,6 +31,10 @@ export interface BrainInput {
   /** Nodes the user has selected on the canvas this turn. Surfaced to the
    *  model as a focus hint; does NOT restrict scope. Consumed in a later change. */
   nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
+  /** Characters the user @-mentioned this turn, resolved server-side from the
+   *  DB. Threaded to the tool layer for node hydration and to the system
+   *  prompt for wiring instructions. */
+  characterRefs?: import('@/lib/utils/character-refs').CharacterSnapshot[];
 }
 
 /**
@@ -65,11 +69,18 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
   const state: ToolHandlerState = { workflow: baseWorkflow, idMap: new Map(), aiModelHandles };
 
+  const characterRefMap = new Map<string, import('@/lib/utils/character-refs').CharacterSnapshot>();
+  for (const c of input.characterRefs ?? []) {
+    if (c && typeof c.characterId === 'string') characterRefMap.set(c.characterId, c);
+  }
+  state.characterRefs = characterRefMap;
+
   const system = buildSystemPrompt({
     workflow: baseWorkflow,
     registry: input.registry,
     attachedImageUrls: input.attachedImageUrls ?? [],
     nodeRefs: input.nodeRefs ?? [],
+    characterRefs: input.characterRefs ?? [],
   });
 
   let finalText = '';

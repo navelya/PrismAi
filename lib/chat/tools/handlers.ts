@@ -4,6 +4,7 @@ import { layoutPatchAsync } from '@/lib/workflow/layout-incremental';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import type { Workflow } from '@/lib/nodes/types';
 import type { ToolName } from './definitions';
+import type { CharacterSnapshot } from '@/lib/utils/character-refs';
 
 export interface ToolHandlerState {
   workflow: Workflow;
@@ -17,6 +18,14 @@ export interface ToolHandlerState {
    * models.
    */
   aiModelHandles?: Map<number, string[]>;
+  /**
+   * Snapshots for characters the user @-mentioned this turn, keyed by
+   * character id. Used to hydrate `character` node configs server-side so
+   * the LLM only has to emit { type: 'character', characterId } — it never
+   * sees or fabricates reference image URLs. Acts as an allow-list: a
+   * character node whose id is absent here is rejected.
+   */
+  characterRefs?: Map<string, CharacterSnapshot>;
 }
 
 export interface ToolResult {
@@ -156,6 +165,31 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
         return pos ? { ...n, position: pos } : n;
       }),
     };
+  }
+
+  // Hydrate `character` nodes from server-resolved snapshots. The LLM emits a
+  // thin { type: 'character', data: { config: { characterId } } }; we fill in
+  // name/referenceImages/description/weight from the allow-list so URLs never
+  // round-trip through the model. An id not in the map is rejected.
+  for (const node of (args.nodes || [])) {
+    if (node?.type !== 'character') continue;
+    const characterId = node?.data?.config?.characterId;
+    if (typeof characterId !== 'string' || characterId.length === 0) {
+      return { success: false, error: 'character node requires data.config.characterId.' };
+    }
+    const snap = state.characterRefs?.get(characterId);
+    if (!snap) {
+      return { success: false, error: `character node references unknown or unmentioned characterId "${characterId}". Only characters the user @-mentioned this turn can be used.` };
+    }
+    node.data = node.data || {};
+    node.data.config = {
+      characterId: snap.characterId,
+      name: snap.name,
+      referenceImages: snap.referenceImages,
+      description: snap.description ?? '',
+      weight: snap.weight,
+    };
+    if (!node.data.label) node.data.label = snap.name;
   }
 
   // Pre-validate every node against the registry so a bad config gives one

@@ -7,6 +7,7 @@ import { dispatchTool, type ToolHandlerState } from '@/lib/chat/tools/handlers';
 import { synthesizeTaskBlueprint, sleep } from '@/lib/chat/task-loop';
 import { STAGING_DELAY_MS } from '@/lib/chat/config';
 import { MAX_NODE_REFS, type NodeRef } from '@/lib/utils/selection-refs';
+import { sanitizeMentionedCharacterIds, type CharacterSnapshot } from '@/lib/utils/character-refs';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
@@ -459,6 +460,45 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
     if (attachedImageUrls.length >= 4) break; // hard cap consistent with parseImageAttachments
   }
 
+  // Resolve @-mentioned characters to server-side snapshots. We scope by the
+  // session's owner so a user can only reference their own characters. The
+  // LLM only ever sees names/descriptions/ids — never the storage URLs.
+  const mentionedCharacterIds = sanitizeMentionedCharacterIds(body?.mentionedCharacterIds);
+  let characterRefs: CharacterSnapshot[] = [];
+  if (mentionedCharacterIds.length > 0 && sessionId) {
+    const { data: sessionOwner } = await supabase
+      .from('sessions')
+      .select('user_id')
+      .eq('id', sessionId)
+      .single();
+    if (sessionOwner?.user_id) {
+      const { data: rows } = await supabase
+        .from('characters')
+        .select('id, name, description, reference_images, weight')
+        .eq('user_id', sessionOwner.user_id)
+        .is('deleted_at', null)
+        .in('id', mentionedCharacterIds);
+      characterRefs = (rows ?? []).map((r: any) => ({
+        characterId: r.id,
+        name: r.name,
+        description: r.description ?? null,
+        referenceImages: Array.isArray(r.reference_images)
+          ? r.reference_images.map((img: any) => (typeof img === 'string' ? img : img?.url)).filter((u: any): u is string => typeof u === 'string')
+          : [],
+        weight: typeof r.weight === 'number' ? r.weight : 70,
+      }));
+
+      const ids = characterRefs.map((c) => c.characterId);
+      if (ids.length > 0) {
+        waitUntil(
+          Promise.resolve(
+            supabase.from('characters').update({ last_used_at: new Date().toISOString() }).in('id', ids)
+          ).then(() => {})
+        );
+      }
+    }
+  }
+
   // The most recent user message gets the images attached as content blocks.
   const turns: ChatTurn[] = chatWindow.map((m: any, i: number, arr: any[]) => {
     const role = (m.role || m.type) === 'assistant' ? 'assistant' : 'user';
@@ -480,6 +520,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           attachedImageUrls,
           model,
           nodeRefs,
+          characterRefs,
         });
 
         if (sessionId && (result.hadAnyOutput || result.clarification || result.plan) && messages?.length > 0) {
