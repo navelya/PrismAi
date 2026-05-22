@@ -3,7 +3,7 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus } from 'lucide-react';
+import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, UserCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
@@ -19,6 +19,7 @@ import { Logo } from '@/components/ui/Logo';
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
     { name: 'Library', path: '/library', icon: BookOpen, desktopOnly: false },
+    { name: 'Assets', path: '/assets', icon: UserCircle, desktopOnly: false },
     { name: 'Nodes', path: '/nodes', icon: Boxes, desktopOnly: false },
     { name: 'Settings', path: '/settings', icon: Settings, desktopOnly: false },
 ];
