@@ -90,6 +90,13 @@ interface CompositorLayerNodesProps {
     poolKey?: string;
 }
 
+// When a compositor is PAUSED, its scene is static — there's no reason to repaint
+// every frame forever (the old behavior pegged the GPU and made the whole canvas,
+// incl. node selection, stutter). Instead we run a short redraw burst after any
+// change (mount, scrub, play→pause) so an async-decoding video/seek lands, then
+// idle. Long enough to cover a typical seek+decode; restarts on the next change.
+const PAUSED_SETTLE_MS = 800;
+
 function safeImageUrl(url: string): string {
     if (!url) return '';
     if (url.startsWith('data:')) return url;
@@ -484,16 +491,21 @@ const LayerSubgraph = memo(function LayerSubgraph({
         }
     }, [dims.width, dims.height, reportedDuration]);
 
-    // rAF loop driving the subgraph repaint. We don't gate on isPlaying here
-    // — even when the consumer is paused, the subgraph might still need to
-    // repaint (e.g. user editing layers upstream → live reflection downstream).
-    // The cost is one drawImage chain per frame; cheap.
+    // rAF loop driving the subgraph repaint. While PLAYING we repaint every
+    // frame (the subgraph is animating). While PAUSED the subgraph is static at
+    // this playhead, so we only run a short settle burst on change (covers an
+    // async-decoding upstream video) and then idle — running this loop forever
+    // when paused is what made idle compositor cards peg the GPU and stutter the
+    // whole canvas. `paintDep` is constant ('__playing__') while playing so the
+    // loop isn't torn down every frame, and equals the playhead while paused so
+    // a scrub re-triggers the burst.
     const playheadRef = useRef(playhead);
     playheadRef.current = playhead;
     const isPlayingRef = useRef(isPlaying);
     isPlayingRef.current = isPlaying;
     const mutedRef = useRef(muted);
     mutedRef.current = muted;
+    const paintDep = isPlaying ? '__playing__' : playhead;
     useEffect(() => {
         const c = offscreenRef.current;
         const cache = cacheRef.current;
@@ -505,16 +517,25 @@ const LayerSubgraph = memo(function LayerSubgraph({
             const ctx = c.getContext('2d');
             if (ctx) {
                 cache.releaseAllScratch();
-                paintGraphFrame(graph, playheadRef.current, ctx, cache, isPlayingRef.current, mutedRef.current);
+                paintGraphFrame(
+                    graph,
+                    isPlaying ? playheadRef.current : playhead,
+                    ctx,
+                    cache,
+                    isPlaying,
+                    mutedRef.current,
+                );
             }
             raf = requestAnimationFrame(draw);
         };
         raf = requestAnimationFrame(draw);
-        return () => {
-            stopped = true;
-            if (raf) cancelAnimationFrame(raf);
-        };
-    }, [graph]);
+        if (isPlaying) {
+            return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
+        }
+        const timer = setTimeout(() => { stopped = true; if (raf) cancelAnimationFrame(raf); }, PAUSED_SETTLE_MS);
+        return () => { stopped = true; clearTimeout(timer); if (raf) cancelAnimationFrame(raf); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [graph, paintDep]);
 
     const imageEl = offscreenRef.current;
     if (!imageEl) return null;
@@ -695,10 +716,20 @@ const LayerText = memo(function LayerText({
  * Mount this inside the same Konva `<Layer>` whose nodes you want animated.
  * Pass `enabled={true}` when any layer's source is video; pass `false` for
  * image-only compositors so we don't waste a frame loop on a static scene.
+ *
+ * Redraw cadence:
+ *   - PLAYING: continuous, every frame (videos/subgraphs advance).
+ *   - PAUSED: a single short settle burst (PAUSED_SETTLE_MS) whenever
+ *     `redrawKey` changes, then idle. A paused compositor's scene is static, so
+ *     repainting it every frame forever was pure waste — it pegged the GPU and
+ *     made even node selection stutter. The burst covers async video decode /
+ *     seek; `redrawKey` restarts it on scrub, layer add/remove, or play→pause.
  */
 export const CompositorAnimator = memo(function CompositorAnimator({
     enabled,
-}: { enabled: boolean }) {
+    isPlaying,
+    redrawKey,
+}: { enabled: boolean; isPlaying: boolean; redrawKey: string }) {
     // The Group is a no-op visually — its sole purpose is to hold a ref so
     // we can reach the parent Konva.Layer at runtime. We don't render
     // anything inside it.
@@ -715,8 +746,12 @@ export const CompositorAnimator = memo(function CompositorAnimator({
         // gets painted naturally.
         const anim = new Konva.Animation(() => {}, konvaLayer);
         anim.start();
-        return () => { anim.stop(); };
-    }, [enabled]);
+        if (isPlaying) {
+            return () => { anim.stop(); };
+        }
+        const timer = setTimeout(() => anim.stop(), PAUSED_SETTLE_MS);
+        return () => { clearTimeout(timer); anim.stop(); };
+    }, [enabled, isPlaying, redrawKey]);
 
     return <Group ref={anchorRef} listening={false} />;
 });
@@ -758,9 +793,16 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
         [layers],
     );
 
+    // Constant while playing (so the animator runs continuously without being
+    // torn down each frame); encodes scrub position + layer count while paused
+    // so a settle burst re-fires on those changes.
+    const animatorRedrawKey = isPlaying
+        ? '__playing__'
+        : `${typeof playhead === 'number' ? playhead.toFixed(3) : 'n'}|${layers.length}`;
+
     return (
         <>
-            <CompositorAnimator enabled={hasVideo} />
+            <CompositorAnimator enabled={hasVideo} isPlaying={isPlaying} redrawKey={animatorRedrawKey} />
             {[...layers].reverse().map(({ layer, resolved }) => {
                 if (!layer.visible) return null;
                 if (resolved === null || resolved === undefined) return null;

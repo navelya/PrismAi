@@ -353,7 +353,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // it never affects drag motion. Toggling the class on drag-flip
                 // forced a synchronous style invalidation right when the user
                 // started moving the cursor.
-                "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40 transition-[border-color,background-color] duration-500 ease-out",
+                // Selection ring is instant: `border-color` is intentionally NOT
+                // in the transition list (it animated over 500ms before). Keeping
+                // the backdrop blur — profiling showed it isn't the bottleneck.
+                "rounded-2xl border backdrop-blur-xl relative group bg-bg-primary/40 transition-[background-color] duration-500 ease-out",
                 selected ? "border-accent-primary shadow-xl outline-none" : "border-stroke-subtle shadow-xl",
                 // Hover affects ONLY borders + a barely-perceptible bg tint.
                 // Shadow stays constant on hover/drag/click — only the border

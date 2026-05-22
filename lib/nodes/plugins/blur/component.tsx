@@ -41,6 +41,12 @@ const blurTypeOptions = [
     { id: 'stack', display_name: 'Stack' },
 ];
 
+// Idle (not hovering) blur previews paint a short settle burst — long enough for
+// the upstream video's first frame to decode in — then stop, instead of
+// repainting forever. See PAUSED_SETTLE_MS in the compositor Renderer for the
+// same rationale: an idle preview is a static frame and shouldn't peg the GPU.
+const IDLE_SETTLE_MS = 800;
+
 function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeData>) {
     const updateNodeConfig = useAppStore(state => state.updateNodeConfig);
     const updateNodeInternals = useUpdateNodeInternals();
@@ -278,18 +284,15 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         if (canvas.width !== dims.width) canvas.width = Math.max(1, dims.width);
         if (canvas.height !== dims.height) canvas.height = Math.max(1, dims.height);
 
-        // Continuous rAF — same pattern LayerSubgraph uses for downstream
-        // compositor consumers. Paints every frame even when the user isn't
-        // hovering, with playhead held at 0.
-        //
-        // Why continuous (not one-shot when paused): videos in the cache
-        // decode asynchronously after their first acquisition. A single
-        // paint-on-graph-change misses the frame that becomes available
-        // 100-500ms later, so the canvas freezes with whatever was loaded
-        // at first-paint time (typically just the image and the prompt).
-        // Browsers may also evict the held frame of a paused HTMLVideoElement
-        // under memory pressure — a continuous loop quietly re-decodes via
-        // voteVideoPoolState's readyState-aware seek.
+        // While HOVERING, play the upstream preview continuously (advance the
+        // playhead every frame). While NOT hovering the frame is static at
+        // playhead 0, so we only run a short settle burst — long enough for an
+        // async-decoding upstream video's first frame to land — then idle.
+        // Repainting frame 0 every frame forever (the old behavior) is what made
+        // a compositor-fed blur card peg the GPU and stutter the whole canvas.
+        // Trade-off: if the browser evicts a paused video frame under memory
+        // pressure while idle, it won't re-decode until the next hover/change.
+        const hovering = isHoveringGraphPreview;
         const duration = graphDuration(upstreamGraph);
         let stopped = false;
         let raf = 0;
@@ -298,15 +301,12 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
 
         const tick = (now: number) => {
             if (stopped) return;
-            if (isHoveringRef.current) {
+            if (hovering) {
                 const dt = (now - last) / 1000;
                 last = now;
                 playhead += dt;
                 if (duration > 0 && playhead >= duration) playhead = 0;
             } else {
-                // Not hovering — playhead frozen at 0; reset `last` so when
-                // the user enters the preview area we don't burn the
-                // accumulated dt as a giant initial jump.
                 playhead = 0;
                 last = now;
             }
@@ -314,16 +314,17 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 cache.releaseAllScratch();
-                paintGraphFrame(upstreamGraph, playhead, ctx, cache, isHoveringRef.current);
+                paintGraphFrame(upstreamGraph, playhead, ctx, cache, hovering);
             }
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
-        return () => {
-            stopped = true;
-            if (raf) cancelAnimationFrame(raf);
-        };
-    }, [upstreamGraph]);
+        if (hovering) {
+            return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
+        }
+        const timer = setTimeout(() => { stopped = true; if (raf) cancelAnimationFrame(raf); }, IDLE_SETTLE_MS);
+        return () => { stopped = true; clearTimeout(timer); if (raf) cancelAnimationFrame(raf); };
+    }, [upstreamGraph, isHoveringGraphPreview]);
 
     // Derived blur style. Blur preview always applies its own filter; for
     // graph upstreams, the upstream filter chain is already rendered by
