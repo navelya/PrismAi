@@ -6,6 +6,7 @@ import { uploadBase64ToStorage } from '@/lib/utils/image-processing';
 import { dispatchTool, type ToolHandlerState } from '@/lib/chat/tools/handlers';
 import { synthesizeTaskBlueprint, sleep } from '@/lib/chat/task-loop';
 import { STAGING_DELAY_MS } from '@/lib/chat/config';
+import { MAX_NODE_REFS, type NodeRef } from '@/lib/utils/selection-refs';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
@@ -323,13 +324,13 @@ async function handlePlanApprove(opts: {
 async function handleWithNewBrain(req: Request): Promise<Response> {
   const body = await req.json();
   const { messages, sessionId, previousWorkflow, attachedImages } = body ?? {};
-  const nodeRefs: import('@/lib/utils/selection-refs').NodeRef[] = Array.isArray(body?.nodeRefs)
+  const nodeRefs: NodeRef[] = Array.isArray(body?.nodeRefs)
     ? body.nodeRefs
         .filter(
           (r: any) =>
             r && typeof r.id === 'string' && typeof r.label === 'string' && typeof r.type === 'string',
         )
-        .slice(0, 25)
+        .slice(0, MAX_NODE_REFS)
         .map((r: any) => ({
           id: String(r.id).slice(0, 128),
           label: String(r.label).slice(0, 200),
