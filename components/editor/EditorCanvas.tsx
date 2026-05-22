@@ -280,6 +280,7 @@ const EditorCanvasInner = ({
     useEffect(() => {
         if (selectionClearToken === lastClearTokenRef.current) return;
         lastClearTokenRef.current = selectionClearToken;
+        if (!reactFlowInstance) return;
         reactFlowInstance.setNodes((nds: any[]) =>
             nds.map((n) => (n.selected ? { ...n, selected: false } : n)),
         );
