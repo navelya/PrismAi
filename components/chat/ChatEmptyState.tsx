@@ -4,6 +4,7 @@ import React from 'react';
 import { ImagePlus, Pen, Sparkles } from 'lucide-react';
 import ChatInput from './ChatInput';
 import { Toast } from '@/components/ui/Toast';
+import type { Character } from '@/lib/api/client';
 
 interface ChatInputProps {
     value: string;
@@ -19,6 +20,10 @@ interface ChatInputProps {
     attachedImages: string[];
     onRemoveAttachedImage: (index: number) => void;
     hasMessages?: boolean;
+    mentionedCharacters: Character[];
+    onMentionCharacter: (c: Character) => void;
+    onRemoveMentionedCharacter: (id: string) => void;
+    onOpenCharacterCreate?: () => void;
 }
 
 interface ChatEmptyStateProps {

@@ -13,7 +13,6 @@ import { WorkflowEmptyState, ChatSkeletons } from './ChatHelpers';
 export { ExecutionUserFeedback, ChatSkeletons } from './ChatHelpers';
 import { Workflow } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
-import { expandSelectionForChat } from '@/lib/utils/selection-refs';
 import { Toast } from '@/components/ui/Toast';
 
 import { useIsMobile } from '@/lib/hooks/use-mobile';
@@ -83,13 +82,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const messages = useAppStore((state) => state.chatMessages);
     const addMessage = useAppStore((state) => state.addMessage);
 
-    const currentSelectedNodeIds = useAppStore((state) => state.currentSelectedNodeIds);
-    const currentWorkflowForRefs = useAppStore((state) => state.currentWorkflow);
-    const clearCanvasSelection = useAppStore((state) => state.clearCanvasSelection);
-    const selectedNodeRefs = React.useMemo(
-        () => expandSelectionForChat(currentSelectedNodeIds, currentWorkflowForRefs),
-        [currentSelectedNodeIds, currentWorkflowForRefs],
-    );
+    // NOTE: the canvas-selection pill is rendered by <SelectionPillRow> (a leaf
+    // inside ChatInput) which subscribes to the selection state itself. We must
+    // NOT subscribe to it here — ChatInterface owns the un-memoized MessageList,
+    // so any selection subscription re-renders the whole conversation on every
+    // node entering a marquee.
 
     const [input, setInput] = useState('');
     const isLoading = useAppStore((state) => state.isLoading);
@@ -133,9 +130,26 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         abortControllerRef
     });
 
+    const [mentionedCharacters, setMentionedCharacters] = useState<import('@/lib/api/client').Character[]>([]);
+    const addMentionedCharacter = (c: import('@/lib/api/client').Character) =>
+        setMentionedCharacters((prev) => (prev.some((p) => p.id === c.id) ? prev : [...prev, c]));
+    const removeMentionedCharacter = (id: string) =>
+        setMentionedCharacters((prev) => prev.filter((p) => p.id !== id));
+
     // 👑 פונקציית ה-Send המעודכנת שכוללת ניווט ויצירת סשן
     const handleSend = () => {
-        sendMessage(input.trim(), attachedBlobsRef.current, attachedImages, clearAttachments, setInput);
+        const mentionedIds = mentionedCharacters.map((c) => c.id);
+        sendMessage(
+            input.trim(),
+            attachedBlobsRef.current,
+            attachedImages,
+            clearAttachments,
+            setInput,
+            undefined,
+            undefined,
+            mentionedIds,
+        );
+        setMentionedCharacters([]);
     };
 
     useChatRealtime({
@@ -328,6 +342,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         selectedModel: effectiveModel,
         onModelSelect: setSelectedChatModel,
         hasMessages: messages.length > 0,
+        mentionedCharacters,
+        onMentionCharacter: addMentionedCharacter,
+        onRemoveMentionedCharacter: removeMentionedCharacter,
     };
 
     const [userName, setUserName] = useState<string>(initialUserName || '');
@@ -463,7 +480,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         </button>
                     </div>
                 )}
-                <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={messages.length > 0} selectedNodeRefs={selectedNodeRefs} onClearSelection={clearCanvasSelection} />
+                <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={messages.length > 0} />
             </div>
             {evictionToast && (
                 <Toast

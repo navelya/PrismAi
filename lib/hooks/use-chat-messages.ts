@@ -125,7 +125,8 @@ export function useChatMessages({
         clearAttachments: () => void,
         setInput: (val: string) => void,
         clarificationAnswerOverride?: { questionMessageId: string; chosenIndex: number | null },
-        planAnswerOverride?: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string }
+        planAnswerOverride?: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string },
+        mentionedCharacterIds?: string[],
     ) => {
         if (!trimmedInput && attachedImages.length === 0) return;
 
@@ -320,6 +321,7 @@ export function useChatMessages({
                     userMessageId: userMsgId,
                     assistantMessageId: assistantMsgId,
                     nodeRefs: nodeRefs.length > 0 ? nodeRefs : undefined,
+                    mentionedCharacterIds: mentionedCharacterIds && mentionedCharacterIds.length > 0 ? mentionedCharacterIds : undefined,
                 }),
             });
 

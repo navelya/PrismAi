@@ -22,6 +22,10 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { ModelPicker } from './ModelPicker';
 import { Select, type SelectOption } from '@/components/ui/Select';
+import { SelectionPillRow } from './SelectionPillRow';
+import { useCharacters } from '@/lib/hooks/use-characters';
+import CharacterMentionPicker, { filterCharacters } from './CharacterMentionPicker';
+import type { Character } from '@/lib/api/client';
 
 const PLUS_MENU_OPTIONS: SelectOption[] = [
     {
@@ -73,8 +77,10 @@ interface ChatInputProps {
     selectedModel?: 'haiku' | 'sonnet';
     onModelSelect?: (m: 'haiku' | 'sonnet') => void;
     hasMessages?: boolean;
-    selectedNodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
-    onClearSelection?: () => void;
+    mentionedCharacters: Character[];
+    onMentionCharacter: (c: Character) => void;
+    onRemoveMentionedCharacter: (id: string) => void;
+    onOpenCharacterCreate?: () => void;
 }
 
 const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
@@ -96,8 +102,10 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             selectedModel = 'sonnet',
             onModelSelect,
             hasMessages = false,
-            selectedNodeRefs = [],
-            onClearSelection,
+            mentionedCharacters,
+            onMentionCharacter,
+            onRemoveMentionedCharacter,
+            onOpenCharacterCreate,
         },
         ref
     ) {
@@ -110,25 +118,20 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         const [openMenu, setOpenMenu] = useState<'none' | 'plus' | 'model'>('none');
         const plusTriggerRef = useRef<HTMLButtonElement>(null);
         const modelTriggerRef = useRef<HTMLButtonElement>(null);
-        const selectionRowRef = useRef<HTMLDivElement>(null);
 
-        // Translate a vertical mouse wheel into horizontal scroll while hovering
-        // the selection-pill row, so users can reach pills that overflow the
-        // single line. React attaches `wheel` as a passive listener, so we add a
-        // native non-passive one to be able to preventDefault. Re-runs when the
-        // row mounts/unmounts (gated on whether any pills are present).
-        useEffect(() => {
-            const el = selectionRowRef.current;
-            if (!el) return;
-            const onWheel = (e: WheelEvent) => {
-                if (e.deltaY === 0) return;
-                if (el.scrollWidth <= el.clientWidth) return; // nothing to scroll
-                e.preventDefault();
-                el.scrollLeft += e.deltaY;
-            };
-            el.addEventListener('wheel', onWheel, { passive: false });
-            return () => el.removeEventListener('wheel', onWheel);
-        }, [selectedNodeRefs.length]);
+        const { characters } = useCharacters();
+        const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = picker closed
+        const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+
+        const detectMention = useCallback((text: string, caret: number): string | null => {
+            const upto = text.slice(0, caret);
+            const at = upto.lastIndexOf('@');
+            if (at === -1) return null;
+            if (at > 0 && !/\s/.test(upto[at - 1])) return null;
+            const frag = upto.slice(at + 1);
+            if (/\s/.test(frag)) return null;
+            return frag;
+        }, []);
 
         /**
          * Radix Select disables pointer events on the page while open, so a
@@ -169,6 +172,28 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         const textareaRef =
             (ref as React.RefObject<HTMLTextAreaElement>) ?? internalTextareaRef;
         const ghostRef = useRef<HTMLDivElement>(null);
+
+        const handleTextChange = (next: string) => {
+            onChange(next);
+            const el = textareaRef.current;
+            const caret = el ? el.selectionStart ?? next.length : next.length;
+            const q = detectMention(next, caret);
+            setMentionQuery(q);
+            setMentionActiveIndex(0);
+        };
+
+        const insertCharacterMention = useCallback((c: Character) => {
+            const el = textareaRef.current;
+            const caret = el ? el.selectionStart ?? value.length : value.length;
+            const upto = value.slice(0, caret);
+            const at = upto.lastIndexOf('@');
+            if (at !== -1) {
+                const next = value.slice(0, at) + value.slice(caret);
+                onChange(next);
+            }
+            onMentionCharacter(c);
+            setMentionQuery(null);
+        }, [value, onChange, onMentionCharacter, textareaRef]);
 
         // ── height management ──────────────────────────────────────────────
         const adjustTextareaHeight = useCallback(() => {
@@ -268,42 +293,18 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                             : 'border-accent-primary/10'
                         }`}
                 >
-                    {selectedNodeRefs.length > 0 && (
-                        <div
-                            ref={selectionRowRef}
-                            className="flex items-center gap-1.5 px-3 pt-2.5 pb-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden"
-                        >
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary shrink-0">
-                                Editing
-                            </span>
-                            {selectedNodeRefs.slice(0, 5).map((nodeRef) => (
-                                <span
-                                    key={nodeRef.id}
-                                    className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-                                               bg-accent-primary/10 border border-accent-primary/20
-                                               text-[11px] text-content-secondary max-w-[140px]"
-                                    title={nodeRef.label}
-                                >
-                                    <span className="truncate">{nodeRef.label}</span>
-                                </span>
-                            ))}
-                            {selectedNodeRefs.length > 5 && (
-                                <span className="shrink-0 text-[11px] text-content-tertiary">
-                                    … +{selectedNodeRefs.length - 5} more
-                                </span>
-                            )}
-                            {onClearSelection && (
-                                <button
-                                    type="button"
-                                    onClick={onClearSelection}
-                                    aria-label="Clear node selection"
-                                    className="shrink-0 ml-auto p-1 rounded-md text-content-tertiary
-                                               hover:text-content-primary hover:bg-surface-tertiary transition-colors"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
-                            )}
-                        </div>
+                    {/* Self-subscribing leaf: re-renders on canvas selection
+                        changes WITHOUT re-rendering ChatInput or the conversation. */}
+                    <SelectionPillRow />
+
+                    {mentionQuery !== null && (
+                        <CharacterMentionPicker
+                            characters={characters}
+                            query={mentionQuery}
+                            activeIndex={mentionActiveIndex}
+                            onSelect={insertCharacterMention}
+                            onCreateNew={() => { setMentionQuery(null); onOpenCharacterCreate?.(); }}
+                        />
                     )}
 
                     {attachedImages.length > 0 && (
@@ -333,6 +334,24 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         </div>
                     )}
 
+                    {mentionedCharacters.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+                            {mentionedCharacters.map((c) => (
+                                <span key={c.id} className="inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full bg-accent-primary/10 border border-accent-primary/20 text-xs text-content-primary">
+                                    <span className="w-4 h-4 rounded-full overflow-hidden bg-surface-tertiary flex items-center justify-center">
+                                        {c.thumbnail_url || c.reference_images?.[0]?.url
+                                            ? <img src={c.thumbnail_url || c.reference_images[0].url} alt="" className="w-full h-full object-cover" />
+                                            : null}
+                                    </span>
+                                    {c.name}
+                                    <button type="button" onClick={() => onRemoveMentionedCharacter(c.id)} className="text-content-tertiary hover:text-accent-error">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
+
                     {/* Ghost div for single-line width probe */}
                     <div
                         ref={ghostRef}
@@ -350,8 +369,15 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     <textarea
                         ref={textareaRef}
                         value={value}
-                        onChange={(e) => onChange(e.target.value)}
+                        onChange={(e) => handleTextChange(e.target.value)}
                         onKeyDown={(e) => {
+                            if (mentionQuery !== null) {
+                                const results = filterCharacters(characters, mentionQuery);
+                                if (e.key === 'ArrowDown') { e.preventDefault(); setMentionActiveIndex((i) => Math.min(i + 1, Math.max(0, results.length - 1))); return; }
+                                if (e.key === 'ArrowUp') { e.preventDefault(); setMentionActiveIndex((i) => Math.max(i - 1, 0)); return; }
+                                if ((e.key === 'Enter' || e.key === 'Tab') && results[mentionActiveIndex]) { e.preventDefault(); insertCharacterMention(results[mentionActiveIndex]); return; }
+                                if (e.key === 'Escape') { e.preventDefault(); setMentionQuery(null); return; }
+                            }
                             if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
                                 onSend();
