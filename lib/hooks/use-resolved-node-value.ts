@@ -34,6 +34,14 @@ export function deriveEnvelopeFromConfig(
         return toOutputEnvelope('image', items);
     }
 
+    if (nodeType === 'character') {
+        const raw: any[] = Array.isArray(config.referenceImages) ? config.referenceImages : [];
+        const items = raw
+            .map((img) => (typeof img === 'string' ? { url: img } : img))
+            .filter((img) => img && typeof img.url === 'string' && img.url.length > 0);
+        return toOutputEnvelope('image', items);
+    }
+
     return null;
 }
 
