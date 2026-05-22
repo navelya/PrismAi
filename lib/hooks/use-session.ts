@@ -184,6 +184,7 @@ export function useSession() {
                             action: 'approve' | 'feedback';
                             feedbackText?: string;
                         } | null;
+                        node_refs?: import('@/lib/utils/selection-refs').NodeRef[] | null;
                     };
 
                     const formatted: any = {
@@ -234,6 +235,10 @@ export function useSession() {
                             action: metadata.plan_answer.action === 'approve' ? 'approve' : 'feedback',
                             feedbackText: typeof metadata.plan_answer.feedbackText === 'string' ? metadata.plan_answer.feedbackText : undefined,
                         };
+                    }
+
+                    if (msg.role === 'user' && Array.isArray(metadata.node_refs) && metadata.node_refs.length > 0) {
+                        formatted.nodeRefs = metadata.node_refs;
                     }
 
                     return formatted;

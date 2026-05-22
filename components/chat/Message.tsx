@@ -15,12 +15,15 @@ import { TaskProgressCard } from './TaskProgressCard';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
+import { useAppStore } from '@/lib/store/app-store';
+import type { NodeRef } from '@/lib/utils/selection-refs';
 
 interface Message {
     id: string;
     type: 'user' | 'assistant';
     content: string;
     images?: string[];
+    nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
     result?: any;
     workflow?: Workflow;
     timestamp: Date;
@@ -52,6 +55,39 @@ interface Message {
         failedTaskId?: string | null;
         errorMessage?: string;
     };
+}
+
+function NodeRefStrip({ refs }: { refs: NodeRef[] }) {
+    const currentWorkflow = useAppStore((s) => s.currentWorkflow);
+    const selectNodeAndCenter = useAppStore((s) => s.selectNodeAndCenter);
+    const liveIds = React.useMemo(
+        () => new Set((currentWorkflow?.nodes ?? []).map((n: any) => n.id)),
+        [currentWorkflow],
+    );
+    if (refs.length === 0) return null;
+    return (
+        <div className="flex flex-wrap gap-1.5 mb-1.5">
+            {refs.map((ref) => {
+                const exists = liveIds.has(ref.id);
+                return (
+                    <button
+                        key={ref.id}
+                        type="button"
+                        disabled={!exists}
+                        onClick={() => exists && selectNodeAndCenter(ref.id)}
+                        title={exists ? `Show "${ref.label}" on canvas` : 'Deleted'}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] border max-w-[160px]
+                            ${exists
+                                ? 'bg-accent-primary/10 border-accent-primary/20 text-content-secondary hover:bg-accent-primary/20 cursor-pointer'
+                                : 'bg-surface-tertiary/40 border-stroke-subtle text-content-tertiary line-through cursor-default'
+                            }`}
+                    >
+                        <span className="truncate">{ref.label}</span>
+                    </button>
+                );
+            })}
+        </div>
+    );
 }
 
 const ChatMessageContent = ({
@@ -240,6 +276,10 @@ export const Message = React.memo(function Message({
                                 Try Again
                             </button>
                         </div>
+                    )}
+
+                    {message.type === 'user' && message.nodeRefs && message.nodeRefs.length > 0 && (
+                        <NodeRefStrip refs={message.nodeRefs} />
                     )}
 
                     {message.type === 'user' && message.images && message.images.length > 0 && (
