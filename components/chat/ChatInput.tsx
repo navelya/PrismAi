@@ -254,15 +254,15 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                             <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary shrink-0">
                                 Editing
                             </span>
-                            {selectedNodeRefs.slice(0, 5).map((ref) => (
+                            {selectedNodeRefs.slice(0, 5).map((nodeRef) => (
                                 <span
-                                    key={ref.id}
+                                    key={nodeRef.id}
                                     className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-md
                                                bg-accent-primary/10 border border-accent-primary/20
                                                text-[11px] text-content-secondary max-w-[140px]"
-                                    title={ref.label}
+                                    title={nodeRef.label}
                                 >
-                                    <span className="truncate">{ref.label}</span>
+                                    <span className="truncate">{nodeRef.label}</span>
                                 </span>
                             ))}
                             {selectedNodeRefs.length > 5 && (
