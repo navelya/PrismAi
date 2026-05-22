@@ -155,7 +155,7 @@ function formatSelectionFocusBlock(
 ): string {
   if (!refs || refs.length === 0) return '';
   const list = refs
-    .map((r) => `- "${r.label}" (id: ${r.id}, type: ${r.type})${r.fromGroup ? ` [in group ${r.fromGroup}]` : ''}`)
+    .map((r) => `- "${r.label}" (id: ${r.id}, type: ${r.type})${r.isGroup ? ' [group — its members are the nodes whose parentNode is this id]' : ''}`)
     .join('\n');
   return `USER'S CURRENT SELECTION (focus hint — NOT a scope restriction):
 The user has these nodes selected on the canvas right now:
@@ -163,6 +163,7 @@ ${list}
 
 Treat these as the user's focus. When their request is ambiguous about which
 nodes to modify (e.g. "make it stronger", "remove that one"), prefer this set.
+For a selected group, the focus is its members (look them up in the workflow).
 You can still see and edit the entire workflow when the request calls for it.`;
 }
 

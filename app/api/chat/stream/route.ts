@@ -336,7 +336,6 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           label: String(r.label).slice(0, 200),
           type: String(r.type).slice(0, 64),
           ...(r.isGroup === true ? { isGroup: true } : {}),
-          ...(typeof r.fromGroup === 'string' ? { fromGroup: r.fromGroup.slice(0, 128) } : {}),
         }))
     : [];
   const clarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =

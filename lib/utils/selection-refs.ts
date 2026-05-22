@@ -9,7 +9,6 @@ export interface NodeRef {
   label: string;
   type: string;
   isGroup?: boolean;
-  fromGroup?: string;
 }
 
 /** Hard cap on how many refs we send/persist — guards against Ctrl+A on a
@@ -28,11 +27,11 @@ function resolveLabel(node: WorkflowNode): string {
 }
 
 /**
- * Turn the live selected ID set into a capped, group-expanded NodeRef list.
+ * Turn the live selected ID set into a capped NodeRef list.
  * - Filters out IDs not present in the workflow (delete-race safety).
- * - Expands any group_container to include its children (parentNode === group id),
- *   tagging each child with `fromGroup`. Mirrors the duplicate/delete expansion
- *   pattern in EditorCanvas.
+ * - A selected group_container is represented by the group itself only — its
+ *   children are NOT expanded into separate refs. The AI still has the full
+ *   workflow graph and can resolve a group's contents from it.
  * - Sorts by (position.y, position.x) so the first N kept after the cap are the
  *   visually top-left ones (matching what the chip previews).
  */
@@ -45,39 +44,14 @@ export function expandSelectionForChat(
   }
   const byId = new Map<string, WorkflowNode>(workflow.nodes.map((n) => [n.id, n]));
 
-  // O(n) pre-pass: index children by their parent group id.
-  const childrenByGroup = new Map<string, WorkflowNode[]>();
-  for (const n of workflow.nodes) {
-    if (n.parentNode) {
-      const siblings = childrenByGroup.get(n.parentNode);
-      if (siblings) {
-        siblings.push(n);
-      } else {
-        childrenByGroup.set(n.parentNode, [n]);
-      }
-    }
-  }
-
   const collected = new Map<string, NodeRef>();
 
   for (const id of selectedIds) {
     const node = byId.get(id);
     if (!node) continue; // dropped between select and send
-    const isGroup = node.type === 'group_container';
     if (!collected.has(id)) {
+      const isGroup = node.type === 'group_container';
       collected.set(id, { id, label: resolveLabel(node), type: node.type, isGroup: isGroup ? true : undefined });
-    }
-    if (isGroup) {
-      for (const child of childrenByGroup.get(id) ?? []) {
-        if (!collected.has(child.id)) {
-          collected.set(child.id, {
-            id: child.id,
-            label: resolveLabel(child),
-            type: child.type,
-            fromGroup: id,
-          });
-        }
-      }
     }
   }
 
