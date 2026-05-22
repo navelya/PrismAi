@@ -6,6 +6,7 @@ import React, {
     useEffect,
     useLayoutEffect,
     useCallback,
+    useMemo,
     forwardRef,
 } from 'react';
 import {
@@ -24,7 +25,7 @@ import { ModelPicker } from './ModelPicker';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { SelectionPillRow } from './SelectionPillRow';
 import { useCharacters } from '@/lib/hooks/use-characters';
-import CharacterMentionPicker, { filterCharacters } from './CharacterMentionPicker';
+import CharacterMentionPicker, { filterCharacters, extractMentionedCharacters } from './CharacterMentionPicker';
 import type { Character } from '@/lib/api/client';
 
 const PLUS_MENU_OPTIONS: SelectOption[] = [
@@ -77,9 +78,10 @@ interface ChatInputProps {
     selectedModel?: 'haiku' | 'sonnet';
     onModelSelect?: (m: 'haiku' | 'sonnet') => void;
     hasMessages?: boolean;
-    mentionedCharacters: Character[];
-    onMentionCharacter: (c: Character) => void;
-    onRemoveMentionedCharacter: (id: string) => void;
+    /** Reports the characters referenced inline in the prompt (@Name tokens),
+     *  in order of appearance. The roster above the input is read-only — the
+     *  text itself is the source of truth. */
+    onMentionedCharactersChange: (chars: Character[]) => void;
     onOpenCharacterCreate?: () => void;
 }
 
@@ -102,9 +104,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             selectedModel = 'sonnet',
             onModelSelect,
             hasMessages = false,
-            mentionedCharacters,
-            onMentionCharacter,
-            onRemoveMentionedCharacter,
+            onMentionedCharactersChange,
             onOpenCharacterCreate,
         },
         ref
@@ -182,18 +182,41 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             setMentionActiveIndex(0);
         };
 
+        // Replace the in-progress "@frag" at the caret with the full "@Name "
+        // token, kept INLINE in the prompt text. Order/position is preserved
+        // because the mention is literally part of what the user wrote.
         const insertCharacterMention = useCallback((c: Character) => {
             const el = textareaRef.current;
             const caret = el ? el.selectionStart ?? value.length : value.length;
             const upto = value.slice(0, caret);
             const at = upto.lastIndexOf('@');
-            if (at !== -1) {
-                const next = value.slice(0, at) + value.slice(caret);
-                onChange(next);
-            }
-            onMentionCharacter(c);
+            const insert = `@${c.name} `;
+            const next =
+                at !== -1
+                    ? value.slice(0, at) + insert + value.slice(caret)
+                    : value.slice(0, caret) + insert + value.slice(caret);
+            onChange(next);
             setMentionQuery(null);
-        }, [value, onChange, onMentionCharacter, textareaRef]);
+        }, [value, onChange, textareaRef]);
+
+        // The referenced characters are DERIVED from the prompt text, not held
+        // as separate state — editing the text is how you add/remove a mention.
+        const mentionedCharacters = useMemo(
+            () => extractMentionedCharacters(value, characters),
+            [value, characters],
+        );
+
+        // Report the derived roster up (for the send payload) only when the set
+        // of referenced ids actually changes — avoids a parent setState per
+        // keystroke of unrelated text.
+        const mentionSig = mentionedCharacters.map((c) => c.id).join(',');
+        const prevMentionSig = useRef<string>('');
+        useEffect(() => {
+            if (prevMentionSig.current !== mentionSig) {
+                prevMentionSig.current = mentionSig;
+                onMentionedCharactersChange(mentionedCharacters);
+            }
+        }, [mentionSig, mentionedCharacters, onMentionedCharactersChange]);
 
         // ── height management ──────────────────────────────────────────────
         const adjustTextareaHeight = useCallback(() => {
@@ -334,19 +357,20 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         </div>
                     )}
 
+                    {/* Read-only roster: a visual reminder of who's referenced
+                        in the prompt and what they look like. Editing the
+                        @Name token in the text is how you add/remove — so no
+                        per-pill remove button here. */}
                     {mentionedCharacters.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 px-3 pt-3">
                             {mentionedCharacters.map((c) => (
-                                <span key={c.id} className="inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full bg-accent-primary/10 border border-accent-primary/20 text-xs text-content-primary">
+                                <span key={c.id} className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full bg-accent-primary/10 border border-accent-primary/20 text-xs text-content-primary">
                                     <span className="w-4 h-4 rounded-full overflow-hidden bg-surface-tertiary flex items-center justify-center">
                                         {c.thumbnail_url || c.reference_images?.[0]?.url
                                             ? <img src={c.thumbnail_url || c.reference_images[0].url} alt="" className="w-full h-full object-cover" />
                                             : null}
                                     </span>
                                     {c.name}
-                                    <button type="button" onClick={() => onRemoveMentionedCharacter(c.id)} className="text-content-tertiary hover:text-accent-error">
-                                        <X className="w-3 h-3" />
-                                    </button>
                                 </span>
                             ))}
                         </div>

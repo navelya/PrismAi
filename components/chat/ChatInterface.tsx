@@ -130,11 +130,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         abortControllerRef
     });
 
+    // Characters referenced inline (@Name) in the prompt, derived and reported
+    // by ChatInput in order of appearance. Used only to build the send payload;
+    // the prompt text is the source of truth.
     const [mentionedCharacters, setMentionedCharacters] = useState<import('@/lib/api/client').Character[]>([]);
-    const addMentionedCharacter = (c: import('@/lib/api/client').Character) =>
-        setMentionedCharacters((prev) => (prev.some((p) => p.id === c.id) ? prev : [...prev, c]));
-    const removeMentionedCharacter = (id: string) =>
-        setMentionedCharacters((prev) => prev.filter((p) => p.id !== id));
 
     // 👑 פונקציית ה-Send המעודכנת שכוללת ניווט ויצירת סשן
     const handleSend = () => {
@@ -342,9 +341,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         selectedModel: effectiveModel,
         onModelSelect: setSelectedChatModel,
         hasMessages: messages.length > 0,
-        mentionedCharacters,
-        onMentionCharacter: addMentionedCharacter,
-        onRemoveMentionedCharacter: removeMentionedCharacter,
+        onMentionedCharactersChange: setMentionedCharacters,
     };
 
     const [userName, setUserName] = useState<string>(initialUserName || '');

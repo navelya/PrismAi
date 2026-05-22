@@ -20,6 +20,52 @@ export function filterCharacters(characters: Character[], query: string): Charac
     return characters.filter((c) => c.name.toLowerCase().includes(q));
 }
 
+/**
+ * Parse free text for `@<character name>` tokens and return the referenced
+ * characters in order of first appearance (deduped). The mention lives inline
+ * in the prompt text, so order/position carries meaning — this derives the
+ * read-only roster and the ordered ids sent to the brain. Matching is
+ * boundary-aware: `@` must start the string or follow whitespace, and the name
+ * must not be immediately followed by another word char (so `@Alice` doesn't
+ * match when only "Ali" is a character, and emails like `x@alice.com` are
+ * ignored). Longer names win naturally because each character is matched on its
+ * own full name.
+ */
+export function extractMentionedCharacters(text: string, characters: Character[]): Character[] {
+    if (!text || characters.length === 0) return [];
+    const lower = text.toLowerCase();
+    const found: { c: Character; idx: number }[] = [];
+    for (const c of characters) {
+        const name = c.name?.trim();
+        if (!name) continue;
+        const token = ('@' + name).toLowerCase();
+        let from = 0;
+        while (true) {
+            const idx = lower.indexOf(token, from);
+            if (idx === -1) break;
+            const before = idx === 0 ? '' : text[idx - 1];
+            const afterPos = idx + token.length;
+            const after = afterPos >= text.length ? '' : text[afterPos];
+            const boundaryBefore = before === '' || /\s/.test(before);
+            const boundaryAfter = after === '' || !/[A-Za-z0-9]/.test(after);
+            if (boundaryBefore && boundaryAfter) {
+                found.push({ c, idx });
+                break;
+            }
+            from = idx + 1;
+        }
+    }
+    found.sort((a, b) => a.idx - b.idx);
+    const seen = new Set<string>();
+    const ordered: Character[] = [];
+    for (const { c } of found) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        ordered.push(c);
+    }
+    return ordered;
+}
+
 export default function CharacterMentionPicker({
     characters,
     query,

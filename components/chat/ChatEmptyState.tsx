@@ -20,9 +20,7 @@ interface ChatInputProps {
     attachedImages: string[];
     onRemoveAttachedImage: (index: number) => void;
     hasMessages?: boolean;
-    mentionedCharacters: Character[];
-    onMentionCharacter: (c: Character) => void;
-    onRemoveMentionedCharacter: (id: string) => void;
+    onMentionedCharactersChange: (chars: Character[]) => void;
     onOpenCharacterCreate?: () => void;
 }
 
