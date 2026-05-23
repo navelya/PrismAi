@@ -50,6 +50,8 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const models = useAppStore(state => state.models);
     const nodeTypes = useAppStore(state => state.nodeTypes);
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
+    // Ephemeral index for the live (not-yet-persisted) output; once a node has a
+    // persisted outputs collection, selection is driven by config.selected_output_index.
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [imageLoaded, setImageLoaded] = useState(false);
     // Width (px) the loaded image actually fills, derived from its natural
@@ -70,11 +72,22 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 
     // The persisted, newest-first collection. Backward-compat: a node saved
     // before this feature has only last_output — surface it as a single-item
-    // collection so old workflows still render and are selectable.
+    // collection. last_output may be a raw URL/text string, an envelope
+    // ({ type, data: [...] }), or a { url } object, so unwrap it to a plain
+    // value the preview's URL/text extractor understands.
+    const legacyLast = data.config?.last_output;
+    const legacyValue =
+        legacyLast == null ? null
+        : typeof legacyLast === 'string' ? legacyLast
+        : Array.isArray(legacyLast?.data) ? legacyLast.data[0]
+        : typeof legacyLast?.url === 'string' ? legacyLast.url
+        : typeof legacyLast?.text === 'string' ? legacyLast.text
+        : legacyLast;
+
     const persistedOutputs: GeneratedOutput[] = Array.isArray(data.config?.outputs)
         ? data.config.outputs
-        : (data.config?.last_output != null
-            ? [{ type: (inferResultTypeFromValue(data.config.last_output) ?? 'image') as any, value: data.config.last_output }]
+        : (legacyValue != null
+            ? [{ type: (inferResultTypeFromValue(legacyLast) ?? 'image') as any, value: legacyValue }]
             : []);
 
     const selectedIndex = clampSelectedIndex(data.config?.selected_output_index, persistedOutputs.length);
