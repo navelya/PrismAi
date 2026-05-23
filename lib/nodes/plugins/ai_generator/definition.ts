@@ -1,4 +1,5 @@
 import { NodeSharedDef } from '../../core/types';
+import type { GeneratedOutput } from './outputs';
 
 /**
  * AI Generator Node Configuration
@@ -8,7 +9,12 @@ export interface AIGeneratorConfig {
     model_id?: number;
     node_type_id?: string;
     control_values?: Record<string, any>;
+    /** Selected output value, mirrored for preview/hydration. */
     last_output?: any;
+    /** All outputs this node has produced, newest-first (Plan A). */
+    outputs?: GeneratedOutput[];
+    /** Index into `outputs` of the active/selected output (Plan A). Default 0. */
+    selected_output_index?: number;
 }
 
 export const aiGeneratorSharedDef: NodeSharedDef<AIGeneratorConfig> = {
