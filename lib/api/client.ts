@@ -259,21 +259,8 @@ export interface GenerateCharacterHandlers {
     onDone?: () => void;
 }
 
-/**
- * Stream character-reference generation. The server emits NDJSON, one line per
- * event, so each pose can fill its slot the moment it's ready instead of
- * waiting for the whole set.
- */
-export async function generateCharacterStream(
-    params: GenerateCharacterParams,
-    handlers: GenerateCharacterHandlers,
-): Promise<void> {
-    const res = await fetch('/api/characters/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: params.description, baseImage: params.baseImage }),
-    });
-
+/** Shared NDJSON line-reader for character generation streams. */
+async function consumeCharacterStream(res: Response, handlers: GenerateCharacterHandlers): Promise<void> {
     if (!res.ok || !res.body) {
         let message = `Generation failed (${res.status})`;
         try { const j = await res.json(); if (j?.error) message = j.error; } catch { /* not json */ }
@@ -310,5 +297,38 @@ export async function generateCharacterStream(
         }
     }
     if (buf.trim()) handleLine(buf);
+}
+
+/**
+ * Stream character-reference generation. The server emits NDJSON, one line per
+ * event, so each pose can fill its slot the moment it's ready.
+ */
+export async function generateCharacterStream(
+    params: GenerateCharacterParams,
+    handlers: GenerateCharacterHandlers,
+): Promise<void> {
+    const res = await fetch('/api/characters/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: params.description, baseImage: params.baseImage }),
+    });
+    await consumeCharacterStream(res, handlers);
+}
+
+/**
+ * Stream a character VARIANT: restyle an existing character into a new look.
+ * Same NDJSON event protocol as generateCharacterStream.
+ */
+export async function generateCharacterVariantStream(
+    characterId: string,
+    params: { style: string },
+    handlers: GenerateCharacterHandlers,
+): Promise<void> {
+    const res = await fetch(`/api/characters/${characterId}/variant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ style: params.style }),
+    });
+    await consumeCharacterStream(res, handlers);
 }
 
