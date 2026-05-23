@@ -546,6 +546,23 @@ export default function SharedWorkflowEditor({
     const runMode = useAppStore((state) => state.runMode);
     const runSelectionIds = useAppStore((state) => state.runSelectionIds);
 
+    // Reverse an optimistic charge when its run settles. Mirrors the orchestrator's
+    // whole-execution rule (orchestrator.ts:286): once none of the run's nodes are
+    // still pending/running, refund if any failed (balance pops back up instantly),
+    // otherwise just drop the bookkeeping record (debit stands; the realtime balance
+    // has already reset the delta to 0).
+    const nodeStatusesForSettle = useAppStore((s) => s.nodeStatuses);
+    const pendingChargesForSettle = useAppStore((s) => s.pendingCharges);
+    useEffect(() => {
+        for (const [execId, rec] of Object.entries(pendingChargesForSettle)) {
+            const statuses = rec.nodeIds.map((id) => nodeStatusesForSettle[id]);
+            const anyActive = statuses.some((s) => s === 'pending' || s === 'running');
+            if (anyActive) continue; // still running — wait
+            const anyFailed = statuses.some((s) => s === 'error');
+            useAppStore.getState().settleOptimisticCharge(execId, anyFailed);
+        }
+    }, [nodeStatusesForSettle, pendingChargesForSettle]);
+
     useEffect(() => {
         if (!hasHandledInitialRunSignalRef.current) {
             hasHandledInitialRunSignalRef.current = true;
