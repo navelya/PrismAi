@@ -6,7 +6,10 @@ import { useExecutionValidation } from '@/lib/hooks/use-execution-validation';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useTokenBalance } from '@/lib/billing/use-balance';
+import { useCreditBreakdown } from '@/lib/billing/use-credit-breakdown';
 import { formatCredits } from '@/lib/billing/cost';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { CreditsBreakdownPanel } from '@/components/billing/CreditsBreakdownPanel';
 import PlansModal from '@/components/billing/PlansModal';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -35,7 +38,9 @@ export default function EditorToolbar({
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
     const [showPlans, setShowPlans] = useState(false);
+    const [showBreakdown, setShowBreakdown] = useState(false);
     const { balance, loading: balanceLoading } = useTokenBalance();
+    const { data: breakdown, loading: breakdownLoading, fetchBreakdown } = useCreditBreakdown();
     // Bulk-download progress (multi-select toolbar → "Download selected").
     // One pill per active operation so concurrent downloads stack side by
     // side rather than fight over a single indicator. Keys are stable
@@ -71,18 +76,35 @@ export default function EditorToolbar({
             </span>
 
             {/* Credits Island (Left) */}
-            <div className={`${islandBase} rounded-xl pl-3 pr-1.5`}>
-                <div className="flex items-center gap-1.5 text-sm font-semibold text-content-primary tabular-nums">
-                    <Coins className="w-4 h-4 text-accent-primary" />
-                    <span>{balanceLoading ? '…' : formatCredits(balance)}</span>
+            <div
+                className="relative pointer-events-auto"
+                onMouseEnter={() => { setShowBreakdown(true); fetchBreakdown(); }}
+                onMouseLeave={() => setShowBreakdown(false)}
+            >
+                <div className={`${islandBase} rounded-xl pl-3 pr-1.5`}>
+                    <div className="flex items-center gap-1.5 text-sm font-semibold text-content-primary tabular-nums">
+                        <Coins className="w-4 h-4 text-accent-primary" />
+                        {balanceLoading
+                            ? <span role="status" aria-label="Loading credits"><Skeleton className="h-4 w-9" /></span>
+                            : <span>{formatCredits(balance)}</span>}
+                    </div>
+                    <div className="w-[1px] h-4 bg-stroke-subtle mx-1" />
+                    <button
+                        onClick={() => setShowPlans(true)}
+                        className="px-3 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/10 rounded-full transition-colors"
+                    >
+                        Upgrade
+                    </button>
                 </div>
-                <div className="w-[1px] h-4 bg-stroke-subtle mx-1" />
-                <button
-                    onClick={() => setShowPlans(true)}
-                    className="px-3 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/10 rounded-full transition-colors"
-                >
-                    Upgrade
-                </button>
+
+                {/* Hover breakdown popover. `pt-2` (not margin) keeps the hover
+                    area contiguous with the island so moving onto it doesn't
+                    cross a dead gap that would dismiss it. */}
+                {showBreakdown && (
+                    <div className="absolute top-full left-0 pt-2 z-50">
+                        <CreditsBreakdownPanel data={breakdown} loading={breakdownLoading} />
+                    </div>
+                )}
             </div>
 
             <PlansModal isOpen={showPlans} onClose={() => setShowPlans(false)} />

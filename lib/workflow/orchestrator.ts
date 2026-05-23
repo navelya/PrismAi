@@ -181,12 +181,36 @@ async function buildInputsFromParents(
   const targetNode = graph.nodes.find((n) => n.id === nodeId);
   const arrayInputKeys = await getAiArrayInputKeys(supabase, targetNode);
 
+  // When MORE THAN ONE character node is wired into this node, we send only
+  // each character's PRIMARY (base) reference image — referenceImages[0] — and
+  // drop the rest of their reference set. A character can carry up to ~6
+  // references; concatenating several full sets into one image_input slot
+  // floods the model with images and blends/dilutes the distinct subjects.
+  // One clean base image per character keeps identities separable. A single
+  // character still sends its full reference set (no dilution risk there).
+  const nodeTypeById = new Map(graph.nodes.map((n) => [n.id, n.type]));
+  const characterParentIds = new Set(
+    incomingEdges
+      .map((e) => e.source)
+      .filter((src) => nodeTypeById.get(src) === 'character')
+  );
+  const limitCharactersToBase = characterParentIds.size > 1;
+
   for (const edge of incomingEdges) {
     const parentResult = parentResultsByNode.get(edge.source);
     if (!parentResult || parentResult.status !== 'completed') continue;
 
     const resultType = normalizeNodeResultType(parentResult.result_type);
-    const resultData = coerceResultDataArray(parentResult.result_data || []);
+    let resultData = coerceResultDataArray(parentResult.result_data || []);
+
+    // Trim multi-character contributions down to the base reference image.
+    if (
+      limitCharactersToBase &&
+      nodeTypeById.get(edge.source) === 'character' &&
+      resultData.length > 1
+    ) {
+      resultData = resultData.slice(0, 1);
+    }
     const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
     const typedValue = arrayInputKeys.has(inputKey)
       ? resultData
