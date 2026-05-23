@@ -127,6 +127,7 @@ export function formatRegistryContext(input: RegistryContextInput): string {
       block += `\n- \`model_id\` (number): REQUIRED. Pick from "AI GENERATOR MODELS" list below. Set both at the top level (model_id field) AND inside data.config.model_id.`;
       block += `\n- \`node_type_id\` (string): REQUIRED. Must match the type bucket the chosen model belongs to.`;
       block += `\n- Optional config keys: the chosen model's "config keys" line in the AI GENERATOR MODELS section lists every key you can set inside \`data.config.control_values\` (length, resolution, aspect_ratio, negative_prompt, etc.). These keys go INSIDE the nested \`control_values\` object — NOT as siblings of \`model_id\`. Use the EXACT api_mapping_key shown. Skip keys you don't need — defaults are shown.`;
+      block += `\n- \`iterations\` (integer 1–8, default 1): set at \`data.config.iterations\` (a TOP-LEVEL config field, NOT inside control_values). It runs the model that many times in one execution, producing that many output variations, and multiplies the node's credit cost by the same factor. Only raise it when the user explicitly wants multiple variations.`;
       block += `\n- Without model_id, this node cannot run.`;
     } else if (type === 'compositor') {
       // Override the misleading aiSchema docs. The canvas reads edges that
