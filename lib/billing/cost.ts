@@ -20,6 +20,67 @@ export interface CostNode {
 }
 
 /**
+ * Optional graph context for connected-media pricing. When supplied to
+ * computeExecutionCost, each ai_generator node is additionally charged for the
+ * image/video items wired into its media input handles. Counted from the FULL
+ * graph (not the trimmed execution set) so the client estimate and the server
+ * debit produce the same number and never trip COST_DRIFT_TOLERANCE.
+ */
+export interface CostGraphContext {
+    /** Every node in the workflow — used to resolve each edge's source node. */
+    allNodes: CostNode[];
+    /** Every edge in the workflow. */
+    edges: { source: string; target: string; targetHandle?: string | null }[];
+}
+
+/** Classify a handle's `type` string as image, video, or neither. */
+function mediaKindOfHandleType(type: string | undefined | null): 'image' | 'video' | null {
+    const t = (type || '').toLowerCase();
+    if (t.includes('video')) return 'video';
+    if (t.includes('image')) return 'image';
+    return null;
+}
+
+/**
+ * Count image/video items wired into a single ai_generator node's media input
+ * handles. A media_input source contributes config.images.length items; any
+ * other source contributes 1 per edge. Bucketed by the TARGET handle's type.
+ */
+function countConnectedMedia(
+    node: CostNode,
+    model: { inputs_schema?: AiModel['inputs_schema'] | null },
+    graph: CostGraphContext
+): { imageUnits: number; videoUnits: number } {
+    // handle id -> media kind. The ai_generator node always declares a static
+    // 'image' input handle in addition to the model's dynamic handles.
+    const handleKind = new Map<string, 'image' | 'video'>();
+    handleKind.set('image', 'image');
+    for (const h of model.inputs_schema?.handles ?? []) {
+        const kind = mediaKindOfHandleType((h as any).type);
+        const key = (h as any).api_mapping_key;
+        if (kind && key) handleKind.set(key, kind);
+    }
+
+    const nodeById = new Map(graph.allNodes.map(n => [n.id, n]));
+    let imageUnits = 0;
+    let videoUnits = 0;
+    for (const edge of graph.edges) {
+        if (edge.target !== node.id) continue;
+        const kind = edge.targetHandle ? handleKind.get(edge.targetHandle) : undefined;
+        if (!kind) continue;
+        const source = nodeById.get(edge.source);
+        let units = 1;
+        if (source?.type === 'media_input') {
+            const imgs = (source.config as any)?.images;
+            units = Array.isArray(imgs) ? imgs.length : 0;
+        }
+        if (kind === 'image') imageUnits += units;
+        else videoUnits += units;
+    }
+    return { imageUnits, videoUnits };
+}
+
+/**
  * Sanity ceiling on a single execution. If `computeExecutionCost` ever
  * returns a value above this, something is wrong (bad model row, bad
  * client config, malformed graph) — reject the run rather than silently
@@ -100,7 +161,8 @@ export interface ExecutionCostResult {
  */
 export function computeExecutionCost(
     nodes: CostNode[],
-    modelsById: Map<number, AiModel>
+    modelsById: Map<number, AiModel>,
+    graph?: CostGraphContext
 ): ExecutionCostResult {
     let cost = 0;
     let generativeCount = 0;
@@ -119,7 +181,17 @@ export function computeExecutionCost(
             continue;
         }
 
-        cost += computeAiNodeCost(node.config?.control_values, model);
+        let nodeCost = computeAiNodeCost(node.config?.control_values, model);
+
+        if (graph) {
+            const { imageUnits, videoUnits } = countConnectedMedia(node, model, graph);
+            const perImage = Number((model as any).cost_per_image ?? 0);
+            const perVideo = Number((model as any).cost_per_video ?? 0);
+            if (Number.isFinite(perImage) && perImage > 0) nodeCost += imageUnits * perImage;
+            if (Number.isFinite(perVideo) && perVideo > 0) nodeCost += videoUnits * perVideo;
+        }
+
+        cost += Math.max(0, nodeCost);
         generativeCount++;
     }
 
