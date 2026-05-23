@@ -181,12 +181,20 @@ async function dispatchReplicateNode(
     };
     const results: Awaited<ReturnType<typeof aiGeneratorExecutor>>[] = [];
     for (let i = 0; i < iterations; i++) {
-        results.push(await aiGeneratorExecutor(config, inputs, ctx));
+        try {
+            results.push(await aiGeneratorExecutor(config, inputs, ctx));
+        } catch (err) {
+            results.push({ success: false, status: 'error', data: null, error: err instanceof Error ? err.message : 'Prediction create threw' } as any);
+        }
     }
 
-    const isLocalSync = results.some((r) => r.status === 'success');
+    // 'pending' is production-exclusive (an async prediction was created). If none
+    // are pending, every result is a synchronous success or a failure → aggregate
+    // locally. This is safer than checking for 'success' (a mixed batch with even
+    // one async prediction must use the production tracking path, not be dropped).
+    const anyPending = results.some((r) => r.status === 'pending');
 
-    if (isLocalSync) {
+    if (!anyPending) {
         // Local dev: replicate.run returned outputs synchronously. Aggregate all
         // successful iterations into one result and complete the node.
         let resultType = 'json' as ReturnType<typeof inferResultTypeFromValue>;
@@ -222,9 +230,9 @@ async function dispatchReplicateNode(
         execution_id: executionId,
         node_id: nodeId,
         prediction_index: i,
-        replicate_id: r.success ? (r.data as any)?.id ?? null : null,
-        status: r.success ? 'pending' : 'failed',
-        error: r.success ? null : (r.error || 'Prediction create failed'),
+        replicate_id: r.status === 'pending' ? ((r.data as any)?.id ?? null) : null,
+        status: r.status === 'pending' ? 'pending' : 'failed',
+        error: r.status === 'pending' ? null : (r.error || 'Prediction create failed'),
         updated_at: new Date().toISOString(),
     }));
     const { error: insErr } = await supabase
