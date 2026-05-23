@@ -25,6 +25,14 @@ export default function AssetsGallery() {
         setIsLoading(true);
         // No session filter — RLS scopes node_results to the current user's
         // sessions, so this returns the user's results across every session.
+        //
+        // There's no node-type filter here (unlike AssetsPanel, this page has no
+        // loaded workflow to map node_id -> type). Reference-only nodes like
+        // `character` are kept out of this list by being `meta.ephemeral: true`:
+        // the orchestrator's cleanupEphemeralResults deletes their node_results
+        // rows once a run finalizes, so they never persist as "assets" here.
+        // Don't remove that reliance without adding an explicit filter — it's
+        // what stops a character's reference images from leaking into this view.
         const { data, error } = await supabase
             .from('node_results')
             .select('id, node_id, result_type, result_data, created_at, execution_id, session_id')
