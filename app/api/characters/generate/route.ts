@@ -5,6 +5,7 @@ import {
   IMAGE_MODEL,
   CONDITIONED_POSES,
   type GenImage,
+  type RefSetEvent,
   basePrompt,
   conditionedPrompt,
   facePrompt,
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = new TextEncoder();
-      const send = (obj: any) => controller.enqueue(enc.encode(JSON.stringify(obj) + '\n'));
+      const send = (obj: RefSetEvent) => controller.enqueue(enc.encode(JSON.stringify(obj) + '\n'));
 
       try {
         const faceIndex = 1 + CONDITIONED_POSES.length;
