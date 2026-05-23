@@ -101,6 +101,8 @@ export const useAppStore = create<RootState>()(
                     'executionResults',
                     'nodeStatuses',
                     'nodeOutputs',
+                    'optimisticCreditDelta',
+                    'pendingCharges',
                     'activeExecutionId',
                     'copiedNode',
                     'isLoading',

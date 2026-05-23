@@ -252,6 +252,11 @@ export interface ExecutionSlice {
     // as a hover tooltip on the node's error badge. Cleared when the node leaves
     // the error state (re-run, success) or is invalidated.
     nodeErrors: Record<string, string>;
+    /** Signed, ephemeral adjustment added to the authoritative balance for display.
+     *  Negative while a run's debit is in flight; positive while a refund is in flight. */
+    optimisticCreditDelta: number;
+    /** In-flight optimistic charges, keyed by executionId. */
+    pendingCharges: Record<string, { cost: number; nodeIds: string[] }>;
     addExecutionResult: (workflowId: string, result: any) => void;
     clearExecutionResults: () => void;
     setActiveExecutionId: (id: string | null) => void;
@@ -264,6 +269,9 @@ export interface ExecutionSlice {
     clearNodeOutputs: () => void;
     cleanupNodeMetadata: (nodeId: string) => void;
     invalidateNodes: (nodeIds: string[]) => void;
+    applyOptimisticCharge: (executionId: string, cost: number, nodeIds: string[]) => void;
+    settleOptimisticCharge: (executionId: string, failed: boolean) => void;
+    resetOptimisticDelta: () => void;
 }
 
 export interface UISlice {

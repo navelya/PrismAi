@@ -8,6 +8,8 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
     nodeStatuses: {},
     nodeOutputs: {},
     nodeErrors: {},
+    optimisticCreditDelta: 0,
+    pendingCharges: {},
 
     addExecutionResult: (workflowId, result) =>
         set((state) => ({
@@ -111,4 +113,35 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
             nodeErrors: newErrors,
         });
     },
+
+    applyOptimisticCharge: (executionId, cost, nodeIds) =>
+        set((state) => {
+            if (!(cost > 0)) return state;
+            return {
+                optimisticCreditDelta: state.optimisticCreditDelta - cost,
+                pendingCharges: {
+                    ...state.pendingCharges,
+                    [executionId]: { cost, nodeIds },
+                },
+            };
+        }),
+
+    settleOptimisticCharge: (executionId, failed) =>
+        set((state) => {
+            const rec = state.pendingCharges[executionId];
+            if (!rec) return state;
+            const nextCharges = { ...state.pendingCharges };
+            delete nextCharges[executionId];
+            return {
+                // On failure, reverse the decrement so the balance pops back up
+                // immediately. On success, leave the delta — the server's debit
+                // realtime has (or will) reset it to 0 via resetOptimisticDelta.
+                optimisticCreditDelta: failed
+                    ? state.optimisticCreditDelta + rec.cost
+                    : state.optimisticCreditDelta,
+                pendingCharges: nextCharges,
+            };
+        }),
+
+    resetOptimisticDelta: () => set({ optimisticCreditDelta: 0 }),
 });
