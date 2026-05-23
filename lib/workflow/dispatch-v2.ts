@@ -118,6 +118,7 @@ async function dispatchEphemeralNode(
 }
 
 import { aiGeneratorExecutor } from '../nodes/plugins/ai_generator/executor.server';
+import { clampIterations } from '@/lib/billing/cost';
 
 /**
  * Dispatch a node to Replicate API using the battle-tested executor
@@ -135,43 +136,111 @@ async function dispatchReplicateNode(
   
   try {
     const config = nodeConfig.data.config || nodeConfig.data || {};
-    
-    const result = await aiGeneratorExecutor(config, inputs, {
-      sessionId: sessionId || 'server-execution',
-      executionId: executionId,
-      nodeId: nodeId,
-      workflowId: executionId,
-      data: nodeConfig.data
-    });
-    
-    if (!result.success) {
-      throw new Error(result.error || 'AI Generator Executor failed');
+
+    const iterations = clampIterations(config.iterations);
+
+    // ── iterations === 1: unchanged single-prediction path ──────────────────
+    if (iterations <= 1) {
+        const result = await aiGeneratorExecutor(config, inputs, {
+            sessionId: sessionId || 'server-execution',
+            executionId,
+            nodeId,
+            workflowId: executionId,
+            data: nodeConfig.data,
+        });
+        if (!result.success) throw new Error(result.error || 'AI Generator Executor failed');
+
+        if (result.status === 'success') {
+            const rawData = result.data;
+            const resultType = inferResultTypeFromValue(rawData);
+            const resultData = toResultDataForType(resultType, rawData);
+            await updateNodeState(executionId, nodeId, {
+                status: 'completed',
+                result_type: resultType,
+                result_data: resultData,
+                dispatched_at: new Date().toISOString(),
+                completed_at: new Date().toISOString(),
+            }, sessionId, baseUrl);
+        } else {
+            await updateNodeState(executionId, nodeId, {
+                status: 'running',
+                replicate_prediction_id: (result.data as any)?.id,
+                dispatched_at: new Date().toISOString(),
+            }, sessionId, baseUrl);
+        }
+        return { success: true, data: result.data };
     }
-    
-      if (result.status === 'success') {
-        const rawData = result.data;
-        const resultType = inferResultTypeFromValue(rawData);
-        const resultData = toResultDataForType(resultType, rawData);
-        
-        console.log(`[Dispatch/Replicate] ✅ Synchronous typed result for node ${nodeId}: ${resultType} (${resultData.length} item(s))`);
-        
+
+    // ── iterations > 1: fan out into N independent generations ───────────────
+    const ctx = {
+        sessionId: sessionId || 'server-execution',
+        executionId,
+        nodeId,
+        workflowId: executionId,
+        data: nodeConfig.data,
+    };
+    const results: Awaited<ReturnType<typeof aiGeneratorExecutor>>[] = [];
+    for (let i = 0; i < iterations; i++) {
+        results.push(await aiGeneratorExecutor(config, inputs, ctx));
+    }
+
+    const isLocalSync = results.some((r) => r.status === 'success');
+
+    if (isLocalSync) {
+        // Local dev: replicate.run returned outputs synchronously. Aggregate all
+        // successful iterations into one result and complete the node.
+        let resultType = 'json' as ReturnType<typeof inferResultTypeFromValue>;
+        const aggregated: any[] = [];
+        for (const r of results) {
+            if (!r.success || r.status !== 'success') continue;
+            const t = inferResultTypeFromValue(r.data);
+            resultType = t;
+            aggregated.push(...toResultDataForType(t, r.data));
+        }
+        if (aggregated.length === 0) throw new Error('All iterations failed');
         await updateNodeState(executionId, nodeId, {
             status: 'completed',
             result_type: resultType,
-            result_data: resultData,
+            result_data: aggregated,
             dispatched_at: new Date().toISOString(),
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
         }, sessionId, baseUrl);
-    } else {
-        // PRODUCTION: Asynchronous result via Webhook
+        return { success: true, data: aggregated };
+    }
+
+    // Production: each iteration created an async prediction. Track them in
+    // node_predictions so the webhook can aggregate once all resolve. Mark the
+    // node running first so the UI shows progress and the webhook has a row to
+    // transition.
+    await updateNodeState(executionId, nodeId, {
+        status: 'running',
+        dispatched_at: new Date().toISOString(),
+    }, sessionId, baseUrl);
+
+    const supabase = createServiceClient();
+    const rows = results.map((r, i) => ({
+        execution_id: executionId,
+        node_id: nodeId,
+        prediction_index: i,
+        replicate_id: r.success ? (r.data as any)?.id ?? null : null,
+        status: r.success ? 'pending' : 'failed',
+        error: r.success ? null : (r.error || 'Prediction create failed'),
+        updated_at: new Date().toISOString(),
+    }));
+    const { error: insErr } = await supabase
+        .from('node_predictions')
+        .upsert(rows, { onConflict: 'execution_id,node_id,prediction_index' });
+    if (insErr) throw new Error(`Failed to record predictions: ${insErr.message}`);
+
+    if (rows.every((r) => r.status === 'failed')) {
         await updateNodeState(executionId, nodeId, {
-            status: 'running',
-            replicate_prediction_id: (result.data as any)?.id,
-            dispatched_at: new Date().toISOString(),
+            status: 'failed',
+            error: 'All iterations failed to start',
+            completed_at: new Date().toISOString(),
         }, sessionId, baseUrl);
     }
-    
-    return { success: true, data: result.data };
+
+    return { success: true, data: { iterations, pending: rows.filter((r) => r.status === 'pending').length } };
     
   } catch (error) {
     console.error(`[Dispatch/Replicate] Error:`, error);
