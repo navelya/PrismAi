@@ -194,7 +194,7 @@ export default function CharacterVariantModal({ open, source, onClose, onSave }:
                         <button
                             type="button"
                             onClick={runGeneration}
-                            disabled={generating}
+                            disabled={generating || saving}
                             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-accent-primary/30 bg-accent-primary/10 text-sm text-accent-primary hover:bg-accent-primary/20 disabled:opacity-60"
                         >
                             {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
