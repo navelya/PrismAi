@@ -486,8 +486,19 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
             >
                 <ChevronRight className="w-5 h-5" />
             </button>
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 px-2 py-0.5 rounded-full bg-black/55 text-white text-[10px] font-mono opacity-0 group-hover/preview:opacity-100 transition-opacity">
-                {(activeImageIndex ?? 0) + 1} / {count}
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 opacity-0 group-hover/preview:opacity-100 transition-opacity">
+                {Array.from({ length: count }).map((_, i) => (
+                    <button
+                        key={i}
+                        onMouseDown={onInteraction}
+                        onClick={(e) => { e.stopPropagation(); onSelectIndex?.(i); }}
+                        className={cn(
+                            "h-1.5 rounded-full transition-all",
+                            i === (activeImageIndex ?? 0) ? "w-3 bg-white" : "w-1.5 bg-white/40 hover:bg-white/70"
+                        )}
+                        title={`Output ${i + 1}`}
+                    />
+                ))}
             </div>
         </>
     ) : null;
@@ -644,95 +655,83 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
 
     if (previewMode === 'single') {
         const activeIdx = activeImageIndex ?? 0;
-        // Carousel transition for moving between outputs: the whole track slides
-        // horizontally. Each item is mounted once (keyed by url), so BlurryImage/
-        // BlurryVideo still blur-reveal on their FIRST load (e.g. a fresh result),
-        // but arrowing between already-loaded outputs is a pure transform slide —
-        // no blur replay. Disabled while dragging the node.
-        const slideTransition = isDragging
-            ? { duration: 0 }
-            : { type: 'tween' as const, ease: [0.4, 0, 0.2, 1] as const, duration: 0.35 };
 
         if (type === 'video') {
             return (
-                <div
-                    className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
-                    onMouseEnter={() => videoRefs.current[activeIdx]?.play().catch(() => {})}
-                    onMouseLeave={() => {
-                        const v = videoRefs.current[activeIdx];
-                        if (v) {
-                            v.pause();
-                            v.currentTime = 0;
-                        }
+                <MediaCarousel
+                    urls={urls}
+                    activeIndex={activeIdx}
+                    onSelectIndex={onSelectIndex}
+                    isDragging={isDragging}
+                    onInteraction={onInteraction}
+                    onPreviewClick={onPreviewClick}
+                    outerProps={{
+                        onMouseEnter: () => videoRefs.current[activeIdx]?.play().catch(() => {}),
+                        onMouseLeave: () => {
+                            const v = videoRefs.current[activeIdx];
+                            if (v) {
+                                v.pause();
+                                v.currentTime = 0;
+                            }
+                        },
                     }}
-                    onMouseDown={onInteraction}
-                    onPointerDown={onInteraction}
-                    onClick={onPreviewClick}
-                >
-                    <motion.div className="flex w-full" animate={{ x: `-${activeIdx * 100}%` }} transition={slideTransition}>
-                        {urls.map((u: string, i: number) => (
-                            <div key={u} className="w-full shrink-0 basis-full">
-                                <BlurryVideo
-                                    ref={(el: HTMLVideoElement | null) => { videoRefs.current[i] = el; }}
-                                    src={u}
-                                    muted
-                                    loop
-                                    playsInline
-                                    // Active slide preloads fully (Replicate outputs
-                                    // often place the moov atom at the end, so a head-
-                                    // only fetch never resolves the first frame);
-                                    // off-screen slides stay light with metadata only.
-                                    preload={i === activeIdx ? 'auto' : 'metadata'}
-                                    width={320}
-                                    containerClassName="h-auto"
-                                    // Size the node to the active video's aspect ratio
-                                    // (parity with the image path's onLoad sizing).
-                                    onLoadedMetadata={i === activeIdx ? (e: any) => onImageLoad?.({ naturalWidth: e.currentTarget.videoWidth, naturalHeight: e.currentTarget.videoHeight }) : undefined}
-                                    className={cn(
-                                        "w-full h-auto object-contain max-w-none max-h-[420px] min-h-[200px] bg-black/40",
-                                        !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
-                                    )}
-                                />
-                            </div>
-                        ))}
-                    </motion.div>
-                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                        <Play className="w-10 h-10 text-white fill-current" />
-                    </div>
-                    {NavArrows}
-                </div>
+                    overlay={
+                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                            <Play className="w-10 h-10 text-white fill-current" />
+                        </div>
+                    }
+                    renderSlide={(u: string, realIndex: number, isActive: boolean, isClone: boolean) => (
+                        <BlurryVideo
+                            ref={(el: HTMLVideoElement | null) => { if (!isClone) videoRefs.current[realIndex] = el; }}
+                            src={u}
+                            muted
+                            loop
+                            playsInline
+                            // Active slide preloads fully (Replicate outputs often
+                            // place the moov atom at the end, so a head-only fetch
+                            // never resolves the first frame); off-screen slides stay
+                            // light with metadata only.
+                            preload={isActive ? 'auto' : 'metadata'}
+                            width={320}
+                            containerClassName="h-auto"
+                            // Size the node to the active video's aspect ratio
+                            // (parity with the image path's onLoad sizing).
+                            onLoadedMetadata={isActive ? (e: any) => onImageLoad?.({ naturalWidth: e.currentTarget.videoWidth, naturalHeight: e.currentTarget.videoHeight }) : undefined}
+                            className={cn(
+                                "w-full h-auto object-contain max-w-none max-h-[420px] min-h-[200px] bg-black/40",
+                                !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                            )}
+                        />
+                    )}
+                />
             );
         }
 
         return (
-            <div
-                className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
-                onMouseDown={onInteraction}
-                onPointerDown={onInteraction}
-                onClick={onPreviewClick}
-            >
-                <motion.div className="flex w-full" animate={{ x: `-${activeIdx * 100}%` }} transition={slideTransition}>
-                    {urls.map((u: string, i: number) => (
-                        <div key={u} className="w-full shrink-0 basis-full flex items-center justify-center">
-                            <BlurryImage
-                                src={toThumbnailUrl(u, { width: 768 }) ?? u}
-                                fallbackSrc={u}
-                                alt="Output"
-                                onLoad={i === activeIdx ? onImageLoad : undefined}
-                                // h-auto so the wrapper hugs the image height instead
-                                // of BlurryImage's default h-full (which collapses to
-                                // 0 inside the flex track and clips the image).
-                                containerClassName="h-auto"
-                                className={cn(
-                                    "relative z-10",
-                                    !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
-                                )}
-                            />
-                        </div>
-                    ))}
-                </motion.div>
-                {NavArrows}
-            </div>
+            <MediaCarousel
+                urls={urls}
+                activeIndex={activeIdx}
+                onSelectIndex={onSelectIndex}
+                isDragging={isDragging}
+                onInteraction={onInteraction}
+                onPreviewClick={onPreviewClick}
+                renderSlide={(u: string, realIndex: number, isActive: boolean) => (
+                    <BlurryImage
+                        src={toThumbnailUrl(u, { width: 768 }) ?? u}
+                        fallbackSrc={u}
+                        alt="Output"
+                        onLoad={isActive ? onImageLoad : undefined}
+                        // h-auto so the wrapper hugs the image height instead of
+                        // BlurryImage's default h-full (which collapses to 0 inside
+                        // the flex track and clips the image).
+                        containerClassName="h-auto"
+                        className={cn(
+                            "relative z-10",
+                            !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                        )}
+                    />
+                )}
+            />
         );
     }
 
@@ -766,6 +765,149 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                         </button>
                     );
                 })}
+            </div>
+        </div>
+    );
+}
+
+// =============================================================================
+// MEDIA CAROUSEL (single-view image/video navigation)
+// =============================================================================
+
+/**
+ * Horizontal carousel for the single-view media preview. Renders every output in
+ * a sliding flex track so:
+ *   - moving between outputs is a pure transform slide (no blur replay),
+ *   - a fresh result still blur-reveals on first load (its slide is keyed by url
+ *     and mounts new),
+ *   - wrapping past either end keeps sliding in the SAME direction as the arrow
+ *     (an infinite loop), via clones of the first/last item that the track snaps
+ *     onto without animation once the slide finishes.
+ * Selection is the persisted `activeIndex` (config); arrows/dots both drive it.
+ */
+function MediaCarousel({
+    urls,
+    activeIndex,
+    onSelectIndex,
+    isDragging,
+    onInteraction,
+    onPreviewClick,
+    outerProps,
+    overlay,
+    renderSlide,
+}: {
+    urls: string[];
+    activeIndex: number;
+    onSelectIndex?: (i: number) => void;
+    isDragging?: boolean;
+    onInteraction?: (e: any) => void;
+    onPreviewClick?: (e: any) => void;
+    outerProps?: Record<string, any>;
+    overlay?: React.ReactNode;
+    renderSlide: (url: string, realIndex: number, isActive: boolean, isClone: boolean) => React.ReactNode;
+}) {
+    const count = urls.length;
+    // `step` is the rendered track position. Real slides occupy positions 1..count;
+    // position 0 is a clone of the last item and position count+1 a clone of the
+    // first, so wrapping past an end slides forward onto the clone, then snaps
+    // (no animation) onto its real twin.
+    const [step, setStep] = useState(activeIndex + 1);
+    const [animate, setAnimate] = useState(true);
+
+    // External selection changes (grid/dot click, a new run) snap the track to the
+    // selected item without animation. Arrow navigation keeps step and activeIndex
+    // in sync already, so this is a no-op for those.
+    useEffect(() => {
+        if (count === 0) return;
+        const real = ((step - 1) % count + count) % count;
+        if (real !== activeIndex) {
+            setAnimate(false);
+            setStep(activeIndex + 1);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeIndex, count]);
+
+    const outerClassName = "w-full h-full relative group/preview cursor-zoom-in overflow-hidden";
+
+    if (count === 0) return null;
+
+    if (count === 1) {
+        return (
+            <div className={outerClassName} {...outerProps} onMouseDown={onInteraction} onPointerDown={onInteraction} onClick={onPreviewClick}>
+                {renderSlide(urls[0], 0, true, false)}
+                {overlay}
+            </div>
+        );
+    }
+
+    const go = (delta: number) => {
+        const newStep = step + delta;
+        const real = ((newStep - 1) % count + count) % count;
+        setAnimate(true);
+        setStep(newStep);
+        onSelectIndex?.(real);
+    };
+
+    const onRest = () => {
+        if (step === count + 1) { setAnimate(false); setStep(1); }
+        else if (step === 0) { setAnimate(false); setStep(count); }
+    };
+
+    // [clone(last), ...reals, clone(first)]
+    const slides = [urls[count - 1], ...urls, urls[0]];
+
+    return (
+        <div className={outerClassName} {...outerProps} onMouseDown={onInteraction} onPointerDown={onInteraction} onClick={onPreviewClick}>
+            <motion.div
+                className="flex w-full"
+                animate={{ x: `-${step * 100}%` }}
+                transition={animate && !isDragging ? { type: 'tween', ease: [0.4, 0, 0.2, 1], duration: 0.35 } : { duration: 0 }}
+                onAnimationComplete={onRest}
+            >
+                {slides.map((u, pos) => {
+                    const isClone = pos === 0 || pos === count + 1;
+                    const realIndex = pos === 0 ? count - 1 : pos === count + 1 ? 0 : pos - 1;
+                    const isActive = !isClone && realIndex === activeIndex;
+                    return (
+                        <div key={isClone ? `clone-${pos}` : u} className="w-full shrink-0 basis-full flex items-center justify-center">
+                            {renderSlide(u, realIndex, isActive, isClone)}
+                        </div>
+                    );
+                })}
+            </motion.div>
+
+            {overlay}
+
+            <button
+                onMouseDown={onInteraction}
+                onClick={(e) => { e.stopPropagation(); go(-1); }}
+                className="absolute top-1/2 left-2 -translate-y-1/2 z-30 w-8 h-8 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center opacity-0 group-hover/preview:opacity-100 transition-opacity"
+                title="Previous"
+            >
+                <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+                onMouseDown={onInteraction}
+                onClick={(e) => { e.stopPropagation(); go(1); }}
+                className="absolute top-1/2 right-2 -translate-y-1/2 z-30 w-8 h-8 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center opacity-0 group-hover/preview:opacity-100 transition-opacity"
+                title="Next"
+            >
+                <ChevronRight className="w-5 h-5" />
+            </button>
+
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 opacity-0 group-hover/preview:opacity-100 transition-opacity">
+                {urls.map((_, i) => (
+                    <button
+                        key={i}
+                        onMouseDown={onInteraction}
+                        onClick={(e) => { e.stopPropagation(); onSelectIndex?.(i); }}
+                        className={cn(
+                            "h-1.5 rounded-full transition-all",
+                            i === activeIndex ? "w-3 bg-white" : "w-1.5 bg-white/40 hover:bg-white/70"
+                        )}
+                        title={`Output ${i + 1}`}
+                    />
+                ))}
             </div>
         </div>
     );
