@@ -1,16 +1,17 @@
 'use client';
 
 import React from 'react';
-import { Pencil, Trash2, UserCircle } from 'lucide-react';
+import { Pencil, Trash2, UserCircle, Wand2 } from 'lucide-react';
 import type { Character } from '@/lib/api/client';
 
 interface CharacterCardProps {
     character: Character;
     onEdit: (c: Character) => void;
     onDelete: (id: string) => void;
+    onVariant: (c: Character) => void;
 }
 
-export default function CharacterCard({ character, onEdit, onDelete }: CharacterCardProps) {
+export default function CharacterCard({ character, onEdit, onDelete, onVariant }: CharacterCardProps) {
     const thumb = character.thumbnail_url || character.reference_images?.[0]?.url;
 
     return (
@@ -31,6 +32,9 @@ export default function CharacterCard({ character, onEdit, onDelete }: Character
                 )}
             </div>
             <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => onVariant(character)} title="Create variant" className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-accent-primary">
+                    <Wand2 className="w-3.5 h-3.5" />
+                </button>
                 <button onClick={() => onEdit(character)} title="Edit" className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80">
                     <Pencil className="w-3.5 h-3.5" />
                 </button>

@@ -6,6 +6,7 @@ import { useCharacters } from '@/lib/hooks/use-characters';
 import type { Character, CharacterInput } from '@/lib/api/client';
 import CharacterGrid from '@/components/assets/CharacterGrid';
 import CharacterModal from '@/components/assets/CharacterModal';
+import CharacterVariantModal from '@/components/assets/CharacterVariantModal';
 import AssetsGallery from '@/components/assets/AssetsGallery';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 
@@ -23,6 +24,7 @@ export default function AssetsPage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<Character | null>(null);
     const [pendingDelete, setPendingDelete] = useState<Character | null>(null);
+    const [variantSource, setVariantSource] = useState<Character | null>(null);
 
     const filtered = characters.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -88,11 +90,19 @@ export default function AssetsPage() {
                             onCreate={openCreate}
                             onEdit={openEdit}
                             onDelete={(id) => setPendingDelete(characters.find((c) => c.id === id) ?? null)}
+                            onVariant={(c) => setVariantSource(c)}
                         />
                     </>
                 )}
 
                 <CharacterModal open={modalOpen} initial={editing} onClose={() => setModalOpen(false)} onSave={handleSave} />
+
+                <CharacterVariantModal
+                    open={!!variantSource}
+                    source={variantSource}
+                    onClose={() => setVariantSource(null)}
+                    onSave={(input) => createCharacter(input).then(() => undefined)}
+                />
 
                 <ConfirmationModal
                     isOpen={!!pendingDelete}
