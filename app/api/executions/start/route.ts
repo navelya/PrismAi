@@ -430,6 +430,7 @@ export async function POST(request: NextRequest) {
         config: {
           model_id: inner.model_id ?? data.model_id,
           control_values: inner.control_values ?? data.control_values,
+          iterations: inner.iterations ?? data.iterations,
         },
       };
     });
@@ -463,6 +464,7 @@ export async function POST(request: NextRequest) {
             config: {
               model_id: inner.model_id ?? data.model_id,
               control_values: inner.control_values ?? data.control_values,
+              iterations: inner.iterations ?? data.iterations,
               images: inner.images ?? data.images,
             },
           };

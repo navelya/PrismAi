@@ -16,7 +16,7 @@ import { formatDisplayName } from '@/lib/utils/schema-parser';
 import { AiModel, Control } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { computeAiNodeCost } from '@/lib/billing/cost';
+import { computeAiNodeCost, clampIterations } from '@/lib/billing/cost';
 
 // =============================================================================
 // SKELETON LOADER
@@ -120,7 +120,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     }
 
     const totalCost = selectedModel
-        ? Number(computeAiNodeCost(config.control_values, selectedModel).toFixed(2))
+        ? Number((computeAiNodeCost(config.control_values, selectedModel) * clampIterations(config.iterations)).toFixed(2))
         : 0;
 
     const hasMultiplier = (selectedModel?.inputs_schema?.controls ?? [])

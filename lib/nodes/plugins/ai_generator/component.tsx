@@ -16,7 +16,7 @@ import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
 import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
 import { toThumbnailUrl } from '@/lib/utils/supabase-image';
-import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
+import { computeAiNodeCost, formatCredits, clampIterations } from '@/lib/billing/cost';
 import { clampSelectedIndex, selectedValue, type GeneratedOutput } from './outputs';
 
 // =============================================================================
@@ -392,7 +392,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                     </div>
 
                     {(() => {
-                        const dynamicCost = computeAiNodeCost(data.config?.control_values, selectedModel);
+                        const dynamicCost = computeAiNodeCost(data.config?.control_values, selectedModel) * clampIterations(data.config?.iterations);
                         const showCost = dynamicCost > 0;
                         return (
                             <button

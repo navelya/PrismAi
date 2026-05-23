@@ -19,6 +19,13 @@ export interface CostNode {
     };
 }
 
+/** Iterations are clamped to [1, 8]; non-numeric/empty → 1. Multiplies a node's cost. */
+export function clampIterations(value: any): number {
+    const n = Math.trunc(Number(value));
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(1, Math.min(8, n));
+}
+
 /**
  * Optional graph context for connected-media pricing. When supplied to
  * computeExecutionCost, each ai_generator node is additionally charged for the
@@ -177,6 +184,8 @@ export function computeExecutionCost(
         if (graph) {
             nodeCost += computeConnectedInputCost(node, model, graph);
         }
+
+        nodeCost *= clampIterations(node.config?.iterations);
 
         cost += Math.max(0, nodeCost);
         generativeCount++;
