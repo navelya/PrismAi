@@ -35,6 +35,7 @@ assert.strictEqual(
 assert.strictEqual(clampSelectedIndex(5, 3), 2, 'clamps high');
 assert.strictEqual(clampSelectedIndex(-1, 3), 0, 'clamps low');
 assert.strictEqual(clampSelectedIndex(0, 0), 0, 'empty → 0');
+assert.strictEqual(clampSelectedIndex(undefined, 3), 0, 'undefined index → 0');
 assert.strictEqual(selectedValue(merged, 1), 'c', 'selectedValue by index');
 assert.strictEqual(selectedValue([], 0), undefined, 'empty → undefined');
 

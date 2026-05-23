@@ -11,9 +11,9 @@ export interface AIGeneratorConfig {
     control_values?: Record<string, any>;
     /** Selected output value, mirrored for preview/hydration. */
     last_output?: any;
-    /** All outputs this node has produced, newest-first (Plan A). */
+    /** All outputs this node has produced, newest-first. */
     outputs?: GeneratedOutput[];
-    /** Index into `outputs` of the active/selected output (Plan A). Default 0. */
+    /** Index into `outputs` of the active/selected output. Default 0. */
     selected_output_index?: number;
 }
 

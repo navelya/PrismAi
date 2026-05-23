@@ -18,7 +18,7 @@ export const MAX_OUTPUTS_PER_NODE = 60;
 /** Wrap a run's raw values (urls or text strings) into GeneratedOutput items. */
 export function buildOutputItems(
     type: NodeResultType,
-    values: any[],
+    values: any[] | null | undefined,
     executionId?: string,
     createdAt: string = new Date().toISOString(),
 ): GeneratedOutput[] {
