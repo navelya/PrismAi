@@ -45,6 +45,15 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
 
         if (finalData.length > 0) {
             store.setNodeOutput(nodeId, toOutputEnvelope(finalType, finalData));
+
+            // Accumulate into the node's persisted collection — ONLY for live
+            // results. Hydration replays the latest DB rows on every page load;
+            // config.outputs is already persisted in canvas_state, so appending
+            // on 'hydrate' would double-count. appendAiGeneratorRun is a no-op
+            // for non-ai_generator nodes and is idempotent per execution_id.
+            if (source === 'realtime') {
+                store.appendAiGeneratorRun(nodeId, finalType, finalData, record.execution_id);
+            }
         }
     } else if (status === 'failed') {
         store.setNodeStatus(nodeId, 'error');
