@@ -9,7 +9,8 @@ export interface CharacterSnapshot {
   characterId: string;
   name: string;
   description: string | null;
-  referenceImages: string[]; // URLs, 1-5; index 0 = primary
+  referenceImages: string[]; // URLs, 1-6; index 0 = primary (full body)
+  faceImage?: string;        // URL of the close-up face reference, if one exists
   weight: number;
 }
 

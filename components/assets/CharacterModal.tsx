@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Sparkles, Star, Loader2, Wand2 } from 'lucide-react';
 import { uploadApi, charactersApi, generateCharacterStream, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
 import ImageLightbox from '@/components/ui/ImageLightbox';
@@ -14,7 +15,21 @@ interface CharacterModalProps {
     onSave: (input: CharacterInput, id?: string) => Promise<void>;
 }
 
-const MAX_IMAGES = 5;
+const MAX_IMAGES = 6;
+
+/** Read a File as base64 (strips the data: URL prefix). */
+function fileToBase64(file: File): Promise<{ mimeType: string; data: string }> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const res = String(reader.result);
+            const comma = res.indexOf(',');
+            resolve({ mimeType: file.type || 'image/png', data: comma >= 0 ? res.slice(comma + 1) : res });
+        };
+        reader.onerror = () => reject(new Error('Could not read the image file'));
+        reader.readAsDataURL(file);
+    });
+}
 
 export default function CharacterModal({ open, initial, onClose, onSave }: CharacterModalProps) {
     const [name, setName] = useState('');
@@ -29,6 +44,7 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
     const [saving, setSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const photoInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (open) {
@@ -41,8 +57,6 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
             setLightboxIndex(null);
         }
     }, [open, initial]);
-
-    if (!open) return null;
 
     const handleFiles = async (files: FileList | null) => {
         if (!files || files.length === 0) return;
@@ -93,11 +107,12 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
         }
     };
 
-    // Generate 5 consistent reference poses from the description alone (Gemini
-    // Nano Banana: a base front view + 4 poses conditioned on it). Replaces the
-    // current image set with the generated poses.
-    const handleGenerate = async () => {
-        if (description.trim().length < 3) { setErrorMsg('Describe the character first, then generate'); return; }
+    // Generate a consistent reference set (Gemini Nano Banana). With a text
+    // description: a base front view + 4 poses + a face close-up, all
+    // conditioned on the base. With an uploaded photo: that photo becomes the
+    // base (kept as-is) and the rest are generated from it. Each image fills its
+    // own slot the moment it arrives; replaces the current image set.
+    const runGeneration = async (params: { description?: string; baseImage?: { mimeType: string; data: string } }) => {
         setGenerating(true);
         setErrorMsg(null);
         setImages([]);
@@ -107,14 +122,14 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
         // it for rendering. Each pose fills its own slot the moment it arrives.
         const slots: GenSlot[] = [];
         try {
-            await generateCharacterStream(description.trim(), {
+            await generateCharacterStream(params, {
                 onStart: (total) => {
                     slots.length = 0;
                     for (let i = 0; i < total; i++) slots.push(null);
                     setGenSlots([...slots]);
                 },
-                onImage: ({ index, url, path }) => {
-                    if (index >= 0 && index < slots.length) slots[index] = { url, path };
+                onImage: ({ index, url, path, role }) => {
+                    if (index >= 0 && index < slots.length) slots[index] = role ? { url, path, role } : { url, path };
                     setGenSlots([...slots]);
                 },
                 onPoseFailed: (index) => {
@@ -132,6 +147,27 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
         } finally {
             setGenerating(false);
             setGenSlots([]);
+        }
+    };
+
+    const handleGenerate = () => {
+        if (description.trim().length < 3) { setErrorMsg('Describe the character first, then generate'); return; }
+        void runGeneration({ description: description.trim() });
+    };
+
+    // Build the character FROM an uploaded photo: it becomes the base and the
+    // remaining poses + face close-up are generated conditioned on it.
+    const handlePhotoFiles = async (files: FileList | null) => {
+        const file = files?.[0];
+        if (photoInputRef.current) photoInputRef.current.value = '';
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { setErrorMsg('Please choose an image file'); return; }
+        setErrorMsg(null);
+        try {
+            const baseImage = await fileToBase64(file);
+            await runGeneration({ baseImage });
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Could not read the photo');
         }
     };
 
@@ -160,11 +196,24 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-            <div
-                className="w-full max-w-md rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl p-5 space-y-4"
-                onClick={(e) => e.stopPropagation()}
-            >
+        <AnimatePresence>
+            {open && (
+                <motion.div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+                    onClick={onClose}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                >
+                    <motion.div
+                        className="w-full max-w-md rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl p-5 space-y-4"
+                        onClick={(e) => e.stopPropagation()}
+                        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.96, y: 12 }}
+                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    >
                 <div className="flex items-center justify-between">
                     <h2 className="text-lg font-bold text-content-primary">{initial ? 'Edit Character' : 'New Character'}</h2>
                     <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary">
@@ -228,16 +277,29 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                 )}
                 <p className="text-xs text-content-tertiary -mt-2">First image (★) is the primary. Click a pose to view it. Up to {MAX_IMAGES}.</p>
 
-                {/* Generate the whole reference set from the description alone. */}
-                <button
-                    type="button"
-                    onClick={handleGenerate}
-                    disabled={generating}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-accent-primary/30 bg-accent-primary/10 text-sm text-accent-primary hover:bg-accent-primary/20 disabled:opacity-60"
-                >
-                    {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                    {generating ? 'Generating 5 poses…' : 'Generate 5 poses from description'}
-                </button>
+                {/* Build the whole reference set automatically — either from the
+                    description alone, or from an uploaded photo of the character. */}
+                <div className="grid grid-cols-2 gap-2">
+                    <button
+                        type="button"
+                        onClick={handleGenerate}
+                        disabled={generating}
+                        className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-accent-primary/30 bg-accent-primary/10 text-sm text-accent-primary hover:bg-accent-primary/20 disabled:opacity-60"
+                    >
+                        {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                        {generating ? 'Generating…' : 'From description'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => photoInputRef.current?.click()}
+                        disabled={generating}
+                        className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-accent-primary/30 bg-accent-primary/10 text-sm text-accent-primary hover:bg-accent-primary/20 disabled:opacity-60"
+                    >
+                        <Upload className="w-4 h-4" />
+                        From my photo
+                    </button>
+                </div>
+                <p className="text-xs text-content-tertiary -mt-2">Auto-generates a front view, 4 poses and a face close-up. “From my photo” uses your photo as the identity source for clean, consistent studio shots.</p>
 
                 <div>
                     <label className="block text-xs font-medium text-content-secondary mb-1">Name *</label>
@@ -265,9 +327,9 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                     <textarea
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        rows={3}
+                        rows={6}
                         placeholder="red hair, freckles, green eyes, leather jacket..."
-                        className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-none focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                        className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[7rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
                     />
                 </div>
 
@@ -290,17 +352,20 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                     </button>
                 </div>
 
-                <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleFiles(e.target.files)} className="hidden" />
-            </div>
+                        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleFiles(e.target.files)} className="hidden" />
+                        <input ref={photoInputRef} type="file" accept="image/*" onChange={(e) => handlePhotoFiles(e.target.files)} className="hidden" />
+                    </motion.div>
 
-            {lightboxIndex !== null && images.length > 0 && (
-                <ImageLightbox
-                    media={images.map((i) => i.url)}
-                    type="any"
-                    initialIndex={Math.min(lightboxIndex, images.length - 1)}
-                    onClose={() => setLightboxIndex(null)}
-                />
+                    {lightboxIndex !== null && images.length > 0 && (
+                        <ImageLightbox
+                            media={images.map((i) => i.url)}
+                            type="any"
+                            initialIndex={Math.min(lightboxIndex, images.length - 1)}
+                            onClose={() => setLightboxIndex(null)}
+                        />
+                    )}
+                </motion.div>
             )}
-        </div>
+        </AnimatePresence>
     );
 }

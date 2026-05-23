@@ -30,7 +30,7 @@ function CharacterNode({ data, id, selected }: NodeProps<CharacterNodeData>) {
             width=""
             style={{ width: 'max-content', minWidth: 240, maxWidth: 300 }}
         >
-            <div className="flex flex-col gap-2 p-1">
+            <div className="flex flex-col gap-2">
                 <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-white/5 border border-white/10">
                     {primary ? (
                         <img src={primary} alt={config.name || 'Character'} className="w-full h-full object-cover" />

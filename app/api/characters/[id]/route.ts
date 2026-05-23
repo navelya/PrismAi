@@ -3,16 +3,16 @@ import { getAuthenticatedUser } from '@/lib/api/auth';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_REFERENCE_IMAGES = 5;
+const MAX_REFERENCE_IMAGES = 6;
 
-function sanitizeRefImages(raw: any): { url: string; path: string }[] {
+function sanitizeRefImages(raw: any): { url: string; path: string; role?: 'face' }[] {
     if (!Array.isArray(raw)) return [];
-    const out: { url: string; path: string }[] = [];
+    const out: { url: string; path: string; role?: 'face' }[] = [];
     for (const item of raw) {
         const url = typeof item?.url === 'string' ? item.url : undefined;
         const path = typeof item?.path === 'string' ? item.path : '';
         if (!url) continue;
-        out.push({ url, path });
+        out.push(item?.role === 'face' ? { url, path, role: 'face' } : { url, path });
         if (out.length >= MAX_REFERENCE_IMAGES) break;
     }
     return out;
@@ -69,7 +69,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ character: data });
 }
 
-/** DELETE /api/characters/[id] — soft delete */
+/** DELETE /api/characters/[id] — hard delete: removes the row AND every
+ *  reference image from storage so nothing is left behind. */
 export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
@@ -78,13 +79,37 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
     const id = params.id;
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-    const { error } = await supabase
+    // Fetch the character (owner-scoped) to collect its storage paths first.
+    const { data: character, error: fetchErr } = await supabase
         .from('characters')
-        .update({ deleted_at: new Date().toISOString() })
+        .select('id, reference_images')
         .eq('id', id)
         .eq('user_id', user.id)
-        .is('deleted_at', null);
+        .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (fetchErr || !character) {
+        return NextResponse.json({ error: 'Character not found' }, { status: 404 });
+    }
+
+    // Remove every reference image from storage. Best-effort: a missing/failed
+    // object must not block deleting the row. Guard the path prefix so we only
+    // ever touch the owner's own files.
+    const refs = Array.isArray((character as any).reference_images) ? (character as any).reference_images : [];
+    const paths: string[] = refs
+        .map((img: any) => (typeof img === 'string' ? '' : img?.path))
+        .filter((p: any): p is string => typeof p === 'string' && p.startsWith(`${user.id}/`));
+    if (paths.length > 0) {
+        const { error: rmErr } = await supabase.storage.from('chat-assets').remove(paths);
+        if (rmErr) console.error('[characters/delete] storage cleanup failed:', rmErr.message);
+    }
+
+    // Hard delete the row — no ghost data.
+    const { error: delErr } = await supabase
+        .from('characters')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
     return NextResponse.json({ success: true });
 }

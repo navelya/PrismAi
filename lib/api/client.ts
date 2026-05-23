@@ -192,7 +192,7 @@ export const userApi = {
 
 // ─── Character APIs ────────────────────────────────────────────────────
 
-export interface CharacterRefImage { url: string; path: string; }
+export interface CharacterRefImage { url: string; path: string; role?: 'face' }
 
 export interface Character {
     id: string;
@@ -239,11 +239,18 @@ export const charactersApi = {
         }),
 };
 
+export interface GenerateCharacterParams {
+    /** Text description — used to generate the base when no photo is supplied. */
+    description?: string;
+    /** Uploaded photo (base64) to build the character FROM; becomes the base. */
+    baseImage?: { mimeType: string; data: string };
+}
+
 export interface GenerateCharacterHandlers {
     /** Total number of poses that will be generated (fires once, first). */
     onStart?: (total: number) => void;
     /** A pose finished and uploaded — fill slot `index` (0 = primary). */
-    onImage: (img: { index: number; url: string; path: string }) => void;
+    onImage: (img: { index: number; url: string; path: string; role?: 'face' }) => void;
     /** A non-base pose failed to generate (its slot will stay empty). */
     onPoseFailed?: (index: number) => void;
     /** Fatal error (no images, or a pre-stream 4xx/5xx). */
@@ -258,13 +265,13 @@ export interface GenerateCharacterHandlers {
  * waiting for the whole set.
  */
 export async function generateCharacterStream(
-    description: string,
+    params: GenerateCharacterParams,
     handlers: GenerateCharacterHandlers,
 ): Promise<void> {
     const res = await fetch('/api/characters/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description }),
+        body: JSON.stringify({ description: params.description, baseImage: params.baseImage }),
     });
 
     if (!res.ok || !res.body) {
@@ -285,7 +292,7 @@ export async function generateCharacterStream(
         try { evt = JSON.parse(trimmed); } catch { return; }
         switch (evt.type) {
             case 'start': handlers.onStart?.(typeof evt.total === 'number' ? evt.total : 0); break;
-            case 'image': handlers.onImage({ index: evt.index, url: evt.url, path: evt.path }); break;
+            case 'image': handlers.onImage({ index: evt.index, url: evt.url, path: evt.path, role: evt.role === 'face' ? 'face' : undefined }); break;
             case 'pose_failed': handlers.onPoseFailed?.(evt.index); break;
             case 'error': handlers.onError?.(evt.message || 'Generation failed'); break;
             case 'done': handlers.onDone?.(); break;

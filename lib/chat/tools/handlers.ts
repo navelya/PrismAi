@@ -172,11 +172,14 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
   // name/referenceImages/description/weight from the allow-list so URLs never
   // round-trip through the model. An id not in the map is rejected.
   //
-  // Reference-image budget: when 2+ distinct characters share a workflow, feed
-  // only each character's PRIMARY image. Stacking every pose of multiple
-  // subjects (e.g. 5 + 5) dilutes identity and lets the most dramatic subject
-  // dominate. A single strong reference per subject holds identity far better.
-  // Single-character builds keep all poses.
+  // Reference-image budget:
+  //   • Single character  → feed ALL reference images (every pose + the face
+  //     close-up); the extra angles strengthen identity.
+  //   • Multiple characters → feed the face close-up + the primary (full-body)
+  //     image per character (2 each). Stacking every pose of multiple subjects
+  //     dilutes identity and blows the model's image limit; face + full body is
+  //     the highest-signal pair and keeps the total within ~10 images for up to
+  //     5 characters.
   const newCharIds = new Set<string>();
   for (const n of (args.nodes || [])) {
     if (n?.type === 'character' && typeof n?.data?.config?.characterId === 'string') {
@@ -201,7 +204,15 @@ export async function runAddNode(state: ToolHandlerState, args: any): Promise<To
     if (!snap) {
       return { success: false, error: `character node references unknown or unmentioned characterId "${characterId}". Only characters the user @-mentioned this turn can be used.` };
     }
-    const referenceImages = multiCharacter ? snap.referenceImages.slice(0, 1) : snap.referenceImages;
+    let referenceImages: string[];
+    if (multiCharacter) {
+      const primary = snap.referenceImages[0];
+      const pair = [snap.faceImage, primary].filter((u): u is string => typeof u === 'string' && u.length > 0);
+      referenceImages = [...new Set(pair)];
+      if (referenceImages.length === 0) referenceImages = snap.referenceImages.slice(0, 1);
+    } else {
+      referenceImages = snap.referenceImages;
+    }
     node.data = node.data || {};
     node.data.config = {
       characterId: snap.characterId,

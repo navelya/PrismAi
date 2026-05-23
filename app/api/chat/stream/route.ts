@@ -478,15 +478,21 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
         .eq('user_id', sessionOwner.user_id)
         .is('deleted_at', null)
         .in('id', mentionedCharacterIds);
-      characterRefs = (rows ?? []).map((r: any) => ({
-        characterId: r.id,
-        name: r.name,
-        description: r.description ?? null,
-        referenceImages: Array.isArray(r.reference_images)
-          ? r.reference_images.map((img: any) => (typeof img === 'string' ? img : img?.url)).filter((u: any): u is string => typeof u === 'string')
-          : [],
-        weight: typeof r.weight === 'number' ? r.weight : 70,
-      }));
+      characterRefs = (rows ?? []).map((r: any) => {
+        const refs = Array.isArray(r.reference_images) ? r.reference_images : [];
+        const referenceImages = refs
+          .map((img: any) => (typeof img === 'string' ? img : img?.url))
+          .filter((u: any): u is string => typeof u === 'string');
+        const faceRef = refs.find((img: any) => img && typeof img === 'object' && img.role === 'face')?.url;
+        return {
+          characterId: r.id,
+          name: r.name,
+          description: r.description ?? null,
+          referenceImages,
+          faceImage: typeof faceRef === 'string' ? faceRef : undefined,
+          weight: typeof r.weight === 'number' ? r.weight : 70,
+        };
+      });
 
       const ids = characterRefs.map((c) => c.characterId);
       if (ids.length > 0) {

@@ -3,9 +3,9 @@ import { getAuthenticatedUser } from '@/lib/api/auth';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_REFERENCE_IMAGES = 5;
+const MAX_REFERENCE_IMAGES = 6;
 
-interface RefImage { url: string; path: string; }
+interface RefImage { url: string; path: string; role?: 'face'; }
 
 function sanitizeRefImages(raw: any): RefImage[] {
     if (!Array.isArray(raw)) return [];
@@ -14,7 +14,7 @@ function sanitizeRefImages(raw: any): RefImage[] {
         const url = typeof item?.url === 'string' ? item.url : undefined;
         const path = typeof item?.path === 'string' ? item.path : '';
         if (!url) continue;
-        out.push({ url, path });
+        out.push(item?.role === 'face' ? { url, path, role: 'face' } : { url, path });
         if (out.length >= MAX_REFERENCE_IMAGES) break;
     }
     return out;
