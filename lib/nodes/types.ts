@@ -69,6 +69,10 @@ export interface AiModel {
     replicate_model_id: string;
     display_name: string;
     credit_cost: number;
+    /** Credits added per image item wired into this model's image input handles. */
+    cost_per_image: number;
+    /** Credits added per video item wired into this model's video input handles. */
+    cost_per_video: number;
     is_per_second: boolean;
     is_active: boolean;
     category_id: string;
