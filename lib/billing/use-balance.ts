@@ -2,18 +2,26 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useAppStore } from '@/lib/store/app-store';
 
 /**
- * Subscribes to the authenticated user's token_balance with realtime
- * updates. The trigger on profiles only allows service_role to mutate
- * token_balance, so any change you see here came from a server-side
- * RPC (debit / credit / refund / topup).
+ * Subscribes to the authenticated user's token_balance with realtime updates,
+ * and overlays the store's ephemeral optimisticCreditDelta so the displayed
+ * balance reflects an in-flight run instantly. Any authoritative update (initial
+ * fetch or realtime) resets the optimistic delta to 0 — the server is then truth.
+ *
+ * The trigger on profiles only allows service_role to mutate token_balance, so
+ * any change you see here came from a server-side RPC (debit / credit / refund /
+ * topup).
  */
 export function useTokenBalance() {
-    const [balance, setBalance] = useState<number | null>(null);
+    const [rawBalance, setRawBalance] = useState<number | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const optimisticDelta = useAppStore((s) => s.optimisticCreditDelta);
+    const resetOptimisticDelta = useAppStore((s) => s.resetOptimisticDelta);
 
     useEffect(() => {
         const supabase = createClient();
@@ -40,7 +48,8 @@ export function useTokenBalance() {
                 if (fetchErr) {
                     setError(fetchErr.message);
                 } else {
-                    setBalance(Number(profile?.token_balance ?? 0));
+                    setRawBalance(Number(profile?.token_balance ?? 0));
+                    resetOptimisticDelta();
                 }
                 setLoading(false);
 
@@ -57,7 +66,8 @@ export function useTokenBalance() {
                         (payload: { new: { token_balance?: number | string } }) => {
                             const next = payload.new?.token_balance;
                             if (next !== undefined && next !== null) {
-                                setBalance(Number(next));
+                                setRawBalance(Number(next));
+                                resetOptimisticDelta();
                             }
                         }
                     )
@@ -74,7 +84,9 @@ export function useTokenBalance() {
             unmounted = true;
             if (channel) channel.unsubscribe();
         };
-    }, []);
+    }, [resetOptimisticDelta]);
+
+    const balance = rawBalance === null ? null : rawBalance + optimisticDelta;
 
     return { balance, userId, loading, error };
 }
