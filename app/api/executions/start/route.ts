@@ -216,10 +216,39 @@ export async function POST(request: NextRequest) {
           string,
           { resultType: ReturnType<typeof normalizeNodeResultType>; resultData: any[]; primary: any }
         >();
+
+        // A node's persisted selected output is the authoritative value it
+        // provides downstream (the user picked it; we do NOT re-run the node).
+        // Prefer it over the latest node_results row when present.
+        const selectionByNode = new Map<string, { value: any; type: any }>();
+        for (const n of (executableNodes as any[])) {
+            if (!generativeAncestorIds.has(n.id)) continue;
+            const cfg = n.data?.config || {};
+            const outputs = Array.isArray(cfg.outputs) ? cfg.outputs : null;
+            if (outputs && outputs.length > 0) {
+                const idx = Math.max(0, Math.min((cfg.selected_output_index ?? 0), outputs.length - 1));
+                const item = outputs[idx];
+                if (item && item.value !== undefined && item.value !== null && item.value !== '') {
+                    selectionByNode.set(n.id, { value: item.value, type: item.type });
+                }
+            } else if (cfg.last_output !== undefined && cfg.last_output !== null && cfg.last_output !== '') {
+                selectionByNode.set(n.id, { value: cfg.last_output, type: undefined });
+            }
+        }
+
         (ancestorResults || []).forEach(r => {
           const resultType = normalizeNodeResultType(r.result_type);
-          const resultData = coerceResultDataArray(r.result_data || []);
-          const primary = getPrimaryInputValue(resultType, resultData);
+          let resultData = coerceResultDataArray(r.result_data || []);
+          let primary = getPrimaryInputValue(resultType, resultData);
+
+          // Honor the user's selected output for this ancestor (Plan A).
+          const selected = selectionByNode.get(r.node_id);
+          if (selected !== undefined) {
+            primary = selected.value;
+            // Lead resultData with the selection so array-handle consumers also
+            // lead with it, preserving the remaining items.
+            resultData = [selected.value, ...resultData.filter((v) => v !== selected.value)];
+          }
 
           if ((primary !== undefined && primary !== null) || resultData.length > 0) {
             if (!latestByNode.has(r.node_id)) {
@@ -227,6 +256,14 @@ export async function POST(request: NextRequest) {
             }
           }
         });
+
+        // An ancestor may have a persisted selection but no completed node_results
+        // row (e.g. results pruned). Seed it from the selection so downstream still gets a value.
+        for (const [ancestorId, sel] of selectionByNode.entries()) {
+          if (latestByNode.has(ancestorId)) continue;
+          const resultType = normalizeNodeResultType(sel.type);
+          latestByNode.set(ancestorId, { resultType, resultData: [sel.value], primary: sel.value });
+        }
 
         // For each node in the execution set that has edges from a generative
         // ancestor, pre-build its inputs map.
