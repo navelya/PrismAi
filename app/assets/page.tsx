@@ -101,7 +101,7 @@ export default function AssetsPage() {
                     open={!!variantSource}
                     source={variantSource}
                     onClose={() => setVariantSource(null)}
-                    onSave={(input) => createCharacter(input).then(() => undefined)}
+                    onSave={async (input) => { await createCharacter(input); }}
                 />
 
                 <ConfirmationModal
