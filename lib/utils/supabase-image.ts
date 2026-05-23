@@ -3,8 +3,12 @@
  *
  * Converts a public-object URL (the URL we store in node_results / config) into
  * its `/render/image/` equivalent so the Storage CDN serves a downscaled
- * version. Aspect ratio is preserved automatically when only `width` is
- * supplied — Supabase computes the matching height server-side.
+ * version. We MUST pass `resize=contain`: the render endpoint defaults to
+ * `resize=cover`, and with only `width` supplied (no explicit height) `cover`
+ * crops the image to `width × source-height` instead of scaling it — turning a
+ * 16:9 output into a near-square center crop and a 1:1 into a portrait. With
+ * `resize=contain` it scales proportionally to the target width, preserving the
+ * aspect ratio (verified against the deployment's render backend).
  *
  * Why this matters for the canvas: every node has `backdrop-blur-xl`, and
  * `backdrop-filter: blur()` cost scales with the pixel area of the content
@@ -45,5 +49,5 @@ export function toThumbnailUrl(
 
     const transformed = url.replace(SUPABASE_OBJECT_PUBLIC, SUPABASE_RENDER_PUBLIC);
     const sep = transformed.includes('?') ? '&' : '?';
-    return `${transformed}${sep}width=${width}&quality=${quality}`;
+    return `${transformed}${sep}width=${width}&quality=${quality}&resize=contain`;
 }
