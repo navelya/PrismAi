@@ -27,6 +27,7 @@ import { getAuthenticatedUser } from '@/lib/api/auth';
 import { computeExecutionCost, MAX_EXECUTION_COST, type CostNode } from '@/lib/billing/cost';
 import { validateExecution } from '@/lib/workflow/validate-execution';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import { clampSelectedIndex } from '@/lib/nodes/plugins/ai_generator/outputs';
 
 export async function POST(request: NextRequest) {
   console.log('[Execution/Start] Received start execution request');
@@ -221,19 +222,19 @@ export async function POST(request: NextRequest) {
         // provides downstream (the user picked it; we do NOT re-run the node).
         // Prefer it over the latest node_results row when present.
         const selectionByNode = new Map<string, { value: any; type: any }>();
-        for (const n of (executableNodes as any[])) {
-            if (!generativeAncestorIds.has(n.id)) continue;
-            const cfg = n.data?.config || {};
-            const outputs = Array.isArray(cfg.outputs) ? cfg.outputs : null;
-            if (outputs && outputs.length > 0) {
-                const idx = Math.max(0, Math.min((cfg.selected_output_index ?? 0), outputs.length - 1));
-                const item = outputs[idx];
-                if (item && item.value !== undefined && item.value !== null && item.value !== '') {
-                    selectionByNode.set(n.id, { value: item.value, type: item.type });
-                }
-            } else if (cfg.last_output !== undefined && cfg.last_output !== null && cfg.last_output !== '') {
-                selectionByNode.set(n.id, { value: cfg.last_output, type: undefined });
+        for (const n of executableNodes) {
+          if (!generativeAncestorIds.has(n.id)) continue;
+          const cfg = (n as any).data?.config || {};
+          const outputs = Array.isArray(cfg.outputs) ? cfg.outputs : null;
+          if (outputs && outputs.length > 0) {
+            const idx = clampSelectedIndex(cfg.selected_output_index, outputs.length);
+            const item = outputs[idx];
+            if (item && item.value !== undefined && item.value !== null && item.value !== '') {
+              selectionByNode.set(n.id, { value: item.value, type: item.type });
             }
+          } else if (cfg.last_output !== undefined && cfg.last_output !== null && cfg.last_output !== '') {
+            selectionByNode.set(n.id, { value: cfg.last_output, type: undefined });
+          }
         }
 
         (ancestorResults || []).forEach(r => {
@@ -247,6 +248,7 @@ export async function POST(request: NextRequest) {
             primary = selected.value;
             // Lead resultData with the selection so array-handle consumers also
             // lead with it, preserving the remaining items.
+            // values are URL/text primitives, so strict !== de-dupes correctly
             resultData = [selected.value, ...resultData.filter((v) => v !== selected.value)];
           }
 
