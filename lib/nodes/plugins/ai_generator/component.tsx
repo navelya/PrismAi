@@ -492,7 +492,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
         </>
     ) : null;
 
-    const videoRef = React.useRef<HTMLVideoElement>(null);
+    const videoRefs = React.useRef<(HTMLVideoElement | null)[]>([]);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const setNodeOutput = useAppStore((state) => state.setNodeOutput);
     const dataTypes = useAppStore((state) => state.dataTypes);
@@ -643,53 +643,60 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
     }
 
     if (previewMode === 'single') {
-        const url = urls[activeImageIndex] || urls[0];
+        const activeIdx = activeImageIndex ?? 0;
+        // Carousel transition for moving between outputs: the whole track slides
+        // horizontally. Each item is mounted once (keyed by url), so BlurryImage/
+        // BlurryVideo still blur-reveal on their FIRST load (e.g. a fresh result),
+        // but arrowing between already-loaded outputs is a pure transform slide —
+        // no blur replay. Disabled while dragging the node.
+        const slideTransition = isDragging
+            ? { duration: 0 }
+            : { type: 'tween' as const, ease: [0.4, 0, 0.2, 1] as const, duration: 0.35 };
 
         if (type === 'video') {
             return (
                 <div
                     className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
-                    onMouseEnter={() => videoRef.current?.play()}
+                    onMouseEnter={() => videoRefs.current[activeIdx]?.play().catch(() => {})}
                     onMouseLeave={() => {
-                        if (videoRef.current) {
-                            videoRef.current.pause();
-                            videoRef.current.currentTime = 0;
+                        const v = videoRefs.current[activeIdx];
+                        if (v) {
+                            v.pause();
+                            v.currentTime = 0;
                         }
                     }}
                     onMouseDown={onInteraction}
                     onPointerDown={onInteraction}
                     onClick={onPreviewClick}
                 >
-                    <BlurryVideo
-                        ref={videoRef}
-                        src={url}
-                        muted
-                        loop
-                        playsInline
-                        // preload="auto": match the compositor's video-pool.
-                        // With the default ('metadata') the browser only pulls
-                        // the head; Replicate outputs frequently place the moov
-                        // atom at the END (no +faststart), so the head request
-                        // never resolves metadata and the element stays blank.
-                        preload="auto"
-                        // width=320 + w-full + h-auto + min-h: replaces the old
-                        // intrinsic-sizing (block + max-w/max-h with no width),
-                        // which collapsed the <video> to 0x0 whenever metadata
-                        // hadn't parsed yet — invisible element in the DOM with
-                        // a valid src. Now the element has real layout
-                        // dimensions from the start; object-contain + max-h
-                        // keep aspect ratio once the first frame paints.
-                        width={320}
-                        // h-auto on the wrapper so it sizes to the video instead
-                        // of BlurryVideo's default h-full; max-w-none drops the
-                        // 420px cap that doesn't apply to this layout.
-                        containerClassName="h-auto"
-                        className={cn(
-                            "w-full h-auto object-contain max-w-none max-h-[420px] min-h-[200px] bg-black/40",
-                            !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
-                        )}
-                    />
-                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center">
+                    <motion.div className="flex w-full" animate={{ x: `-${activeIdx * 100}%` }} transition={slideTransition}>
+                        {urls.map((u: string, i: number) => (
+                            <div key={u} className="w-full shrink-0 basis-full">
+                                <BlurryVideo
+                                    ref={(el: HTMLVideoElement | null) => { videoRefs.current[i] = el; }}
+                                    src={u}
+                                    muted
+                                    loop
+                                    playsInline
+                                    // Active slide preloads fully (Replicate outputs
+                                    // often place the moov atom at the end, so a head-
+                                    // only fetch never resolves the first frame);
+                                    // off-screen slides stay light with metadata only.
+                                    preload={i === activeIdx ? 'auto' : 'metadata'}
+                                    width={320}
+                                    containerClassName="h-auto"
+                                    // Size the node to the active video's aspect ratio
+                                    // (parity with the image path's onLoad sizing).
+                                    onLoadedMetadata={i === activeIdx ? (e: any) => onImageLoad?.({ naturalWidth: e.currentTarget.videoWidth, naturalHeight: e.currentTarget.videoHeight }) : undefined}
+                                    className={cn(
+                                        "w-full h-auto object-contain max-w-none max-h-[420px] min-h-[200px] bg-black/40",
+                                        !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                                    )}
+                                />
+                            </div>
+                        ))}
+                    </motion.div>
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                         <Play className="w-10 h-10 text-white fill-current" />
                     </div>
                     {NavArrows}
@@ -704,16 +711,26 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                 onPointerDown={onInteraction}
                 onClick={onPreviewClick}
             >
-                <BlurryImage
-                    src={toThumbnailUrl(url, { width: 768 }) ?? url}
-                    fallbackSrc={url}
-                    alt="Output"
-                    onLoad={onImageLoad}
-                    className={cn(
-                        "relative z-10",
-                        !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
-                    )}
-                />
+                <motion.div className="flex w-full" animate={{ x: `-${activeIdx * 100}%` }} transition={slideTransition}>
+                    {urls.map((u: string, i: number) => (
+                        <div key={u} className="w-full shrink-0 basis-full flex items-center justify-center">
+                            <BlurryImage
+                                src={toThumbnailUrl(u, { width: 768 }) ?? u}
+                                fallbackSrc={u}
+                                alt="Output"
+                                onLoad={i === activeIdx ? onImageLoad : undefined}
+                                // h-auto so the wrapper hugs the image height instead
+                                // of BlurryImage's default h-full (which collapses to
+                                // 0 inside the flex track and clips the image).
+                                containerClassName="h-auto"
+                                className={cn(
+                                    "relative z-10",
+                                    !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
+                                )}
+                            />
+                        </div>
+                    ))}
+                </motion.div>
                 {NavArrows}
             </div>
         );
