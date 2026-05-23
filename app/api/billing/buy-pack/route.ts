@@ -1,27 +1,33 @@
 /**
  * Silent credit-pack purchase.
  *
- * Charges the user's saved payment method directly via `transactions.create`
- * against their Paddle CUSTOMER record. This is intentionally not coupled to
- * subscriptions — a credit pack is a standalone purchase. Anyone with a card
- * on file (current subscriber, ex-subscriber, or someone who bought a pack
- * before) can use the silent flow.
+ * A card saved against a Paddle SUBSCRIPTION is bound to that subscription —
+ * it is NOT reusable for an arbitrary customer-level transaction. So a fresh
+ * `transactions.create` against the customer comes back `ready` (Paddle won't
+ * auto-bill it) and forces the checkout overlay, even for paying subscribers.
+ * That's why plan changes are silent (they mutate the subscription, reusing
+ * its bound card) but top-ups used to pop the overlay.
+ *
+ * Fix: bill subscribers the same way plan changes are billed — as a one-time
+ * charge ON the subscription (`subscriptions.createOneTimeCharge`), which
+ * reuses the bound payment method with no checkout. Fall back to the
+ * customer-level transaction (and then the overlay) only when there's no
+ * active subscription to charge.
  *
  * Flow:
- *   1. Find the user's `paddle_customer_id`. No customer record yet (free
- *      user who's never purchased) → return `requiresCheckout: true` so the
- *      client opens the Paddle.js overlay for first-time card capture.
- *   2. Create a transaction with `collectionMode: 'automatic'`. Paddle
- *      attempts to bill the customer's default payment method immediately.
- *   3. Inspect the returned status:
- *      - `completed` / `paid` → charge succeeded; webhook will grant credits.
- *      - `past_due` → card declined; return a clear error to the client.
- *      - `ready` / `draft` → Paddle couldn't auto-bill (no saved card);
- *        fall back to the overlay.
+ *   1. Active subscription → `createOneTimeCharge(effectiveFrom: immediately)`.
+ *      Silent; reuses the subscription's payment method. Webhook grants credits
+ *      when the spawned `transaction.completed` lands.
+ *   2. No active sub but a `paddle_customer_id` (ex-subscriber) → attempt a
+ *      customer-level `transactions.create`; status `ready`/`draft` falls back
+ *      to the overlay so they can supply a card.
+ *   3. No customer record at all → `requiresCheckout: true` immediately.
  *
  * Credits aren't granted here; the existing `transaction.completed` webhook
  * handler does that with full idempotency. This endpoint only kicks off the
- * charge — the source of truth for "did the grant happen" is the ledger.
+ * charge — the source of truth for "did the grant happen" is the ledger. The
+ * subscription-charge path doesn't return the spawned transaction, so the
+ * client confirms via `pollLedgerForPack` (filtered by pack ID).
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
@@ -90,17 +96,43 @@ export async function POST(request: Request) {
         const service = createServiceClient();
         const { data: sub } = await service
             .from('subscriptions')
-            .select('paddle_customer_id')
+            .select('paddle_customer_id, paddle_subscription_id, status')
             .eq('user_id', user.id)
             .maybeSingle();
+
+        const paddle = getPaddle();
+
+        // Preferred path: the user has an ACTIVE subscription. Charge the pack
+        // as a one-time addition to it, reusing the payment method already
+        // bound to the subscription. This is the same mechanism that makes plan
+        // changes silent — no checkout overlay. `prevent_change` ensures a
+        // declined card doesn't apply a phantom charge; with no completed
+        // transaction the webhook never grants credits.
+        if (sub?.paddle_subscription_id && sub.status === 'active') {
+            try {
+                await paddle.subscriptions.createOneTimeCharge(sub.paddle_subscription_id, {
+                    effectiveFrom: 'immediately',
+                    onPaymentFailure: 'prevent_change',
+                    items: [{ priceId: pack.paddlePriceId, quantity: 1 }],
+                });
+            } catch (chargeErr: any) {
+                console.error('[Buy Pack] createOneTimeCharge failed:', chargeErr);
+                return NextResponse.json(
+                    { error: chargeErr?.message || 'Could not charge your saved card.' },
+                    { status: 502 },
+                );
+            }
+
+            // The spawned transaction isn't returned here; the client confirms
+            // the grant by polling the ledger for this pack.
+            return NextResponse.json({ ok: true });
+        }
 
         // No Paddle customer = nobody to charge silently. Fall back to the
         // overlay so the user can enter (and save) a card on this purchase.
         if (!sub?.paddle_customer_id) {
             return NextResponse.json({ requiresCheckout: true });
         }
-
-        const paddle = getPaddle();
 
         let tx;
         try {
