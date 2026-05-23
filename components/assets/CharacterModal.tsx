@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Sparkles, Star, Loader2, Wand2, ScanFace } from 'lucide-react';
 import { uploadApi, charactersApi, generateCharacterStream, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
@@ -45,6 +46,12 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const photoInputRef = useRef<HTMLInputElement>(null);
+
+    // Portal to <body> so the fixed-inset overlay centers on the viewport even
+    // when a parent (e.g. the framer-motion slide-in side panel) has a CSS
+    // transform that would otherwise become the containing block for `fixed`.
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => setMounted(true), []);
 
     useEffect(() => {
         if (open) {
@@ -209,7 +216,9 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
         }
     };
 
-    return (
+    if (!mounted) return null;
+
+    return createPortal(
         <AnimatePresence>
             {open && (
                 <motion.div
@@ -391,6 +400,7 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                     )}
                 </motion.div>
             )}
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body,
     );
 }

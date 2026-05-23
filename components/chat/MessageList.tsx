@@ -88,7 +88,7 @@ export function MessageList({
             {!isLoadingSession && messages.length === 0 && !isLoading && emptyState}
 
             <div ref={contentRef} className={`max-w-3xl mx-auto space-y-6 pb-2 w-full ${!isLoadingSession && messages.length === 0 && !isLoading ? 'hidden' : ''}`}>
-                {isLoadingSession ? (
+                {isLoadingSession && messages.length === 0 ? (
                     skeletonSlot
                 ) : (
                     messages.map((message, index) => {

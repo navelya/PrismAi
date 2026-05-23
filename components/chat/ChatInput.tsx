@@ -26,7 +26,8 @@ import { Select, type SelectOption } from '@/components/ui/Select';
 import { SelectionPillRow } from './SelectionPillRow';
 import { useCharacters } from '@/lib/hooks/use-characters';
 import CharacterMentionPicker, { filterCharacters, extractMentionedCharacters } from './CharacterMentionPicker';
-import type { Character } from '@/lib/api/client';
+import CharacterModal from '@/components/assets/CharacterModal';
+import type { Character, CharacterInput } from '@/lib/api/client';
 
 const PLUS_MENU_OPTIONS: SelectOption[] = [
     {
@@ -82,7 +83,6 @@ interface ChatInputProps {
      *  in order of appearance. The roster above the input is read-only — the
      *  text itself is the source of truth. */
     onMentionedCharactersChange: (chars: Character[]) => void;
-    onOpenCharacterCreate?: () => void;
 }
 
 const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
@@ -105,7 +105,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             onModelSelect,
             hasMessages = false,
             onMentionedCharactersChange,
-            onOpenCharacterCreate,
         },
         ref
     ) {
@@ -119,9 +118,13 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         const plusTriggerRef = useRef<HTMLButtonElement>(null);
         const modelTriggerRef = useRef<HTMLButtonElement>(null);
 
-        const { characters } = useCharacters();
+        const { characters, createCharacter } = useCharacters();
         const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = picker closed
         const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+        // "Create new character" from the @-mention picker opens this modal.
+        // Sharing this ChatInput's useCharacters instance means a freshly
+        // created character is immediately mentionable.
+        const [createCharacterOpen, setCreateCharacterOpen] = useState(false);
 
         const detectMention = useCallback((text: string, caret: number): string | null => {
             const upto = text.slice(0, caret);
@@ -326,9 +329,16 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                             query={mentionQuery}
                             activeIndex={mentionActiveIndex}
                             onSelect={insertCharacterMention}
-                            onCreateNew={() => { setMentionQuery(null); onOpenCharacterCreate?.(); }}
+                            onCreateNew={() => { setMentionQuery(null); setCreateCharacterOpen(true); }}
                         />
                     )}
+
+                    <CharacterModal
+                        open={createCharacterOpen}
+                        initial={null}
+                        onClose={() => setCreateCharacterOpen(false)}
+                        onSave={async (input: CharacterInput) => { await createCharacter(input); }}
+                    />
 
                     {attachedImages.length > 0 && (
                         <div

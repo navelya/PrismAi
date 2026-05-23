@@ -21,7 +21,6 @@ interface ChatInputProps {
     onRemoveAttachedImage: (index: number) => void;
     hasMessages?: boolean;
     onMentionedCharactersChange: (chars: Character[]) => void;
-    onOpenCharacterCreate?: () => void;
 }
 
 interface ChatEmptyStateProps {
