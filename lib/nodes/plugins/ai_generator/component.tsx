@@ -11,6 +11,7 @@ import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
+import BlurryVideo from '@/components/ui/BlurryVideo';
 import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
 import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
@@ -542,7 +543,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                     onPointerDown={onInteraction}
                     onClick={onPreviewClick}
                 >
-                    <video
+                    <BlurryVideo
                         ref={videoRef}
                         src={url}
                         muted
@@ -562,8 +563,12 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                         // dimensions from the start; object-contain + max-h
                         // keep aspect ratio once the first frame paints.
                         width={320}
+                        // h-auto on the wrapper so it sizes to the video instead
+                        // of BlurryVideo's default h-full; max-w-none drops the
+                        // 420px cap that doesn't apply to this layout.
+                        containerClassName="h-auto"
                         className={cn(
-                            "w-full h-auto object-contain max-h-[420px] min-h-[200px] bg-black/40",
+                            "w-full h-auto object-contain max-w-none max-h-[420px] min-h-[200px] bg-black/40",
                             !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                         )}
                     />

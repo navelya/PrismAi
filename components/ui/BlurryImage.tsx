@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { blurRevealMotion } from './blur-reveal';
 
 interface BlurryImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'onDrag' | 'onDragStart' | 'onDragEnd' | 'onAnimationStart' | 'onLoad'> {
     containerClassName?: string;
@@ -59,16 +60,7 @@ export default function BlurryImage({
                     key={src}
                     src={displaySrc}
                     alt={alt}
-                    initial={{ filter: `blur(${blurAmount})`, opacity: 0.3 }}
-                    animate={{
-                        filter: isLoaded ? 'blur(0px)' : `blur(${blurAmount})`,
-                        opacity: isLoaded ? 1 : 0.5,
-                        scale: isLoaded ? 1 : 1.05
-                    }}
-                    transition={{
-                        duration: transitionDuration,
-                        ease: [0.4, 0, 0.2, 1]
-                    }}
+                    {...blurRevealMotion(isLoaded, blurAmount, transitionDuration)}
                     onLoad={(e) => {
                         setIsLoaded(true);
                         const img = e.currentTarget;

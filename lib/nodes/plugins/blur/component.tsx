@@ -8,6 +8,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import BlurryImage from '@/components/ui/BlurryImage';
+import BlurryVideo from '@/components/ui/BlurryVideo';
 import { BlurConfig } from './definition';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
@@ -458,7 +459,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                                 )}
                             />
                         ) : mediaKind === 'video' ? (
-                            <video
+                            <BlurryVideo
                                 ref={previewVideoRef}
                                 src={mediaUrl as string}
                                 loop
@@ -467,7 +468,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                                 preload="metadata"
                                 onLoadedMetadata={handleVideoMetadata}
                                 className={cn(
-                                    "relative z-10 w-full h-full object-cover",
+                                    "relative z-10 w-full h-full object-cover max-w-none max-h-none",
                                     !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                                 )}
                             />

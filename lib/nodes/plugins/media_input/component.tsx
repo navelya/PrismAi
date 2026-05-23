@@ -9,6 +9,8 @@ import { LayoutGrid, Square, Check, Upload, Plus, X, Play } from 'lucide-react';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import ImageLightbox from '@/components/ui/ImageLightbox';
+import BlurryImage from '@/components/ui/BlurryImage';
+import BlurryVideo from '@/components/ui/BlurryVideo';
 
 interface MediaInputNodeData {
     label: string;
@@ -222,10 +224,10 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                             >
                                 {isVideo(getMediaUrl(images[activeImageIndex])) ? (
                                     <>
-                                        <video
+                                        <BlurryVideo
                                             ref={videoRef}
                                             src={getMediaUrl(images[activeImageIndex])}
-                                            className="w-full h-full object-contain"
+                                            className="w-full h-full object-contain max-w-none max-h-none"
                                             controls={false}
                                             muted
                                             loop
@@ -236,10 +238,10 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                         </div>
                                     </>
                                 ) : (
-                                    <img
+                                    <BlurryImage
                                         src={getMediaUrl(images[activeImageIndex])}
                                         alt=""
-                                        className="w-full h-full object-contain"
+                                        className="w-full h-full max-w-none max-h-none"
                                     />
                                 )}
                                 <button
@@ -268,17 +270,17 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                                 )}
                                             >
                                                 {isVid ? (
-                                                    <video
+                                                    <BlurryVideo
                                                         src={url}
-                                                        className="w-full h-full object-cover"
+                                                        className="w-full h-full object-cover max-w-none max-h-none"
                                                         muted
                                                         playsInline
                                                     />
                                                 ) : (
-                                                    <img 
-                                                        src={url} 
-                                                        alt="" 
-                                                        className="w-full h-full object-cover" 
+                                                    <BlurryImage
+                                                        src={url}
+                                                        alt=""
+                                                        className="w-full h-full object-cover max-w-none max-h-none"
                                                     />
                                                 )}
                                                 {activeImageIndex === index && (

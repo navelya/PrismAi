@@ -5,6 +5,7 @@ import { NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
 import { UserCircle } from 'lucide-react';
+import BlurryImage from '@/components/ui/BlurryImage';
 import { CharacterConfig } from './definition';
 
 interface CharacterNodeData {
@@ -33,7 +34,7 @@ function CharacterNode({ data, id, selected }: NodeProps<CharacterNodeData>) {
             <div className="flex flex-col gap-2">
                 <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-white/5 border border-white/10">
                     {primary ? (
-                        <img src={primary} alt={config.name || 'Character'} className="w-full h-full object-cover" />
+                        <BlurryImage src={primary} alt={config.name || 'Character'} className="w-full h-full object-cover max-w-none max-h-none" />
                     ) : (
                         <div className="absolute inset-0 flex items-center justify-center text-content-tertiary">
                             <UserCircle className="w-10 h-10" />
