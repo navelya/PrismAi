@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, memo } from 'react';
 import { useUpdateNodeInternals } from 'reactflow';
-import { Zap, Check, Square, LayoutGrid, MoreHorizontal, Play, Coins } from 'lucide-react';
+import { Zap, Check, Square, LayoutGrid, MoreHorizontal, Play, Coins, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,7 @@ import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
 import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
+import { clampSelectedIndex, selectedValue, type GeneratedOutput } from './outputs';
 
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
@@ -65,6 +66,28 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const [lightboxIndex, setLightboxIndex] = useState(0);
 
     const triggerRunFromNode = useAppStore(state => state.triggerRunFromNode);
+    const updateNodeConfig = useAppStore(state => state.updateNodeConfig);
+
+    // The persisted, newest-first collection. Backward-compat: a node saved
+    // before this feature has only last_output — surface it as a single-item
+    // collection so old workflows still render and are selectable.
+    const persistedOutputs: GeneratedOutput[] = Array.isArray(data.config?.outputs)
+        ? data.config.outputs
+        : (data.config?.last_output != null
+            ? [{ type: (inferResultTypeFromValue(data.config.last_output) ?? 'image') as any, value: data.config.last_output }]
+            : []);
+
+    const selectedIndex = clampSelectedIndex(data.config?.selected_output_index, persistedOutputs.length);
+
+    const selectOutputIndex = (i: number) => {
+        if (persistedOutputs.length === 0) return;
+        const clamped = clampSelectedIndex(i, persistedOutputs.length);
+        updateNodeConfig(id, {
+            ...(data.config || {}),
+            selected_output_index: clamped,
+            last_output: selectedValue(persistedOutputs, clamped),
+        });
+    };
 
     const openLightbox = (index: number) => {
         setLightboxIndex(index);
@@ -190,6 +213,19 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         activeType = inferredType;
     }
 
+    // When a persisted collection exists, it is the source of truth for the
+    // preview: single view shows the selected item; grid shows all.
+    let collectionUrls: any[] | null = null;
+    let collectionType: string = activeType;
+    if (persistedOutputs.length > 0) {
+        collectionUrls = persistedOutputs.map((o) => o.value);
+        const selType = persistedOutputs[selectedIndex]?.type;
+        collectionType = (selType as any) || activeType;
+    }
+    const effectiveOutput = collectionUrls ?? previewOutput;
+    const effectiveType = collectionUrls ? collectionType : activeType;
+    const effectiveIndex = collectionUrls ? selectedIndex : activeImageIndex;
+
     // Sizing model:
     //   text / audio → fixed width (no intrinsic-width content to drive layout)
     //   image / video / other media → node sizes to the image's natural width,
@@ -260,33 +296,39 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                 )}
 
                 {/* Content Preview */}
-                {previewOutput && (
+                {effectiveOutput && (
                     <OutputPreview
                         nodeId={id}
-                        output={previewOutput}
-                        // Use activeType (derived from the actual data via
-                        // inferResultTypeFromValue) instead of previewType
-                        // (derived from the model's outputs_schema). When the
-                        // store entry is a raw array — which use-session.ts
-                        // still writes on initial hydration — isTypedOutput is
-                        // false and previewType falls back to whatever the
-                        // first output handle declares, often 'any' or 'image'.
-                        // OutputPreview then routes a .mp4 URL into <img> and
-                        // the preview renders empty. activeType reads the URL
-                        // extension and always picks the right branch.
-                        type={activeType}
+                        output={effectiveOutput}
+                        // Use effectiveType (derived from the persisted collection
+                        // or from the actual data via inferResultTypeFromValue)
+                        // instead of previewType (derived from the model's
+                        // outputs_schema). When the store entry is a raw array —
+                        // which use-session.ts still writes on initial hydration —
+                        // isTypedOutput is false and previewType falls back to
+                        // whatever the first output handle declares, often 'any'
+                        // or 'image'. OutputPreview then routes a .mp4 URL into
+                        // <img> and the preview renders empty. effectiveType reads
+                        // the URL extension and always picks the right branch.
+                        type={effectiveType}
                         previewMode={previewMode}
-                        activeImageIndex={activeImageIndex}
+                        activeImageIndex={effectiveIndex}
+                        itemCount={collectionUrls ? collectionUrls.length : (Array.isArray(previewOutput) ? previewOutput.length : 1)}
                         onImageLoad={handleImageLoad}
+                        onSelectIndex={(i: number) => {
+                            if (collectionUrls) selectOutputIndex(i);
+                            else setActiveImageIndex(i);
+                        }}
                         onImageClick={(idx: number, e: React.MouseEvent) => {
                             e.stopPropagation();
-                            setActiveImageIndex(idx);
+                            if (collectionUrls) selectOutputIndex(idx);
+                            else setActiveImageIndex(idx);
                             if (previewMode === 'single') openLightbox(idx);
                         }}
                         onPreviewClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
-                            if (activeType === 'image' || activeType === 'video') {
-                                openLightbox(activeImageIndex);
+                            if (effectiveType === 'image' || effectiveType === 'video') {
+                                openLightbox(effectiveIndex);
                             }
                         }}
                         onInteraction={(e: React.MouseEvent | React.PointerEvent) => e.stopPropagation()}
@@ -298,7 +340,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                 {status === 'running' && <GlassyLoader containerClassName="z-50 bg-black/40 backdrop-blur-md" />}
 
                 {/* View Toggles - Only show for media grids with multiple items */}
-                {isMediaResultType(previewType as any) && Array.isArray(previewOutput) && previewOutput.length > 1 && (
+                {isMediaResultType(effectiveType as any) && Array.isArray(effectiveOutput) && effectiveOutput.length > 1 && (
                     <div className="absolute bottom-3 right-3 flex bg-black/60 backdrop-blur-xl rounded-xl p-1 border border-white/10 z-20 shadow-2xl opacity-0 group-hover/node:opacity-100 transition-opacity">
                         <button
                             onClick={(e) => { e.stopPropagation(); setPreviewMode('single'); }}
@@ -373,14 +415,14 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             )}
 
             {/* Image Lightbox */}
-            {lightboxOpen && previewOutput && (
+            {lightboxOpen && effectiveOutput && (
                 <ImageLightbox
-                    media={previewOutput}
+                    media={effectiveOutput}
                     // Same reason as OutputPreview above: use the data-derived
-                    // activeType, not the schema-derived previewType. If we
+                    // effectiveType, not the schema-derived previewType. If we
                     // hand the lightbox 'image' for a .mp4 it forces the <img>
                     // branch and the lightbox renders blank.
-                    type={activeType as any}
+                    type={effectiveType as any}
                     initialIndex={lightboxIndex}
                     onClose={() => setLightboxOpen(false)}
                 />
@@ -397,7 +439,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 // OUTPUT PREVIEW
 // =============================================================================
 
-function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, onImageLoad, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
+function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, itemCount, onImageLoad, onSelectIndex, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
     const items = Array.isArray(output) ? output : [output];
     const urls = items
         .map((o: any) => (typeof o === 'string' ? o : o?.url))
@@ -405,6 +447,37 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
 
     const extractedText = extractTextValues(output);
     const textContent = extractedText.length > 0 ? extractedText.join('') : null;
+
+    const count = typeof itemCount === 'number' ? itemCount : urls.length;
+    const canNavigate = count > 1 && previewMode === 'single';
+    const go = (delta: number, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const next = ((activeImageIndex ?? 0) + delta + count) % count;
+        onSelectIndex?.(next);
+    };
+    const NavArrows = canNavigate ? (
+        <>
+            <button
+                onMouseDown={onInteraction}
+                onClick={(e) => go(-1, e)}
+                className="absolute top-1/2 left-2 -translate-y-1/2 z-30 w-8 h-8 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center opacity-0 group-hover/preview:opacity-100 transition-opacity"
+                title="Previous"
+            >
+                <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+                onMouseDown={onInteraction}
+                onClick={(e) => go(1, e)}
+                className="absolute top-1/2 right-2 -translate-y-1/2 z-30 w-8 h-8 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center opacity-0 group-hover/preview:opacity-100 transition-opacity"
+                title="Next"
+            >
+                <ChevronRight className="w-5 h-5" />
+            </button>
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 px-2 py-0.5 rounded-full bg-black/55 text-white text-[10px] font-mono opacity-0 group-hover/preview:opacity-100 transition-opacity">
+                {(activeImageIndex ?? 0) + 1} / {count}
+            </div>
+        </>
+    ) : null;
 
     const videoRef = React.useRef<HTMLVideoElement>(null);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -575,6 +648,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center">
                         <Play className="w-10 h-10 text-white fill-current" />
                     </div>
+                    {NavArrows}
                 </div>
             );
         }
@@ -596,6 +670,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, on
                         !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                     )}
                 />
+                {NavArrows}
             </div>
         );
     }
