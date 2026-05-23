@@ -404,13 +404,38 @@ export async function POST(request: NextRequest) {
     if (generativeNodeIds.length > 0) {
       const { data: modelRows } = await supabase
         .from('ai_models')
-        .select('id, credit_cost, inputs_schema')
+        .select('id, credit_cost, cost_per_image, cost_per_video, inputs_schema')
         .in('id', generativeNodeIds);
 
       const modelsById = new Map<number, any>();
       (modelRows || []).forEach((m: any) => modelsById.set(m.id, m));
 
-      const result = computeExecutionCost(costNodes, modelsById);
+      // Connected-media pricing is counted from the FULL graph (executableNodes /
+      // allEdges), never the trimmed target set — otherwise media from an
+      // out-of-set media_input node would be undercounted and the debit would
+      // drift below the client estimate.
+      const graphForCost = {
+        allNodes: executableNodes.map((n: any) => {
+          const data = n.data || {};
+          const inner = data.config || {};
+          return {
+            id: n.id,
+            type: n.type,
+            config: {
+              model_id: inner.model_id ?? data.model_id,
+              control_values: inner.control_values ?? data.control_values,
+              images: inner.images ?? data.images,
+            },
+          };
+        }),
+        edges: allEdges.map((e: any) => ({
+          source: e.source,
+          target: e.target,
+          targetHandle: e.targetHandle ?? null,
+        })),
+      };
+
+      const result = computeExecutionCost(costNodes, modelsById, graphForCost);
       cost = result.cost;
 
       console.log(`[Execution/Start] Cost calc — generative nodes: ${result.generativeCount}, total cost: ${cost}, model rows fetched: ${modelRows?.length ?? 0}, model ids referenced: [${generativeNodeIds.join(', ')}]`);
