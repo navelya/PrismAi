@@ -8,7 +8,13 @@ interface BlurryImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement
     containerClassName?: string;
     blurAmount?: string;
     transitionDuration?: number;
-    onLoad?: () => void;
+    /**
+     * Fired when the image finishes loading. Receives the image's natural
+     * (intrinsic) pixel dimensions so callers can size their container to the
+     * real aspect ratio — see the ai_generator node, which uses this to avoid
+     * reserving extra width beside portrait outputs.
+     */
+    onLoad?: (dims?: { naturalWidth: number; naturalHeight: number }) => void;
     /**
      * Used when `src` fails to load (e.g. a Supabase image-transform URL on a
      * project where transformations aren't enabled). Lets callers pass the
@@ -63,9 +69,10 @@ export default function BlurryImage({
                         duration: transitionDuration,
                         ease: [0.4, 0, 0.2, 1]
                     }}
-                    onLoad={() => {
+                    onLoad={(e) => {
                         setIsLoaded(true);
-                        onLoad?.();
+                        const img = e.currentTarget;
+                        onLoad?.({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight });
                     }}
                     onError={() => {
                         if (fallbackSrc && !didFallback) setDidFallback(true);

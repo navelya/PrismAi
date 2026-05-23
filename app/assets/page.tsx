@@ -7,6 +7,7 @@ import type { Character, CharacterInput } from '@/lib/api/client';
 import CharacterGrid from '@/components/assets/CharacterGrid';
 import CharacterModal from '@/components/assets/CharacterModal';
 import AssetsGallery from '@/components/assets/AssetsGallery';
+import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 
 const TABS = [
     { id: 'assets', label: 'Assets' },
@@ -21,6 +22,7 @@ export default function AssetsPage() {
     const [search, setSearch] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<Character | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<Character | null>(null);
 
     const filtered = characters.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -85,12 +87,22 @@ export default function AssetsPage() {
                             loading={loading}
                             onCreate={openCreate}
                             onEdit={openEdit}
-                            onDelete={deleteCharacter}
+                            onDelete={(id) => setPendingDelete(characters.find((c) => c.id === id) ?? null)}
                         />
                     </>
                 )}
 
                 <CharacterModal open={modalOpen} initial={editing} onClose={() => setModalOpen(false)} onSave={handleSave} />
+
+                <ConfirmationModal
+                    isOpen={!!pendingDelete}
+                    onClose={() => setPendingDelete(null)}
+                    onConfirm={() => { if (pendingDelete) void deleteCharacter(pendingDelete.id); }}
+                    title="Delete character?"
+                    message={`"${pendingDelete?.name ?? ''}" and all its reference images will be permanently deleted. This can't be undone.`}
+                    confirmText="Delete"
+                    variant="danger"
+                />
             </div>
         </div>
     );

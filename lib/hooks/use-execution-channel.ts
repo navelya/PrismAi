@@ -37,6 +37,7 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
     // Map DB statuses to UI statuses
     if (status === 'completed') {
         store.setNodeStatus(nodeId, 'success');
+        store.setNodeError(nodeId, null);
         const finalType = resultType
             ? normalizeNodeResultType(resultType)
             : inferResultTypeFromValue(resultData);
@@ -48,12 +49,25 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
     } else if (status === 'failed') {
         store.setNodeStatus(nodeId, 'error');
         store.setNodeOutput(nodeId, null);
+        // Surface the server's failure message (usually the Replicate prediction
+        // error) on the node's error badge. `error` may be a string or, for some
+        // failures, a structured value — normalize to a readable string.
+        store.setNodeError(
+            nodeId,
+            typeof error === 'string'
+                ? error
+                : error
+                    ? (() => { try { return JSON.stringify(error); } catch { return String(error); } })()
+                    : 'Generation failed',
+        );
         if (source === 'realtime') {
             console.error(`[ExecutionChannel] Node ${nodeId} failed:`, error);
         }
     } else {
-        // 'pending' and 'running' pass through directly
+        // 'pending' and 'running' pass through directly. Clear any stale error
+        // from a prior failed run so a re-run doesn't show an outdated tooltip.
         store.setNodeStatus(nodeId, status);
+        store.setNodeError(nodeId, null);
     }
 }
 

@@ -7,6 +7,7 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
     executionStartTime: null,
     nodeStatuses: {},
     nodeOutputs: {},
+    nodeErrors: {},
 
     addExecutionResult: (workflowId, result) =>
         set((state) => ({
@@ -46,7 +47,22 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
             };
         }),
 
-    resetNodeStatuses: () => set({ nodeStatuses: {} }),
+    setNodeError: (nodeId, error) =>
+        set((state) => {
+            const current = state.nodeErrors[nodeId];
+            // No-op when nothing changes (avoids redundant renders). The `null`
+            // path clears any existing message.
+            if (error) {
+                if (current === error) return state;
+                return { nodeErrors: { ...state.nodeErrors, [nodeId]: error } };
+            }
+            if (current === undefined) return state;
+            const next = { ...state.nodeErrors };
+            delete next[nodeId];
+            return { nodeErrors: next };
+        }),
+
+    resetNodeStatuses: () => set({ nodeStatuses: {}, nodeErrors: {} }),
 
     setNodeOutput: (nodeId, output) =>
         set((state) => ({
@@ -59,34 +75,40 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
     clearNodeOutputs: () => set({ nodeOutputs: {} }),
 
     cleanupNodeMetadata: (nodeId: string) => {
-        const { nodeStatuses, nodeOutputs } = get();
+        const { nodeStatuses, nodeOutputs, nodeErrors } = get();
 
         const newStatuses = { ...nodeStatuses };
         const newOutputs = { ...nodeOutputs };
+        const newErrors = { ...nodeErrors };
 
         delete newStatuses[nodeId];
         delete newOutputs[nodeId];
+        delete newErrors[nodeId];
 
         set({
             nodeStatuses: newStatuses,
             nodeOutputs: newOutputs,
+            nodeErrors: newErrors,
         });
     },
 
     invalidateNodes: (nodeIds) => {
         const state = get();
-        
+
         const newStatuses = { ...state.nodeStatuses };
         const newOutputs = { ...state.nodeOutputs };
+        const newErrors = { ...state.nodeErrors };
 
         nodeIds.forEach((id) => {
             delete newStatuses[id];
             delete newOutputs[id];
+            delete newErrors[id];
         });
 
         set({
             nodeStatuses: newStatuses,
             nodeOutputs: newOutputs,
+            nodeErrors: newErrors,
         });
     },
 });

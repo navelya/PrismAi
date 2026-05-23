@@ -243,7 +243,22 @@ export async function POST(request: NextRequest) {
             if (parentResult) {
               const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
               const result = arrayInputKeys.has(inputKey) ? parentResult.resultData : parentResult.primary;
-              nodeInputs[inputKey] = result;
+              // Array handles can be fed by multiple edges (e.g. several
+              // generative ancestors into one `image_input` slot). Concatenate
+              // rather than overwrite so no upstream's images get dropped —
+              // mirrors buildInputsFromParents in orchestrator.ts.
+              if (arrayInputKeys.has(inputKey)) {
+                const existing = nodeInputs[inputKey];
+                const existingArr = Array.isArray(existing)
+                  ? existing
+                  : existing !== undefined && existing !== null
+                    ? [existing]
+                    : [];
+                const incomingArr = Array.isArray(result) ? result : [result];
+                nodeInputs[inputKey] = [...existingArr, ...incomingArr];
+              } else {
+                nodeInputs[inputKey] = result;
+              }
               // Compositor layers store `layer.sourceHandleId = edge.id` because
               // every layer edge shares the same static `layers` target handle,
               // so per-edge id is the only way to disambiguate which upstream

@@ -4,13 +4,14 @@ import React, { useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     MessageSquare, Minimize2, Plus,
-    Image as ImageIcon, BookOpen
+    Image as ImageIcon, BookOpen, Users
 } from 'lucide-react';
 import SharedWorkflowEditor from '@/components/editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { Workflow } from '@/lib/nodes/types';
 import { AssetsPanel } from '@/components/editor/AssetsPanel';
+import { CharactersPanel } from '@/components/editor/CharactersPanel';
 import { TemplatesModal } from '@/components/editor/TemplatesModal';
 import NodeLibraryPanel from '@/components/editor/NodeLibraryPanel';
 
@@ -30,7 +31,7 @@ const SIDEBAR_WIDTH = 340;
 const PANEL_W = 320; // left-side panel width
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type ActivePanel = 'node-library' | 'assets' | 'templates' | null;
+type ActivePanel = 'node-library' | 'assets' | 'characters' | 'templates' | null;
 
 export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult, sessionId }: WorkspaceLayoutProps) {
     const isMobile = useIsMobile();
@@ -44,6 +45,14 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
+    // Panels that fetch from the server (assets, characters) stay mounted once
+    // first opened — they only animate in/out, never unmount. This keeps their
+    // data (and the Assets realtime subscription) alive across open/close, so
+    // reopening is instant and there is no redundant refetch. Lazily tracked so
+    // we don't pay the fetch for panels the user never opens. The chat panel
+    // (LAYER 2) uses this same always-mounted pattern.
+    const [mountedPanels, setMountedPanels] = useState<Set<ActivePanel>>(() => new Set());
+
     // Reset transient sidebar visibility when the session changes so a stale
     // "chat minimized" toggle from a previous session doesn't carry over.
     useLayoutEffect(() => {
@@ -54,14 +63,19 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
 
     const togglePanel = useCallback((panel: ActivePanel) => {
         setActivePanel(prev => (prev === panel ? null : panel));
+        // Mark data-fetching panels as mounted on first open so they persist.
+        if (panel === 'assets' || panel === 'characters') {
+            setMountedPanels(prev => (prev.has(panel) ? prev : new Set(prev).add(panel)));
+        }
         // Close chat when switching to a left panel
         if (!isCopilotMinimized) setIsCopilotMinimized(true);
     }, [isCopilotMinimized, setIsCopilotMinimized]);
 
     const isNodeLibraryOpen = activePanel === 'node-library';
     const isAssetsOpen = activePanel === 'assets';
+    const isCharactersOpen = activePanel === 'characters';
     const isTemplatesOpen = activePanel === 'templates';
-    const hasLeftPanel = isNodeLibraryOpen || isAssetsOpen;
+    const hasLeftPanel = isNodeLibraryOpen || isAssetsOpen || isCharactersOpen;
 
     // Chat is open when copilot is not minimized (in canvas mode)
     const isChatOpen = isCanvasMode && !isCopilotMinimized;
@@ -142,21 +156,38 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
             </AnimatePresence>
 
             {/* ── LAYER 3b · Assets Panel ────────────────────────────────────── */}
-            <AnimatePresence>
-                {isCanvasMode && isAssetsOpen && (
-                    <motion.div
-                        key="assets-panel"
-                        className="marquee-passthrough absolute left-4 bottom-4 z-[55] pointer-events-auto"
-                        style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
-                        initial={{ opacity: 0, x: -24 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -24 }}
-                        transition={{ duration: 0.18, ease: 'easeOut' }}
-                    >
-                        <AssetsPanel sessionId={sessionId} onClose={() => setActivePanel(null)} />
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {/* Mounted once first opened, then animated in/out — never unmounted,
+                so its data + realtime subscription survive close/reopen. */}
+            {isCanvasMode && mountedPanels.has('assets') && (
+                <motion.div
+                    key="assets-panel"
+                    className="marquee-passthrough absolute left-4 bottom-4 z-[55]"
+                    style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
+                    initial={{ opacity: 0, x: -24 }}
+                    animate={isAssetsOpen
+                        ? { opacity: 1, x: 0, pointerEvents: 'auto' as any }
+                        : { opacity: 0, x: -24, pointerEvents: 'none' as any }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                >
+                    <AssetsPanel sessionId={sessionId} onClose={() => setActivePanel(null)} />
+                </motion.div>
+            )}
+
+            {/* ── LAYER 3b' · Characters Panel ───────────────────────────────── */}
+            {isCanvasMode && mountedPanels.has('characters') && (
+                <motion.div
+                    key="characters-panel"
+                    className="marquee-passthrough absolute left-4 bottom-4 z-[55]"
+                    style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
+                    initial={{ opacity: 0, x: -24 }}
+                    animate={isCharactersOpen
+                        ? { opacity: 1, x: 0, pointerEvents: 'auto' as any }
+                        : { opacity: 0, x: -24, pointerEvents: 'none' as any }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                >
+                    <CharactersPanel onClose={() => setActivePanel(null)} />
+                </motion.div>
+            )}
 
             {/* ── LAYER 3c · Templates Modal ─────────────────────────────────── */}
             <TemplatesModal
@@ -244,6 +275,7 @@ function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelTogg
         { id: 'chat', label: 'Chat', icon: MessageSquare, onClick: onChatClick, isChat: true },
         { id: 'node-library', label: 'Add Node', icon: Plus, onClick: () => onPanelToggle('node-library') },
         { id: 'assets', label: 'Assets', icon: ImageIcon, onClick: () => onPanelToggle('assets') },
+        { id: 'characters', label: 'Characters', icon: Users, onClick: () => onPanelToggle('characters') },
         { id: 'templates', label: 'Templates', icon: BookOpen, onClick: () => onPanelToggle('templates') },
     ];
 

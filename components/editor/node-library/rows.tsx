@@ -26,14 +26,17 @@ export interface BasicsTileProps {
     icon: React.ComponentType<{ className?: string }>;
     payload: DragPayload;
     onDragStart?: () => void;
+    /** Click-to-add: drops the node at the viewport center. */
+    onAdd?: (payload: DragPayload) => void;
 }
 
-export function BasicsTile({ name, icon: Icon, payload, onDragStart }: BasicsTileProps) {
+export function BasicsTile({ name, icon: Icon, payload, onDragStart, onAdd }: BasicsTileProps) {
     return (
         <div
             draggable
             onDragStart={e => startDrag(e, payload, onDragStart)}
-            className={`${ROW_CLASS} cursor-move`}
+            onClick={onAdd ? () => onAdd(payload) : undefined}
+            className={`${ROW_CLASS} ${onAdd ? 'cursor-pointer' : 'cursor-move'}`}
         >
             <div className={ICON_CHIP_CLASS}>
                 <Icon className={ICON_CLASS} />
@@ -109,19 +112,22 @@ export function ProviderRow({ id, provider, active, onMouseEnter, onMouseLeave, 
 /** Two-line row whose subtitle is hidden by default and slides up from below
  *  on hover. The row's height is fixed by the icon chip (24 px) + padding,
  *  so revealing the subtitle never reflows neighbours. */
-function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDragPayload }: {
+function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDragPayload, onAdd }: {
     name: string;
     subtitle: string;
     leftSlot: React.ReactNode;
     draggable: boolean;
     onDragStart?: () => void;
     onDragPayload?: DragPayload;
+    onAdd?: (payload: DragPayload) => void;
 }) {
+    const clickable = !!(onAdd && onDragPayload);
     return (
         <div
             draggable={draggable}
             onDragStart={draggable && onDragPayload ? e => startDrag(e, onDragPayload, onDragStart) : undefined}
-            className={`${ROW_CLASS} ${draggable ? 'cursor-move' : ''}`}
+            onClick={clickable ? () => onAdd!(onDragPayload!) : undefined}
+            className={`${ROW_CLASS} ${clickable ? 'cursor-pointer' : draggable ? 'cursor-move' : ''}`}
         >
             {leftSlot}
             <div className="flex-1 min-w-0 relative">
@@ -139,9 +145,10 @@ function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDrag
 export interface NodeItemRowProps {
     nodeType: NodeTypeRecord;
     onDragStart?: () => void;
+    onAdd?: (payload: DragPayload) => void;
 }
 
-export function NodeItemRow({ nodeType, onDragStart }: NodeItemRowProps) {
+export function NodeItemRow({ nodeType, onDragStart, onAdd }: NodeItemRowProps) {
     const IconComp = (Icons[nodeType.icon_reference as keyof typeof Icons] as React.ComponentType<{ className?: string }>) || Icons.Zap;
     return (
         <RevealingRow
@@ -149,6 +156,7 @@ export function NodeItemRow({ nodeType, onDragStart }: NodeItemRowProps) {
             subtitle="Dynamic node"
             draggable
             onDragStart={onDragStart}
+            onAdd={onAdd}
             onDragPayload={{ type: 'ai_generator', node_type_id: nodeType.id, archetype_id: nodeType.archetype_id }}
             leftSlot={
                 <div className={ICON_CHIP_CLASS}>
@@ -163,15 +171,17 @@ export interface ModelItemRowProps {
     model: AiModel;
     provider?: { name: string; logo_url: string | null } | null;
     onDragStart?: () => void;
+    onAdd?: (payload: DragPayload) => void;
 }
 
-export function ModelItemRow({ model, provider, onDragStart }: ModelItemRowProps) {
+export function ModelItemRow({ model, provider, onDragStart, onAdd }: ModelItemRowProps) {
     return (
         <RevealingRow
             name={model.display_name}
             subtitle={model.replicate_model_id.split(':')[0]}
             draggable
             onDragStart={onDragStart}
+            onAdd={onAdd}
             onDragPayload={{ type: 'ai_generator', node_type_id: model.node_type_id, model_id: model.id }}
             leftSlot={
                 <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>

@@ -196,6 +196,20 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
 
     const handleDragStartClose = useCallback(() => onClose(), [onClose]);
 
+    // Click-to-add: drop the item at the viewport center (same path as drag)
+    // and close the panel — mirrors the drag-then-close UX. Only wired to
+    // addable leaf rows (Basics, nodes, models), never categories/providers.
+    const requestAddNode = useAppStore(s => s.requestAddNode);
+    const handleAdd = useCallback((payload: Record<string, unknown>) => {
+        requestAddNode({
+            type: String(payload.type),
+            nodeTypeId: payload.node_type_id as string | undefined,
+            modelId: payload.model_id as number | undefined,
+            initialConfig: payload.initialConfig as Record<string, any> | undefined,
+        });
+        onClose();
+    }, [requestAddNode, onClose]);
+
     return (
         <div
             ref={containerRef}
@@ -240,7 +254,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                 <SectionLabel>Basics</SectionLabel>
                                 <div className="grid grid-cols-2 gap-1">
                                     {basicsHits.map(({ tile, payload }) => (
-                                        <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
+                                        <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} onAdd={handleAdd} />
                                     ))}
                                 </div>
                             </section>
@@ -249,7 +263,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                             <section>
                                 <SectionLabel>Nodes</SectionLabel>
                                 <div className="space-y-0.5">
-                                    {nodeHits.map(nt => <NodeItemRow key={nt.id} nodeType={nt} onDragStart={handleDragStartClose} />)}
+                                    {nodeHits.map(nt => <NodeItemRow key={nt.id} nodeType={nt} onDragStart={handleDragStartClose} onAdd={handleAdd} />)}
                                 </div>
                             </section>
                         )}
@@ -259,7 +273,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                 <div className="space-y-0.5">
                                     {modelHits.map(m => {
                                         const provider = providers.find(p => p.id === String(m.provider_id));
-                                        return <ModelItemRow key={m.id} model={m} provider={provider} onDragStart={handleDragStartClose} />;
+                                        return <ModelItemRow key={m.id} model={m} provider={provider} onDragStart={handleDragStartClose} onAdd={handleAdd} />;
                                     })}
                                 </div>
                             </section>
@@ -277,7 +291,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                             <SectionLabel>Basics</SectionLabel>
                             <div className="grid grid-cols-2 gap-1">
                                 {resolvedBasics.map(({ tile, payload }) => (
-                                    <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} />
+                                    <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} onAdd={handleAdd} />
                                 ))}
                             </div>
                         </section>
@@ -336,6 +350,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                             onMouseEnter={cancelClose}
                             onMouseLeave={scheduleClose}
                             onDragStartClose={handleDragStartClose}
+                            onAdd={handleAdd}
                         />
                     )}
                 </AnimatePresence>,

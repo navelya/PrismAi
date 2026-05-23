@@ -291,6 +291,25 @@ const EditorCanvasInner = ({
         clearPendingCenterNodeId();
     }, [pendingCenterNodeId, reactFlowInstance, clearPendingCenterNodeId]);
 
+    // One-shot add-by-click from side panels (e.g. Characters): drop the
+    // requested node at the current viewport center. Routes through the same
+    // `onDrop` as drag-and-drop, so it gets model resolution + the `isNew`
+    // pop animation. Window center maps into the full-bleed canvas pane (and
+    // sits clear of the left-edge panels), with a little jitter so repeated
+    // adds don't stack exactly on top of each other.
+    const pendingAddNode = useAppStore((s) => s.pendingAddNode);
+    const clearPendingAddNode = useAppStore((s) => s.clearPendingAddNode);
+    useEffect(() => {
+        if (!pendingAddNode || !reactFlowInstance) return;
+        const jitter = () => (Math.random() - 0.5) * 80;
+        const position = reactFlowInstance.screenToFlowPosition({
+            x: window.innerWidth / 2 + jitter(),
+            y: window.innerHeight / 2 + jitter(),
+        });
+        onDrop(pendingAddNode.type as any, position, pendingAddNode.nodeTypeId, pendingAddNode.modelId, pendingAddNode.initialConfig);
+        clearPendingAddNode();
+    }, [pendingAddNode, reactFlowInstance, onDrop, clearPendingAddNode]);
+
     const { resolvedTheme } = useTheme();
 
     const edgeStyle = useMemo(() => ({
@@ -1181,7 +1200,7 @@ const EditorCanvasInner = ({
             try {
                 const payload = JSON.parse(rawData);
                 const position = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-                onDrop(payload.type, position, payload.node_type_id, undefined, payload.initialConfig);
+                onDrop(payload.type, position, payload.node_type_id, payload.model_id, payload.initialConfig);
                 return;
             } catch (e) { /* fallback to file-drop handling */ }
         }

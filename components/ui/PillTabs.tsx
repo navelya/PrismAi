@@ -7,6 +7,10 @@ export interface PillTabItem<V extends string = string> {
     value: V;
     label: string;
     icon?: React.ComponentType<{ className?: string }>;
+    /** Dim and disable the tab — non-clickable, with an optional hover hint. */
+    disabled?: boolean;
+    /** Tooltip shown on hover (e.g. "Coming soon" for a disabled tab). */
+    title?: string;
 }
 
 interface PillTabsProps<V extends string = string> {
@@ -36,19 +40,25 @@ export function PillTabs<V extends string = string>({
             {items.map((item) => {
                 const Icon = item.icon;
                 const active = item.value === value;
+                const disabled = !!item.disabled;
                 return (
                     <button
                         key={item.value}
                         type="button"
                         role="tab"
                         aria-selected={active}
-                        onClick={() => onChange(item.value)}
+                        aria-disabled={disabled}
+                        disabled={disabled}
+                        title={item.title}
+                        onClick={() => { if (!disabled) onChange(item.value); }}
                         className={cn(
                             'flex items-center gap-1 rounded-md font-semibold transition-all whitespace-nowrap',
                             isSm ? 'h-6 px-2 text-[10px]' : 'h-7 px-2.5 text-[11px]',
-                            active
-                                ? 'bg-white/10 text-content-primary shadow-sm'
-                                : 'text-content-tertiary hover:text-content-primary hover:bg-white/5'
+                            disabled
+                                ? 'text-content-tertiary/40 cursor-not-allowed'
+                                : active
+                                    ? 'bg-white/10 text-content-primary shadow-sm'
+                                    : 'text-content-tertiary hover:text-content-primary hover:bg-white/5'
                         )}
                     >
                         {Icon && <Icon className={cn(isSm ? 'w-3 h-3' : 'w-3.5 h-3.5')} />}

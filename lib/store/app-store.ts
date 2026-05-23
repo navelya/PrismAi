@@ -63,6 +63,7 @@ export const useAppStore = create<RootState>()(
                     executionStartTime: null,
                     nodeStatuses: {},
                     nodeOutputs: {},
+                    nodeErrors: {},
                     editorState: {
                         zoom: 1,
                         viewport: { x: 0, y: 0 },
@@ -162,6 +163,7 @@ export const useAppStore = create<RootState>()(
                     state.isDragging = false;
                     state.nodeStatuses = {};
                     state.nodeOutputs = {};
+                    state.nodeErrors = {};
                     state.executionResults = {};
                     state.activeExecutionId = null;
                     state.executionStartTime = null;

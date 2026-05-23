@@ -19,11 +19,13 @@ export interface NodeLibraryFlyoutProps {
     onMouseEnter: () => void;
     onMouseLeave: () => void;
     onDragStartClose: () => void;
+    /** Click-to-add: drops the item at the viewport center and closes. */
+    onAdd: (payload: Record<string, unknown>) => void;
 }
 
 export const FLYOUT_MAX_HEIGHT = 320;
 
-export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseEnter, onMouseLeave, onDragStartClose }: NodeLibraryFlyoutProps) {
+export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseEnter, onMouseLeave, onDragStartClose, onAdd }: NodeLibraryFlyoutProps) {
     const isEmpty = mode.items.length === 0;
 
     return (
@@ -45,12 +47,12 @@ export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseE
                     </div>
                 ) : mode.kind === 'category' ? (
                     mode.items.map(nt => (
-                        <NodeItemRow key={nt.id} nodeType={nt} onDragStart={onDragStartClose} />
+                        <NodeItemRow key={nt.id} nodeType={nt} onDragStart={onDragStartClose} onAdd={onAdd} />
                     ))
                 ) : (
                     mode.items.map(model => {
                         const provider = mode.providers.find(p => p.id === String(model.provider_id));
-                        return <ModelItemRow key={model.id} model={model} provider={provider} onDragStart={onDragStartClose} />;
+                        return <ModelItemRow key={model.id} model={model} provider={provider} onDragStart={onDragStartClose} onAdd={onAdd} />;
                     })
                 )}
             </div>

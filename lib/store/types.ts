@@ -99,6 +99,15 @@ export interface WorkflowSlice {
     selectNodeAndCenter: (nodeId: string) => void;
     clearPendingCenterNodeId: () => void;
 
+    // One-shot: when set, EditorCanvas drops this node at the current viewport
+    // center with the standard "new node" pop, then clears the field. Lets the
+    // side panels (Characters, Add Node) add a node by click instead of drag —
+    // mirrors the drag payload shape. `type` is a string (not NodeType) so
+    // plugin types like 'character' work.
+    pendingAddNode: { type: string; nodeTypeId?: string; modelId?: number; initialConfig?: Record<string, any> } | null;
+    requestAddNode: (payload: { type: string; nodeTypeId?: string; modelId?: number; initialConfig?: Record<string, any> }) => void;
+    clearPendingAddNode: () => void;
+
     // Live multi-select set, mirrored from React Flow's per-node `selected`
     // flag in EditorCanvas. Read by the chat to render the selection pill and
     // to build the NodeRef focus hint on send. Ephemeral — never persisted.
@@ -238,12 +247,18 @@ export interface ExecutionSlice {
     executionStartTime: number | null;
     nodeStatuses: Record<string, NodeStatus>;
     nodeOutputs: Record<string, any>;
+    // Server-side failure message per node (e.g. the Replicate prediction error),
+    // keyed by nodeId. Populated when a node's status becomes 'error' and surfaced
+    // as a hover tooltip on the node's error badge. Cleared when the node leaves
+    // the error state (re-run, success) or is invalidated.
+    nodeErrors: Record<string, string>;
     addExecutionResult: (workflowId: string, result: any) => void;
     clearExecutionResults: () => void;
     setActiveExecutionId: (id: string | null) => void;
     setExecutionStartTime: (time: number | null) => void;
     isExecutionActive: () => boolean;
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
+    setNodeError: (nodeId: string, error: string | null) => void;
     resetNodeStatuses: () => void;
     setNodeOutput: (nodeId: string, output: any) => void;
     clearNodeOutputs: () => void;

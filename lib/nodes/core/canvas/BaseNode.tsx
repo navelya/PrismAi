@@ -122,6 +122,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     //      badge until DB hydration runs.
     //   3. Else: 'idle' (no badge).
     const rawStatus = useAppStore((state) => state.nodeStatuses[id]);
+    // Server-side failure message for this node (e.g. the Replicate prediction
+    // error), shown as a hover tooltip on the error badge below.
+    const nodeError = useAppStore((state) => state.nodeErrors[id]);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
     // Per-node validation comes from the canvas-wide NodeValidationProvider,
     // which computes it once and only while the error flash is active. Reading
@@ -466,22 +469,39 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
             {/* Status Badge */}
             {!hideStatus && status !== 'idle' && (
-                <div
-                    className={cn(
-                        "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
-                        "shadow-lg border-surface-primary transition-all duration-300",
-                        status === 'pending' && "bg-slate-500",
-                        status === 'running' && "bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]",
-                        status === 'success' && "bg-accent-secondary shadow-[0_0_10px_rgba(20,184,166,0.5)]",
-                        status === 'error' && "bg-accent-error"
-                    )}
-                    style={{ borderWidth: `${b2}px` }}
-                >
-                    {status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
-                    {status === 'success' && <Check className="w-4 h-4 text-content-inverted" />}
-                    {status === 'error' && <X className="w-4 h-4 text-content-inverted" />}
-                    {status === 'pending' && <Circle className="w-2 h-2 text-content-inverted fill-current" />}
-                </div>
+                status === 'error' ? (
+                    // Error badge carries a hover tooltip with the server's failure
+                    // message (usually the Replicate error). Built on <Tooltip> so the
+                    // badge circle itself is the hover trigger; falls back to a generic
+                    // message when no detail was captured (e.g. older hydrated runs).
+                    <Tooltip
+                        position="left"
+                        content={nodeError || 'Generation failed'}
+                        className={cn(
+                            "absolute -top-2 -left-2 w-7 h-7 rounded-full z-20",
+                            "shadow-lg border-surface-primary bg-accent-error cursor-help"
+                        )}
+                        popupClassName="whitespace-normal max-w-xs leading-snug normal-case tracking-normal font-semibold"
+                        style={{ borderWidth: `${b2}px`, borderStyle: 'solid' }}
+                    >
+                        <X className="w-4 h-4 text-content-inverted" />
+                    </Tooltip>
+                ) : (
+                    <div
+                        className={cn(
+                            "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
+                            "shadow-lg border-surface-primary transition-all duration-300",
+                            status === 'pending' && "bg-slate-500",
+                            status === 'running' && "bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]",
+                            status === 'success' && "bg-accent-secondary shadow-[0_0_10px_rgba(20,184,166,0.5)]"
+                        )}
+                        style={{ borderWidth: `${b2}px` }}
+                    >
+                        {status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
+                        {status === 'success' && <Check className="w-4 h-4 text-content-inverted" />}
+                        {status === 'pending' && <Circle className="w-2 h-2 text-content-inverted fill-current" />}
+                    </div>
+                )
             )}
 
             {/* Validation Badge — pre-flight wiring errors */}

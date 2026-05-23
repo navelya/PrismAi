@@ -50,6 +50,14 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [imageLoaded, setImageLoaded] = useState(false);
+    // Width (px) the loaded image actually fills, derived from its natural
+    // aspect ratio. When set, it drives the node width so the box hugs the
+    // image instead of reserving the full 420px. Without this, an <img> with
+    // both max-width and max-height contributes its max-width (420) to the
+    // node's `max-content` width while rendering narrower (height-bound) for
+    // portrait outputs — leaving a dead gray band on the right. null until the
+    // image loads (falls back to max-content).
+    const [previewWidth, setPreviewWidth] = useState<number | null>(null);
 
     // Lightbox state
     const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -78,6 +86,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     useEffect(() => {
         if (output) {
             setImageLoaded(false);
+            setPreviewWidth(null);
         }
     }, [output]);
 
@@ -85,8 +94,23 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     useEffect(() => {
         if (status === 'running') {
             setImageLoaded(false);
+            setPreviewWidth(null);
         }
     }, [status]);
+
+    // Derive the node's width from the loaded image's true aspect ratio so the
+    // box hugs the image (no gray band beside portrait outputs). Only meaningful
+    // in single-preview mode; the grid wants full width.
+    const handleImageLoad = (dims?: { naturalWidth: number; naturalHeight: number }) => {
+        setImageLoaded(true);
+        if (previewMode !== 'single') return;
+        if (!dims || dims.naturalWidth <= 0 || dims.naturalHeight <= 0) return;
+        const MAX = 420;
+        const fitted = dims.naturalWidth >= dims.naturalHeight
+            ? MAX
+            : Math.round((MAX * dims.naturalWidth) / dims.naturalHeight);
+        setPreviewWidth(Math.max(200, Math.min(MAX, fitted)));
+    };
 
     const inputHandles = selectedModel?.inputs_schema?.handles || [];
     const outputHandles = selectedModel?.outputs_schema?.handles || [];
@@ -176,7 +200,11 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const isFixedWidth = activeType === 'text' || activeType === 'audio';
     const fixedWidth = activeType === 'audio' ? 280 : 320;
     const mediaStyle: React.CSSProperties = {
-        width: 'max-content',
+        // Once the image has loaded we know its real fitted width and pin the
+        // node to it; until then fall back to max-content. Pinning avoids the
+        // max-width-vs-max-height intrinsic-sizing quirk that left a gray band
+        // beside portrait outputs.
+        width: previewWidth ?? 'max-content',
         minWidth: output ? 200 : 320,
         maxWidth: 420,
     };
@@ -248,7 +276,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                         type={activeType}
                         previewMode={previewMode}
                         activeImageIndex={activeImageIndex}
-                        onImageLoad={() => setImageLoaded(true)}
+                        onImageLoad={handleImageLoad}
                         onImageClick={(idx: number, e: React.MouseEvent) => {
                             e.stopPropagation();
                             setActiveImageIndex(idx);

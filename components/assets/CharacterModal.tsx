@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Upload, Sparkles, Star, Loader2, Wand2 } from 'lucide-react';
+import { X, Upload, Sparkles, Star, Loader2, Wand2, ScanFace } from 'lucide-react';
 import { uploadApi, charactersApi, generateCharacterStream, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 
@@ -91,6 +91,20 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
             const copy = [...prev];
             const [picked] = copy.splice(index, 1);
             return [picked, ...copy];
+        });
+
+    // Mark/unmark an image as the close-up face reference. Only one face at a
+    // time; toggling the current face off clears it. The face role is what the
+    // multi-character image pipeline uses (face + primary per character).
+    const toggleFace = (index: number) =>
+        setImages((prev) => {
+            const target = prev[index];
+            if (!target) return prev;
+            const makingFace = target.role !== 'face';
+            return prev.map((img, i) => {
+                if (i === index) return makingFace ? { ...img, role: 'face' as const } : { url: img.url, path: img.path };
+                return makingFace && img.role === 'face' ? { url: img.url, path: img.path } : img;
+            });
         });
 
     const handleAutoDescribe = async () => {
@@ -228,7 +242,12 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                         {genSlots.map((slot, index) => (
                             <div key={index} className="relative w-16 h-16 rounded-lg overflow-hidden border border-stroke-subtle">
                                 {slot && slot !== 'failed' ? (
-                                    <img src={slot.url} alt="" className="w-full h-full object-cover animate-in fade-in duration-300" />
+                                    <>
+                                        <img src={slot.url} alt="" className="w-full h-full object-cover animate-in fade-in duration-300" />
+                                        {slot.role === 'face' && (
+                                            <span className="absolute top-0.5 right-0.5 text-sky-300" title="Face close-up"><ScanFace className="w-3.5 h-3.5" /></span>
+                                        )}
+                                    </>
                                 ) : slot === 'failed' ? (
                                     <div className="w-full h-full flex items-center justify-center bg-surface-tertiary text-content-tertiary">
                                         <X className="w-4 h-4" />
@@ -250,7 +269,10 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                                     className="w-full h-full object-cover cursor-zoom-in"
                                 />
                                 {index === 0 && (
-                                    <span className="absolute top-0.5 left-0.5 text-amber-300 pointer-events-none"><Star className="w-3 h-3 fill-current" /></span>
+                                    <span className="absolute top-0.5 left-0.5 text-amber-300 pointer-events-none" title="Primary"><Star className="w-3 h-3 fill-current" /></span>
+                                )}
+                                {img.role === 'face' && (
+                                    <span className="absolute top-0.5 right-0.5 text-sky-300 pointer-events-none" title="Face close-up"><ScanFace className="w-3.5 h-3.5" /></span>
                                 )}
                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 pointer-events-none">
                                     {index !== 0 && (
@@ -258,6 +280,9 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                                             <Star className="w-3.5 h-3.5" />
                                         </button>
                                     )}
+                                    <button onClick={(e) => { e.stopPropagation(); toggleFace(index); }} title={img.role === 'face' ? 'Unmark as face' : 'Mark as face close-up'} className={`pointer-events-auto p-1 hover:text-sky-300 ${img.role === 'face' ? 'text-sky-300' : 'text-white'}`}>
+                                        <ScanFace className="w-3.5 h-3.5" />
+                                    </button>
                                     <button onClick={(e) => { e.stopPropagation(); removeImage(index); }} title="Remove" className="pointer-events-auto p-1 text-white hover:text-red-400">
                                         <X className="w-3.5 h-3.5" />
                                     </button>
@@ -275,7 +300,7 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                         )}
                     </div>
                 )}
-                <p className="text-xs text-content-tertiary -mt-2">First image (★) is the primary. Click a pose to view it. Up to {MAX_IMAGES}.</p>
+                <p className="text-xs text-content-tertiary -mt-2">★ primary · <ScanFace className="inline w-3 h-3 -mt-0.5 text-sky-300" /> face close-up. Hover an image to set either. Click to view. Up to {MAX_IMAGES}.</p>
 
                 {/* Build the whole reference set automatically — either from the
                     description alone, or from an uploaded photo of the character. */}

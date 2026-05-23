@@ -439,6 +439,10 @@ export default function SharedWorkflowEditor({
             Object.entries(nodeStatuses).forEach(([nId, nStatus]) => {
                 if (nStatus === 'running' || nStatus === 'pending') {
                     useAppStore.getState().setNodeStatus(nId, 'error');
+                    // Surface the start/dispatch failure on the node's error-badge
+                    // tooltip too, so it doesn't fall back to the generic
+                    // "Generation failed" when we already know what went wrong.
+                    useAppStore.getState().setNodeError(nId, errorMsg);
                 }
             });
             setIsExecuting(false);

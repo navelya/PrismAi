@@ -203,7 +203,27 @@ async function buildInputsFromParents(
       // older edges. It silently overwrote the user's typed prompt control
       // when they wired a Prompt node to negative_prompt, and clobbered
       // legitimate per-handle wiring on multi-prompt models.
-      inputs[inputKey] = typedValue;
+      //
+      // Array handles (e.g. nano-banana-pro's single `image_input`) can be
+      // fed by MULTIPLE edges — two character nodes both wire into the one
+      // reference-image slot. Plain assignment would let the last edge
+      // overwrite the first, silently dropping a whole character's
+      // references (the model then reinvents that subject from the prompt
+      // text alone). So for array handles we CONCATENATE every edge's values
+      // (and any preseeded array already under this key) instead of
+      // overwriting. Non-array handles keep last-write-wins.
+      if (arrayInputKeys.has(inputKey)) {
+        const existing = inputs[inputKey];
+        const existingArr = Array.isArray(existing)
+          ? existing
+          : existing !== undefined && existing !== null
+            ? [existing]
+            : [];
+        const incomingArr = Array.isArray(typedValue) ? typedValue : [typedValue];
+        inputs[inputKey] = [...existingArr, ...incomingArr];
+      } else {
+        inputs[inputKey] = typedValue;
+      }
 
       // Also key by edge.id. The Compositor stores
       // `layer.sourceHandleId = edge.id` because every layer edge shares

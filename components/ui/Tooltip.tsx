@@ -10,6 +10,7 @@ interface TooltipProps {
     position?: 'top' | 'bottom' | 'left' | 'right';
     className?: string;         // Wrapper className
     popupClassName?: string;    // Tooltip popup className
+    style?: React.CSSProperties; // Wrapper inline style
     delay?: number;
 }
 
@@ -19,6 +20,7 @@ export function Tooltip({
     position = 'top',
     className,
     popupClassName,
+    style,
     delay = 400,
 }: TooltipProps) {
     if (!content) {
@@ -28,7 +30,7 @@ export function Tooltip({
     return (
         <RadixTooltip.Root delayDuration={delay}>
             <RadixTooltip.Trigger asChild>
-                <div className={cn('flex items-center justify-center', className)}>
+                <div className={cn('flex items-center justify-center', className)} style={style}>
                     {children}
                 </div>
             </RadixTooltip.Trigger>

@@ -76,6 +76,10 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     selectNodeAndCenter: (nodeId) => set({ pendingCenterNodeId: nodeId }),
     clearPendingCenterNodeId: () => set({ pendingCenterNodeId: null }),
 
+    pendingAddNode: null,
+    requestAddNode: (payload) => set({ pendingAddNode: payload }),
+    clearPendingAddNode: () => set({ pendingAddNode: null }),
+
     currentSelectedNodeIds: [],
     setCurrentSelectedNodeIds: (ids) => set({ currentSelectedNodeIds: ids }),
     selectionClearToken: 0,
