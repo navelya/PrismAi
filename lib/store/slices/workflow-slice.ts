@@ -12,7 +12,6 @@ import {
 } from '../../nodes/group-constants';
 import { getNodeHandleType, typesAreCompatible } from '@/lib/editor/handle-compatibility';
 import { buildOutputItems, mergeRunIntoCollection, selectedValue } from '@/lib/nodes/plugins/ai_generator/outputs';
-import type { NodeResultType } from '@/lib/workflow/result-format';
 
 /**
  * Build a default CompositorLayer for an edge that just landed on a compositor.
