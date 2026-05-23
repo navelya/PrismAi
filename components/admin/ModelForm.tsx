@@ -135,6 +135,8 @@ export function ModelForm({
         replicate_model_id: initialData?.replicate_model_id || '',
         display_name: initialData?.display_name || '',
         credit_cost: initialData?.credit_cost || 0,
+        cost_per_image: initialData?.cost_per_image || 0,
+        cost_per_video: initialData?.cost_per_video || 0,
         is_per_second: initialData?.is_per_second ?? false,
         is_active: initialData?.is_active ?? true,
         archetype_id: initialData?.archetype_id || '',
@@ -166,6 +168,8 @@ export function ModelForm({
                 replicate_model_id: initialData.replicate_model_id || '',
                 display_name: initialData.display_name || '',
                 credit_cost: initialData.credit_cost || 0,
+                cost_per_image: initialData.cost_per_image || 0,
+                cost_per_video: initialData.cost_per_video || 0,
                 is_per_second: initialData.is_per_second ?? false,
                 is_active: initialData.is_active ?? true,
                 archetype_id: initialData.archetype_id || '',
@@ -434,9 +438,16 @@ export function ModelForm({
             inputs_schema: compiledInputs,
             outputs_schema: compiledOutputs,
             credit_cost: Number(form.credit_cost),
+            cost_per_image: Number(form.cost_per_image),
+            cost_per_video: Number(form.cost_per_video),
             description: form.description // Pass at top level too for API processing
         });
     };
+
+    // Show per-image / per-video pricing only when the model actually declares a
+    // matching input handle. `visualInputWires` is the form's live handle list.
+    const hasImageInput = visualInputWires.some(w => (w.type || '').toLowerCase().includes('image'));
+    const hasVideoInput = visualInputWires.some(w => (w.type || '').toLowerCase().includes('video'));
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -529,7 +540,7 @@ export function ModelForm({
                 title="Cost & Status"
                 description="Economy and visibility."
             >
-                <div className="flex items-center gap-8">
+                <div className="flex items-center gap-8 flex-wrap">
                     <NumberInput
                         label="Credit Cost"
                         name="credit_cost"
@@ -538,6 +549,26 @@ export function ModelForm({
                         className="max-w-[150px]"
                         suffix={form.is_per_second ? "/s" : ""}
                     />
+                    {hasImageInput && (
+                        <NumberInput
+                            label="Cost / connected image"
+                            name="cost_per_image"
+                            value={form.cost_per_image}
+                            onChange={e => setForm({ ...form, cost_per_image: Number(e.target.value) })}
+                            className="max-w-[170px]"
+                            suffix="CR"
+                        />
+                    )}
+                    {hasVideoInput && (
+                        <NumberInput
+                            label="Cost / connected video"
+                            name="cost_per_video"
+                            value={form.cost_per_video}
+                            onChange={e => setForm({ ...form, cost_per_video: Number(e.target.value) })}
+                            className="max-w-[170px]"
+                            suffix="CR"
+                        />
+                    )}
                     <div className="pt-5 flex items-center gap-6">
                         <Checkbox
                             label="Bill Per Second"
