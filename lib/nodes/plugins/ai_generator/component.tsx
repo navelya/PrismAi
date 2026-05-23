@@ -706,7 +706,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                             )}
                         >
                             {type === 'video' ? (
-                                <video src={url} className="w-full h-full object-cover" />
+                                <BlurryVideo src={url} muted loop playsInline preload="metadata" className="w-full h-full object-cover" containerClassName="w-full h-full" />
                             ) : (
                                 <BlurryImage src={toThumbnailUrl(url, { width: 256 }) ?? url} fallbackSrc={url} alt="" onLoad={onImageLoad} className="w-full h-full object-cover" />
                             )}
