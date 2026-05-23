@@ -380,6 +380,19 @@ export default function SharedWorkflowEditor({
             });
         }
 
+        // Optimistic credit decrement — drop the balance the instant Run is
+        // clicked, using the SAME estimate the modal shows. Reconciled to the
+        // server's number when the debit realtime arrives (resetOptimisticDelta).
+        // Computed here (not from the modal's pendingCost) so every entry point —
+        // modal-confirmed runs and the runFromNodeId effect — is covered.
+        const { cost: optimisticCost } = calculateExecutionCost(targetNodeId, mode, selectionIds);
+        const chargedNodeIds = Object.entries(useAppStore.getState().nodeStatuses)
+            .filter(([, s]) => s === 'running' || s === 'pending')
+            .map(([id]) => id);
+        if (optimisticCost > 0) {
+            store.applyOptimisticCharge(executionId, optimisticCost, chargedNodeIds);
+        }
+
         const workflow = getCurrentWorkflow();
         const activeSessionId = store.activeSessionId;
 
@@ -445,6 +458,9 @@ export default function SharedWorkflowEditor({
                     useAppStore.getState().setNodeError(nId, errorMsg);
                 }
             });
+            // The run never dispatched (or the server will refund) — reverse the
+            // optimistic decrement so the balance returns immediately.
+            store.settleOptimisticCharge(executionId, true);
             setIsExecuting(false);
             if (executionTimeoutRef.current) {
                 clearTimeout(executionTimeoutRef.current);
