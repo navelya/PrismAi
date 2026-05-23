@@ -496,7 +496,20 @@ export default function SharedWorkflowEditor({
             config: (n.data as any)?.config,
         }));
 
-        const { cost, generativeCount } = computeExecutionCost(costNodes, modelsById);
+        const graph = {
+            allNodes: nodes.map(n => ({
+                id: n.id,
+                type: n.type as string,
+                config: (n.data as any)?.config,
+            })),
+            edges: edges.map(e => ({
+                source: e.source,
+                target: e.target,
+                targetHandle: e.targetHandle ?? null,
+            })),
+        };
+
+        const { cost, generativeCount } = computeExecutionCost(costNodes, modelsById, graph);
         return { cost, count: generativeCount };
     }, [nodes, edges, modelsById]);
 
