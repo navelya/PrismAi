@@ -17,7 +17,8 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
         result_type: resultType,
         result_data: resultData,
         error,
-        session_id: recordSessionId
+        session_id: recordSessionId,
+        execution_id: executionId
     } = record;
 
     // Client-side session guard — only process rows belonging to this session.
@@ -47,12 +48,13 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
             store.setNodeOutput(nodeId, toOutputEnvelope(finalType, finalData));
 
             // Accumulate into the node's persisted collection — ONLY for live
-            // results. Hydration replays the latest DB rows on every page load;
-            // config.outputs is already persisted in canvas_state, so appending
-            // on 'hydrate' would double-count. appendAiGeneratorRun is a no-op
-            // for non-ai_generator nodes and is idempotent per execution_id.
+            // results. Hydration runs applyNodeResult AFTER the saved workflow
+            // (with its config.outputs) is already loaded into the store, so
+            // appending on 'hydrate' would re-append on top of what's already
+            // there. appendAiGeneratorRun is a no-op for non-ai_generator nodes
+            // and is idempotent per execution_id.
             if (source === 'realtime') {
-                store.appendAiGeneratorRun(nodeId, finalType, finalData, record.execution_id);
+                store.appendAiGeneratorRun(nodeId, finalType, finalData, executionId);
             }
         }
     } else if (status === 'failed') {
