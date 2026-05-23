@@ -15,7 +15,7 @@ export interface AIGeneratorConfig {
     outputs?: GeneratedOutput[];
     /** Index into `outputs` of the active/selected output. Default 0. */
     selected_output_index?: number;
-    /** Number of independent generations per run (1–8). Multiplies cost. Never sent to the model. */
+    /** Number of independent generations per run (1–10). Multiplies cost. Never sent to the model. */
     iterations?: number;
 }
 

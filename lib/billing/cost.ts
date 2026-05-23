@@ -19,11 +19,11 @@ export interface CostNode {
     };
 }
 
-/** Iterations are clamped to [1, 8]; non-numeric/empty → 1. Multiplies a node's cost. */
+/** Iterations are clamped to [1, 10]; non-numeric/empty → 1. Multiplies a node's cost. */
 export function clampIterations(value: any): number {
     const n = Math.trunc(Number(value));
     if (!Number.isFinite(n)) return 1;
-    return Math.max(1, Math.min(8, n));
+    return Math.max(1, Math.min(10, n));
 }
 
 /**

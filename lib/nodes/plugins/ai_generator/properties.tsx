@@ -283,21 +283,21 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                                 Iterations
                             </label>
                             <span className="text-[9px] font-mono font-semibold text-accent-primary tracking-tight tabular-nums">
-                                {Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}×
+                                {Math.min(Math.max(Number(config.iterations ?? 1), 1), 10)}×
                             </span>
                         </div>
                         <input
                             type="range"
                             min={1}
-                            max={8}
+                            max={10}
                             step={1}
-                            value={Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}
+                            value={Math.min(Math.max(Number(config.iterations ?? 1), 1), 10)}
                             onChange={(e) => onUpdate({ ...config, iterations: parseInt(e.target.value, 10) })}
                             className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
                         />
                         <div className="flex justify-between text-[8px] font-mono text-content-tertiary/40 tabular-nums px-0.5">
                             <span>1</span>
-                            <span>8</span>
+                            <span>10</span>
                         </div>
                     </div>
                 )}
