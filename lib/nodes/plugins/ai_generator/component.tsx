@@ -521,7 +521,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
             el.addEventListener('wheel', handleWheelNative, { passive: false });
             return () => el.removeEventListener('wheel', handleWheelNative);
         }
-    }, [textContent, isTextType]);
+    }, [textContent, isTextType, activeImageIndex]);
 
     if (isTextType) {
         const textItems: string[] = Array.isArray(output)
@@ -564,6 +564,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                     ref={textareaRef}
                     className="nodrag custom-scrollbar block w-full min-h-[140px] max-h-[300px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
                     value={single}
+                    readOnly={textItems.length > 1}
                     placeholder="Empty output"
                     onChange={(e) => {
                         // Editing a single text output writes back to the live store only
