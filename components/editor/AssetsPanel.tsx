@@ -2,37 +2,17 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Sparkles, RefreshCw, X, SlidersHorizontal, Film, Music, Box, Check, Filter, Play, Layers } from 'lucide-react';
+import { Image as ImageIcon, Sparkles, RefreshCw, X, Filter, Play } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { cn } from '@/lib/utils';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { PillTabs } from '@/components/ui/PillTabs';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { useAppStore } from '@/lib/store/app-store';
+import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
+import { unpackAssets, type AssetItem, type TypeFilter } from '@/lib/assets/unpack';
 
-type AssetType = 'image' | 'video' | 'audio' | '3d';
 type AssetScope = 'current' | 'all';
-type TypeFilter = 'all' | AssetType;
-
-const ALL_TYPES: AssetType[] = ['image', 'video', 'audio', '3d'];
-
-const TYPE_META: Record<AssetType, { label: string; Icon: React.ComponentType<{ className?: string }> }> = {
-    image: { label: 'Images', Icon: ImageIcon },
-    video: { label: 'Videos', Icon: Film },
-    audio: { label: 'Audio', Icon: Music },
-    '3d': { label: '3D', Icon: Box },
-};
-
-interface AssetItem {
-    id: string;
-    source_result_id: string;
-    node_id: string;
-    result_type: AssetType;
-    result_url: string;
-    created_at: string;
-    execution_id: string;
-}
 
 interface AssetsPanelProps {
     sessionId?: string | null;
@@ -64,40 +44,6 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         return ids;
     }, [workflowNodes]);
 
-    // Pure unpacker — independent of the workflow store so canvas edits don't
-    // invalidate this callback and trigger a refetch. The ephemeral filter is
-    // applied at render time in `visibleAssets` instead.
-    const unpackAssets = useCallback((rows: any[]): AssetItem[] => {
-        const unpacked: AssetItem[] = [];
-        const seenUrls = new Set<string>();
-
-        rows.forEach((row) => {
-            const type = row?.result_type as AssetItem['result_type'];
-            if (!['image', 'video', 'audio', '3d'].includes(type)) return;
-
-            const values = Array.isArray(row?.result_data) ? row.result_data : [];
-            values.forEach((item: any, index: number) => {
-                if (typeof item !== 'string') return;
-                if (!(item.startsWith('http') || item.startsWith('data:'))) return;
-
-                // Only add if we haven't seen this URL in this batch
-                if (!seenUrls.has(item)) {
-                    seenUrls.add(item);
-                    unpacked.push({
-                        id: `${row.id}:${index}`,
-                        source_result_id: row.id,
-                        node_id: row.node_id,
-                        result_type: type,
-                        result_url: item,
-                        created_at: row.created_at,
-                        execution_id: row.execution_id,
-                    });
-                }
-            });
-        });
-        return unpacked;
-    }, []);
-
     const fetchAssets = useCallback(async () => {
         if (scope === 'current' && !sessionId) {
             setIsLoading(false);
@@ -127,7 +73,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
             setAssets(validAssets);
         }
         setIsLoading(false);
-    }, [sessionId, supabase, unpackAssets, scope]);
+    }, [sessionId, supabase, scope]);
 
     useEffect(() => {
         fetchAssets();
@@ -167,7 +113,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [sessionId, supabase, unpackAssets, scope]);
+    }, [sessionId, supabase, scope]);
 
     const handleDragStart = (e: React.DragEvent, asset: AssetItem) => {
         const payload = JSON.stringify({
@@ -192,8 +138,6 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         return list;
     }, [assets, typeFilter, ephemeralNodeIds]);
 
-    const allTypesActive = typeFilter === 'all';
-
     return (
         <div className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
             {/* Compact header */}
@@ -208,8 +152,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
                 />
 
                 <div className="flex items-center gap-0.5">
-                    <FilterDropdown
-                        active={!allTypesActive}
+                    <AssetTypeFilter
                         typeFilter={typeFilter}
                         onChange={setTypeFilter}
                     />
@@ -262,108 +205,6 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
                     </div>
                 )}
             </div>
-        </div>
-    );
-}
-
-function FilterDropdown({
-    active,
-    typeFilter,
-    onChange,
-}: {
-    active: boolean;
-    typeFilter: TypeFilter;
-    onChange: (next: TypeFilter) => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const wrapperRef = React.useRef<HTMLDivElement | null>(null);
-
-    useEffect(() => {
-        if (!open) return;
-        const handler = (e: MouseEvent) => {
-            if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
-        };
-        const escHandler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setOpen(false);
-        };
-        document.addEventListener('mousedown', handler);
-        document.addEventListener('keydown', escHandler);
-        return () => {
-            document.removeEventListener('mousedown', handler);
-            document.removeEventListener('keydown', escHandler);
-        };
-    }, [open]);
-
-    const select = (value: TypeFilter) => {
-        onChange(value);
-        setOpen(false);
-    };
-
-    const options: { value: TypeFilter; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
-        { value: 'all', label: 'All assets', Icon: Layers },
-        ...ALL_TYPES.map((t) => ({ value: t, label: TYPE_META[t].label, Icon: TYPE_META[t].Icon })),
-    ];
-
-    return (
-        <div className="relative" ref={wrapperRef}>
-            <button
-                type="button"
-                onClick={() => setOpen((v) => !v)}
-                className={cn(
-                    'p-1 rounded-md transition-colors group relative',
-                    active
-                        ? 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/20'
-                        : 'hover:bg-white/10 text-content-tertiary hover:text-content-primary'
-                )}
-                title="Filter by type"
-                aria-haspopup="menu"
-                aria-expanded={open}
-            >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                {active && (
-                    <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-accent-primary shadow-[0_0_6px_rgba(var(--accent-primary-rgb),0.6)]" />
-                )}
-            </button>
-
-            <AnimatePresence>
-                {open && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 0.96 }}
-                        transition={{ duration: 0.12 }}
-                        className="absolute right-0 top-full mt-1.5 z-20 w-40 p-1.5 rounded-xl bg-surface-primary/95 backdrop-blur-xl border border-white/10 shadow-2xl ring-1 ring-white/5"
-                        role="menu"
-                    >
-                        <div className="space-y-0.5">
-                            {options.map(({ value, label, Icon }) => {
-                                const checked = typeFilter === value;
-                                return (
-                                    <button
-                                        key={value}
-                                        type="button"
-                                        onClick={() => select(value)}
-                                        className={cn(
-                                            'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors',
-                                            checked
-                                                ? 'bg-white/5 text-content-primary'
-                                                : 'text-content-tertiary hover:bg-white/5 hover:text-content-secondary'
-                                        )}
-                                        role="menuitemradio"
-                                        aria-checked={checked}
-                                    >
-                                        <Icon className="w-3 h-3 opacity-70 shrink-0" />
-                                        <span className="text-[11px] font-semibold flex-1">{label}</span>
-                                        {checked && (
-                                            <Check className="w-3 h-3 text-accent-primary shrink-0" strokeWidth={3} />
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </div>
     );
 }

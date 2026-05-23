@@ -33,7 +33,7 @@ export default function CharacterGrid({ characters, loading, onCreate, onEdit, o
                         <h3 className="text-lg font-semibold text-content-primary">No characters yet</h3>
                         <p className="text-content-secondary mt-1">Create a character to reuse them across generations</p>
                     </div>
-                    <button onClick={onCreate} className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-premium text-white rounded-xl">
+                    <button onClick={onCreate} className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent-primary/10 border border-accent-primary/20 text-accent-primary rounded-lg font-medium hover:bg-accent-primary/15 transition-colors">
                         <Plus className="w-4 h-4" /> New Character
                     </button>
                 </div>
