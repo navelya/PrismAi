@@ -68,6 +68,60 @@ async function resolveNodeOutputWireType(
   return normalizeNodeResultType(handleType);
 }
 
+async function finalizeFanOutIfReady(
+    supabase: ReturnType<typeof createServiceClient>,
+    executionId: string,
+    nodeId: string,
+    outputType: NodeResultType,
+    origin: string
+): Promise<void> {
+    // Any predictions still pending? If so, nothing to do yet.
+    const { count: pendingCount } = await supabase
+        .from('node_predictions')
+        .select('id', { count: 'exact', head: true })
+        .eq('execution_id', executionId)
+        .eq('node_id', nodeId)
+        .eq('status', 'pending');
+    if ((pendingCount ?? 0) > 0) return;
+
+    // All resolved. Gather successful outputs in prediction order.
+    const { data: rows } = await supabase
+        .from('node_predictions')
+        .select('prediction_index, status, result_data')
+        .eq('execution_id', executionId)
+        .eq('node_id', nodeId)
+        .order('prediction_index', { ascending: true });
+
+    const aggregated: any[] = [];
+    let anySuccess = false;
+    for (const r of rows ?? []) {
+        if (r.status === 'completed' && Array.isArray(r.result_data)) {
+            aggregated.push(...r.result_data);
+            anySuccess = true;
+        }
+    }
+
+    // Elect a single dispatcher: transition node_results out of 'running' exactly
+    // once. Concurrent final webhooks race here; only the row-returning update wins.
+    const { data: claimed } = await supabase
+        .from('node_results')
+        .update({
+            status: anySuccess ? 'completed' : 'failed',
+            result_type: outputType,
+            result_data: aggregated,
+            error: anySuccess ? null : 'All iterations failed',
+            updated_at: new Date().toISOString(),
+        })
+        .eq('execution_id', executionId)
+        .eq('node_id', nodeId)
+        .eq('status', 'running')
+        .select('id');
+
+    if (claimed && claimed.length > 0) {
+        await checkAndDispatchChildren(executionId, nodeId, origin);
+    }
+}
+
 function isReplicateHostedUrl(value: string): boolean {
   return value.includes('replicate.delivery') || value.includes('replicate.com');
 }
@@ -197,6 +251,18 @@ export async function POST(request: NextRequest) {
     const userId = (executionCtx?.sessions as any)?.user_id || 'unknown_user';
     const storageSessionId = sessionId || 'unknown_session';
 
+    // Fan-out (iterations > 1) tracks each prediction in node_predictions. If a
+    // row exists for THIS prediction, take the aggregation path; otherwise the
+    // legacy single-prediction path runs unchanged.
+    const { data: predRow } = await supabase
+        .from('node_predictions')
+        .select('id, prediction_index')
+        .eq('execution_id', executionId)
+        .eq('node_id', nodeId)
+        .eq('replicate_id', predictionId)
+        .maybeSingle();
+    const isFanOut = !!predRow;
+
     if (status === 'succeeded') {
       const normalizedOutput = normalizeReplicateOutput(output);
       const outputType = await resolveNodeOutputWireType(supabase, executionCtx?.graph_json, nodeId);
@@ -214,6 +280,16 @@ export async function POST(request: NextRequest) {
           );
         }
       } catch (uploadJobError) {
+        if (isFanOut) {
+          await supabase
+            .from('node_predictions')
+            .update({ status: 'failed', error: `Media upload to storage failed: ${uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'}`, updated_at: new Date().toISOString() })
+            .eq('id', predRow!.id);
+          const { origin } = new URL(request.url);
+          await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
+          return NextResponse.json({ success: true });
+        }
+
         await supabase.from('node_results').upsert(
           {
             execution_id: executionId,
@@ -235,6 +311,16 @@ export async function POST(request: NextRequest) {
       }
 
       if (resultData.some((item) => typeof item === 'string' && isReplicateHostedUrl(item))) {
+        if (isFanOut) {
+          await supabase
+            .from('node_predictions')
+            .update({ status: 'failed', error: 'Media could not be permanently stored. Please re-run the node.', updated_at: new Date().toISOString() })
+            .eq('id', predRow!.id);
+          const { origin } = new URL(request.url);
+          await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
+          return NextResponse.json({ success: true });
+        }
+
         await supabase.from('node_results').upsert(
           {
             execution_id: executionId,
@@ -250,6 +336,16 @@ export async function POST(request: NextRequest) {
 
         const { origin } = new URL(request.url);
         await checkAndDispatchChildren(executionId, nodeId, origin);
+        return NextResponse.json({ success: true });
+      }
+
+      if (isFanOut) {
+        await supabase
+          .from('node_predictions')
+          .update({ status: 'completed', result_data: resultData, error: null, updated_at: new Date().toISOString() })
+          .eq('id', predRow!.id);
+        const { origin } = new URL(request.url);
+        await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
         return NextResponse.json({ success: true });
       }
 
@@ -274,6 +370,17 @@ export async function POST(request: NextRequest) {
       const { origin } = new URL(request.url);
       await checkAndDispatchChildren(executionId, nodeId, origin);
     } else if (status === 'failed' || status === 'canceled') {
+      if (isFanOut) {
+        await supabase
+          .from('node_predictions')
+          .update({ status: 'failed', error: predictionError || `Prediction ${status}`, updated_at: new Date().toISOString() })
+          .eq('id', predRow!.id);
+        const outType = await resolveNodeOutputWireType(supabase, executionCtx?.graph_json, nodeId);
+        const { origin } = new URL(request.url);
+        await finalizeFanOutIfReady(supabase, executionId, nodeId, outType, origin);
+        return NextResponse.json({ success: true });
+      }
+
       await supabase.from('node_results').upsert(
         {
           execution_id: executionId,
