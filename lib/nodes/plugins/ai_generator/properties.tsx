@@ -65,6 +65,7 @@ interface AIGeneratorPropertiesProps {
         control_values?: Record<string, any>;
         /** Non-control UI state (not sent to executor). */
         ui_state?: Record<string, any>;
+        iterations?: number;
     };
     onUpdate: (config: any) => void;
     editMode?: boolean;
@@ -177,6 +178,33 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                         placeholder="Select a model..."
                         variant="minimal"
                     />
+                )}
+
+                {/* Iterations — node-level (not a model control); multiplies cost. */}
+                {selectedModel && (
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[8px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-0.5 leading-none opacity-80">
+                                Iterations
+                            </label>
+                            <span className="text-[9px] font-mono font-semibold text-accent-primary tracking-tight tabular-nums">
+                                {Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}×
+                            </span>
+                        </div>
+                        <input
+                            type="range"
+                            min={1}
+                            max={8}
+                            step={1}
+                            value={Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}
+                            onChange={(e) => onUpdate({ ...config, iterations: parseInt(e.target.value, 10) })}
+                            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-content-tertiary/40 tabular-nums px-0.5">
+                            <span>1</span>
+                            <span>8</span>
+                        </div>
+                    </div>
                 )}
 
                 {/* Curation Handles (edit mode only) */}
