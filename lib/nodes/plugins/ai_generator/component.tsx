@@ -353,7 +353,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                 {status === 'running' && <GlassyLoader containerClassName="z-50 bg-black/40 backdrop-blur-md" />}
 
                 {/* View Toggles - Only show for media grids with multiple items */}
-                {isMediaResultType(effectiveType as any) && Array.isArray(effectiveOutput) && effectiveOutput.length > 1 && (
+                {((isMediaResultType(effectiveType as any) || effectiveType === 'text') && Array.isArray(effectiveOutput) && effectiveOutput.length > 1) && (
                     <div className="absolute bottom-3 right-3 flex bg-black/60 backdrop-blur-xl rounded-xl p-1 border border-white/10 z-20 shadow-2xl opacity-0 group-hover/node:opacity-100 transition-opacity">
                         <button
                             onClick={(e) => { e.stopPropagation(); setPreviewMode('single'); }}
@@ -524,9 +524,38 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
     }, [textContent, isTextType]);
 
     if (isTextType) {
+        const textItems: string[] = Array.isArray(output)
+            ? output.map((o: any) => (typeof o === 'string' ? o : (o?.text ?? o?.value ?? '')))
+            : [textContent ?? ''];
+        const idx = Math.min(Math.max(activeImageIndex ?? 0, 0), Math.max(textItems.length - 1, 0));
+        const single = textItems[idx] ?? '';
+
+        if (previewMode === 'grid') {
+            // Stacked-list multi-view: every text output, click to select.
+            return (
+                <div className="w-full p-2 space-y-1.5 max-h-[320px] overflow-y-auto custom-scrollbar" onMouseDown={onInteraction} onPointerDown={onInteraction}>
+                    {textItems.map((t, i) => (
+                        <button
+                            key={i}
+                            onMouseDown={onInteraction}
+                            onClick={(e) => { e.stopPropagation(); onSelectIndex?.(i); }}
+                            className={cn(
+                                "block w-full text-left rounded-lg border p-2 text-xs whitespace-pre-wrap transition-all",
+                                (activeImageIndex ?? 0) === i
+                                    ? "border-accent-primary ring-2 ring-accent-primary/20 bg-accent-primary/5 text-content-primary"
+                                    : "border-white/10 bg-white/5 text-content-secondary hover:border-white/20"
+                            )}
+                        >
+                            {t.length > 240 ? `${t.slice(0, 240)}…` : (t || 'Empty output')}
+                        </button>
+                    ))}
+                </div>
+            );
+        }
+
         return (
             <div
-                className="w-full p-2.5 transition-all duration-300 bg-transparent"
+                className="relative w-full p-2.5 transition-all duration-300 bg-transparent group/preview"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
                 onClick={onInteraction}
@@ -534,21 +563,22 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                 <textarea
                     ref={textareaRef}
                     className="nodrag custom-scrollbar block w-full min-h-[140px] max-h-[300px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
-                    value={textContent || ''}
+                    value={single}
                     placeholder="Empty output"
                     onChange={(e) => {
-                        const val = e.target.value;
-                        setNodeOutput(nodeId, { type: 'text', data: [val] });
+                        // Editing a single text output writes back to the live store only
+                        // (parity with prior behavior). Persisted-collection editing is
+                        // out of scope here.
+                        setNodeOutput(nodeId, { type: 'text', data: [e.target.value] });
                     }}
                     onKeyDown={(e) => {
-                        if (e.key === 'Backspace' || e.key === 'Delete') {
-                            e.stopPropagation();
-                        }
+                        if (e.key === 'Backspace' || e.key === 'Delete') e.stopPropagation();
                     }}
                     onWheel={(e) => {
                         if (!e.ctrlKey && !e.metaKey) e.stopPropagation();
                     }}
                 />
+                {NavArrows}
             </div>
         );
     }
