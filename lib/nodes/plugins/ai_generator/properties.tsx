@@ -180,33 +180,6 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                     />
                 )}
 
-                {/* Iterations — node-level (not a model control); multiplies cost. */}
-                {selectedModel && (
-                    <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                            <label className="text-[8px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-0.5 leading-none opacity-80">
-                                Iterations
-                            </label>
-                            <span className="text-[9px] font-mono font-semibold text-accent-primary tracking-tight tabular-nums">
-                                {Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}×
-                            </span>
-                        </div>
-                        <input
-                            type="range"
-                            min={1}
-                            max={8}
-                            step={1}
-                            value={Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}
-                            onChange={(e) => onUpdate({ ...config, iterations: parseInt(e.target.value, 10) })}
-                            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
-                        />
-                        <div className="flex justify-between text-[8px] font-mono text-content-tertiary/40 tabular-nums px-0.5">
-                            <span>1</span>
-                            <span>8</span>
-                        </div>
-                    </div>
-                )}
-
                 {/* Curation Handles (edit mode only) */}
                 {editMode && (handles.length > 0 || (selectedModel?.outputs_schema?.handles?.length ?? 0) > 0) && (
                     <div className="space-y-2 bg-white/5 border border-white/10 rounded-lg p-2">
@@ -297,6 +270,34 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                                         </div>
                                     </div>
                                 ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Iterations — node-level (not a model control); multiplies cost.
+                    Placed last, just above the run footer. */}
+                {selectedModel && (
+                    <div className="space-y-1 pt-1">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[8px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-0.5 leading-none opacity-80">
+                                Iterations
+                            </label>
+                            <span className="text-[9px] font-mono font-semibold text-accent-primary tracking-tight tabular-nums">
+                                {Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}×
+                            </span>
+                        </div>
+                        <input
+                            type="range"
+                            min={1}
+                            max={8}
+                            step={1}
+                            value={Math.min(Math.max(Number(config.iterations ?? 1), 1), 8)}
+                            onChange={(e) => onUpdate({ ...config, iterations: parseInt(e.target.value, 10) })}
+                            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-content-tertiary/40 tabular-nums px-0.5">
+                            <span>1</span>
+                            <span>8</span>
                         </div>
                     </div>
                 )}
