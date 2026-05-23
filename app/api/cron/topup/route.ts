@@ -30,6 +30,7 @@ export async function GET(request: Request) {
             .from('subscriptions')
             .select('user_id, plan_id, next_topup_at')
             .eq('status', 'active')
+            .eq('plan_id', 'free')
             .lte('next_topup_at', new Date().toISOString())
             .limit(BATCH_LIMIT);
 

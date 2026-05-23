@@ -103,7 +103,8 @@ UPDATE profiles
    SET token_balance = token_balance + v_amt,
        topup_balance = LEAST(token_balance + v_amt, topup_balance + v_topup_restore)
  WHERE id = v_user;
--- refund ledger row records topup_delta = v_topup_restore.
+-- refund ledger row records topup_delta = the EFFECTIVE change applied
+-- (after the LEAST clamp), so the audit reconstruction stays exact.
 ```
 (Cross-migration note: debits recorded *before* this migration have no `topup_spent` metadata, so a later refund of such a debit restores `v_topup_restore = 0` — the whole refund lands in the monthly portion. This is acceptable: pre-migration top-up wasn't tracked, and most refunds occur within the same execution lifecycle, well after this change ships.)
 
@@ -172,7 +173,7 @@ The reconcile cron's existing `audit_balance_drift` (which checks `token_balance
 1. **Every credit RPC records `metadata.topup_delta`** = its effect on `topup_balance` (0 when none). The list above specifies the value per RPC. This makes `topup_balance` ledger-derived going forward: `expected = backfill_baseline + Σ(topup_delta for rows created after the migration)`.
 2. **New `audit_topup_drift` RPC + reconcile-cron check.** Two layers:
    - *Cheap invariant* (always): every row must satisfy `0 ≤ topup_balance ≤ GREATEST(0, token_balance)`. A violation is a hard bug.
-   - *Exact reconstruction* (forward of the migration anchor): `topup_balance == baseline + Σ topup_delta`. Capture the per-user `baseline` at migration time (a `monthly_reset`-style note row with `amount`… is impossible since amounts must be nonzero — instead store the baseline in a dedicated `profiles.topup_baseline` column written by the backfill, or a one-row-per-user `topup_baseline` table). The audit then sums post-migration `topup_delta` and compares.
+   - *Exact reconstruction*: `topup_balance == topup_baseline + Σ COALESCE((metadata->>'topup_delta')::numeric, 0)` over **all** the user's ledger rows. No timestamp filter is needed: pre-migration rows have no `topup_delta` key (→ 0) and are already accounted for in `topup_baseline`; every post-migration row carries an effective `topup_delta`. `topup_baseline` is the `profiles` column frozen by the backfill.
    - Wire `audit_topup_drift` into [reconcile/route.ts](../../../app/api/cron/reconcile/route.ts) alongside `audit_balance_drift`, alerting on any drift.
 
    (If the exact-reconstruction layer proves heavy, ship the cheap invariant check in Spec 1 and treat exact reconstruction as a fast follow — but the `topup_delta` metadata MUST be recorded from day one so the history exists.)

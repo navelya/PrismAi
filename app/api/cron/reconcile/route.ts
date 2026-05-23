@@ -73,10 +73,26 @@ export async function GET(request: Request) {
             );
         }
 
+        // ── (3) Top-up bucket drift audit ─────────────────────────────────────
+        const { data: topupDrifts, error: topupDriftError } = await supabase
+            .rpc('audit_topup_drift');
+
+        if (topupDriftError) {
+            console.error('[Cron/Reconcile] audit_topup_drift failed:', topupDriftError);
+        }
+
+        const topupDriftCount = topupDrifts?.length ?? 0;
+        if (topupDriftCount > 0) {
+            console.error(
+                `[Cron/Reconcile] 🚨 TOPUP DRIFT detected for ${topupDriftCount} user(s):`,
+                JSON.stringify(topupDrifts, null, 2)
+            );
+        }
+
         const elapsedMs = Date.now() - startedAt;
         console.log(
             `[Cron/Reconcile] Done. Orphan refunds: ${refundedCount}/${orphans?.length ?? 0}, ` +
-            `drift users: ${driftCount}, elapsed: ${elapsedMs}ms`
+            `drift users: ${driftCount}, topup drift users: ${topupDriftCount}, elapsed: ${elapsedMs}ms`
         );
 
         return NextResponse.json({
@@ -86,6 +102,8 @@ export async function GET(request: Request) {
             refundFailures: refundFailures.slice(0, 50),
             driftCount,
             drifts: drifts?.slice(0, 50) ?? [],
+            topupDriftCount,
+            topupDrifts: topupDrifts?.slice(0, 50) ?? [],
             elapsedMs,
         });
     } catch (error: any) {

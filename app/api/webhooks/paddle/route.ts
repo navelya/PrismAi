@@ -171,6 +171,9 @@ async function handleSubscriptionCanceled(data: any, supabase: ReturnType<typeof
             status: 'active',
             cancel_at_period_end: false,
             current_period_end: null,
+            // Start a clean free cycle so accumulated paid credits expire ~1 month
+            // after downgrade (not at a stale yearly period-end, nor immediately).
+            next_topup_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             paddle_subscription_id: null,
             paddle_price_id: null,
             billing_cycle: null,
