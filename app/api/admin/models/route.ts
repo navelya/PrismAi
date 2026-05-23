@@ -14,8 +14,6 @@ export async function POST(req: Request) {
             node_type_id,
             archetype_id,
             credit_cost,
-            cost_per_image,
-            cost_per_video,
             is_active,
             inputs_schema,
             outputs_schema,
@@ -37,8 +35,6 @@ export async function POST(req: Request) {
                 node_type_id,
                 archetype_id,
                 credit_cost: credit_cost || 0,
-                cost_per_image: cost_per_image || 0,
-                cost_per_video: cost_per_video || 0,
                 is_active: is_active ?? true,
                 inputs_schema: { 
                     ...(inputs_schema || { handles: [], controls: [] }),

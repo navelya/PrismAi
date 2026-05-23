@@ -404,7 +404,7 @@ export async function POST(request: NextRequest) {
     if (generativeNodeIds.length > 0) {
       const { data: modelRows } = await supabase
         .from('ai_models')
-        .select('id, credit_cost, cost_per_image, cost_per_video, inputs_schema')
+        .select('id, credit_cost, inputs_schema')
         .in('id', generativeNodeIds);
 
       const modelsById = new Map<number, any>();

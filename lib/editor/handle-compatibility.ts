@@ -436,6 +436,28 @@ export function getNodeHandleType(
 }
 
 /**
+ * Resolve the per-handle `max_items` limit for an array-capable input handle on
+ * an ai_generator node, or null if there's no limit (handle not found, not an
+ * array, not a model node, or max_items unset/0 = unlimited).
+ */
+export function getInputHandleMaxItems(
+    node: { type: string; data?: { config?: any } } | undefined,
+    handleId: string | null,
+    models: AiModel[]
+): number | null {
+    if (!node || node.type !== 'ai_generator') return null;
+    const modelId = node.data?.config?.model_id;
+    const model = modelId ? models.find((m) => m.id === modelId) : null;
+    if (!model) return null;
+    const h = (model.inputs_schema?.handles || []).find(
+        (x) => (x.api_mapping_key || x.name) === handleId
+    );
+    if (!h || h.is_array !== true) return null;
+    const max = Number((h as any).max_items);
+    return Number.isFinite(max) && max > 0 ? max : null;
+}
+
+/**
  * Like `findHandleForNode`, but returns ALL handles on the node compatible
  * with the pending wire (not just the first match). Used to drive the
  * "reveal labels for compatible handles" UX while a wire is being dragged.

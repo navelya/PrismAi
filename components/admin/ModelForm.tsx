@@ -135,8 +135,6 @@ export function ModelForm({
         replicate_model_id: initialData?.replicate_model_id || '',
         display_name: initialData?.display_name || '',
         credit_cost: initialData?.credit_cost || 0,
-        cost_per_image: initialData?.cost_per_image || 0,
-        cost_per_video: initialData?.cost_per_video || 0,
         is_per_second: initialData?.is_per_second ?? false,
         is_active: initialData?.is_active ?? true,
         archetype_id: initialData?.archetype_id || '',
@@ -153,7 +151,7 @@ export function ModelForm({
 
     // Visual Schema States
     const [visualControls, setVisualControls] = useState<Array<Control & { id: string }>>([]);
-    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean }>>([]);
+    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean, cost_per_item?: number, max_items?: number }>>([]);
     const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_visible: boolean }>>([]);
     const [jsonDefaultDrafts, setJsonDefaultDrafts] = useState<Record<string, string>>({});
 
@@ -168,8 +166,6 @@ export function ModelForm({
                 replicate_model_id: initialData.replicate_model_id || '',
                 display_name: initialData.display_name || '',
                 credit_cost: initialData.credit_cost || 0,
-                cost_per_image: initialData.cost_per_image || 0,
-                cost_per_video: initialData.cost_per_video || 0,
                 is_per_second: initialData.is_per_second ?? false,
                 is_active: initialData.is_active ?? true,
                 archetype_id: initialData.archetype_id || '',
@@ -201,7 +197,9 @@ export function ModelForm({
                     type: h.type || 'image',
                     is_array: h.is_array ?? false,
                     is_mandatory: h.is_mandatory ?? false,
-                    is_visible: h.is_visible ?? true
+                    is_visible: h.is_visible ?? true,
+                    cost_per_item: h.cost_per_item ?? 0,
+                    max_items: h.max_items ?? 0
                 })));
             }
 
@@ -415,7 +413,10 @@ export function ModelForm({
                 type: wire.type,
                 is_array: wire.is_array,
                 is_mandatory: wire.is_mandatory,
-                is_visible: wire.is_visible
+                is_visible: wire.is_visible,
+                cost_per_item: Number(wire.cost_per_item) || 0,
+                // max_items only applies to array-capable handles
+                max_items: wire.is_array ? (Number(wire.max_items) || 0) : 0
             })),
             controls: visualControls.map(ctrl => {
                 const { id, ...rest } = ctrl;
@@ -438,16 +439,9 @@ export function ModelForm({
             inputs_schema: compiledInputs,
             outputs_schema: compiledOutputs,
             credit_cost: Number(form.credit_cost),
-            cost_per_image: Number(form.cost_per_image),
-            cost_per_video: Number(form.cost_per_video),
             description: form.description // Pass at top level too for API processing
         });
     };
-
-    // Show per-image / per-video pricing only when the model actually declares a
-    // matching input handle. `visualInputWires` is the form's live handle list.
-    const hasImageInput = visualInputWires.some(w => (w.type || '').toLowerCase().includes('image'));
-    const hasVideoInput = visualInputWires.some(w => (w.type || '').toLowerCase().includes('video'));
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -540,7 +534,7 @@ export function ModelForm({
                 title="Cost & Status"
                 description="Economy and visibility."
             >
-                <div className="flex items-center gap-8 flex-wrap">
+                <div className="flex items-center gap-8">
                     <NumberInput
                         label="Credit Cost"
                         name="credit_cost"
@@ -549,26 +543,6 @@ export function ModelForm({
                         className="max-w-[150px]"
                         suffix={form.is_per_second ? "/s" : ""}
                     />
-                    {hasImageInput && (
-                        <NumberInput
-                            label="Cost / connected image"
-                            name="cost_per_image"
-                            value={form.cost_per_image}
-                            onChange={e => setForm({ ...form, cost_per_image: Number(e.target.value) })}
-                            className="max-w-[170px]"
-                            suffix="CR"
-                        />
-                    )}
-                    {hasVideoInput && (
-                        <NumberInput
-                            label="Cost / connected video"
-                            name="cost_per_video"
-                            value={form.cost_per_video}
-                            onChange={e => setForm({ ...form, cost_per_video: Number(e.target.value) })}
-                            className="max-w-[170px]"
-                            suffix="CR"
-                        />
-                    )}
                     <div className="pt-5 flex items-center gap-6">
                         <Checkbox
                             label="Bill Per Second"
@@ -1079,6 +1053,21 @@ export function ModelForm({
                                         onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_mandatory: checked as boolean } : w))}
                                     />
                                 </div>
+                                {['image', 'video'].some(t => (wire.type || '').toLowerCase().includes(t)) && (
+                                    <NumberInput
+                                        label="Cost / connected item"
+                                        value={wire.cost_per_item ?? 0}
+                                        onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_per_item: Number(e.target.value) } : w))}
+                                        suffix="CR"
+                                    />
+                                )}
+                                {wire.is_array && (
+                                    <NumberInput
+                                        label="Max items (0 = unlimited)"
+                                        value={wire.max_items ?? 0}
+                                        onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, max_items: Number(e.target.value) } : w))}
+                                    />
+                                )}
                             </div>
                         </Reorder.Item>
                     ))}

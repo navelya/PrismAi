@@ -10,6 +10,12 @@ export interface InputHandle {
     is_array: boolean;
     is_mandatory: boolean;
     is_visible: boolean;
+    /** Credits added per item connected to this handle (e.g. per image/video).
+     *  Counted at run time × the number of connected items. Omitted/0 = free. */
+    cost_per_item?: number;
+    /** For array-capable handles (is_array), the max number of edges/items that
+     *  may connect. Enforced at connection time. Omitted/0 = unlimited. */
+    max_items?: number;
 }
 
 export interface OutputHandle {
@@ -69,10 +75,6 @@ export interface AiModel {
     replicate_model_id: string;
     display_name: string;
     credit_cost: number;
-    /** Credits added per image item wired into this model's image input handles. */
-    cost_per_image: number;
-    /** Credits added per video item wired into this model's video input handles. */
-    cost_per_video: number;
     is_per_second: boolean;
     is_active: boolean;
     category_id: string;

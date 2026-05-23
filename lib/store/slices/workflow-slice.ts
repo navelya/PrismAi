@@ -292,6 +292,29 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         const { currentWorkflow, models } = get();
         if (!currentWorkflow) return;
 
+        // Defense-in-depth for the per-handle max_items limit on array-capable
+        // model inputs. isValidConnection already blocks manual drags; this also
+        // guards programmatic adds (e.g. wire-drag "add node" auto-wiring).
+        {
+            const tNode = currentWorkflow.nodes.find((n) => n.id === connection.target);
+            if (tNode?.type === 'ai_generator') {
+                const modelId = (tNode.data?.config as any)?.model_id;
+                const model = modelId ? models.find((m) => m.id === modelId) : null;
+                const h = model?.inputs_schema?.handles?.find(
+                    (x) => (x.api_mapping_key || x.name) === connection.targetHandle,
+                );
+                const max = Number((h as any)?.max_items);
+                if (h?.is_array === true && Number.isFinite(max) && max > 0) {
+                    const existing = (currentWorkflow.edges || []).filter(
+                        (e) =>
+                            e.target === connection.target &&
+                            (e.targetHandle || null) === (connection.targetHandle || null),
+                    ).length;
+                    if (existing >= max) return;
+                }
+            }
+        }
+
         get().takeSnapshot();
 
         const handleSuffix = connection.targetHandle ? `-${connection.targetHandle}` : '';

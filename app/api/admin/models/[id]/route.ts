@@ -16,8 +16,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             node_type_id,
             archetype_id,
             credit_cost,
-            cost_per_image,
-            cost_per_video,
             is_active,
             inputs_schema,
             outputs_schema,
@@ -34,8 +32,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
                 node_type_id,
                 archetype_id,
                 credit_cost: credit_cost !== undefined ? Number(credit_cost) : undefined,
-                cost_per_image: cost_per_image !== undefined ? Number(cost_per_image) : undefined,
-                cost_per_video: cost_per_video !== undefined ? Number(cost_per_video) : undefined,
                 is_active,
                 inputs_schema: {
                     ...(inputs_schema || {}),

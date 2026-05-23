@@ -43,6 +43,7 @@ import { formatValidationError } from '@/lib/workflow/validate-execution-message
 import {
     PendingConnection,
     getNodeHandleType,
+    getInputHandleMaxItems,
     typesAreCompatible,
     findHandleForNode,
     wouldCreateCycle,
@@ -1289,6 +1290,17 @@ const EditorCanvasInner = ({
         if (wouldCreateCycle(connection.source!, connection.target!, reactFlowInstance.getEdges())) {
             return false;
         }
+
+        // Enforce the per-handle max_items limit on array-capable model inputs.
+        // Reject the drop once the handle already holds its configured maximum.
+        const maxItems = getInputHandleMaxItems(targetNode as any, connection.targetHandle, models);
+        if (maxItems != null) {
+            const existing = reactFlowInstance.getEdges().filter(
+                (e: any) => e.target === connection.target && (e.targetHandle ?? null) === (connection.targetHandle ?? null),
+            ).length;
+            if (existing >= maxItems) return false;
+        }
+
         return true;
     }, [reactFlowInstance, models]);
 
