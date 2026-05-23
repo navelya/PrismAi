@@ -11,6 +11,8 @@ import {
     GROUP_DEFAULT_LABEL,
 } from '../../nodes/group-constants';
 import { getNodeHandleType, typesAreCompatible } from '@/lib/editor/handle-compatibility';
+import { buildOutputItems, mergeRunIntoCollection, selectedValue } from '@/lib/nodes/plugins/ai_generator/outputs';
+import type { NodeResultType } from '@/lib/workflow/result-format';
 
 /**
  * Build a default CompositorLayer for an edge that just landed on a compositor.
@@ -733,6 +735,27 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             },
             nodeOutputs: nextOutputs,
             isWorkflowDirty: true,
+        });
+    },
+
+    appendAiGeneratorRun: (nodeId, type, values, executionId) => {
+        const { currentWorkflow } = get();
+        if (!currentWorkflow) return;
+        const node = currentWorkflow.nodes.find((n) => n.id === nodeId);
+        if (!node || node.type !== 'ai_generator') return;
+
+        const incoming = buildOutputItems(type, values, executionId);
+        if (incoming.length === 0) return;
+
+        const oldConfig = (node.data?.config as any) || {};
+        const mergedOutputs = mergeRunIntoCollection(oldConfig.outputs, incoming, executionId);
+
+        // Newest run shows on front.
+        get().updateNodeConfig(nodeId, {
+            ...oldConfig,
+            outputs: mergedOutputs,
+            selected_output_index: 0,
+            last_output: selectedValue(mergedOutputs, 0),
         });
     },
 

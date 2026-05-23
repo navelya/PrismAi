@@ -1,4 +1,5 @@
 import { Workflow, WorkflowNode, NodeStatus, AiModel } from '../nodes/types';
+import type { NodeResultType } from '../workflow/result-format';
 export type { NodeStatus };
 
 // Message interface
@@ -157,6 +158,17 @@ export interface WorkflowSlice {
     updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
     updateNodePositions: (positions: Map<string, { x: number; y: number }>) => void;
     updateNodeConfig: (nodeId: string, config: any) => void;
+    /**
+     * Append a completed ai_generator run's outputs to the node's persisted
+     * collection (newest-first), auto-select the newest, and persist. No-op for
+     * non-ai_generator nodes. Idempotent per executionId.
+     */
+    appendAiGeneratorRun: (
+        nodeId: string,
+        type: NodeResultType,
+        values: any[],
+        executionId?: string,
+    ) => void;
     updateNodeLabel: (nodeId: string, label: string) => void;
     bringNodeToFront: (nodeId: string) => void;
     /**
