@@ -30,7 +30,7 @@ interface CharactersPanelProps {
 }
 
 export function CharactersPanel({ onClose }: CharactersPanelProps) {
-    const { characters, loading, createCharacter } = useCharacters();
+    const { characters, loading, createCharacter, createDraft } = useCharacters();
     const [scope, setScope] = useState<CharacterScope>('mine');
     const [modalOpen, setModalOpen] = useState(false);
     const [variantSource, setVariantSource] = useState<Character | null>(null);
@@ -95,12 +95,13 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
                 )}
             </div>
 
-            <CharacterModal open={modalOpen} initial={null} onClose={() => setModalOpen(false)} onSave={handleSave} />
+            <CharacterModal open={modalOpen} initial={null} onClose={() => setModalOpen(false)} onSave={handleSave} onSaveDraft={async (input) => { await createDraft(input); }} />
             <CharacterVariantModal
                 open={!!variantSource}
                 source={variantSource}
                 onClose={() => setVariantSource(null)}
                 onSave={async (input) => { await createCharacter(input); }}
+                onSaveDraft={async (input) => { await createDraft(input); }}
             />
         </div>
     );
