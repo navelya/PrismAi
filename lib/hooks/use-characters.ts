@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { charactersApi, type Character, type CharacterInput } from '@/lib/api/client';
 
-export function useCharacters() {
+export function useCharacters(opts?: { includeDrafts?: boolean }) {
+    const includeDrafts = opts?.includeDrafts ?? false;
     const [characters, setCharacters] = useState<Character[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -11,7 +12,7 @@ export function useCharacters() {
     const load = useCallback(async () => {
         try {
             setLoading(true);
-            const { characters } = await charactersApi.list();
+            const { characters } = await charactersApi.list({ includeDrafts });
             setCharacters(characters);
             setError(null);
         } catch (err) {
@@ -19,7 +20,7 @@ export function useCharacters() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [includeDrafts]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -28,6 +29,15 @@ export function useCharacters() {
         setCharacters((prev) => [character, ...prev]);
         return character;
     }, []);
+
+    // Save an in-progress character as a draft (editor dismissed without Cancel).
+    // Only surface it locally when this hook instance shows drafts (assets page);
+    // otherwise (side panel) the draft must NOT flash into the active list.
+    const createDraft = useCallback(async (input: CharacterInput) => {
+        const { character } = await charactersApi.create(input, { draft: true });
+        if (includeDrafts) setCharacters((prev) => [character, ...prev]);
+        return character;
+    }, [includeDrafts]);
 
     const updateCharacter = useCallback(async (id: string, input: Partial<CharacterInput>) => {
         const { character } = await charactersApi.update(id, input);
@@ -40,5 +50,5 @@ export function useCharacters() {
         await charactersApi.delete(id);
     }, []);
 
-    return { characters, loading, error, load, createCharacter, updateCharacter, deleteCharacter };
+    return { characters, loading, error, load, createCharacter, createDraft, updateCharacter, deleteCharacter };
 }
