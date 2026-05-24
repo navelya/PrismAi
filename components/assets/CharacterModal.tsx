@@ -49,6 +49,7 @@ export default function CharacterModal({ open, initial, onClose, onSave, onSaveD
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const photoInputRef = useRef<HTMLInputElement>(null);
+    const dismissingRef = useRef(false);
 
     // Portal to <body> so the fixed-inset overlay centers on the viewport even
     // when a parent (e.g. the framer-motion slide-in side panel) has a CSS
@@ -65,6 +66,7 @@ export default function CharacterModal({ open, initial, onClose, onSave, onSaveD
             setErrorMsg(null);
             setGenSlots([]);
             setLightboxIndex(null);
+            dismissingRef.current = false;
         }
     }, [open, initial]);
 
@@ -223,6 +225,8 @@ export default function CharacterModal({ open, initial, onClose, onSave, onSaveD
     // character with at least one image, persist what we have as a draft;
     // otherwise just close. Edits to an existing character are discarded.
     const handleDismiss = async () => {
+        if (dismissingRef.current) return;
+        dismissingRef.current = true;
         if (!initial && onSaveDraft && images.length > 0) {
             try {
                 await onSaveDraft({

@@ -118,7 +118,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         const plusTriggerRef = useRef<HTMLButtonElement>(null);
         const modelTriggerRef = useRef<HTMLButtonElement>(null);
 
-        const { characters, createCharacter } = useCharacters();
+        const { characters, createCharacter, createDraft } = useCharacters();
         const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = picker closed
         const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
         // "Create new character" from the @-mention picker opens this modal.
@@ -338,6 +338,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         initial={null}
                         onClose={() => setCreateCharacterOpen(false)}
                         onSave={async (input: CharacterInput) => { await createCharacter(input); }}
+                        onSaveDraft={async (input: CharacterInput) => { await createDraft(input); }}
                     />
 
                     {attachedImages.length > 0 && (

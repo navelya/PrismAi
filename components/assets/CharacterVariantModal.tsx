@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2, Wand2, ScanFace, Star } from 'lucide-react';
@@ -25,6 +25,7 @@ export default function CharacterVariantModal({ open, source, onClose, onSave, o
     const [style, setStyle] = useState('');
     const [name, setName] = useState('');
     const [images, setImages] = useState<CharacterRefImage[]>([]);
+    const dismissingRef = useRef(false);
     const [genSlots, setGenSlots] = useState<GenSlot[]>([]);
     const [generating, setGenerating] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -44,6 +45,7 @@ export default function CharacterVariantModal({ open, source, onClose, onSave, o
             setSaving(false);
             setErrorMsg(null);
             setLightboxIndex(null);
+            dismissingRef.current = false;
         }
     }, [open, source]);
 
@@ -109,6 +111,8 @@ export default function CharacterVariantModal({ open, source, onClose, onSave, o
     // Dismiss WITHOUT Cancel (X/backdrop/Escape). A variant exists only after
     // generation, so persist as a draft when there are images.
     const handleDismiss = async () => {
+        if (dismissingRef.current) return;
+        dismissingRef.current = true;
         if (onSaveDraft && images.length > 0) {
             try {
                 await onSaveDraft({

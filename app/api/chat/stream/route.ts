@@ -477,6 +477,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
         .select('id, name, description, reference_images, weight')
         .eq('user_id', sessionOwner.user_id)
         .is('deleted_at', null)
+        .eq('is_draft', false)
         .in('id', mentionedCharacterIds);
       characterRefs = (rows ?? []).map((r: any) => {
         const refs = Array.isArray(r.reference_images) ? r.reference_images : [];
