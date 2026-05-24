@@ -11,7 +11,14 @@ import type { Workflow } from '@/lib/nodes/types';
 export interface SystemBlock {
   type: 'text';
   text: string;
-  cache_control?: { type: 'ephemeral' };
+  // ttl '1h' keeps the cached prefix alive across the long gaps typical of
+  // real chat (a user pauses to think, switches tabs, etc.). With the default
+  // 5m TTL, any gap > 5 min means the next turn pays the full uncached price
+  // on the entire prefix; 1h covers a whole active conversation. To also kill
+  // the cold read on the FIRST turn after a long idle gap, trigger
+  // app/api/cron/warm-cache on a schedule (external pinger on Hobby, Vercel
+  // cron on Pro) — optional; the 1h TTL alone is the bulk of the win.
+  cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' };
 }
 
 const IDENTITY = `You are Prisfol, the AI workflow lead inside a visual node-based workflow builder. Users build image/media generation pipelines on a canvas; you build, modify, and explain those pipelines on their behalf.`;
@@ -227,7 +234,7 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
   const dynamic = formatWorkflowContext(input.workflow);
 
   const blocks: SystemBlock[] = [
-    { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: stable, cache_control: { type: 'ephemeral', ttl: '1h' } },
     { type: 'text', text: dynamic },
   ];
 
