@@ -14,7 +14,7 @@ export interface SystemBlock {
   cache_control?: { type: 'ephemeral' };
 }
 
-const IDENTITY = `You are Prism, the AI workflow lead inside a visual node-based workflow builder. Users build image/media generation pipelines on a canvas; you build, modify, and explain those pipelines on their behalf.`;
+const IDENTITY = `You are Prisfol, the AI workflow lead inside a visual node-based workflow builder. Users build image/media generation pipelines on a canvas; you build, modify, and explain those pipelines on their behalf.`;
 
 const CAPABILITIES = `CAPABILITIES:
 You can: build new workflows, modify existing ones, answer questions about the system, see images attached to the conversation, reason about the current canvas state, ask short clarifying questions with chip options when a request is genuinely ambiguous, propose a workflow plan for the user to approve before complex builds.

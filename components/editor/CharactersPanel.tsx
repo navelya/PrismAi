@@ -2,12 +2,13 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, UserCircle, Plus, X, Sparkles } from 'lucide-react';
+import { Users, UserCircle, Plus, X, Sparkles, Wand2 } from 'lucide-react';
 import { PillTabs } from '@/components/ui/PillTabs';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useCharacters } from '@/lib/hooks/use-characters';
 import { useAppStore } from '@/lib/store/app-store';
 import CharacterModal from '@/components/assets/CharacterModal';
+import CharacterVariantModal from '@/components/assets/CharacterVariantModal';
 import type { Character, CharacterInput } from '@/lib/api/client';
 
 /** Frozen snapshot seeded into a character node's config — see
@@ -32,6 +33,7 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
     const { characters, loading, createCharacter } = useCharacters();
     const [scope, setScope] = useState<CharacterScope>('mine');
     const [modalOpen, setModalOpen] = useState(false);
+    const [variantSource, setVariantSource] = useState<Character | null>(null);
 
     const handleSave = async (input: CharacterInput) => {
         await createCharacter(input);
@@ -85,7 +87,7 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
                         <div className="grid grid-cols-2 gap-2">
                             <AnimatePresence initial={false}>
                                 {characters.map((c, i) => (
-                                    <CharacterCard key={c.id} character={c} index={i} />
+                                    <CharacterCard key={c.id} character={c} index={i} onVariant={setVariantSource} />
                                 ))}
                             </AnimatePresence>
                         </div>
@@ -94,11 +96,17 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
             </div>
 
             <CharacterModal open={modalOpen} initial={null} onClose={() => setModalOpen(false)} onSave={handleSave} />
+            <CharacterVariantModal
+                open={!!variantSource}
+                source={variantSource}
+                onClose={() => setVariantSource(null)}
+                onSave={async (input) => { await createCharacter(input); }}
+            />
         </div>
     );
 }
 
-function CharacterCard({ character, index }: { character: Character; index: number }) {
+function CharacterCard({ character, index, onVariant }: { character: Character; index: number; onVariant: (c: Character) => void }) {
     const thumb = character.thumbnail_url || character.reference_images?.[0]?.url;
     const extra = Math.max(0, (character.reference_images?.length ?? 0) - 1);
 
@@ -128,6 +136,13 @@ function CharacterCard({ character, index }: { character: Character; index: numb
             className="relative aspect-square rounded-xl overflow-hidden border border-stroke-subtle bg-surface-primary cursor-pointer group hover:border-accent-primary/50 transition-all duration-200 shadow-sm hover:shadow-lg"
             title="Click or drag to add to canvas"
         >
+            <button
+                onClick={(e) => { e.stopPropagation(); onVariant(character); }}
+                title="Create variant"
+                className="absolute top-1.5 left-1.5 z-10 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent-primary"
+            >
+                <Wand2 className="w-3.5 h-3.5" />
+            </button>
             {thumb ? (
                 <img src={thumb} alt={character.name} className="w-full h-full object-cover" />
             ) : (

@@ -23,6 +23,14 @@ export const characterSharedDef: NodeSharedDef<CharacterConfig> = {
         description: 'A reusable character (reference images + identity) fed into reference-aware generators',
         color: '#a855f7',
         icon: 'UserCircle',
+        // Reference images are persisted on the `characters` record, not as
+        // workflow outputs. Flagging the node ephemeral makes the engine clean
+        // up its node_results rows after a run (orchestrator.cleanupEphemeralResults)
+        // and hides them from the asset views (AssetsPanel live filter) — so a
+        // character's references never pile up as duplicate "assets". The node's
+        // own files live in the chat-assets bucket and are untouched by cleanup
+        // (which only lists the workflow-ephemeral-tmp bucket).
+        ephemeral: true,
     },
     handles: {
         inputs: [],

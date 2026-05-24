@@ -37,11 +37,19 @@ export const modelsAdminApi = {
         return data;
     },
 
-    /** Fetch all node types */
+    /** Fetch all node types.
+     * Reads directly via the Supabase client (node_types has a public SELECT
+     * RLS policy) instead of the admin-gated /api/admin/node-types route, so
+     * non-admin users can load the catalog for node icons/labels. */
     listNodeTypes: async () => {
-        const res = await fetch('/api/admin/node-types');
-        if (!res.ok) throw new Error('Failed to fetch node types');
-        return res.json();
+        const supabase = createClient();
+        const { data, error } = await supabase
+            .from('node_types')
+            .select('*')
+            .order('display_name');
+
+        if (error) throw error;
+        return data;
     },
 
     /** Fetch all data types (images, video, text, etc) */
