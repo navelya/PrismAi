@@ -14,6 +14,9 @@ interface CharacterModalProps {
     initial?: Character | null;
     onClose: () => void;
     onSave: (input: CharacterInput, id?: string) => Promise<void>;
+    /** Called when a NEW character is dismissed without Cancel (X/backdrop/Escape)
+     *  and has >=1 image — persists it as a draft. */
+    onSaveDraft?: (input: CharacterInput) => Promise<void>;
 }
 
 const MAX_IMAGES = 6;
@@ -32,7 +35,7 @@ function fileToBase64(file: File): Promise<{ mimeType: string; data: string }> {
     });
 }
 
-export default function CharacterModal({ open, initial, onClose, onSave }: CharacterModalProps) {
+export default function CharacterModal({ open, initial, onClose, onSave, onSaveDraft }: CharacterModalProps) {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [weight, setWeight] = useState(70);
@@ -216,6 +219,34 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
         }
     };
 
+    // Dismiss WITHOUT Cancel (X button, backdrop, Escape). For a brand-new
+    // character with at least one image, persist what we have as a draft;
+    // otherwise just close. Edits to an existing character are discarded.
+    const handleDismiss = async () => {
+        if (!initial && onSaveDraft && images.length > 0) {
+            try {
+                await onSaveDraft({
+                    name: name.trim(),
+                    description: description.trim() || null,
+                    referenceImages: images,
+                    thumbnailUrl: images[0].url,
+                    weight,
+                });
+            } catch {
+                // Best-effort: never block closing on a failed draft save.
+            }
+        }
+        onClose();
+    };
+
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void handleDismiss(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+        // handleDismiss closes over current field state; re-bind when it changes.
+    }, [open, initial, onSaveDraft, name, description, images, weight]);
+
     if (!mounted) return null;
 
     return createPortal(
@@ -223,7 +254,7 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
             {open && (
                 <motion.div
                     className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-                    onClick={onClose}
+                    onClick={() => void handleDismiss()}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -239,7 +270,7 @@ export default function CharacterModal({ open, initial, onClose, onSave }: Chara
                     >
                 <div className="flex items-center justify-between">
                     <h2 className="text-lg font-bold text-content-primary">{initial ? 'Edit Character' : 'New Character'}</h2>
-                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary">
+                    <button onClick={() => void handleDismiss()} className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
