@@ -42,7 +42,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const workflowName = currentWorkflow?.name || 'Prisfol';
 
     // Hide sidebar on home page, login page, demo page, legal pages, billing landing pages, and checkout
-    const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname.startsWith('/legal') || pathname.startsWith('/billing') || pathname.startsWith('/checkout');
+    const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname === '/pricing' || pathname.startsWith('/legal') || pathname.startsWith('/billing') || pathname.startsWith('/checkout');
 
     // Lock the mobile viewport on internal app pages so the browser chrome stays put.
     // Public pages keep normal scroll behavior.

@@ -1401,6 +1401,7 @@ export default function Home() {
                             <Link href="#capabilities" className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Capabilities</Link>
                             <Link href="#process" className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Process</Link>
                             <Link href="#templates" className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Templates</Link>
+                            <Link href="/pricing" className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Pricing</Link>
                         </div>
                         <div className="flex items-center gap-3">
                             <Link href="/chat" className="hidden md:inline text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Sign In</Link>
@@ -1913,6 +1914,7 @@ export default function Home() {
                                         <li><a href="#capabilities" className="hover:text-white transition-colors">Capabilities</a></li>
                                         <li><a href="#process" className="hover:text-white transition-colors">Process</a></li>
                                         <li><a href="#templates" className="hover:text-white transition-colors">Templates</a></li>
+                                        <li><Link href="/pricing" className="hover:text-white transition-colors">Pricing</Link></li>
                                     </ul>
                                 </div>
                                 <div className="space-y-4">

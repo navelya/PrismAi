@@ -18,6 +18,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
                         <Logo variant="wordmark" className="h-5 w-auto text-slate-900" />
                     </Link>
                     <nav className="hidden sm:flex items-center gap-6 text-[7px] font-black uppercase tracking-[0.4em] text-slate-400">
+                        <Link href="/pricing" className="hover:text-slate-900 transition-colors">Pricing</Link>
                         <Link href="/legal/terms" className="hover:text-slate-900 transition-colors">Terms</Link>
                         <Link href="/legal/privacy" className="hover:text-slate-900 transition-colors">Privacy</Link>
                         <Link href="/legal/refund" className="hover:text-slate-900 transition-colors">Refunds</Link>
@@ -33,6 +34,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
                 <div className="max-w-4xl mx-auto px-6 md:px-8 py-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
                     <div className="text-[7px] font-black tracking-[0.6em] text-slate-300 uppercase">© 2026 Prisfol</div>
                     <nav className="flex flex-wrap gap-6 text-[7px] font-black uppercase tracking-[0.4em] text-slate-400">
+                        <Link href="/pricing" className="hover:text-slate-900 transition-colors">Pricing</Link>
                         <Link href="/legal/terms" className="hover:text-slate-900 transition-colors">Terms of Service</Link>
                         <Link href="/legal/privacy" className="hover:text-slate-900 transition-colors">Privacy Policy</Link>
                         <Link href="/legal/refund" className="hover:text-slate-900 transition-colors">Refund Policy</Link>

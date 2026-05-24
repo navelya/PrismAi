@@ -69,7 +69,7 @@ const viewportLockScript = `
 (function() {
   try {
     var path = window.location.pathname;
-    var isPublic = path === '/' || path === '/login' || path === '/demo' || path.indexOf('/legal') === 0;
+    var isPublic = path === '/' || path === '/login' || path === '/demo' || path === '/pricing' || path.indexOf('/legal') === 0;
     var isMobile = window.matchMedia('(max-width: 767px)').matches;
     if (!isPublic && isMobile) {
       document.documentElement.classList.add('app-locked');
