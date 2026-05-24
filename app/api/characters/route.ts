@@ -20,17 +20,24 @@ function sanitizeRefImages(raw: any): RefImage[] {
     return out;
 }
 
-/** GET /api/characters — list the user's non-deleted characters, most-recently-used first */
-export async function GET() {
+/** GET /api/characters — list the user's non-deleted characters, most-recently-used first.
+ *  Drafts are hidden unless ?includeDrafts=true (used only by the assets page). */
+export async function GET(request: NextRequest) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
     const { user, supabase } = auth;
 
-    const { data, error } = await supabase
+    const includeDrafts = request.nextUrl.searchParams.get('includeDrafts') === 'true';
+
+    let query = supabase
         .from('characters')
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at')
+        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft')
         .eq('user_id', user.id)
-        .is('deleted_at', null)
+        .is('deleted_at', null);
+
+    if (!includeDrafts) query = query.eq('is_draft', false);
+
+    const { data, error } = await query
         .order('last_used_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false });
 
