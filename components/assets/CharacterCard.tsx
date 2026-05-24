@@ -23,7 +23,7 @@ export default function CharacterCard({ character, onEdit, onDelete, onVariant }
                     </span>
                 )}
                 {thumb ? (
-                    <img src={thumb} alt={character.name} className="w-full h-full object-cover" />
+                    <img src={thumb} alt={character.name || 'Untitled draft'} className="w-full h-full object-cover" />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center text-content-tertiary">
                         <UserCircle className="w-12 h-12" />
