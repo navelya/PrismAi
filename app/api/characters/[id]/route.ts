@@ -55,13 +55,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         return NextResponse.json({ error: 'No editable fields provided' }, { status: 400 });
     }
 
+    // A successful manual edit always promotes a draft to active. (The editor's
+    // Save button enforces name + >=1 image client-side, and this route
+    // re-validates them above, so the result is always a valid active row.)
+    update.is_draft = false;
+
     const { data, error } = await supabase
         .from('characters')
         .update(update)
         .eq('id', id)
         .eq('user_id', user.id)
         .is('deleted_at', null)
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at')
+        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft')
         .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
