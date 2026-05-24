@@ -216,12 +216,16 @@ export interface CharacterInput {
 }
 
 export const charactersApi = {
-    list: () => apiFetch<{ characters: Character[] }>('/api/characters', { cache: 'no-store' }),
+    list: (opts?: { includeDrafts?: boolean }) =>
+        apiFetch<{ characters: Character[] }>(
+            `/api/characters${opts?.includeDrafts ? '?includeDrafts=true' : ''}`,
+            { cache: 'no-store' },
+        ),
 
-    create: (input: CharacterInput) =>
+    create: (input: CharacterInput, opts?: { draft?: boolean }) =>
         apiFetch<{ character: Character }>('/api/characters', {
             method: 'POST',
-            body: JSON.stringify(input),
+            body: JSON.stringify(opts?.draft ? { ...input, draft: true } : input),
         }),
 
     update: (id: string, input: Partial<CharacterInput>) =>
