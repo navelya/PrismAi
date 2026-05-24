@@ -692,6 +692,7 @@ export default function SharedWorkflowEditor({
                                 onCopy={handleCopy}
                                 onPaste={handlePaste}
                                 onCanvasReady={() => setIsCanvasReady(true)}
+                                readOnly={readOnly}
                             />
                         )}
                         <AnimatePresence>

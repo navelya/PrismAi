@@ -41,6 +41,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const isCanvasMode = !!sessionId;
     const isCopilotMinimized = useAppStore(s => s.isCopilotMinimized);
     const setIsCopilotMinimized = useAppStore(s => s.setIsCopilotMinimized);
+    const isMobileCanvasOpen = useAppStore(s => s.isMobileCanvasOpen);
+    const setIsMobileCanvasOpen = useAppStore(s => s.setIsMobileCanvasOpen);
 
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -58,6 +60,11 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     useLayoutEffect(() => {
         if (useAppStore.getState().isCopilotMinimized) {
             useAppStore.getState().setIsCopilotMinimized(false);
+        }
+        // A stale "canvas open" toggle from a previous session must not carry
+        // over — always land on the chat view when a session changes.
+        if (useAppStore.getState().isMobileCanvasOpen) {
+            useAppStore.getState().setIsMobileCanvasOpen(false);
         }
     }, [sessionId]);
 
@@ -115,7 +122,61 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     };
 
     // ── Mobile ────────────────────────────────────────────────────────────────
-    if (isMobile) return <div className="w-full h-full flex flex-col">{chatPanel}</div>;
+    // Chat is the default surface; tapping "Canvas" in the header reveals a
+    // read-only canvas underneath while the chat collapses toward a floating
+    // bubble (bottom-left) that brings it back.
+    if (isMobile) {
+        return (
+            <div className="relative w-full h-full overflow-hidden bg-surface-primary">
+                {/* Read-only canvas — mounted only while open so it doesn't run
+                    its draw loops behind the chat. fitView (inside EditorCanvas)
+                    frames the whole graph to the mobile viewport on mount. */}
+                {isCanvasMode && isMobileCanvasOpen && (
+                    <div className="absolute inset-0">
+                        <SharedWorkflowEditor
+                            key={(sessionId || 'empty') + '-mobile-canvas'}
+                            workflow={workflow}
+                            showToolbar={false}
+                            showResultsPanel={false}
+                            readOnly
+                        />
+                    </div>
+                )}
+
+                {/* Chat surface — collapses down/out toward the bubble. */}
+                <motion.div
+                    className="absolute inset-0 z-20 flex flex-col bg-surface-secondary"
+                    initial={false}
+                    animate={isCanvasMode && isMobileCanvasOpen
+                        ? { y: '100%', opacity: 0, scale: 0.96, pointerEvents: 'none' as any }
+                        : { y: '0%', opacity: 1, scale: 1, pointerEvents: 'auto' as any }}
+                    transition={{ type: 'tween', ease: 'easeInOut', duration: 0.3 }}
+                    style={{ transformOrigin: 'bottom left' }}
+                >
+                    {chatPanel}
+                </motion.div>
+
+                {/* Floating chat bubble — returns to the chat from the canvas. */}
+                <AnimatePresence>
+                    {isCanvasMode && isMobileCanvasOpen && (
+                        <motion.button
+                            key="chat-bubble"
+                            onClick={() => setIsMobileCanvasOpen(false)}
+                            initial={{ opacity: 0, scale: 0.4, y: 24 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.4, y: 24 }}
+                            transition={{ type: 'spring', stiffness: 420, damping: 26 }}
+                            whileTap={{ scale: 0.9 }}
+                            className="absolute bottom-5 left-5 z-50 w-14 h-14 rounded-full bg-accent-primary text-content-inverted shadow-2xl shadow-black/40 flex items-center justify-center"
+                            aria-label="Back to chat"
+                        >
+                            <MessageSquare className="w-6 h-6" />
+                        </motion.button>
+                    )}
+                </AnimatePresence>
+            </div>
+        );
+    }
 
     // ── Desktop ───────────────────────────────────────────────────────────────
     return (

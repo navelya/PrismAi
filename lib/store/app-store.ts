@@ -75,6 +75,7 @@ export const useAppStore = create<RootState>()(
                     isLoadingSession: true,
                     statusMessage: null,
                     isCopilotMinimized: false,
+                    isMobileCanvasOpen: false,
                     models: [],
                     categories: [],
                     nodeTypes: [],
@@ -109,6 +110,8 @@ export const useAppStore = create<RootState>()(
                     'isLoadingSession',
                     'statusMessage',
                     'isCopilotMinimized',
+                    // Mobile read-only canvas view toggle — transient UI, never persist.
+                    'isMobileCanvasOpen',
                     // Canvas mode is the default starting position for every
                     // page load — never restore a stale "fullscreen chat" value
                     // from a previous session.
@@ -170,6 +173,7 @@ export const useAppStore = create<RootState>()(
                     state.activeExecutionId = null;
                     state.executionStartTime = null;
                     state.isCopilotMinimized = false;
+                    state.isMobileCanvasOpen = false;
                     state.isCanvasMode = true;
                     // Keep the slice default (true) on rehydration so a refreshed
                     // session page renders skeletons until loadSession() resolves.

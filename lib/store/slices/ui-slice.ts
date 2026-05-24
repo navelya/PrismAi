@@ -15,6 +15,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     statusMessage: null,
     isCanvasMode: true,
     isCopilotMinimized: false,
+    isMobileCanvasOpen: false,
     lastInteraction: Date.now(),
     nodeLabelDraft: null,
     models: [],
@@ -85,6 +86,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     setStatusMessage: (statusMessage) => set({ statusMessage }),
     setIsCanvasMode: (v) => set({ isCanvasMode: v }),
     setIsCopilotMinimized: (v) => set({ isCopilotMinimized: v }),
+    setIsMobileCanvasOpen: (v) => set({ isMobileCanvasOpen: v }),
     touchInteraction: () => set({ lastInteraction: Date.now() }),
     setNodeLabelDraft: (draft) => set({ nodeLabelDraft: draft }),
 

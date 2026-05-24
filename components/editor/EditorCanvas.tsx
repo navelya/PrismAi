@@ -126,6 +126,9 @@ interface EditorCanvasProps {
     // has committed — used by the parent to dismiss a covering loader so the
     // user never sees the canvas pop in unfurnished.
     onCanvasReady?: () => void;
+    // View-only mode (mobile canvas preview): pan + zoom stay enabled, but
+    // every edit affordance (node drag, selection, connection, delete) is off.
+    readOnly?: boolean;
 }
 
 const EditorCanvasInner = ({
@@ -146,6 +149,7 @@ const EditorCanvasInner = ({
     onDuplicate,
     onDelete,
     onCanvasReady,
+    readOnly = false,
 }: EditorCanvasProps) => {
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
@@ -1094,13 +1098,15 @@ const EditorCanvasInner = ({
     }, [touchInteraction, onEdgesChange]);
 
     const handleConnect = useCallback((connection: Connection) => {
+        if (readOnly) return;
         touchInteraction();
         onConnect(connection);
-    }, [touchInteraction, onConnect]);
+    }, [touchInteraction, onConnect, readOnly]);
 
     // Capture the originating side of a connection drag so we can filter the
     // context menu by data-type compatibility when it ends on empty canvas.
     const handleConnectStart = useCallback((_event: any, params: { nodeId: string | null; handleId: string | null; handleType: 'source' | 'target' | null }) => {
+        if (readOnly) return;
         if (!params.nodeId || !params.handleType) return;
         connectStartRef.current = {
             nodeId: params.nodeId,
@@ -1125,7 +1131,7 @@ const EditorCanvasInner = ({
             originHandleType: params.handleType,
             dataType: resolved.type,
         });
-    }, [reactFlowInstance, models]);
+    }, [reactFlowInstance, models, readOnly]);
 
     // Wire dropped on canvas (not on a handle/node) → open the filtered context
     // menu so the user can pick a compatible node and have it auto-wired.
@@ -1133,7 +1139,7 @@ const EditorCanvasInner = ({
         const start = connectStartRef.current;
         connectStartRef.current = null;
         setWireDrag(null);
-        if (!start) return;
+        if (readOnly || !start) return;
 
         const clientX = 'clientX' in event
             ? (event as MouseEvent).clientX
@@ -1184,13 +1190,14 @@ const EditorCanvasInner = ({
         });
         setContextMenu({ x: clientX, y: clientY });
         wireDropOpenedAtRef.current = Date.now();
-    }, [reactFlowInstance]);
+    }, [reactFlowInstance, readOnly]);
 
     const handleEdgeClick = useCallback((e: React.MouseEvent, edge: Edge) => {
         e.stopPropagation();
+        if (readOnly) return;
         touchInteraction();
         onEdgesChange([{ type: 'remove', id: edge.id }]);
-    }, [touchInteraction, onEdgesChange]);
+    }, [touchInteraction, onEdgesChange, readOnly]);
 
     const handleDrop = useCallback((event: React.DragEvent) => {
         event.preventDefault();
@@ -1403,6 +1410,7 @@ const EditorCanvasInner = ({
                 // — otherwise it wipes the pendingConnection we just set on wire-drop.
                 if ((e.nativeEvent as any)._isSynthetic) return;
                 e.preventDefault();
+                if (readOnly) return;
                 if ((e.target as HTMLElement).closest('.react-flow__node')) return;
                 setPendingConnection(null);
                 setPendingWireAnchor(null);
@@ -1442,16 +1450,18 @@ const EditorCanvasInner = ({
                 minZoom={0.1}
                 maxZoom={2}
                 nodeDragThreshold={1}
-                deleteKeyCode="Delete"
+                deleteKeyCode={readOnly ? null : "Delete"}
                 onNodesDelete={handleNodesDelete}
                 isValidConnection={handleIsValidConnection}
                 panOnScroll={true}
                 zoomOnScroll={false}
                 zoomOnPinch={true}
-                panOnDrag={isPanMode ? PAN_ON_DRAG_PAN : PAN_ON_DRAG_SELECT}
-                selectionOnDrag={!isPanMode}
-                selectNodesOnDrag={!isPanMode}
-                nodesDraggable={!isPanMode}
+                panOnDrag={readOnly ? true : (isPanMode ? PAN_ON_DRAG_PAN : PAN_ON_DRAG_SELECT)}
+                selectionOnDrag={!readOnly && !isPanMode}
+                selectNodesOnDrag={!readOnly && !isPanMode}
+                nodesDraggable={!readOnly && !isPanMode}
+                nodesConnectable={!readOnly}
+                elementsSelectable={!readOnly}
                 selectionMode={!isPanMode ? SelectionMode.Partial : undefined}
                 connectionMode={"loose" as any}
                 onPaneClick={handlePaneClick}
@@ -1648,6 +1658,7 @@ const EditorCanvasInner = ({
                     isPanMode={isPanMode}
                     onTogglePanMode={setIsPanMode}
                     isNodesEmpty={localNodes.length === 0}
+                    readOnly={readOnly}
                 />
             </ReactFlow>
             </NodeValidationProvider>

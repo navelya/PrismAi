@@ -299,6 +299,10 @@ export interface UISlice {
     setIsCanvasMode: (v: boolean) => void;
     isCopilotMinimized: boolean;
     setIsCopilotMinimized: (v: boolean) => void;
+    // Mobile-only: when true, the read-only canvas is shown and the chat is
+    // collapsed into a floating bubble. Ephemeral UI flag — never persisted.
+    isMobileCanvasOpen: boolean;
+    setIsMobileCanvasOpen: (v: boolean) => void;
     lastInteraction: number;
     touchInteraction: () => void;
     nodeLabelDraft: { nodeId: string; label: string } | null;

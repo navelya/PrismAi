@@ -6,7 +6,7 @@ import Sidebar from './Sidebar';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
-import { Menu, Sparkles } from 'lucide-react';
+import { Menu, Workflow } from 'lucide-react';
 
 interface AppLayoutProps {
     children: React.ReactNode;
@@ -40,6 +40,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // Get workflow name from store
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const workflowName = currentWorkflow?.name || 'Prisfol';
+
+    // Mobile canvas-preview toggle. Only meaningful inside a chat session that
+    // actually has a workflow on the canvas.
+    const isMobileCanvasOpen = useAppStore((state) => state.isMobileCanvasOpen);
+    const setIsMobileCanvasOpen = useAppStore((state) => state.setIsMobileCanvasOpen);
+    const inSession = /^\/chat\/[a-zA-Z0-9_-]+/.test(pathname);
+    const hasCanvas = !!currentWorkflow?.nodes?.length;
+    const showCanvasToggle = inSession && hasCanvas && !isMobileCanvasOpen;
 
     // Hide sidebar on home page, login page, demo page, legal pages, billing landing pages, and checkout
     const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname === '/pricing' || pathname.startsWith('/legal') || pathname.startsWith('/billing') || pathname.startsWith('/checkout');
@@ -81,13 +89,21 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     </button>
 
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <div className="w-7 h-7 rounded-lg bg-gradient-premium flex items-center justify-center flex-shrink-0">
-                            <Sparkles className="w-4 h-4 text-content-inverted" />
-                        </div>
                         <span className="font-semibold text-content-primary truncate">
                             {workflowName}
                         </span>
                     </div>
+
+                    {showCanvasToggle && (
+                        <button
+                            onClick={() => setIsMobileCanvasOpen(true)}
+                            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 -mr-1 rounded-lg text-sm font-medium text-accent-primary hover:bg-accent-primary/10 transition-colors"
+                            aria-label="View canvas"
+                        >
+                            <Workflow className="w-4 h-4" />
+                            <span>Canvas</span>
+                        </button>
+                    )}
                 </header>
 
                 {/* Main Content */}

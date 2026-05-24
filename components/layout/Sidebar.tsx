@@ -185,15 +185,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 >
                     {/* Drawer Header */}
                     <div className="flex items-center justify-between p-4 border-b border-stroke-subtle">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center shadow-lg p-1.5">
-                                <Logo variant="mark" className="h-full w-auto" />
-                            </div>
-                            <div>
-                                <h1 className="font-bold text-content-primary">Prisfol</h1>
-                                <p className="text-xs text-content-secondary">Automation Platform</p>
-                            </div>
-                        </div>
+                        <h1 className="font-bold text-content-primary">Prisfol</h1>
                         <button
                             onClick={onClose}
                             className="p-2 rounded-lg hover:bg-interactive-hover transition-colors"
@@ -689,7 +681,6 @@ function SidebarSessionItem({
                     }
                 `}
             >
-                <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent-primary' : 'opacity-50'}`} />
                 <div className="flex-1 overflow-hidden relative flex items-center h-5">
                     <AnimatePresence mode="popLayout">
                         <motion.span
@@ -739,8 +730,6 @@ function SidebarSessionItem({
                 }
                 `}
         >
-            <MessageSquare className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent-primary' : 'opacity-50'}`} />
-
             <div className="flex-1 overflow-hidden relative flex items-center h-5">
                 <AnimatePresence mode="popLayout">
                     <motion.span

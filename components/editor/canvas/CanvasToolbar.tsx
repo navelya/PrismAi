@@ -14,6 +14,9 @@ interface CanvasToolbarProps {
     isPanMode: boolean;
     onTogglePanMode: (active: boolean) => void;
     isNodesEmpty: boolean;
+    /** View-only mode (mobile canvas preview): hide every edit control
+        (undo/redo, auto-layout, pan mode) — leaving just fit + zoom. */
+    readOnly?: boolean;
 }
 
 export function CanvasToolbar({
@@ -24,39 +27,44 @@ export function CanvasToolbar({
     onAutoLayout,
     isPanMode,
     onTogglePanMode,
-    isNodesEmpty
+    isNodesEmpty,
+    readOnly = false,
 }: CanvasToolbarProps) {
     const { zoomIn, zoomOut, fitView } = useReactFlow();
 
     return (
         <Panel position="bottom-center" className="!mb-4">
             <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl">
-                <ToolbarButton
-                    icon={Undo2}
-                    onClick={() => undo?.()}
-                    disabled={!canUndo}
-                    title="Undo (Ctrl+Z)"
-                />
-                <ToolbarButton
-                    icon={Redo2}
-                    onClick={() => redo?.()}
-                    disabled={!canRedo}
-                    title="Redo (Ctrl+Y)"
-                />
-                <ToolbarDivider />
+                {!readOnly && (
+                    <>
+                        <ToolbarButton
+                            icon={Undo2}
+                            onClick={() => undo?.()}
+                            disabled={!canUndo}
+                            title="Undo (Ctrl+Z)"
+                        />
+                        <ToolbarButton
+                            icon={Redo2}
+                            onClick={() => redo?.()}
+                            disabled={!canRedo}
+                            title="Redo (Ctrl+Y)"
+                        />
+                        <ToolbarDivider />
 
-                <ToolbarButton
-                    icon={Network}
-                    onClick={onAutoLayout}
-                    disabled={isNodesEmpty}
-                    title="Auto Layout"
-                />
-                <ToolbarButton
-                    icon={Hand}
-                    onClick={() => onTogglePanMode(!isPanMode)}
-                    active={isPanMode}
-                    title={isPanMode ? 'Exit Pan Mode' : 'Pan Mode'}
-                />
+                        <ToolbarButton
+                            icon={Network}
+                            onClick={onAutoLayout}
+                            disabled={isNodesEmpty}
+                            title="Auto Layout"
+                        />
+                        <ToolbarButton
+                            icon={Hand}
+                            onClick={() => onTogglePanMode(!isPanMode)}
+                            active={isPanMode}
+                            title={isPanMode ? 'Exit Pan Mode' : 'Pan Mode'}
+                        />
+                    </>
+                )}
                 <ToolbarButton
                     icon={Maximize2}
                     onClick={() => fitView({ duration: 800, padding: 0.3 })}
