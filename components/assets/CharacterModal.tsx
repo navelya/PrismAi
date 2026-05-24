@@ -241,11 +241,13 @@ export default function CharacterModal({ open, initial, onClose, onSave, onSaveD
 
     useEffect(() => {
         if (!open) return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void handleDismiss(); };
+        // Don't dismiss on Escape while the image lightbox is open — Escape there
+        // should only close the lightbox (which also listens on window).
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && lightboxIndex === null) void handleDismiss(); };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
         // handleDismiss closes over current field state; re-bind when it changes.
-    }, [open, initial, onSaveDraft, name, description, images, weight]);
+    }, [open, initial, onSaveDraft, name, description, images, weight, lightboxIndex]);
 
     if (!mounted) return null;
 
