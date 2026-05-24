@@ -45,7 +45,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ characters: data });
 }
 
-/** POST /api/characters — create a character */
+/** POST /api/characters — create a character. With { draft: true } the name is
+ *  optional (stored as '' if empty) and the row is marked is_draft; an image is
+ *  still required. */
 export async function POST(request: NextRequest) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
@@ -55,8 +57,9 @@ export async function POST(request: NextRequest) {
     try { body = await request.json(); }
     catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
 
+    const isDraft = body?.draft === true;
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
-    if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+    if (!isDraft && !name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
 
     const referenceImages = sanitizeRefImages(body?.referenceImages);
     if (referenceImages.length === 0) {
@@ -77,8 +80,9 @@ export async function POST(request: NextRequest) {
             reference_images: referenceImages,
             thumbnail_url: thumbnailUrl,
             weight,
+            is_draft: isDraft,
         })
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at')
+        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft')
         .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
