@@ -16,6 +16,10 @@ const THINKING_BUDGET = 2500;
 const INPUT_PRICE_PER_MTOK: Record<keyof typeof MODELS, number> = { haiku: 1, sonnet: 3 };
 const OUTPUT_PRICE_PER_MTOK: Record<keyof typeof MODELS, number> = { haiku: 5, sonnet: 15 };
 const CACHE_READ_PRICE_PER_MTOK: Record<keyof typeof MODELS, number> = { haiku: 0.1, sonnet: 0.3 };
+// Cache WRITES are billed at 1.25x the base input price for the default
+// 5-minute (ephemeral) TTL. If we ever switch a breakpoint to ttl:"1h",
+// that slice writes at 2x — split this into two rates at that point.
+const CACHE_WRITE_PRICE_PER_MTOK: Record<keyof typeof MODELS, number> = { haiku: 1.25, sonnet: 3.75 };
 
 export interface ImageAttachment {
   /** base64 payload WITHOUT the "data:image/...;base64," prefix */
@@ -182,18 +186,44 @@ export async function* streamAnthropicTurn(args: StreamArgs): AsyncGenerator<Pro
   const inputTokens = usage.input_tokens ?? 0;
   const outputTokens = usage.output_tokens ?? 0;
   const cacheReadTokens = (usage as any).cache_read_input_tokens ?? 0;
+  // Tokens written to the cache this call (cold write). Billed at 1.25x
+  // input. Reported separately from input_tokens, so omitting it under-bills
+  // exactly the cold-prefix turns we most want to see.
+  const cacheWriteTokens = (usage as any).cache_creation_input_tokens ?? 0;
   // Anthropic counts thinking inside output_tokens. We don't get a separate
   // count from the API for thinking-only — we report 0 unless future SDK
   // versions expose it. The cost calc is still accurate.
   const thinkingTokens = 0;
 
-  // Anthropic reports input_tokens as the *uncached* portion only;
-  // cache_read_input_tokens is reported separately and billed at 10%.
-  // Sum the three terms — do NOT subtract cacheReadTokens from inputTokens.
+  // Anthropic reports input_tokens as the *uncached, non-cached-write*
+  // portion only; cache_read_input_tokens (billed 0.1x) and
+  // cache_creation_input_tokens (billed 1.25x) are reported separately.
+  // Sum all four terms — do NOT subtract anything from inputTokens.
   const costUsd =
     (inputTokens * INPUT_PRICE_PER_MTOK[modelKey]) / 1_000_000 +
     (cacheReadTokens * CACHE_READ_PRICE_PER_MTOK[modelKey]) / 1_000_000 +
+    (cacheWriteTokens * CACHE_WRITE_PRICE_PER_MTOK[modelKey]) / 1_000_000 +
     (outputTokens * OUTPUT_PRICE_PER_MTOK[modelKey]) / 1_000_000;
+
+  // ── Cache measurement (D1) ──────────────────────────────────────────────
+  // One structured line per real Anthropic call. Grep "[chat:cache]" in logs.
+  // prefixTokens = the whole cacheable prefix this call processed, however it
+  // was billed. hitRate = fraction served from cache. coldWrite = this call
+  // paid to (re)build the cache (TTL expiry, registry change, or first use).
+  const prefixTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+  const hitRate = prefixTokens > 0 ? cacheReadTokens / prefixTokens : 0;
+  console.log('[chat:cache]', JSON.stringify({
+    model: MODELS[modelKey],
+    thinking: !args.disableThinking,
+    inputTokens,        // uncached, full price
+    cacheReadTokens,    // served from cache, 0.1x
+    cacheWriteTokens,   // cold write, 1.25x
+    prefixTokens,
+    outputTokens,
+    hitRate: Number(hitRate.toFixed(3)),
+    coldWrite: cacheWriteTokens > 0,
+    costUsd: Number(costUsd.toFixed(6)),
+  }));
 
   yield {
     kind: 'usage',

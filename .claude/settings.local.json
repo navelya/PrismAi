@@ -67,7 +67,8 @@
       "Bash(rg -rn \"mousemove|pointermove|onMouseMove|onPointerMove\" components lib --glob '*.ts' --glob '*.tsx')",
       "Bash(rg -rn \"setInterval\" components lib app --glob '*.ts' --glob '*.tsx')",
       "Bash(rg -rn \"requestAnimationFrame\" components lib app --glob '*.ts' --glob '*.tsx')",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(node scripts/diag-thumbnail-aspect.js)"
     ],
     "additionalDirectories": [
       "C:\\Projects\\Prisfol\\PrismAi\\.git"

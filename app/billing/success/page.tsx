@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, useMotionValue, useTransform, useReducedMotion, animate } from 'framer-motion';
 import { Check, Loader2, ArrowRight, AlertCircle } from 'lucide-react';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { formatCredits } from '@/lib/billing/cost';
@@ -19,6 +19,32 @@ import { pollSubscriptionUntil, type SubscriptionRow } from '@/lib/billing/poll-
  * that tells the user what's happening rather than lying about success.
  */
 type Status = 'processing' | 'confirmed' | 'pending';
+
+/**
+ * Counts up to `value` once it's shown. Because `animate` re-targets from the
+ * motion value's *current* position, a balance that lands late (e.g. the
+ * realtime credit update arriving after first paint) continues counting toward
+ * the new total instead of snapping. Honors prefers-reduced-motion.
+ */
+function AnimatedCredits({ value }: { value: number }) {
+    const reduceMotion = useReducedMotion();
+    const count = useMotionValue(reduceMotion ? value : 0);
+    const display = useTransform(count, (latest) => formatCredits(Math.round(latest)));
+
+    useEffect(() => {
+        if (reduceMotion) {
+            count.set(value);
+            return;
+        }
+        const controls = animate(count, value, {
+            duration: 1.2,
+            ease: [0.16, 1, 0.3, 1], // easeOutExpo — fast start, gentle settle
+        });
+        return () => controls.stop();
+    }, [value, reduceMotion, count]);
+
+    return <motion.span>{display}</motion.span>;
+}
 
 export default function BillingSuccessPage() {
     const { balance } = useTokenBalance();
@@ -99,8 +125,8 @@ export default function BillingSuccessPage() {
                 {balance !== null && status !== 'processing' && (
                     <div className="mb-8 p-5 rounded-2xl border border-stroke-subtle bg-surface-elevated">
                         <div className="text-xs uppercase tracking-wider text-content-tertiary mb-1">Current balance</div>
-                        <div className="text-3xl font-bold font-display text-content-primary">
-                            {formatCredits(balance)}
+                        <div className="text-3xl font-bold font-display text-content-primary tabular-nums">
+                            <AnimatedCredits value={balance} />
                             <span className="text-sm font-normal text-content-tertiary ml-2">credits</span>
                         </div>
                     </div>
