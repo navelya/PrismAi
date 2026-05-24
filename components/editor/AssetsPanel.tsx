@@ -57,6 +57,10 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
             .select('id, node_id, result_type, result_data, created_at, execution_id, session_id')
             .eq('status', 'completed')
             .in('result_type', ['image', 'video', 'audio', '3d'])
+            // Hide `character` rows (reference images re-published for downstream
+            // generators, not deliverable assets). NULL-safe so untagged/legacy
+            // rows still show. See migration 20260524_node_results_node_type.
+            .or('node_type.is.null,node_type.neq.character')
             .order('created_at', { ascending: false });
 
         if (scope === 'current' && sessionId) {
@@ -95,6 +99,8 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
                 },
                 (payload: any) => {
                     const row = payload.new;
+                    // Mirror the fetch query's character exclusion for live inserts.
+                    if (row?.node_type === 'character') return;
                     if (row?.status === 'completed' && ['image', 'video', 'audio', '3d'].includes(row?.result_type)) {
                         const nextItems = unpackAssets([row]);
                         if (nextItems.length === 0) return;

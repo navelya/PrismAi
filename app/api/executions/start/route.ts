@@ -582,6 +582,11 @@ export async function POST(request: NextRequest) {
       execution_id: execution.id,
       node_id: node.id,
       session_id: session_id,
+      // Stamp the source node type once, here at the single creation point for
+      // every row. Later upserts (dispatch, ephemeral executor, webhooks) merge
+      // on (execution_id, node_id) and don't include node_type, so they retain
+      // this value. Asset views read it to hide reference-only rows (character).
+      node_type: node.type,
       status: initiallyRunningIds.has(node.id) ? 'running' : 'pending',
       updated_at: new Date().toISOString(),
     }));
