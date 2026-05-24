@@ -18,7 +18,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export default function AssetsPage() {
-    const { characters, loading, createCharacter, updateCharacter, deleteCharacter } = useCharacters();
+    const { characters, loading, createCharacter, createDraft, updateCharacter, deleteCharacter } = useCharacters({ includeDrafts: true });
     const [activeTab, setActiveTab] = useState<TabId>('assets');
     const [search, setSearch] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
@@ -95,13 +95,14 @@ export default function AssetsPage() {
                     </>
                 )}
 
-                <CharacterModal open={modalOpen} initial={editing} onClose={() => setModalOpen(false)} onSave={handleSave} />
+                <CharacterModal open={modalOpen} initial={editing} onClose={() => setModalOpen(false)} onSave={handleSave} onSaveDraft={async (input) => { await createDraft(input); }} />
 
                 <CharacterVariantModal
                     open={!!variantSource}
                     source={variantSource}
                     onClose={() => setVariantSource(null)}
                     onSave={async (input) => { await createCharacter(input); }}
+                    onSaveDraft={async (input) => { await createDraft(input); }}
                 />
 
                 <ConfirmationModal

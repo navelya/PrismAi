@@ -16,7 +16,12 @@ export default function CharacterCard({ character, onEdit, onDelete, onVariant }
 
     return (
         <div className="group relative rounded-2xl overflow-hidden border border-stroke-subtle bg-surface-tertiary hover:border-accent-primary/40 transition-all">
-            <div className="aspect-square w-full bg-white/5">
+            <div className="relative aspect-square w-full bg-white/5">
+                {character.is_draft && (
+                    <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-amber-500/90 text-white text-[10px] font-semibold uppercase tracking-wide">
+                        Draft
+                    </span>
+                )}
                 {thumb ? (
                     <img src={thumb} alt={character.name} className="w-full h-full object-cover" />
                 ) : (
@@ -26,7 +31,7 @@ export default function CharacterCard({ character, onEdit, onDelete, onVariant }
                 )}
             </div>
             <div className="p-3">
-                <p className="font-semibold text-content-primary truncate">{character.name}</p>
+                <p className="font-semibold text-content-primary truncate">{character.name || 'Untitled draft'}</p>
                 {character.description && (
                     <p className="text-xs text-content-tertiary line-clamp-2 mt-0.5">{character.description}</p>
                 )}
