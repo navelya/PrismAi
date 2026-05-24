@@ -14,11 +14,14 @@ interface CharacterVariantModalProps {
     source: Character | null;
     onClose: () => void;
     onSave: (input: CharacterInput) => Promise<void>;
+    /** Called when the variant is dismissed without Cancel and has generated
+     *  images — persists it as a draft. */
+    onSaveDraft?: (input: CharacterInput) => Promise<void>;
 }
 
 const MAX_IMAGES = 6;
 
-export default function CharacterVariantModal({ open, source, onClose, onSave }: CharacterVariantModalProps) {
+export default function CharacterVariantModal({ open, source, onClose, onSave, onSaveDraft }: CharacterVariantModalProps) {
     const [style, setStyle] = useState('');
     const [name, setName] = useState('');
     const [images, setImages] = useState<CharacterRefImage[]>([]);
@@ -103,6 +106,32 @@ export default function CharacterVariantModal({ open, source, onClose, onSave }:
         }
     };
 
+    // Dismiss WITHOUT Cancel (X/backdrop/Escape). A variant exists only after
+    // generation, so persist as a draft when there are images.
+    const handleDismiss = async () => {
+        if (onSaveDraft && images.length > 0) {
+            try {
+                await onSaveDraft({
+                    name: name.trim(),
+                    description: style.trim() || null,
+                    referenceImages: images,
+                    thumbnailUrl: images[0].url,
+                    weight: source?.weight ?? 70,
+                });
+            } catch {
+                // Best-effort: never block closing on a failed draft save.
+            }
+        }
+        onClose();
+    };
+
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void handleDismiss(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open, onSaveDraft, name, style, images, source]);
+
     if (!mounted) return null;
 
     const sourceThumb = source?.thumbnail_url || source?.reference_images?.[0]?.url;
@@ -112,7 +141,7 @@ export default function CharacterVariantModal({ open, source, onClose, onSave }:
             {open && source && (
                 <motion.div
                     className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-                    onClick={onClose}
+                    onClick={() => void handleDismiss()}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -128,7 +157,7 @@ export default function CharacterVariantModal({ open, source, onClose, onSave }:
                     >
                         <div className="flex items-center justify-between">
                             <h2 className="text-lg font-bold text-content-primary">Create variant</h2>
-                            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary">
+                            <button onClick={() => void handleDismiss()} className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary">
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
