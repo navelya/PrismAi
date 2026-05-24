@@ -55,10 +55,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         return NextResponse.json({ error: 'No editable fields provided' }, { status: 400 });
     }
 
-    // A successful manual edit always promotes a draft to active. (The editor's
-    // Save button enforces name + >=1 image client-side, and this route
-    // re-validates them above, so the result is always a valid active row.)
-    update.is_draft = false;
+    // Promote a draft to active only when this edit sets a (non-empty) name —
+    // the editor's Save button always sends one, and the route validated it
+    // above. This keeps the invariant "an active character has a non-empty
+    // name" true even if a future partial PATCH omits the name.
+    if (update.name) update.is_draft = false;
 
     const { data, error } = await supabase
         .from('characters')
