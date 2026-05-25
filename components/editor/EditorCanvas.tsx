@@ -15,6 +15,7 @@ import ReactFlow, {
     Panel,
     useReactFlow,
     useNodesInitialized,
+    useUpdateNodeInternals,
     applyNodeChanges,
     NodeToolbar,
     Position,
@@ -265,6 +266,37 @@ const EditorCanvasInner = ({
         });
         return () => cancelAnimationFrame(raf);
     }, [nodesInitialized, reactFlowInstance, hasNodesToMeasure, sessionLoadPending]);
+
+    // ── Wire-render race fix ─────────────────────────────────────────────
+    // RF can only draw an edge once it has measured the handleBounds of BOTH
+    // endpoint nodes. On a session load, the workflow (nodes + edges) arrives
+    // on a path separate from the catalog gate, and the edges reach <ReactFlow>
+    // directly while nodes route through the lagged `localNodes` copy. When the
+    // timing lands so edges are committed to RF's store before the endpoint
+    // handles are measured — and nothing afterward re-triggers a measure (the
+    // memoized edges array reference stays stable) — the wires never get drawn
+    // until a full page refresh re-runs the whole mount/measure sequence. This
+    // is the intermittent "nodes load but wires are missing until I refresh
+    // again" bug.
+    //
+    // Once nodesInitialized flips true (every node measured), force a one-shot
+    // re-scan of every node's handle geometry. This is purely a re-measure — it
+    // mutates no workflow data — and it deterministically closes the race: any
+    // edge whose endpoints weren't measured when it was committed now gets valid
+    // handle bounds and is redrawn. Re-arms whenever nodesInitialized drops back
+    // to false (e.g. nodes added/removed) so a later structural change is covered
+    // too.
+    const updateNodeInternals = useUpdateNodeInternals();
+    const hasSweptInternalsRef = useRef(false);
+    useEffect(() => {
+        if (!nodesInitialized) {
+            hasSweptInternalsRef.current = false;
+            return;
+        }
+        if (hasSweptInternalsRef.current) return;
+        hasSweptInternalsRef.current = true;
+        for (const n of localNodes) updateNodeInternals(n.id);
+    }, [nodesInitialized, localNodes, updateNodeInternals]);
 
     // One-shot smooth fit-to-node when something elsewhere (e.g. the Run
     // Workflow error popover) sets `pendingCenterNodeId`. We pan + zoom-to-fit
