@@ -109,7 +109,7 @@ function PromptNode({ data, id, selected }: NodeProps<PromptNodeData>) {
             hideStatus={true}
         >
             {/* Embedded Text Area Container */}
-            <div className="relative group/prompt bg-white/5 border border-white/10 rounded-xl shadow-inner backdrop-blur-md transition-all duration-300 p-2.5">
+            <div className="relative group/prompt bg-white/5 border border-white/10 rounded-xl shadow-inner transition-all duration-300 p-2.5">
                 <textarea
                     ref={textareaRef}
                     className="nodrag custom-scrollbar block w-full min-h-[60px] max-h-[160px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"

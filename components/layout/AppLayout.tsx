@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
-import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { useIsMobile, useHasMounted } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
 import { Menu, Workflow } from 'lucide-react';
@@ -15,6 +15,7 @@ interface AppLayoutProps {
 export default function AppLayout({ children }: AppLayoutProps) {
     const pathname = usePathname();
     const isMobile = useIsMobile();
+    const hasMounted = useHasMounted();
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     // ✅ GLOBAL CATALOG FETCH: Ensure models and node types are loaded for labels
@@ -72,6 +73,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 {children}
             </div>
         );
+    }
+
+    // Gate the mobile/desktop layout split until we've mounted on the client and
+    // know the real viewport width. Rendering a branch before `isMobile` is known
+    // would mount the desktop tree first and tear it down when `isMobile` flips —
+    // and unmounting that Radix-heavy subtree triggers a compose-refs ref-detach
+    // loop (React #185). Holding back `children` for one frame means the authed
+    // layout mounts exactly once, in the correct mode, with no teardown.
+    if (!hasMounted) {
+        return <div className="w-full h-[100dvh] bg-surface-secondary" />;
     }
 
     // Mobile layout: Header + Content + Slide-out drawer

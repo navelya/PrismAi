@@ -281,10 +281,9 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             <motion.div
                 layout={!isDragging && activeType !== 'text' ? "size" : false}
                 className={cn(
-                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node",
+                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node min-h-[200px]",
                     activeType === 'text' ? "bg-transparent border-none" : "border border-white/10 bg-white/5",
-                    !isDragging && "transition-all duration-500",
-                    activeType === 'text' ? textMinHeightClass : "min-h-[200px]"
+                    !isDragging && "transition-all duration-500"
                 )}
             >
                 {/* Frosty Placeholder background */}

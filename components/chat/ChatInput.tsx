@@ -230,6 +230,16 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             const currentInput = textarea.value;
             const hasNewlines = currentInput.includes('\n');
 
+            // An empty / whitespace-only single-line input is never multi-line.
+            // Bailing here keeps the two measurement branches below (textarea
+            // scrollHeight vs the ghost probe) from disagreeing and toggling
+            // isMultiLine back and forth — the oscillation behind the mobile
+            // infinite-update crash (#185).
+            if (!hasNewlines && currentInput.trim() === '') {
+                if (isMultiLine) setIsMultiLine(false);
+                return;
+            }
+
             if (!isMultiLine && !hasNewlines) {
                 if (textarea.scrollHeight > 40) {
                     setIsMultiLine(true);
@@ -257,21 +267,31 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             }
         }, [isMultiLine, isMobile, isExpanded, textareaRef]);
 
+        // Keep a stable handle to the latest adjuster. The effects below must NOT
+        // depend on `adjustTextareaHeight` directly: its identity changes whenever
+        // `isMultiLine` (the state it itself sets) flips, so listing it as a dep
+        // makes the effect re-fire on every flip → infinite setState loop (#185).
+        // Reading through a ref lets the effects run only on their real triggers.
+        const adjustRef = useRef(adjustTextareaHeight);
+        useLayoutEffect(() => {
+            adjustRef.current = adjustTextareaHeight;
+        });
+
         // Sync height whenever value changes (including when cleared)
         useEffect(() => {
-            adjustTextareaHeight();
-        }, [value, adjustTextareaHeight]);
+            adjustRef.current();
+        }, [value]);
 
         // Sync height on textarea resize
         useEffect(() => {
             const textarea = textareaRef.current;
             if (!textarea) return;
             const ro = new ResizeObserver(() => {
-                adjustTextareaHeight();
+                adjustRef.current();
             });
             ro.observe(textarea);
             return () => ro.disconnect();
-        }, [adjustTextareaHeight, textareaRef]);
+        }, [textareaRef]);
 
         // Enforce max-height on isMultiLine toggle
         useLayoutEffect(() => {

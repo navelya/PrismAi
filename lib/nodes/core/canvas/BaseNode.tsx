@@ -277,6 +277,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         return false;
     });
 
+    // Read-only canvas (mobile preview): suppress the per-node hover action
+    // toolbar (duplicate/delete/etc.) since editing is disabled.
+    const isReadOnlyCanvas = useAppStore((state) => state.isMobileCanvasOpen);
+
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
     const displayLabel = label || metadata?.label || 'Node';
@@ -407,7 +411,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 handles bulk actions. */}
             <NodeToolbar
                 nodeId={id}
-                isVisible={!isMultiSelectActive && (isHovered || !!selected)}
+                isVisible={!isReadOnlyCanvas && !isMultiSelectActive && (isHovered || !!selected)}
                 position={Position.Top}
                 align="end"
             >
