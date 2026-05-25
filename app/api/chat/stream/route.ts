@@ -445,15 +445,22 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
   const images = parseImageAttachments(attachedImages);
 
   // Upload attached images to storage so the model can reference stable URLs.
+  // `attachedImageUrls` (full public URLs) feed the brain; `attachedImagePaths`
+  // (relative storage paths) get persisted on the user message so the
+  // attachments reappear in the chat history after a page refresh — the load
+  // path (use-session.ts) reconstructs URLs from these paths via
+  // getStoragePublicUrl, matching how assistant result images are stored.
   const attachedImageUrls: string[] = [];
+  const attachedImagePaths: string[] = [];
   const rawAttached: any[] = Array.isArray(attachedImages) ? attachedImages : [];
   const folder = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : 'anonymous';
   for (const item of rawAttached) {
     const url: string | undefined = typeof item === 'string' ? item : item?.dataUrl ?? item?.url;
     if (!url || !/^data:image\//.test(url)) continue;
     try {
-      const { publicUrl } = await uploadBase64ToStorage(url, folder, supabase);
+      const { path, publicUrl } = await uploadBase64ToStorage(url, folder, supabase);
       attachedImageUrls.push(publicUrl);
+      attachedImagePaths.push(path);
     } catch (err) {
       console.error('[chat] image upload failed:', err);
     }
@@ -556,6 +563,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                 role: 'user',
                 content: lastUserMsg.content,
                 status: 'completed',
+                ...(attachedImagePaths.length > 0 ? { images: attachedImagePaths } : {}),
                 metadata: Object.keys(userMetadata).length > 0 ? userMetadata : null,
                 created_at: new Date().toISOString()
               }) as any)

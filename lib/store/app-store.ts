@@ -76,10 +76,18 @@ export const useAppStore = create<RootState>()(
                     statusMessage: null,
                     isCopilotMinimized: false,
                     isMobileCanvasOpen: false,
-                    models: [],
-                    categories: [],
-                    nodeTypes: [],
-                    providers: [],
+                    // DO NOT clear the global catalog (models/categories/nodeTypes/
+                    // providers) here. It is session-INDEPENDENT reference data and
+                    // a persisted cache (see app-store persist + fetchModelCatalog's
+                    // length>0 early-return). clearAllState runs on every refresh
+                    // (activeSessionId rehydrates to null ≠ the URL sessionId), and
+                    // wiping the catalog raced fetchModelCatalog's early-return: when
+                    // the fetch saw the rehydrated catalog and bailed, this wipe then
+                    // emptied it, so the canvas mounted with models=[] → ai_generator
+                    // nodes had no resolved model → no handles → wires didn't render.
+                    // Because `models` is persisted, the empty/full state flipped on
+                    // every refresh, producing the deterministic "wires gone / wires
+                    // back" alternation. Leaving the catalog intact removes the race.
                     isModelsLoading: false,
                     runFromNodeId: null,
                     runMode: null,
