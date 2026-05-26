@@ -55,13 +55,15 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
                 />
 
                 <div className="flex items-center gap-0.5">
-                    <button
-                        onClick={() => setModalOpen(true)}
-                        className="p-1 hover:bg-white/10 rounded-md transition-colors group"
-                        title="New character"
-                    >
-                        <Plus className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary transition-colors" />
-                    </button>
+                    {scope === 'mine' && (
+                        <button
+                            onClick={() => setModalOpen(true)}
+                            className="p-1 hover:bg-white/10 rounded-md transition-colors group"
+                            title="New character"
+                        >
+                            <Plus className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary transition-colors" />
+                        </button>
+                    )}
                     <button
                         onClick={onClose}
                         className="p-1 hover:bg-white/10 rounded-md transition-colors group"
