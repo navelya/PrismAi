@@ -515,6 +515,11 @@ export default function CompositorEditorModal({
     const transformerRef = useRef<any>(null);
     const stageContainerRef = useRef<HTMLDivElement>(null);
 
+    // Group-drag bookkeeping: positions of every selected Konva node captured
+    // at drag START (before any movement), so siblings can be shifted by the
+    // dragged node's delta during the gesture and committed together on end.
+    const groupDragRef = useRef<{ start: Map<string, { x: number; y: number }> } | null>(null);
+
     const [stageZoom, setStageZoom] = useState(1);
     const [stagePan, setStagePan] = useState({ x: VIEWPORT_PADDING, y: VIEWPORT_PADDING });
     const [isPanning, setIsPanning] = useState(false);
@@ -754,11 +759,58 @@ export default function CompositorEditorModal({
     const handleInteractStart = useCallback(() => {
         pushSnapshot();
         setIsDragging(true);
+        // Snapshot positions of all selected nodes up front (pre-movement) so a
+        // multi-selection moves in lockstep. Single selection => no group ref.
+        const sel = selectedLayerIdsRef.current;
+        if (sel.length < 2) { groupDragRef.current = null; return; }
+        const stage = stageRef.current;
+        if (!stage) { groupDragRef.current = null; return; }
+        const start = new Map<string, { x: number; y: number }>();
+        for (const lid of sel) {
+            const node = stage.findOne(`.img-${lid}`);
+            if (node) start.set(lid, { x: node.x(), y: node.y() });
+        }
+        groupDragRef.current = { start };
     }, [pushSnapshot, setIsDragging]);
+
+    const handleLayerDragMove = useCallback((layerId: string, pos: { x: number; y: number }) => {
+        const gd = groupDragRef.current;
+        if (!gd) return; // single-select drag: Konva moves the one node itself
+        const anchorStart = gd.start.get(layerId);
+        if (!anchorStart) return;
+        const stage = stageRef.current;
+        if (!stage) return;
+        const dx = pos.x - anchorStart.x;
+        const dy = pos.y - anchorStart.y;
+        for (const [lid, s] of gd.start) {
+            if (lid === layerId) continue;
+            const node = stage.findOne(`.img-${lid}`);
+            if (node) { node.x(s.x + dx); node.y(s.y + dy); }
+        }
+        stage.batchDraw();
+    }, []);
 
     const handleInteractEnd = useCallback(() => {
         setIsDragging(false);
-    }, [setIsDragging]);
+        const gd = groupDragRef.current;
+        groupDragRef.current = null;
+        if (!gd) return;
+        const stage = stageRef.current;
+        if (!stage) return;
+        // Read final positions of every selected node and commit in one write.
+        // (The anchor's own onDragEnd also committed its x/y; this is the
+        // authoritative batch that includes the siblings too.)
+        const updates = new Map<string, { x: number; y: number }>();
+        for (const lid of selectedLayerIdsRef.current) {
+            const node = stage.findOne(`.img-${lid}`);
+            if (node) updates.set(lid, { x: node.x(), y: node.y() });
+        }
+        if (updates.size === 0) return;
+        updateLayers((prev) => prev.map((l) => {
+            const u = updates.get(l.id);
+            return u ? { ...l, transform: { ...l.transform, x: u.x, y: u.y } } : l;
+        }));
+    }, [setIsDragging, updateLayers]);
 
     const selectedLayer = useMemo(() => layers.find((l) => l.id === selectedLayerId) || null, [layers, selectedLayerId]);
     const selectedEdge = useMemo(
@@ -869,6 +921,7 @@ export default function CompositorEditorModal({
                                     onLayerVideoLoad={handleLayerVideoLoad}
                                     onInteractStart={handleInteractStart}
                                     onInteractEnd={handleInteractEnd}
+                                    onLayerDragMove={handleLayerDragMove}
                                     playhead={playhead}
                                     isPlaying={isPlaying}
                                     muted={audioMuted}
