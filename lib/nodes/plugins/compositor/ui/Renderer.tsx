@@ -41,8 +41,12 @@ interface CompositorLayerNodesProps {
     layers: RenderableLayer[];
     interactive?: boolean;
     selectedLayerId?: string | null;
-    onSelectLayer?: (layerId: string) => void;
+    onSelectLayer?: (layerId: string, additive: boolean) => void;
     onTransformLayer?: (layerId: string, updates: Partial<LayerTransform>) => void;
+    /** Live position during a drag (canvas coords), used to drive group drag. */
+    onLayerDragMove?: (layerId: string, pos: { x: number; y: number }) => void;
+    /** Ids currently in the multi-selection; reserved for future group-aware rendering. */
+    selectedLayerIds?: string[];
     onLayerImageLoad?: (layerId: string, img: HTMLImageElement) => void;
     /**
      * Reports a video layer's intrinsic metadata when it loads. Used by the
@@ -112,15 +116,17 @@ const LayerImage = memo(function LayerImage({
     onLoad,
     onInteractStart,
     onInteractEnd,
+    onDragMove,
 }: {
     layer: CompositorLayer;
     imageUrl: string;
     interactive: boolean;
-    onSelect?: () => void;
+    onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onLoad?: (img: HTMLImageElement) => void;
     onInteractStart?: () => void;
     onInteractEnd?: () => void;
+    onDragMove?: (x: number, y: number) => void;
 }) {
     const safeUrl = useMemo(() => safeImageUrl(imageUrl), [imageUrl]);
     const [img] = useImage(safeUrl, 'anonymous');
@@ -168,6 +174,7 @@ const LayerImage = memo(function LayerImage({
                 onSelect?.();
                 onInteractStart?.();
             }}
+            onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
             onDragEnd={(e) => {
                 onTransform?.({ x: e.target.x(), y: e.target.y() });
                 onInteractEnd?.();
@@ -221,15 +228,17 @@ const LayerVideo = memo(function LayerVideo({
     visible = true,
     poolKey,
     muted = true,
+    onDragMove,
 }: {
     layer: CompositorLayer;
     videoUrl: string;
     interactive: boolean;
-    onSelect?: () => void;
+    onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onLoad?: (meta: { duration: number; width: number; height: number }) => void;
     onInteractStart?: () => void;
     onInteractEnd?: () => void;
+    onDragMove?: (x: number, y: number) => void;
     /** Layer-local time in seconds; clamped to [0, video.duration] by the component. */
     localTime: number | undefined;
     isPlaying: boolean;
@@ -363,6 +372,7 @@ const LayerVideo = memo(function LayerVideo({
                 onSelect?.();
                 onInteractStart?.();
             }}
+            onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
             onDragEnd={(e) => {
                 onTransform?.({ x: e.target.x(), y: e.target.y() });
                 onInteractEnd?.();
@@ -420,6 +430,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
     onInteractEnd,
     visible = true,
     muted = true,
+    onDragMove,
 }: {
     layer: CompositorLayer;
     graph: GraphDescription;
@@ -427,12 +438,13 @@ const LayerSubgraph = memo(function LayerSubgraph({
     isPlaying: boolean;
     poolKey: string;
     interactive: boolean;
-    onSelect?: () => void;
+    onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onLoad?: (meta: { duration: number; width: number; height: number }) => void;
     onInteractStart?: () => void;
     onInteractEnd?: () => void;
     visible?: boolean;
+    onDragMove?: (x: number, y: number) => void;
     /**
      * Mute vote forwarded to the upstream graph's media layers. Without this,
      * pull-model surfaces (chained compositor, downstream blur) had no path
@@ -572,6 +584,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
                 onSelect?.();
                 onInteractStart?.();
             }}
+            onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
             onDragEnd={(e) => {
                 onTransform?.({ x: e.target.x(), y: e.target.y() });
                 onInteractEnd?.();
@@ -608,14 +621,16 @@ const LayerText = memo(function LayerText({
     onTransform,
     onInteractStart,
     onInteractEnd,
+    onDragMove,
 }: {
     layer: CompositorLayer;
     text: string;
     interactive: boolean;
-    onSelect?: () => void;
+    onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onInteractStart?: () => void;
     onInteractEnd?: () => void;
+    onDragMove?: (x: number, y: number) => void;
 }) {
     const shapeRef = useRef<any>(null);
     const t = layer.transform;
@@ -659,6 +674,7 @@ const LayerText = memo(function LayerText({
                 onSelect?.();
                 onInteractStart?.();
             }}
+            onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
             onDragEnd={(e) => {
                 onTransform?.({ x: e.target.x(), y: e.target.y() });
                 onInteractEnd?.();
@@ -765,6 +781,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
     interactive = false,
     onSelectLayer,
     onTransformLayer,
+    onLayerDragMove,
     onLayerImageLoad,
     onLayerVideoLoad,
     onInteractStart,
@@ -860,12 +877,17 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             isPlaying={isPlaying}
                             poolKey={poolKey || '_global_'}
                             interactive={interactive}
-                            onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
+                            onSelect={interactive && onSelectLayer
+                                ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
+                                : undefined}
                             onTransform={
                                 interactive && onTransformLayer
                                     ? (u) => onTransformLayer(layer.id, u)
                                     : undefined
                             }
+                            onDragMove={interactive && onLayerDragMove
+                                ? (x: number, y: number) => onLayerDragMove(layer.id, { x, y })
+                                : undefined}
                             onLoad={
                                 onLayerVideoLoad
                                     ? (meta) => onLayerVideoLoad(layer.id, meta)
@@ -894,12 +916,17 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             videoUrl={url}
                             interactive={interactive}
-                            onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
+                            onSelect={interactive && onSelectLayer
+                                ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
+                                : undefined}
                             onTransform={
                                 interactive && onTransformLayer
                                     ? (u) => onTransformLayer(layer.id, u)
                                     : undefined
                             }
+                            onDragMove={interactive && onLayerDragMove
+                                ? (x: number, y: number) => onLayerDragMove(layer.id, { x, y })
+                                : undefined}
                             onLoad={
                                 onLayerVideoLoad
                                     ? (meta) => onLayerVideoLoad(layer.id, meta)
@@ -927,12 +954,17 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             imageUrl={url}
                             interactive={interactive}
-                            onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
+                            onSelect={interactive && onSelectLayer
+                                ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
+                                : undefined}
                             onTransform={
                                 interactive && onTransformLayer
                                     ? (u) => onTransformLayer(layer.id, u)
                                     : undefined
                             }
+                            onDragMove={interactive && onLayerDragMove
+                                ? (x: number, y: number) => onLayerDragMove(layer.id, { x, y })
+                                : undefined}
                             // Auto-center on first image load fires in both
                             // preview and editor — the receiver's idempotency
                             // guard (isAutoCentered) makes this safe.
@@ -953,12 +985,17 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             text={asText}
                             interactive={interactive}
-                            onSelect={interactive && onSelectLayer ? () => onSelectLayer(layer.id) : undefined}
+                            onSelect={interactive && onSelectLayer
+                                ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
+                                : undefined}
                             onTransform={
                                 interactive && onTransformLayer
                                     ? (u) => onTransformLayer(layer.id, u)
                                     : undefined
                             }
+                            onDragMove={interactive && onLayerDragMove
+                                ? (x: number, y: number) => onLayerDragMove(layer.id, { x, y })
+                                : undefined}
                             onInteractStart={onInteractStart}
                             onInteractEnd={onInteractEnd}
                         />
