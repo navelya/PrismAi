@@ -85,7 +85,7 @@ const LayerListItem = React.memo(({
         <Reorder.Item
             value={layer}
             onDragEnd={onDragEnd}
-            onClick={() => onSelect(layer.id)}
+            onClick={(e) => onSelect(layer.id, e.ctrlKey || e.metaKey)}
             whileDrag={{ scale: 1.04, zIndex: 30, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}
             className={cn(
                 "flex items-center gap-2 p-1.5 rounded-lg border cursor-grab active:cursor-grabbing select-none transition-colors duration-200",
@@ -474,9 +474,27 @@ export default function CompositorEditorModal({
 
     // ---------- Selection / viewport (purely local UI state) ----------
 
-    const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-    const selectedLayerIdRef = useRef<string | null>(null);
-    selectedLayerIdRef.current = selectedLayerId;
+    const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
+    const selectedLayerIdsRef = useRef<string[]>([]);
+    selectedLayerIdsRef.current = selectedLayerIds;
+
+    // Primary = last added; single-select surfaces (Timeline, single-layer
+    // panel) key off this. Selection is LOCAL UI state and must NEVER be
+    // written into currentWorkflow (project rule: selection must not churn the
+    // store hot-path).
+    const selectedLayerId = selectedLayerIds.length > 0 ? selectedLayerIds[selectedLayerIds.length - 1] : null;
+
+    const selectLayer = useCallback((layerId: string, additive: boolean) => {
+        setSelectedLayerIds((prev) => {
+            if (additive) {
+                return prev.includes(layerId) ? prev.filter((id) => id !== layerId) : [...prev, layerId];
+            }
+            return [layerId];
+        });
+    }, []);
+
+    const clearSelection = useCallback(() => setSelectedLayerIds([]), []);
+
     const [tool, setTool] = useState<'move' | 'pan'>('move');
 
     // Delete = drop the upstream connection that fed this layer in. The store's
@@ -491,7 +509,7 @@ export default function CompositorEditorModal({
         const edgeId = layer.sourceHandleId;
         if (!edgeId) return;
         useAppStore.getState().onEdgesChange([{ id: edgeId, type: 'remove' } as any]);
-        setSelectedLayerId(null);
+        setSelectedLayerIds((prev) => prev.filter((id) => id !== layerId));
     }, [nodeId]);
     const stageRef = useRef<any>(null);
     const transformerRef = useRef<any>(null);
@@ -637,22 +655,25 @@ export default function CompositorEditorModal({
         updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, ...patch } : l));
     }, [updateLayers]);
 
-    // Wire the Konva Transformer to the currently-selected Konva node by name.
+    // Wire the Konva Transformer to every selected (unlocked) Konva node by
+    // name, so one bounding box wraps the whole multi-selection.
     useEffect(() => {
-        if (selectedLayerId && transformerRef.current && stageRef.current) {
-            const selectedNode = stageRef.current.findOne(`.img-${selectedLayerId}`);
-            if (selectedNode) {
-                transformerRef.current.nodes([selectedNode]);
-                transformerRef.current.getLayer().batchDraw();
-            } else {
-                transformerRef.current.nodes([]);
-                transformerRef.current.getLayer().batchDraw();
-            }
-        } else if (transformerRef.current) {
-            transformerRef.current.nodes([]);
-            transformerRef.current.getLayer().batchDraw();
+        const tr = transformerRef.current;
+        const stage = stageRef.current;
+        if (!tr || !stage) return;
+        const lockedIds = new Set(layers.filter((l) => l.locked).map((l) => l.id));
+        const ids = selectedLayerIds.filter((id) => !lockedIds.has(id));
+        if (ids.length === 0) {
+            tr.nodes([]);
+            tr.getLayer()?.batchDraw();
+            return;
         }
-    }, [selectedLayerId, renderable]);
+        const nodes = ids
+            .map((lid) => stage.findOne(`.img-${lid}`))
+            .filter((n: any) => !!n);
+        tr.nodes(nodes);
+        tr.getLayer()?.batchDraw();
+    }, [selectedLayerIds, renderable, layers]);
 
     const fitToView = useCallback(() => {
         const container = stageContainerRef.current;
@@ -707,12 +728,12 @@ export default function CompositorEditorModal({
                 const tag = target?.tagName;
                 const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || (target?.isContentEditable === true);
                 if (isEditable) return;
-                const layerId = selectedLayerIdRef.current;
-                if (!layerId) return;
+                const ids = selectedLayerIdsRef.current;
+                if (ids.length === 0) return;
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
-                deleteSelectedLayer(layerId);
+                ids.forEach((lid) => deleteSelectedLayer(lid));
             }
         };
         const onKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') { setSpaceHeld(false); setIsPanning(false); } };
@@ -723,7 +744,7 @@ export default function CompositorEditorModal({
 
     const checkDeselect = (e: any) => {
         const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'background';
-        if (clickedOnEmpty) setSelectedLayerId(null);
+        if (clickedOnEmpty) clearSelection();
     };
 
     // Snapshot once at the start of an interaction (drag/transform). The
@@ -793,9 +814,9 @@ export default function CompositorEditorModal({
                                         <LayerListItem
                                             key={layer.id}
                                             layer={layer}
-                                            isSelected={selectedLayerId === layer.id}
+                                            isSelected={selectedLayerIds.includes(layer.id)}
                                             type={type}
-                                            onSelect={setSelectedLayerId}
+                                            onSelect={selectLayer}
                                             onToggleVisibility={toggleVisibility}
                                             onToggleLock={toggleLock}
                                             onDragEnd={commitReorder}
@@ -841,8 +862,8 @@ export default function CompositorEditorModal({
                                 <CompositorLayerNodes
                                     layers={renderable}
                                     interactive
-                                    selectedLayerId={selectedLayerId}
-                                    onSelectLayer={setSelectedLayerId}
+                                    selectedLayerIds={selectedLayerIds}
+                                    onSelectLayer={selectLayer}
                                     onTransformLayer={updateTransform}
                                     onLayerImageLoad={handleImageLoad}
                                     onLayerVideoLoad={handleLayerVideoLoad}
@@ -861,7 +882,10 @@ export default function CompositorEditorModal({
                                     poolKey={`${nodeId}__editor`}
                                 />
                                 <Path data={dimmerPathData} fill="rgba(0,0,0,0.7)" fillRule="evenodd" listening={false} />
-                                {selectedLayer && !selectedLayer.locked && (
+                                {selectedLayerIds.some((lid) => {
+                                    const l = layers.find((x) => x.id === lid);
+                                    return l && !l.locked;
+                                }) && (
                                     <Transformer ref={transformerRef} flipEnabled={false} borderStroke="#00F2EA" anchorStroke="#00F2EA" anchorFill="#00F2EA" anchorSize={8} borderDash={[3, 3]} />
                                 )}
                             </Layer>
@@ -1036,7 +1060,7 @@ export default function CompositorEditorModal({
                             onTogglePlay={() => setIsPlaying((p) => !p)}
                             onSeek={(t) => { setIsPlaying(false); setPlayhead(t); }}
                             onToggleAudioMute={() => setAudioMuted((m) => !m)}
-                            onSelectLayer={setSelectedLayerId}
+                            onSelectLayer={(id) => selectLayer(id, false)}
                             onUpdateLayer={handleUpdateLayer}
                         />
                     </div>
