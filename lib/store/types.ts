@@ -2,6 +2,8 @@ import { Workflow, WorkflowNode, NodeStatus, AiModel } from '../nodes/types';
 import type { NodeResultType } from '../workflow/result-format';
 export type { NodeStatus };
 
+export type RunProposalStatus = 'ready' | 'running' | 'done' | 'failed' | 'superseded';
+
 // Message interface
 export interface Message {
     id: string;
@@ -74,6 +76,20 @@ export interface Message {
     // NOT persisted. Reverts to undefined after the user submits feedback
     // or reloads the page.
     planApproveError?: string;
+    // Chat-run feature: when an AI turn touched runnable nodes whose run was
+    // NOT auto-executed (paid run above the auto-run limit), this holds the
+    // proposed run. Rendered as the RunProposalCard. Persisted to DB
+    // metadata.run_proposal so the card (as a manual button) survives refresh.
+    runProposal?: {
+        runTargetIds: string[];
+        terminalIds: string[];
+        cost: number;
+        status: RunProposalStatus;
+    };
+    // Terminal node ids whose outputs render inline under this message while a
+    // chat-triggered run is in flight. Frozen into `result` on completion.
+    // Persisted to DB metadata.inline_result_ids.
+    inlineResultIds?: string[];
 }
 
 // Editor state interface
@@ -323,9 +339,19 @@ export interface UISlice {
     runMode: 'solo' | 'chain' | 'ab_test' | 'selection' | null;
     /** Targets for 'selection' mode — the set of nodes from the multi-select toolbar's Run button. */
     runSelectionIds: string[] | null;
+    /**
+     * True when the current run signal was already cost-confirmed by the caller
+     * (the chat Run card / chat auto-run) and the SharedWorkflowEditor effect
+     * should skip the credit modal. Ephemeral — never persisted (same policy as
+     * runFromNodeId/runMode).
+     */
+    runPreconfirmed: boolean;
     triggerRunFromNode: (nodeId: string, runMode?: 'solo' | 'chain' | 'ab_test') => void;
-    triggerRunSelection: (nodeIds: string[]) => void;
+    triggerRunSelection: (nodeIds: string[], opts?: { preconfirmed?: boolean }) => void;
     clearRunFromNode: () => void;
+    /** Max credits a chat run may cost before it stops auto-running and shows a Run card. Default 10. */
+    maxAutoRunCredits: number;
+    setMaxAutoRunCredits: (n: number) => void;
     deleteNodeWithAssets: (nodeId: string) => Promise<void>;
     
     // Menu Data
