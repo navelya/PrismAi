@@ -26,9 +26,11 @@ export interface RunPlan {
     cost: number;
     /** Number of ai_generator nodes that will run. */
     generativeCount: number;
+    /** model_ids on ai_generator targets that weren't found in the client map (treated as 0 cost). */
+    missingModels: number[];
 }
 
-const EMPTY_PLAN: RunPlan = { runTargetIds: [], terminalIds: [], cost: 0, generativeCount: 0 };
+const EMPTY_PLAN: RunPlan = Object.freeze({ runTargetIds: [], terminalIds: [], cost: 0, generativeCount: 0, missingModels: [] });
 
 /**
  * @param workflow      current full workflow (nodes + edges)
@@ -60,10 +62,12 @@ export function buildRunPlan(
 
     // Cost: mirror the editor's 'selection' path — charge ai_generator nodes in
     // the target set, with full-graph context for connected-media pricing.
-    const costNodes: CostNode[] = runTargetIds.map((id) => {
-        const n = nodeById.get(id)!;
-        return { id, type: (n.type as string) ?? '', config: n.data?.config };
-    });
+    const costNodes: CostNode[] = [];
+    for (const id of runTargetIds) {
+        const n = nodeById.get(id);
+        if (!n) continue;
+        costNodes.push({ id, type: (n.type as string) ?? '', config: n.data?.config });
+    }
     const graph = {
         allNodes: workflow.nodes.map((n) => ({
             id: n.id,
@@ -77,6 +81,6 @@ export function buildRunPlan(
         })),
     };
 
-    const { cost, generativeCount } = computeExecutionCost(costNodes, modelsById, graph);
-    return { runTargetIds, terminalIds, cost, generativeCount };
+    const { cost, generativeCount, missingModels } = computeExecutionCost(costNodes, modelsById, graph);
+    return { runTargetIds, terminalIds, cost, generativeCount, missingModels };
 }
