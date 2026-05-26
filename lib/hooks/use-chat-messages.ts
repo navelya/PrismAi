@@ -678,10 +678,10 @@ export function useChatMessages({
                     const plan = buildRunPlan(workflow as any, touched, modelsById);
 
                     if (plan.runTargetIds.length > 0) {
-                        // STAGE 1: auto-run only when free AND all models are known.
-                        // (STAGE 2 widens this to `plan.cost <= store.maxAutoRunCredits`.)
-                        // A missing model means the real cost is unknown — never auto-run it.
-                        const shouldAutoRun = plan.cost === 0 && plan.missingModels.length === 0;
+                        // STAGE 2: auto-run when cost is at/under the user's limit AND
+                        // all models are known. A missing model means the real cost is
+                        // unknown — never auto-run it.
+                        const shouldAutoRun = plan.cost <= store.maxAutoRunCredits && plan.missingModels.length === 0;
 
                         if (shouldAutoRun) {
                             useAppStore.getState().updateMessage(assistantMsgId, {
