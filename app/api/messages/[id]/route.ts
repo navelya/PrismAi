@@ -21,23 +21,26 @@ export async function PATCH(
         const updatePayload: any = {};
         if (body.images !== undefined) updatePayload.images = body.images;
         if (body.content !== undefined) updatePayload.content = body.content;
-        if (body.metadata !== undefined) updatePayload.metadata = body.metadata;
 
-        if (Object.keys(updatePayload).length === 0) {
+        if (body.metadata === undefined && Object.keys(updatePayload).length === 0) {
             return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
         }
 
         // Verify the user owns the session this message belongs to
-        // Option 1: Join with sessions table to verify ownership
-        // Let's do it eagerly with a service client or direct select
         const { data: message, error: messageError } = await supabase
             .from('messages')
-            .select('session_id, sessions!inner(user_id)')
+            .select('session_id, metadata, sessions!inner(user_id)')
             .eq('id', messageId)
             .single();
 
         if (messageError || !message || (message.sessions as any).user_id !== user.id) {
             return NextResponse.json({ error: 'Message not found or unauthorized' }, { status: 404 });
+        }
+
+        // Shallow-merge metadata so a partial patch (e.g. run_proposal) does not
+        // clobber existing keys (thinking/usage/plan/clarification).
+        if (body.metadata !== undefined) {
+            updatePayload.metadata = { ...((message as any).metadata ?? {}), ...body.metadata };
         }
 
         const { data: updatedMessage, error: updateError } = await supabase
