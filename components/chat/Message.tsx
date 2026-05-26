@@ -12,6 +12,8 @@ import { ChipCard } from './ChipCard';
 import { PlanCard } from './PlanCard';
 import { PlanCardSkeleton } from './PlanCardSkeleton';
 import { TaskProgressCard } from './TaskProgressCard';
+import { RunProposalCard } from './RunProposalCard';
+import { InlineRunResults } from './InlineRunResults';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
@@ -55,6 +57,13 @@ interface Message {
         failedTaskId?: string | null;
         errorMessage?: string;
     };
+    runProposal?: {
+        runTargetIds: string[];
+        terminalIds: string[];
+        cost: number;
+        status: import('@/lib/store/types').RunProposalStatus;
+    };
+    inlineResultIds?: string[];
 }
 
 function NodeRefStrip({ refs }: { refs: NodeRef[] }) {
@@ -189,6 +198,7 @@ export const Message = React.memo(function Message({
     onClarificationAnswer,
     onPlanApprove,
     onPlanFeedback,
+    onRunProposal,
 }: {
     message: Message;
     onRevert?: (id: string, skipConfirmation?: boolean) => void;
@@ -207,6 +217,7 @@ export const Message = React.memo(function Message({
     }) => void;
     onPlanApprove?: (planMessageId: string) => void;
     onPlanFeedback?: (planMessageId: string, feedbackText: string) => void;
+    onRunProposal?: (messageId: string) => void;
 }) {
     const [timeString, setTimeString] = React.useState('');
 
@@ -396,6 +407,25 @@ export const Message = React.memo(function Message({
                                 }}
                             />
                         )}
+
+                    {message.type === 'assistant' && message.runProposal && (
+                        <RunProposalCard
+                            cost={message.runProposal.cost}
+                            status={message.runProposal.status}
+                            onRun={() => onRunProposal?.(message.id)}
+                        />
+                    )}
+
+                    {message.type === 'assistant'
+                        && message.inlineResultIds
+                        && message.inlineResultIds.length > 0
+                        && !message.result
+                        && message.runProposal?.status === 'running' && (
+                        <InlineRunResults
+                            terminalIds={message.inlineResultIds}
+                            isCanvasMode={isCanvasMode}
+                        />
+                    )}
 
                     {message.type === 'user' && (
                         <div

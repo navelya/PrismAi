@@ -8,6 +8,7 @@ import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { expandSelectionForChat } from '@/lib/utils/selection-refs';
+import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 
 async function persistRunProposal(messageId: string) {
@@ -26,6 +27,24 @@ async function persistRunProposal(messageId: string) {
         });
     } catch (e) {
         console.error('[chat-run] persistRunProposal failed', e);
+    }
+}
+
+async function persistFrozenResult(messageId: string, result: any[]) {
+    try {
+        const msg = useAppStore.getState().chatMessages.find((m) => m.id === messageId);
+        await fetch(`/api/messages/${messageId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                metadata: {
+                    execution_result: result,
+                    run_proposal: msg?.runProposal ?? null,
+                },
+            }),
+        });
+    } catch (e) {
+        console.error('[chat-run] persistFrozenResult failed', e);
     }
 }
 
@@ -49,6 +68,42 @@ export function useChatMessages({
     const setIsLoading = useAppStore((state) => state.setIsLoading);
     const setStatusMessage = useAppStore((state) => state.setStatusMessage);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+    // Freeze a chat-run's inline results onto the message when its terminal
+    // nodes all settle, and flip the RunProposalCard status accordingly.
+    const nodeStatusesForRun = useAppStore((s) => s.nodeStatuses);
+    useEffect(() => {
+        const msgs = useAppStore.getState().chatMessages;
+        for (const m of msgs) {
+            const rp = m.runProposal;
+            if (!rp || rp.status !== 'running') continue;
+            const ids = rp.terminalIds.length ? rp.terminalIds : rp.runTargetIds;
+            const statuses = ids.map((id) => nodeStatusesForRun[id]);
+            if (statuses.some((s) => s === 'pending' || s === 'running' || s === undefined)) continue;
+
+            const anyError = statuses.some((s) => s === 'error');
+            if (anyError) {
+                useAppStore.getState().updateMessage(m.id, {
+                    runProposal: { ...rp, status: 'failed' },
+                });
+                void persistRunProposal(m.id);
+                continue;
+            }
+
+            // All terminals succeeded — freeze their outputs into `result`.
+            const store = useAppStore.getState();
+            const result: any[] = [];
+            for (const id of ids) {
+                const legacy = toLegacyRenderableOutput(store.nodeOutputs?.[id]);
+                if (Array.isArray(legacy)) for (const item of legacy) if (item?.url) result.push(item);
+            }
+            useAppStore.getState().updateMessage(m.id, {
+                result: result.length ? result : m.result,
+                runProposal: { ...rp, status: 'done' },
+            });
+            void persistFrozenResult(m.id, result);
+        }
+    }, [nodeStatusesForRun]);
 
     // Helper to save messages via BFF API
     const saveMessageToDb = async (msg: Message, imagePaths?: string[]) => {
