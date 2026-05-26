@@ -23,6 +23,7 @@ import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 import Timeline from './Timeline';
 import { detectSourceKind, LayerSourceKind, computeTimelineDuration, layerAABB, rectsIntersect } from '../shared';
 import { useInertBackground } from '@/lib/hooks/use-inert-background';
+import MultiLayerProperties from './MultiLayerProperties';
 
 const VIEWPORT_PADDING = 1000;
 
@@ -429,6 +430,29 @@ export default function CompositorEditorModal({
         pushSnapshot();
         updateTransform(layerId, { rotation: 0, flipX: false, flipY: false, opacity: 1 });
     }, [updateTransform, pushSnapshot]);
+
+    const updateAllSelectedTransform = useCallback((patch: Partial<LayerTransform>) => {
+        pushSnapshot();
+        const ids = new Set(selectedLayerIdsRef.current);
+        updateLayers((prev) => prev.map((l) => ids.has(l.id) ? { ...l, transform: { ...l.transform, ...patch } } : l));
+    }, [updateLayers, pushSnapshot]);
+
+    const alignAllSelected = useCallback((type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+        pushSnapshot();
+        const ids = new Set(selectedLayerIdsRef.current);
+        updateLayers((prev) => prev.map((l) => {
+            if (!ids.has(l.id)) return l;
+            const { width, height } = l.transform;
+            let x = l.transform.x, y = l.transform.y;
+            if (type === 'left') x = 0;
+            if (type === 'center') x = (canvasWidth - width) / 2;
+            if (type === 'right') x = canvasWidth - width;
+            if (type === 'top') y = 0;
+            if (type === 'middle') y = (canvasHeight - height) / 2;
+            if (type === 'bottom') y = canvasHeight - height;
+            return { ...l, transform: { ...l.transform, x, y } };
+        }));
+    }, [updateLayers, pushSnapshot, canvasWidth, canvasHeight]);
 
     /**
      * One-shot auto-fit when a layer's intrinsic dimensions first become known.
@@ -1014,7 +1038,13 @@ export default function CompositorEditorModal({
                             <Plus className="w-3 h-3" /> Properties
                         </div>
 
-                        {selectedLayer ? (
+                        {selectedLayerIds.length > 1 ? (
+                            <MultiLayerProperties
+                                layers={layers.filter((l) => selectedLayerIds.includes(l.id))}
+                                onUpdateAll={updateAllSelectedTransform}
+                                onAlignAll={alignAllSelected}
+                            />
+                        ) : selectedLayer ? (
                             <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar pb-20">
                                 {/* Section: Alignment */}
                                 <div className="space-y-3">
