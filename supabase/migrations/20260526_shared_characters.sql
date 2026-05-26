@@ -12,7 +12,7 @@ ALTER TABLE public.characters
 -- 2. INDEX (fast shared-pool listing)
 CREATE INDEX IF NOT EXISTS idx_characters_shared
   ON public.characters (is_shared, deleted_at)
-  WHERE is_shared = true;
+  WHERE is_shared = true AND deleted_at IS NULL;
 
 -- 3. WIDEN SELECT: own rows OR any shared row
 DROP POLICY IF EXISTS "Users read their own characters" ON public.characters;
@@ -26,7 +26,7 @@ CREATE POLICY "Users read own or shared characters"
 
 -- 4. ADMIN-ONLY SHARE GUARD (defense-in-depth on top of the route check)
 CREATE OR REPLACE FUNCTION public.enforce_admin_only_share()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   -- Only gate the transition INTO shared. Unsharing and unrelated edits by the
   -- owner are never blocked.
