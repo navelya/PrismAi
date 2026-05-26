@@ -30,7 +30,7 @@ async function persistRunProposal(messageId: string) {
     }
 }
 
-async function persistFrozenResult(messageId: string, result: any[]) {
+async function persistFrozenResult(messageId: string, result: any) {
     try {
         const msg = useAppStore.getState().chatMessages.find((m) => m.id === messageId);
         await fetch(`/api/messages/${messageId}`, {
@@ -91,17 +91,25 @@ export function useChatMessages({
             }
 
             // All terminals succeeded — freeze their outputs into `result`.
+            // Mirror InlineRunResults: collect image items, else fall back to the
+            // first non-empty text string, so text-terminal runs aren't lost.
             const store = useAppStore.getState();
-            const result: any[] = [];
+            const images: any[] = [];
+            let firstText: string | null = null;
             for (const id of ids) {
                 const legacy = toLegacyRenderableOutput(store.nodeOutputs?.[id]);
-                if (Array.isArray(legacy)) for (const item of legacy) if (item?.url) result.push(item);
+                if (Array.isArray(legacy)) {
+                    for (const item of legacy) if (item?.url) images.push(item);
+                } else if (typeof legacy === 'string' && legacy.trim() && firstText === null) {
+                    firstText = legacy;
+                }
             }
+            const frozen = images.length ? images : (firstText ?? m.result ?? null);
             useAppStore.getState().updateMessage(m.id, {
-                result: result.length ? result : m.result,
+                result: frozen,
                 runProposal: { ...rp, status: 'done' },
             });
-            void persistFrozenResult(m.id, result);
+            void persistFrozenResult(m.id, frozen);
         }
     }, [nodeStatusesForRun]);
 
