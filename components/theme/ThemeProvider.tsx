@@ -68,6 +68,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
                     useAppStore.getState().setMaxAutoRunCredits(
                         typeof pref === 'number' && pref >= 0 ? pref : 10
                     );
+                    useAppStore.getState().setHasSeenAutoRunIntro(
+                        (userData.profile?.preferences as any)?.seenAutoRunIntro === true
+                    );
                 }
             } catch (err) {
                 // Not logged in or error

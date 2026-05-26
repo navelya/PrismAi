@@ -352,6 +352,26 @@ export interface UISlice {
     /** Max credits a chat run may cost before it stops auto-running and shows a Run card. Default 10. */
     maxAutoRunCredits: number;
     setMaxAutoRunCredits: (n: number) => void;
+    /**
+     * Whether the user has seen the one-time auto-run intro modal. Sourced from
+     * profiles.preferences.seenAutoRunIntro (once-per-user across devices),
+     * loaded into the store on startup.
+     */
+    hasSeenAutoRunIntro: boolean;
+    setHasSeenAutoRunIntro: (v: boolean) => void;
+    /**
+     * When set, the AutoRunIntroModal is open for this pending run. Carries the
+     * run plan that triggered it so the modal can run it on approve. Ephemeral —
+     * never persisted.
+     */
+    autoRunIntro: {
+        runTargetIds: string[];
+        terminalIds: string[];
+        cost: number;
+        messageId: string;
+    } | null;
+    openAutoRunIntro: (payload: { runTargetIds: string[]; terminalIds: string[]; cost: number; messageId: string }) => void;
+    closeAutoRunIntro: () => void;
     deleteNodeWithAssets: (nodeId: string) => Promise<void>;
     
     // Menu Data

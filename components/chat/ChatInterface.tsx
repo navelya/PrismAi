@@ -5,6 +5,7 @@ import { useChatScroll } from '@/lib/hooks/use-chat-scroll';
 import { useParams, useRouter } from 'next/navigation';
 import { X, ImagePlus, Pen } from 'lucide-react';
 import { MessageList } from './MessageList';
+import { AutoRunIntroModal } from './AutoRunIntroModal';
 import ChatInput from './ChatInput';
 import { ChatEmptyState } from './ChatEmptyState';
 import { WorkflowEmptyState, ChatSkeletons } from './ChatHelpers';
@@ -420,6 +421,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 }}
                 className="hidden"
             />
+
+            <AutoRunIntroModal />
 
             {isDragOver && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/90 backdrop-blur-sm">

@@ -678,12 +678,36 @@ export function useChatMessages({
                     const plan = buildRunPlan(workflow as any, touched, modelsById);
 
                     if (plan.runTargetIds.length > 0) {
-                        // STAGE 2: auto-run when cost is at/under the user's limit AND
-                        // all models are known. A missing model means the real cost is
-                        // unknown — never auto-run it.
-                        const shouldAutoRun = plan.cost <= store.maxAutoRunCredits && plan.missingModels.length === 0;
+                        // First-time auto-run intro: the very first paid (cost > 0,
+                        // models known) run proposal a user reaches gets a one-time
+                        // explainer modal instead of auto-running. Attach a 'ready'
+                        // card as a holding state and hand the run to the modal, which
+                        // saves the chosen limit and runs (or not) on approve.
+                        const isPaidKnown = plan.cost > 0 && plan.missingModels.length === 0;
+                        if (isPaidKnown && !store.hasSeenAutoRunIntro) {
+                            useAppStore.getState().updateMessage(assistantMsgId, {
+                                inlineResultIds: plan.terminalIds,
+                                runProposal: {
+                                    runTargetIds: plan.runTargetIds,
+                                    terminalIds: plan.terminalIds,
+                                    cost: plan.cost,
+                                    status: 'ready',
+                                },
+                            });
+                            store.openAutoRunIntro({
+                                runTargetIds: plan.runTargetIds,
+                                terminalIds: plan.terminalIds,
+                                cost: plan.cost,
+                                messageId: assistantMsgId,
+                            });
+                            void persistRunProposal(assistantMsgId);
+                        } else {
+                            // STAGE 2: auto-run when cost is at/under the user's limit AND
+                            // all models are known. A missing model means the real cost is
+                            // unknown — never auto-run it.
+                            const shouldAutoRun = plan.cost <= store.maxAutoRunCredits && plan.missingModels.length === 0;
 
-                        if (shouldAutoRun) {
+                            if (shouldAutoRun) {
                             useAppStore.getState().updateMessage(assistantMsgId, {
                                 inlineResultIds: plan.terminalIds,
                                 runProposal: {
@@ -705,8 +729,9 @@ export function useChatMessages({
                                 },
                             });
                         }
-                        // Persist the proposal so it survives refresh as a manual card.
-                        void persistRunProposal(assistantMsgId);
+                            // Persist the proposal so it survives refresh as a manual card.
+                            void persistRunProposal(assistantMsgId);
+                        }
                     }
                 }
             } catch (e) {
