@@ -185,6 +185,13 @@ export function useSession() {
                             feedbackText?: string;
                         } | null;
                         node_refs?: import('@/lib/utils/selection-refs').NodeRef[] | null;
+                        run_proposal?: {
+                            runTargetIds: string[];
+                            terminalIds: string[];
+                            cost: number;
+                            status: 'ready' | 'running' | 'done' | 'failed' | 'superseded';
+                        } | null;
+                        inline_result_ids?: string[] | null;
                     };
 
                     const formatted: any = {
@@ -216,6 +223,24 @@ export function useSession() {
                             },
                             tasks: Array.isArray(metadata.plan.tasks) ? metadata.plan.tasks : undefined,
                         };
+                    }
+
+                    if (msg.role === 'assistant' && metadata.run_proposal) {
+                        const rp = metadata.run_proposal;
+                        // A run that was still 'running' when the page unloaded can't be
+                        // live anymore — re-offer it as a manual 'ready' card. Auto-run
+                        // lives only in the live end-of-stream path, so this never
+                        // re-fires a run on load.
+                        const status = rp.status === 'running' ? 'ready' : rp.status;
+                        formatted.runProposal = {
+                            runTargetIds: Array.isArray(rp.runTargetIds) ? rp.runTargetIds : [],
+                            terminalIds: Array.isArray(rp.terminalIds) ? rp.terminalIds : [],
+                            cost: typeof rp.cost === 'number' ? rp.cost : 0,
+                            status,
+                        };
+                    }
+                    if (msg.role === 'assistant' && Array.isArray(metadata.inline_result_ids)) {
+                        formatted.inlineResultIds = metadata.inline_result_ids;
                     }
 
                     // Stash the raw answer payload on the user message; we lift it
