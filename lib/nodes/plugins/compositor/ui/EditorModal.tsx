@@ -21,7 +21,7 @@ import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTran
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 import Timeline from './Timeline';
-import { detectSourceKind, LayerSourceKind, computeTimelineDuration } from '../shared';
+import { detectSourceKind, LayerSourceKind, computeTimelineDuration, layerAABB, rectsIntersect } from '../shared';
 import { useInertBackground } from '@/lib/hooks/use-inert-background';
 
 const VIEWPORT_PADDING = 1000;
@@ -525,6 +525,21 @@ export default function CompositorEditorModal({
     const [isPanning, setIsPanning] = useState(false);
     const [spaceHeld, setSpaceHeld] = useState(false);
 
+    // Marquee selection rectangle in CANVAS coords (null when not dragging).
+    const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+    const marqueeRef = useRef<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+    marqueeRef.current = marquee;
+
+    // Convert the stage pointer position into canvas coordinates (undo the
+    // stage pan/zoom) so marquee math is in the same space as layer transforms.
+    const stagePointerToCanvas = useCallback(() => {
+        const stage = stageRef.current;
+        if (!stage) return null;
+        const p = stage.getPointerPosition();
+        if (!p) return null;
+        return { x: (p.x - stage.x()) / stage.scaleX(), y: (p.y - stage.y()) / stage.scaleY() };
+    }, []);
+
     // ---------- Timeline playback state (purely local) ----------
     //
     // Playhead drives the Konva renderer's activity gating + video seeks. The
@@ -747,11 +762,6 @@ export default function CompositorEditorModal({
         return () => { window.removeEventListener('keydown', onKeyDown, true); window.removeEventListener('keyup', onKeyUp); };
     }, [localUndo, localRedo, deleteSelectedLayer]);
 
-    const checkDeselect = (e: any) => {
-        const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'background';
-        if (clickedOnEmpty) clearSelection();
-    };
-
     // Snapshot once at the start of an interaction (drag/transform). The
     // checkpoint goes to LOCAL history only — outside-the-modal Ctrl+Z is
     // unaffected. setIsDragging keeps the small-canvas preview from doing
@@ -907,7 +917,32 @@ export default function CompositorEditorModal({
                             draggable={spaceHeld || tool === 'pan'}
                             onDragStart={() => setIsPanning(true)}
                             onDragEnd={(e) => { if (e.target === e.target.getStage()) { setIsPanning(false); setStagePan({ x: e.target.x(), y: e.target.y() }); } }}
-                            onMouseDown={checkDeselect}
+                            onMouseDown={(e) => {
+                                const clickedEmpty = e.target === e.target.getStage() || e.target.name() === 'background';
+                                if (!clickedEmpty) return;             // clicks on a layer are handled by the layer
+                                if (spaceHeld || tool === 'pan') return; // panning, not marqueeing
+                                const c = stagePointerToCanvas();
+                                if (!c) { clearSelection(); return; }
+                                if (!(e.evt.ctrlKey || e.evt.metaKey)) clearSelection(); // plain marquee replaces
+                                setMarquee({ x1: c.x, y1: c.y, x2: c.x, y2: c.y });
+                            }}
+                            onMouseMove={() => {
+                                if (!marqueeRef.current) return;
+                                const c = stagePointerToCanvas();
+                                if (!c) return;
+                                setMarquee((m) => (m ? { ...m, x2: c.x, y2: c.y } : m));
+                            }}
+                            onMouseUp={(e) => {
+                                const m = marqueeRef.current;
+                                if (!m) return;
+                                setMarquee(null);
+                                const box = { minX: Math.min(m.x1, m.x2), minY: Math.min(m.y1, m.y2), maxX: Math.max(m.x1, m.x2), maxY: Math.max(m.y1, m.y2) };
+                                // Treat a click-sized box as a plain click (selection already cleared on mousedown).
+                                if (Math.abs(m.x2 - m.x1) < 3 && Math.abs(m.y2 - m.y1) < 3) return;
+                                const additive = e.evt.ctrlKey || e.evt.metaKey;
+                                const hitIds = layers.filter((l) => l.visible && rectsIntersect(layerAABB(l), box)).map((l) => l.id);
+                                setSelectedLayerIds((prev) => additive ? Array.from(new Set([...prev, ...hitIds])) : hitIds);
+                            }}
                         >
                             <Layer>
                                 <Rect name="background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill="#121212" stroke="rgba(255,255,255,0.05)" strokeWidth={1} shadowColor="black" shadowBlur={100} shadowOpacity={0.5} />
@@ -935,6 +970,19 @@ export default function CompositorEditorModal({
                                     poolKey={`${nodeId}__editor`}
                                 />
                                 <Path data={dimmerPathData} fill="rgba(0,0,0,0.7)" fillRule="evenodd" listening={false} />
+                                {marquee && (
+                                    <Rect
+                                        x={Math.min(marquee.x1, marquee.x2)}
+                                        y={Math.min(marquee.y1, marquee.y2)}
+                                        width={Math.abs(marquee.x2 - marquee.x1)}
+                                        height={Math.abs(marquee.y2 - marquee.y1)}
+                                        fill="rgba(0,242,234,0.12)"
+                                        stroke="#00F2EA"
+                                        strokeWidth={1 / stageZoom}
+                                        dash={[4 / stageZoom, 4 / stageZoom]}
+                                        listening={false}
+                                    />
+                                )}
                                 {selectedLayerIds.some((lid) => {
                                     const l = layers.find((x) => x.id === lid);
                                     return l && !l.locked;
