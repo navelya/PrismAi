@@ -14,6 +14,7 @@ import { PlanCardSkeleton } from './PlanCardSkeleton';
 import { TaskProgressCard } from './TaskProgressCard';
 import { RunProposalCard } from './RunProposalCard';
 import { InlineRunResults } from './InlineRunResults';
+import { RunMediaGallery } from './RunMediaGallery';
 import { Workflow } from '@/lib/nodes/types';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { formatRelativeTime } from '@/lib/utils';
@@ -337,13 +338,22 @@ export const Message = React.memo(function Message({
 
                     {message.result && (
                         <div className="mt-2">
-                            {/* Chat-run results (those with a runProposal) are shown inline
-                                even in canvas/minimized mode, per the chat-run feature. */}
-                            <MessageRenderer
-                                data={message.result}
-                                isCanvasMode={isCanvasMode}
-                                forceGallery={!!message.runProposal}
-                            />
+                            {/* Chat-run results (those with a runProposal) render the
+                                media via the load-gated gallery — images AND videos,
+                                with a skeleton until the file actually loads — inline
+                                even in canvas/minimized mode. Everything else keeps the
+                                standard renderer. */}
+                            {message.runProposal ? (
+                                <RunMediaGallery
+                                    items={message.result as any}
+                                    isCanvasMode={isCanvasMode}
+                                />
+                            ) : (
+                                <MessageRenderer
+                                    data={message.result}
+                                    isCanvasMode={isCanvasMode}
+                                />
+                            )}
                         </div>
                     )}
 

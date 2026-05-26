@@ -8,7 +8,7 @@ import { messagesApi, sessionsApi, uploadApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { expandSelectionForChat } from '@/lib/utils/selection-refs';
-import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
+import { extractRenderableMedia } from '@/lib/workflow/result-format';
 import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 
 
@@ -91,21 +91,17 @@ export function useChatMessages({
                 continue;
             }
 
-            // All terminals succeeded — freeze their outputs into `result`.
-            // Mirror InlineRunResults: collect image items, else fall back to the
-            // first non-empty text string, so text-terminal runs aren't lost.
+            // All terminals succeeded — freeze their MEDIA outputs (image +
+            // video, type preserved) into `result`. Text outputs (e.g. a prompt
+            // node's string) are intentionally NOT shown as a chat result.
             const store = useAppStore.getState();
-            const images: any[] = [];
-            let firstText: string | null = null;
+            const media: ReturnType<typeof extractRenderableMedia> = [];
             for (const id of ids) {
-                const legacy = toLegacyRenderableOutput(store.nodeOutputs?.[id]);
-                if (Array.isArray(legacy)) {
-                    for (const item of legacy) if (item?.url) images.push(item);
-                } else if (typeof legacy === 'string' && legacy.trim() && firstText === null) {
-                    firstText = legacy;
+                for (const m of extractRenderableMedia(store.nodeOutputs?.[id])) {
+                    if (m.type === 'image' || m.type === 'video') media.push(m);
                 }
             }
-            const frozen = images.length ? images : (firstText ?? m.result ?? null);
+            const frozen = media.length ? media : null;
             useAppStore.getState().updateMessage(m.id, {
                 result: frozen,
                 runProposal: { ...rp, status: 'done' },

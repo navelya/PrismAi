@@ -104,6 +104,46 @@ export function extractTextValues(value: any): string[] {
   return values;
 }
 
+export interface RenderableMediaItem {
+  url: string;
+  /** Resolved media kind so the renderer knows whether to use <img> or <video>. */
+  type: NodeResultType;
+  /** Intrinsic size when the source carried it — lets the UI reserve the exact
+   *  aspect ratio so a skeleton fills the final footprint with no layout jump. */
+  resolution?: { width?: number; height?: number } | null;
+  // Source items may carry extra fields (metadata, etc.) — keep them.
+  [key: string]: any;
+}
+
+/**
+ * Extract renderable media (image / video / …) WITH its type (and any intrinsic
+ * size / metadata) preserved, from a node output that may be an envelope
+ * ({type,data}) or a legacy shape. Unlike toLegacyRenderableOutput (which
+ * collapses everything to {url} and loses the type), this keeps the per-item
+ * kind so a video result isn't rendered as a broken <img>. Per-URL extension
+ * detection wins over the envelope type when it resolves, so a mixed envelope
+ * still labels each item correctly.
+ */
+export function extractRenderableMedia(value: any): RenderableMediaItem[] {
+  if (isOutputEnvelope(value)) {
+    const envType = normalizeNodeResultType(value.type);
+    if (!isMediaResultType(envType)) return [];
+    const out: RenderableMediaItem[] = [];
+    for (const item of coerceResultDataArray(value.data)) {
+      const url = typeof item === 'string' ? item : item?.url;
+      if (typeof url !== 'string' || url.length === 0) continue;
+      const base = item && typeof item === 'object' ? item : {};
+      out.push({ ...base, url, type: detectMediaTypeFromUrl(url) ?? envType });
+    }
+    return out;
+  }
+  // Legacy / raw object or array — fall back to URL sniffing, default to image.
+  return extractMediaUrls(value).map((url) => ({
+    url,
+    type: detectMediaTypeFromUrl(url) ?? 'image',
+  }));
+}
+
 export function inferResultTypeFromValue(value: any): NodeResultType {
   const urls = extractMediaUrls(value);
   if (urls.length > 0) {

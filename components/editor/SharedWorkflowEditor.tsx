@@ -104,7 +104,6 @@ export default function SharedWorkflowEditor({
     const [pendingCost, setPendingCost] = useState(0);
     const [pendingNodeCount, setPendingNodeCount] = useState(0);
     const executionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const hasHandledInitialRunSignalRef = useRef(false);
 
     const isMountedRef = useRef(true);
     useEffect(() => {
@@ -564,13 +563,13 @@ export default function SharedWorkflowEditor({
         }
     }, [nodeStatusesForSettle, pendingChargesForSettle]);
 
+    // Consume a run signal and dispatch. No mount-time "discard the first
+    // signal" guard here: run signals (runFromNodeId/runMode/runSelectionIds/
+    // runPreconfirmed) are excluded from persistence and reset in
+    // onRehydrateStorage, so a refresh can never resurrect one. A mount guard
+    // would instead eat LEGITIMATE in-memory signals — e.g. a chat auto-run
+    // fired right as a new session's id flips the editor's `key`, remounting it.
     useEffect(() => {
-        if (!hasHandledInitialRunSignalRef.current) {
-            hasHandledInitialRunSignalRef.current = true;
-            useAppStore.getState().clearRunFromNode();
-            return;
-        }
-
         if (!runFromNodeId || !runMode) return;
 
         const clearRunFromNode = useAppStore.getState().clearRunFromNode;

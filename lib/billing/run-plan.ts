@@ -11,6 +11,7 @@
  */
 import type { AiModel } from '@/lib/nodes/types';
 import { computeExecutionCost, type CostNode } from './cost';
+import { getDescendants } from '@/lib/utils/graph-traversal';
 
 export interface RunPlanWorkflow {
     nodes: { id: string; type?: string | null; data?: any }[];
@@ -46,10 +47,21 @@ export function buildRunPlan(
 
     const nodeById = new Map(workflow.nodes.map((n) => [n.id, n]));
     // Only touched nodes that still exist in the graph are runnable targets.
-    const runTargetIds = touchedNodeIds.filter((id) => nodeById.has(id));
-    if (runTargetIds.length === 0) return EMPTY_PLAN;
+    const touchedExisting = touchedNodeIds.filter((id) => nodeById.has(id));
+    if (touchedExisting.length === 0) return EMPTY_PLAN;
 
-    const targetSet = new Set(runTargetIds);
+    // Expand to everything DOWNSTREAM of a touched node. Editing an upstream
+    // node (e.g. the prompt) must re-run the generator (and anything after it)
+    // so the user sees a NEW result — not just re-run the prompt, which would
+    // produce no image and surface the raw prompt text as the "result".
+    // getDescendants includes the seed node itself.
+    const targetSet = new Set<string>();
+    for (const id of touchedExisting) {
+        for (const d of getDescendants(id, workflow.edges as any)) {
+            if (nodeById.has(d)) targetSet.add(d);
+        }
+    }
+    const runTargetIds = Array.from(targetSet);
 
     // Terminal = a target node with no outgoing edge to ANOTHER target node.
     const hasDownstreamTarget = new Set<string>();

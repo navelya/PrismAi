@@ -162,15 +162,27 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     },
 
     triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode, runSelectionIds: null, runPreconfirmed: false }),
-    triggerRunSelection: (nodeIds, opts) => set({
-        // runFromNodeId stays non-null so the existing SharedWorkflowEditor effect
-        // (which gates on `if (!runFromNodeId || !runMode) return`) still fires.
-        // The first id is a stable sentinel; the actual targets live in runSelectionIds.
-        runFromNodeId: nodeIds[0] ?? null,
-        runMode: 'selection',
-        runSelectionIds: nodeIds,
-        runPreconfirmed: opts?.preconfirmed ?? false,
-    }),
+    triggerRunSelection: (nodeIds, opts) => {
+        // Optimistically mark the targets 'pending' in the SAME tick we set the
+        // run signal. commitExecution will flip them to 'running' a moment later,
+        // but until it does these nodes still carry their PREVIOUS run's
+        // 'success' status + stale output — which would let InlineRunResults
+        // flash the old image for a frame before the skeleton. Seeding 'pending'
+        // here closes that gap (and gives instant canvas feedback).
+        const cur = get().nodeStatuses;
+        const nextStatuses = { ...cur };
+        for (const id of nodeIds) nextStatuses[id] = 'pending';
+        set({
+            // runFromNodeId stays non-null so the existing SharedWorkflowEditor effect
+            // (which gates on `if (!runFromNodeId || !runMode) return`) still fires.
+            // The first id is a stable sentinel; the actual targets live in runSelectionIds.
+            runFromNodeId: nodeIds[0] ?? null,
+            runMode: 'selection',
+            runSelectionIds: nodeIds,
+            runPreconfirmed: opts?.preconfirmed ?? false,
+            nodeStatuses: nextStatuses,
+        });
+    },
     clearRunFromNode: () => set({ runFromNodeId: null, runMode: null, runSelectionIds: null, runPreconfirmed: false }),
     setMaxAutoRunCredits: (n) => set({ maxAutoRunCredits: Number.isFinite(n) && n >= 0 ? n : 0 }),
     setHasSeenAutoRunIntro: (v) => set({ hasSeenAutoRunIntro: v }),

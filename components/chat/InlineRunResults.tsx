@@ -2,8 +2,8 @@
 
 import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store/app-store';
-import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
-import MessageRenderer from './MessageRenderer';
+import { extractRenderableMedia } from '@/lib/workflow/result-format';
+import { RunMediaGallery } from './RunMediaGallery';
 
 interface InlineRunResultsProps {
     terminalIds: string[];
@@ -12,40 +12,37 @@ interface InlineRunResultsProps {
 
 export function InlineRunResults({ terminalIds, isCanvasMode }: InlineRunResultsProps) {
     const nodeOutputs = useAppStore((s) => s.nodeOutputs);
+    const nodeStatuses = useAppStore((s) => s.nodeStatuses);
 
-    // Collect renderable output across all terminal nodes.
-    // toLegacyRenderableOutput returns:
-    //   - Array<{url,...}>  for media envelopes  → merge into flat image list
-    //   - string            for text envelopes   → use first non-empty string found
-    //   - other             for json/unknown     → skip (no meaningful inline display)
+    // Collect renderable media (image + video) across all terminal nodes, with
+    // type preserved. Text outputs (e.g. a prompt node's string) are ignored so
+    // the raw prompt never surfaces as a chat result.
+    //
+    // CRITICAL: only read a terminal's output once THIS run has marked it
+    // 'success'. nodeOutputs still holds the PREVIOUS run's result until the new
+    // one lands, so without this gate an update would show the stale old image
+    // (then swap) instead of a skeleton while it regenerates.
     const items = useMemo(() => {
-        const images: any[] = [];
-        let text: string | null = null;
-
+        const media: ReturnType<typeof extractRenderableMedia> = [];
         for (const id of terminalIds) {
-            const legacy = toLegacyRenderableOutput(nodeOutputs?.[id]);
-            if (Array.isArray(legacy)) {
-                for (const item of legacy) {
-                    if (item?.url) images.push(item);
-                }
-            } else if (typeof legacy === 'string' && legacy.length > 0 && text === null) {
-                text = legacy;
+            if (nodeStatuses?.[id] !== 'success') continue;
+            for (const m of extractRenderableMedia(nodeOutputs?.[id])) {
+                if (m.type === 'image' || m.type === 'video') media.push(m);
             }
         }
+        return media;
+    }, [terminalIds, nodeOutputs, nodeStatuses]);
 
-        // Prefer images when both are present; MessageRenderer handles both shapes.
-        if (images.length > 0) return images;
-        if (text !== null) return text;
-        return null;
-    }, [terminalIds, nodeOutputs]);
-
-    if (items === null) return null;
-
+    // This component only mounts while the run is in flight (Message.tsx gates
+    // on runProposal.status === 'running'). RunMediaGallery shows skeleton tiles
+    // until media arrives AND has actually loaded — no broken-image flash.
     return (
         <div className="mt-2">
-            {/* forceGallery: chat-run results are shown inline in the chat even in
-                canvas/minimized mode, not as the compact "added to Canvas" tag. */}
-            <MessageRenderer data={items} isCanvasMode={isCanvasMode} forceGallery />
+            <RunMediaGallery
+                items={items}
+                isCanvasMode={isCanvasMode}
+                skeletonCount={Math.min(2, Math.max(1, terminalIds.length))}
+            />
         </div>
     );
 }

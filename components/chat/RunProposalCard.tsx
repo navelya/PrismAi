@@ -43,23 +43,25 @@ export function RunProposalCard({ cost, status, onRun, error }: RunProposalCardP
         );
     }
 
-    const running = status === 'running';
+    // While running, show no button at all — the inline results area renders a
+    // skeleton placeholder until the outputs arrive (both auto-run and a
+    // user-clicked Run land here).
+    if (status === 'running') return null;
+
+    // Ready: the manual Run button (auto-run skips straight to 'running').
     return (
         <div className="mt-2 rounded-lg border border-stroke-subtle/70 bg-surface-secondary/30 px-3 py-2">
             <div className="flex items-center justify-between">
-                <span className="text-xs text-content-secondary">
-                    {running ? 'Running…' : 'Ready to run'}
-                </span>
+                <span className="text-xs text-content-secondary">Ready to run</span>
                 <button
                     type="button"
-                    disabled={running}
                     onClick={onRun}
-                    className="rounded-md bg-accent-primary px-3 py-1 text-xs font-medium text-white hover:bg-accent-primary/90 disabled:opacity-60 transition-colors cursor-pointer"
+                    className="rounded-md bg-accent-primary px-3 py-1 text-xs font-medium text-white hover:bg-accent-primary/90 transition-colors cursor-pointer"
                 >
-                    {running ? 'Running…' : `Run · ${formatCredits(cost)} credits`}
+                    Run · {formatCredits(cost)} credits
                 </button>
             </div>
-            {!running && error && (
+            {error && (
                 <p className="mt-1.5 text-[11px] text-amber-400 leading-snug">
                     {error}
                 </p>
