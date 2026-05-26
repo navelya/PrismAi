@@ -39,7 +39,16 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
         await createCharacter(input);
     };
 
-    const visible = scope === 'all' ? sharedCharacters : characters;
+    // The "Shared" tab shows the whole shared pool — including characters YOU
+    // shared. The scope=shared API excludes your own rows (so the @-picker can
+    // dedupe them out of the shared group), so merge your own shared ones back
+    // in here, yours first, deduped by id.
+    const visible = (() => {
+        if (scope !== 'all') return characters;
+        const ownShared = characters.filter((c) => c.is_shared);
+        const ownSharedIds = new Set(ownShared.map((c) => c.id));
+        return [...ownShared, ...sharedCharacters.filter((c) => !ownSharedIds.has(c.id))];
+    })();
 
     return (
         <div className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
