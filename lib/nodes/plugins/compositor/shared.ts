@@ -295,3 +295,28 @@ export function layerAABB(layer: CompositorLayer): AABB {
 export function rectsIntersect(a: AABB, b: AABB): boolean {
     return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
 }
+
+/**
+ * The opaque base color a compositor should composite its layers against so
+ * blend modes (multiply/screen/etc.) have something to act on. Mirrors the
+ * video export, which renders onto an opaque black background.
+ *
+ *   - Opaque configured backgroundColor  -> that color
+ *   - Transparent/unset bg + has video   -> '#000000' (matches export)
+ *   - Transparent/unset bg + image-only  -> null (keep transparent/checkerboard)
+ *
+ * Hex alpha is honored: an 8-digit '#RRGGBBAA' with AA === '00' is transparent.
+ */
+export function resolveCompositeBaseFill(backgroundColor: string | undefined, hasVideo: boolean): string | null {
+    const bg = (backgroundColor || '').trim();
+    if (bg && bg.toLowerCase() !== 'transparent') {
+        const m8 = /^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})$/.exec(bg);
+        if (m8) {
+            if (m8[2].toLowerCase() !== '00') return bg; // 8-digit hex, non-zero alpha => opaque-ish
+            // fully transparent 8-digit hex => fall through
+        } else {
+            return bg; // 6-digit hex or any other non-empty, non-'transparent' color => opaque
+        }
+    }
+    return hasVideo ? '#000000' : null;
+}

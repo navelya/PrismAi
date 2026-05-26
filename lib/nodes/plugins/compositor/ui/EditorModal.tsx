@@ -21,7 +21,7 @@ import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTran
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 import Timeline from './Timeline';
-import { detectSourceKind, LayerSourceKind, computeTimelineDuration, layerAABB, rectsIntersect } from '../shared';
+import { detectSourceKind, LayerSourceKind, computeTimelineDuration, layerAABB, rectsIntersect, resolveCompositeBaseFill } from '../shared';
 import { useInertBackground } from '@/lib/hooks/use-inert-background';
 import MultiLayerProperties from './MultiLayerProperties';
 
@@ -599,6 +599,8 @@ export default function CompositorEditorModal({
         [layers, sourceKindByLayerId],
     );
 
+    const compositeBaseFill = resolveCompositeBaseFill(config.backgroundColor, hasVideoLayer);
+
     /**
      * Auto-sequence new video layers onto the end of the timeline so they
      * never pile up at t=0. Runs once per video layer; the `isAutoSequenced`
@@ -966,7 +968,7 @@ export default function CompositorEditorModal({
                             }}
                         >
                             <Layer>
-                                <Rect name="background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill="#121212" stroke="rgba(255,255,255,0.05)" strokeWidth={1} shadowColor="black" shadowBlur={100} shadowOpacity={0.5} />
+                                <Rect name="background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill={compositeBaseFill ?? '#121212'} stroke="rgba(255,255,255,0.05)" strokeWidth={1} shadowColor="black" shadowBlur={100} shadowOpacity={0.5} />
                                 <CompositorLayerNodes
                                     layers={renderable}
                                     interactive

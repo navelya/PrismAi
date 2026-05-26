@@ -4,7 +4,7 @@ import React, { memo, useState, useMemo, useCallback, useRef, useEffect } from '
 import { createPortal } from 'react-dom';
 import { NodeProps, useUpdateNodeInternals } from 'reactflow';
 import { Plus, Edit3, Download, Loader2, Check, AlertCircle } from 'lucide-react';
-import { Stage, Layer, Group } from 'react-konva';
+import { Stage, Layer, Group, Rect } from 'react-konva';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
@@ -19,6 +19,7 @@ import {
     GraphDescription,
     GraphLayer,
     GraphLayerSource,
+    resolveCompositeBaseFill,
 } from './shared';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -252,6 +253,7 @@ function LivePreview({
     onTotalDurationChange,
     poolKey,
     muted,
+    baseFill,
 }: {
     config: CompositorConfig;
     renderable: RenderableLayer[];
@@ -270,6 +272,8 @@ function LivePreview({
     poolKey: string;
     /** Mute state from the parent's transport bar; forwarded to layer videos. */
     muted: boolean;
+    /** Opaque base color to composite against so blend modes have pixels to act on. null = keep transparent. */
+    baseFill: string | null;
 }) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState({ width: 0, height: 0 });
@@ -398,6 +402,9 @@ function LivePreview({
                 >
                     <Layer listening={false} pixelRatio={1 / scale}>
                         <Group scaleX={scale} scaleY={scale}>
+                            {baseFill && (
+                                <Rect x={0} y={0} width={canvasWidth} height={canvasHeight} fill={baseFill} listening={false} />
+                            )}
                             <CompositorLayerNodes
                                 layers={renderable}
                                 interactive={false}
@@ -738,6 +745,11 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // Kept as a named alias for downstream readers (lightbox branch, live
     // canvas publish) that only care about the binary video/not question.
     const hasVideoLayer = outputKind === 'video';
+
+    const compositeBaseFill = useMemo(
+        () => resolveCompositeBaseFill(config.backgroundColor, hasVideoLayer),
+        [config.backgroundColor, hasVideoLayer],
+    );
 
     // Narrow the single output handle's visible label/color to match what's
     // actually flowing out. Connection validation lives on the static def
@@ -1259,6 +1271,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                 onTotalDurationChange={setCardTotalDuration}
                                 poolKey={id}
                                 muted={cardMuted}
+                                baseFill={compositeBaseFill}
                             />
                             {hasVideoLayer && (
                                 <MiniTransport
