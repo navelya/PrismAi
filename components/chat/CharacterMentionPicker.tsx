@@ -5,7 +5,8 @@ import { UserCircle, Plus } from 'lucide-react';
 import type { Character } from '@/lib/api/client';
 
 interface CharacterMentionPickerProps {
-    characters: Character[];
+    own: Character[];
+    shared: Character[];
     query: string;
     activeIndex: number;
     onSelect: (c: Character) => void;
@@ -18,6 +19,31 @@ export function filterCharacters(characters: Character[], query: string): Charac
     const q = query.trim().toLowerCase();
     if (!q) return characters.slice(0, TOP_N); // already recency-ordered from the API
     return characters.filter((c) => c.name.toLowerCase().includes(q));
+}
+
+export interface MentionResults {
+    /** Flat, ordered list (own first, then shared) — index maps directly to a
+     *  character for keyboard navigation. */
+    items: Character[];
+    ownCount: number;
+    sharedCount: number;
+}
+
+/**
+ * Build the grouped @-mention results: the user's own characters first, then
+ * shared-by-others. Shared entries whose id is already owned are dropped so a
+ * character never appears twice. `items` is the concatenation used for keyboard
+ * navigation; `ownCount`/`sharedCount` tell the picker where to draw the header.
+ */
+export function buildMentionResults(own: Character[], shared: Character[], query: string): MentionResults {
+    const ownResults = filterCharacters(own, query);
+    const ownIds = new Set(own.map((c) => c.id));
+    const sharedResults = filterCharacters(shared.filter((c) => !ownIds.has(c.id)), query);
+    return {
+        items: [...ownResults, ...sharedResults],
+        ownCount: ownResults.length,
+        sharedCount: sharedResults.length,
+    };
 }
 
 /**
@@ -67,45 +93,62 @@ export function extractMentionedCharacters(text: string, characters: Character[]
 }
 
 export default function CharacterMentionPicker({
-    characters,
+    own,
+    shared,
     query,
     activeIndex,
     onSelect,
     onCreateNew,
 }: CharacterMentionPickerProps) {
-    const results = filterCharacters(characters, query);
+    const { items, ownCount, sharedCount } = buildMentionResults(own, shared, query);
+
+    const renderItem = (c: Character, i: number) => (
+        <button
+            key={c.id}
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); onSelect(c); }}
+            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${
+                i === activeIndex ? 'bg-accent-primary/10' : 'hover:bg-interactive-hover'
+            }`}
+        >
+            <span className="w-8 h-8 rounded-md overflow-hidden bg-surface-tertiary flex-shrink-0 flex items-center justify-center">
+                {c.thumbnail_url || c.reference_images?.[0]?.url ? (
+                    <img src={c.thumbnail_url || c.reference_images[0].url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                    <UserCircle className="w-5 h-5 text-content-tertiary" />
+                )}
+            </span>
+            <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-content-primary truncate">{c.name}</span>
+                {c.description && (
+                    <span className="block text-xs text-content-tertiary truncate">{c.description}</span>
+                )}
+            </span>
+        </button>
+    );
 
     return (
         <div className="absolute bottom-full left-0 mb-2 w-72 max-h-72 overflow-y-auto rounded-xl border border-stroke-subtle bg-surface-primary shadow-2xl z-50 p-1">
-            {results.length === 0 ? (
+            {items.length === 0 ? (
                 <div className="px-3 py-3 text-sm text-content-tertiary">
                     No characters match "{query}"
                 </div>
             ) : (
-                results.map((c, i) => (
-                    <button
-                        key={c.id}
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); onSelect(c); }}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${
-                            i === activeIndex ? 'bg-accent-primary/10' : 'hover:bg-interactive-hover'
-                        }`}
-                    >
-                        <span className="w-8 h-8 rounded-md overflow-hidden bg-surface-tertiary flex-shrink-0 flex items-center justify-center">
-                            {c.thumbnail_url || c.reference_images?.[0]?.url ? (
-                                <img src={c.thumbnail_url || c.reference_images[0].url} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                <UserCircle className="w-5 h-5 text-content-tertiary" />
-                            )}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-medium text-content-primary truncate">{c.name}</span>
-                            {c.description && (
-                                <span className="block text-xs text-content-tertiary truncate">{c.description}</span>
-                            )}
-                        </span>
-                    </button>
-                ))
+                <>
+                    {/* Your characters — no header */}
+                    {items.slice(0, ownCount).map((c, i) => renderItem(c, i))}
+
+                    {/* Shared group — thin divider + small label, only when present */}
+                    {sharedCount > 0 && (
+                        <>
+                            {ownCount > 0 && <div className="h-px bg-stroke-subtle my-1" />}
+                            <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+                                Shared characters
+                            </div>
+                            {items.slice(ownCount).map((c, i) => renderItem(c, ownCount + i))}
+                        </>
+                    )}
+                </>
             )}
             <div className="h-px bg-stroke-subtle my-1" />
             <button
