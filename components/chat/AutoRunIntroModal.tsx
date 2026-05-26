@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { formatCredits } from '@/lib/billing/cost';
@@ -42,6 +43,12 @@ function AutoRunIntroDialog() {
     const [saving, setSaving] = useState(false);
 
     const willRun = intro.cost <= limit;
+
+    // Portal to <body> so the fixed-inset overlay centers on the viewport even
+    // when a parent (the chat panel) has a CSS transform/backdrop that would
+    // otherwise become the containing block for `fixed`.
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => setMounted(true), []);
 
     const finish = async (patch: Record<string, any>, run: boolean) => {
         setSaving(true);
@@ -94,7 +101,9 @@ function AutoRunIntroDialog() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [saving]);
 
-    return (
+    if (!mounted) return null;
+
+    return createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             {/* Backdrop */}
             <div
@@ -113,11 +122,7 @@ function AutoRunIntroDialog() {
                     <X className="w-4 h-4" />
                 </button>
 
-                <div className="w-11 h-11 rounded-2xl bg-accent-primary/15 flex items-center justify-center mb-4">
-                    <Sparkles className="w-5 h-5 text-accent-primary" />
-                </div>
-
-                <h2 className="text-lg font-bold text-content-primary">
+                <h2 className="text-lg font-bold text-content-primary pr-8">
                     Auto-run is ready
                 </h2>
                 <p className="text-sm text-content-secondary leading-relaxed mt-2">
@@ -183,6 +188,7 @@ function AutoRunIntroDialog() {
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
