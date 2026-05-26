@@ -130,6 +130,22 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         abortControllerRef
     });
 
+    const handleRunProposal = (messageId: string) => {
+        const store = useAppStore.getState();
+        const msg = store.chatMessages.find((m) => m.id === messageId);
+        const rp = msg?.runProposal;
+        if (!rp || (rp.status !== 'ready' && rp.status !== 'failed')) return;
+        // Validate targets still exist; otherwise mark superseded.
+        const wf = store.currentWorkflow;
+        const present = rp.runTargetIds.filter((id) => wf?.nodes.some((n: any) => n.id === id));
+        if (present.length === 0) {
+            store.updateMessage(messageId, { runProposal: { ...rp, status: 'superseded' } });
+            return;
+        }
+        store.updateMessage(messageId, { runProposal: { ...rp, status: 'running' } });
+        store.triggerRunSelection(present, { preconfirmed: true });
+    };
+
     // Characters referenced inline (@Name) in the prompt, derived and reported
     // by ChatInput in order of appearance. Used only to build the send payload;
     // the prompt text is the source of truth.
@@ -439,6 +455,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 }}
                 onPlanApprove={handlePlanApprove}
                 onPlanFeedback={handlePlanFeedback}
+                onRunProposal={handleRunProposal}
                 scrollContainerRef={scroll.scrollContainerRef}
                 contentRef={scroll.contentRef}
                 messagesEndRef={scroll.messagesEndRef}

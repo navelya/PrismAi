@@ -48,6 +48,7 @@ interface MessageListProps {
     }) => void;
     onPlanApprove?: (planMessageId: string) => void;
     onPlanFeedback?: (planMessageId: string, feedbackText: string) => void;
+    onRunProposal?: (messageId: string) => void;
     scrollContainerRef: React.RefObject<HTMLDivElement>;
     contentRef: React.RefObject<HTMLDivElement>;
     messagesEndRef: React.RefObject<HTMLDivElement>;
@@ -70,6 +71,7 @@ export function MessageList({
     onClarificationAnswer,
     onPlanApprove,
     onPlanFeedback,
+    onRunProposal,
     scrollContainerRef,
     contentRef,
     messagesEndRef,
@@ -123,6 +125,7 @@ export function MessageList({
                                 onClarificationAnswer={onClarificationAnswer}
                                 onPlanApprove={onPlanApprove}
                                 onPlanFeedback={onPlanFeedback}
+                                onRunProposal={onRunProposal}
                                 undoSnapshotId={undoSnapshotId}
                                 isDisabled={isDisabled}
                                 isEditing={isEditing}
