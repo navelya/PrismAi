@@ -467,9 +467,10 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
     if (attachedImageUrls.length >= 4) break; // hard cap consistent with parseImageAttachments
   }
 
-  // Resolve @-mentioned characters to server-side snapshots. We scope by the
-  // session's owner so a user can only reference their own characters. The
-  // LLM only ever sees names/descriptions/ids — never the storage URLs.
+  // Resolve @-mentioned characters to server-side snapshots. A user may
+  // reference their OWN characters or any globally-shared one; private
+  // characters owned by other users are excluded. The LLM only ever sees
+  // names/descriptions/ids — never the storage URLs.
   const mentionedCharacterIds = sanitizeMentionedCharacterIds(body?.mentionedCharacterIds);
   let characterRefs: CharacterSnapshot[] = [];
   if (mentionedCharacterIds.length > 0 && sessionId) {
@@ -482,7 +483,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
       const { data: rows } = await supabase
         .from('characters')
         .select('id, name, description, reference_images, weight')
-        .eq('user_id', sessionOwner.user_id)
+        .or(`user_id.eq.${sessionOwner.user_id},is_shared.eq.true`)
         .is('deleted_at', null)
         .eq('is_draft', false)
         .in('id', mentionedCharacterIds);
