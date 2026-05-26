@@ -3,24 +3,32 @@
 import { useCallback, useEffect, useState } from 'react';
 import { charactersApi, type Character, type CharacterInput } from '@/lib/api/client';
 
-export function useCharacters(opts?: { includeDrafts?: boolean }) {
+export function useCharacters(opts?: { includeDrafts?: boolean; includeShared?: boolean }) {
     const includeDrafts = opts?.includeDrafts ?? false;
+    const includeShared = opts?.includeShared ?? false;
     const [characters, setCharacters] = useState<Character[]>([]);
+    const [sharedCharacters, setSharedCharacters] = useState<Character[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         try {
             setLoading(true);
-            const { characters } = await charactersApi.list({ includeDrafts });
-            setCharacters(characters);
+            const [mine, shared] = await Promise.all([
+                charactersApi.list({ includeDrafts }),
+                includeShared
+                    ? charactersApi.list({ scope: 'shared' })
+                    : Promise.resolve({ characters: [] as Character[] }),
+            ]);
+            setCharacters(mine.characters);
+            setSharedCharacters(shared.characters);
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load characters');
         } finally {
             setLoading(false);
         }
-    }, [includeDrafts]);
+    }, [includeDrafts, includeShared]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -50,5 +58,23 @@ export function useCharacters(opts?: { includeDrafts?: boolean }) {
         await charactersApi.delete(id);
     }, []);
 
-    return { characters, loading, error, load, createCharacter, createDraft, updateCharacter, deleteCharacter };
+    // Admin-only: toggle whether one of the user's OWN characters is shared.
+    const setShared = useCallback(async (id: string, shared: boolean) => {
+        const { character } = await charactersApi.setShared(id, shared);
+        setCharacters((prev) => prev.map((c) => (c.id === id ? character : c)));
+        return character;
+    }, []);
+
+    return {
+        characters,
+        sharedCharacters,
+        loading,
+        error,
+        load,
+        createCharacter,
+        createDraft,
+        updateCharacter,
+        deleteCharacter,
+        setShared,
+    };
 }
