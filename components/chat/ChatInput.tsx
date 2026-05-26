@@ -25,7 +25,7 @@ import { ModelPicker } from './ModelPicker';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { SelectionPillRow } from './SelectionPillRow';
 import { useCharacters } from '@/lib/hooks/use-characters';
-import CharacterMentionPicker, { filterCharacters, extractMentionedCharacters } from './CharacterMentionPicker';
+import CharacterMentionPicker, { buildMentionResults, extractMentionedCharacters } from './CharacterMentionPicker';
 import CharacterModal from '@/components/assets/CharacterModal';
 import type { Character, CharacterInput } from '@/lib/api/client';
 
@@ -118,7 +118,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         const plusTriggerRef = useRef<HTMLButtonElement>(null);
         const modelTriggerRef = useRef<HTMLButtonElement>(null);
 
-        const { characters, createCharacter, createDraft } = useCharacters();
+        const { characters, sharedCharacters, createCharacter, createDraft } = useCharacters({ includeShared: true });
         const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = picker closed
         const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
         // "Create new character" from the @-mention picker opens this modal.
@@ -204,9 +204,16 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
 
         // The referenced characters are DERIVED from the prompt text, not held
         // as separate state — editing the text is how you add/remove a mention.
+        // Mentions can reference either the user's own characters or any shared
+        // one, so extraction runs against the merged, deduped set.
+        const allMentionable = useMemo(() => {
+            const ownIds = new Set(characters.map((c) => c.id));
+            return [...characters, ...sharedCharacters.filter((c) => !ownIds.has(c.id))];
+        }, [characters, sharedCharacters]);
+
         const mentionedCharacters = useMemo(
-            () => extractMentionedCharacters(value, characters),
-            [value, characters],
+            () => extractMentionedCharacters(value, allMentionable),
+            [value, allMentionable],
         );
 
         // Report the derived roster up (for the send payload) only when the set
@@ -345,7 +352,8 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
 
                     {mentionQuery !== null && (
                         <CharacterMentionPicker
-                            characters={characters}
+                            own={characters}
+                            shared={sharedCharacters}
                             query={mentionQuery}
                             activeIndex={mentionActiveIndex}
                             onSelect={insertCharacterMention}
@@ -427,7 +435,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         onChange={(e) => handleTextChange(e.target.value)}
                         onKeyDown={(e) => {
                             if (mentionQuery !== null) {
-                                const results = filterCharacters(characters, mentionQuery);
+                                const results = buildMentionResults(characters, sharedCharacters, mentionQuery).items;
                                 if (e.key === 'ArrowDown') { e.preventDefault(); setMentionActiveIndex((i) => Math.min(i + 1, Math.max(0, results.length - 1))); return; }
                                 if (e.key === 'ArrowUp') { e.preventDefault(); setMentionActiveIndex((i) => Math.max(i - 1, 0)); return; }
                                 if ((e.key === 'Enter' || e.key === 'Tab') && results[mentionActiveIndex]) { e.preventDefault(); insertCharacterMention(results[mentionActiveIndex]); return; }
