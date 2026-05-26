@@ -30,7 +30,7 @@ interface CharactersPanelProps {
 }
 
 export function CharactersPanel({ onClose }: CharactersPanelProps) {
-    const { characters, loading, createCharacter, createDraft } = useCharacters();
+    const { characters, sharedCharacters, loading, createCharacter, createDraft } = useCharacters({ includeShared: true });
     const [scope, setScope] = useState<CharacterScope>('mine');
     const [modalOpen, setModalOpen] = useState(false);
     const [variantSource, setVariantSource] = useState<Character | null>(null);
@@ -39,6 +39,8 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
         await createCharacter(input);
     };
 
+    const visible = scope === 'all' ? sharedCharacters : characters;
+
     return (
         <div className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
             {/* Compact header */}
@@ -46,7 +48,7 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
                 <PillTabs<CharacterScope>
                     items={[
                         { value: 'mine', label: 'My Characters', icon: UserCircle },
-                        { value: 'all', label: 'All Characters', icon: Users, disabled: true, title: 'Prisfol characters — coming soon' },
+                        { value: 'all', label: 'Shared', icon: Users },
                     ]}
                     value={scope}
                     onChange={setScope}
@@ -80,13 +82,22 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
                             ))}
                         </div>
                     </div>
-                ) : characters.length === 0 ? (
-                    <EmptyState onCreate={() => setModalOpen(true)} />
+                ) : visible.length === 0 ? (
+                    scope === 'all' ? (
+                        <div className="flex flex-col items-center justify-center h-full gap-3 p-8 text-center">
+                            <Users className="w-7 h-7 text-content-tertiary/50" />
+                            <p className="text-xs text-content-tertiary leading-relaxed max-w-[200px]">
+                                No shared characters yet. Shared characters published by the team appear here.
+                            </p>
+                        </div>
+                    ) : (
+                        <EmptyState onCreate={() => setModalOpen(true)} />
+                    )
                 ) : (
                     <div className="p-3">
                         <div className="grid grid-cols-2 gap-2">
                             <AnimatePresence initial={false}>
-                                {characters.map((c, i) => (
+                                {visible.map((c, i) => (
                                     <CharacterCard key={c.id} character={c} index={i} onVariant={setVariantSource} />
                                 ))}
                             </AnimatePresence>
