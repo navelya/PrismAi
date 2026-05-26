@@ -679,6 +679,19 @@ export default function CompositorEditorModal({
     // onNodesDelete and remove the entire compositor node.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
+            // Firewall: keep the workflow canvas's global chords from firing
+            // behind the editor (the editor owns its OWN undo/redo locally). We
+            // stop only these specific chords so the modal's own inputs still
+            // receive every other key. Editable targets inside the modal are
+            // exempted so typing a literal 'z'/'y'/'g' isn't swallowed.
+            const tgt = e.target as HTMLElement | null;
+            const tag = tgt?.tagName;
+            const editable = tag === 'INPUT' || tag === 'TEXTAREA' || tgt?.isContentEditable === true;
+            const mod = e.metaKey || e.ctrlKey;
+            const k = e.key.toLowerCase();
+            if (!editable && mod && (k === 'z' || k === 'y' || k === 'g')) {
+                e.stopImmediatePropagation();
+            }
             if (e.code === 'Space' && !e.repeat && e.target === document.body) {
                 e.preventDefault();
                 setSpaceHeld(true);
