@@ -22,6 +22,7 @@ import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 import Timeline from './Timeline';
 import { detectSourceKind, LayerSourceKind, computeTimelineDuration } from '../shared';
+import { useInertBackground } from '@/lib/hooks/use-inert-background';
 
 const VIEWPORT_PADDING = 1000;
 
@@ -124,13 +125,17 @@ interface CompositorEditorModalProps {
     onClose: () => void;
     /** Forwarded so callers can intercept; the modal also writes via updateNodeConfig directly. */
     onConfigChange?: (config: Partial<CompositorConfig>) => void;
+    /** The portal wrapper element; used to keep this modal interactive while the rest of the page is inert. */
+    portalEl?: HTMLElement | null;
 }
 
 export default function CompositorEditorModal({
     nodeId,
     config: initialConfig,
     onClose,
+    portalEl = null,
 }: CompositorEditorModalProps) {
+    useInertBackground(true, portalEl);
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
     const setIsDragging = useAppStore((state) => state.setIsDragging);
 

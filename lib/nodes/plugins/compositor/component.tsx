@@ -420,6 +420,7 @@ function LivePreview({
 function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const stageRef = useRef<any>(null);
+    const editorPortalRef = useRef<HTMLDivElement>(null);
     const updateNodeInternals = useUpdateNodeInternals();
 
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
@@ -1283,12 +1284,15 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             </BaseNode>
 
             {isEditorOpen && createPortal(
-                <CompositorEditorModal
-                    nodeId={id}
-                    config={config}
-                    onClose={() => setIsEditorOpen(false)}
-                    onConfigChange={updateConfig}
-                />,
+                <div ref={editorPortalRef}>
+                    <CompositorEditorModal
+                        nodeId={id}
+                        config={config}
+                        onClose={() => setIsEditorOpen(false)}
+                        onConfigChange={updateConfig}
+                        portalEl={editorPortalRef.current}
+                    />
+                </div>,
                 document.body
             )}
         </>
