@@ -8,7 +8,11 @@ import { useTheme } from '@/components/theme/ThemeProvider';
 import { createClient } from '@/lib/supabase/client';
 import { userApi } from '@/lib/api/client';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import { NumberInput } from '@/components/ui/NumberInput';
 import PlanBillingView from '@/components/billing/PlanBillingView';
+import { TokenLedgerSection } from '@/components/billing/TokenLedgerSection';
+import { CreditsBreakdownPanel } from '@/components/billing/CreditsBreakdownPanel';
+import { useCreditBreakdown } from '@/lib/billing/use-credit-breakdown';
 import {
     Network,
     Palette,
@@ -86,7 +90,7 @@ const navSections: NavSection[] = [
         title: 'Usage & Billing',
         items: [
             { id: 'plan-billing', label: 'Plan & Billing', icon: <CreditCard className="w-4 h-4" /> },
-            { id: 'usage', label: 'Token / Credit Usage', icon: <Coins className="w-4 h-4" />, comingSoon: true },
+            { id: 'usage', label: 'Tokens & Credits Usage', icon: <Coins className="w-4 h-4" /> },
         ],
     },
     {
@@ -480,17 +484,13 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
     // Initialize local state from DB preferences, falling back to current active state
     const [localTheme, setLocalTheme] = useState(user?.profile?.preferences?.theme || activeTheme);
     const [localEngine, setLocalEngine] = useState(user?.profile?.preferences?.layoutEngine || 'elk');
-    const [localMaxAutoRunCredits, setLocalMaxAutoRunCredits] = useState<number>(
-        (user?.profile?.preferences as any)?.maxAutoRunCredits ?? 10
-    );
 
     const [saving, setSaving] = useState(false);
 
     // Determine baseline to check for unsaved changes
     const baselineTheme = user?.profile?.preferences?.theme || activeTheme;
     const baselineEngine = user?.profile?.preferences?.layoutEngine || 'elk';
-    const baselineMaxAutoRunCredits: number = (user?.profile?.preferences as any)?.maxAutoRunCredits ?? 10;
-    const hasChanges = localTheme !== baselineTheme || localEngine !== baselineEngine || localMaxAutoRunCredits !== baselineMaxAutoRunCredits;
+    const hasChanges = localTheme !== baselineTheme || localEngine !== baselineEngine;
 
 
 
@@ -513,7 +513,6 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
                 ...(user?.profile?.preferences || {}),
                 theme: localTheme,
                 layoutEngine: localEngine,
-                maxAutoRunCredits: localMaxAutoRunCredits,
             };
 
             const { error } = await supabase.from('profiles').upsert({
@@ -525,10 +524,7 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
             if (error) throw error;
 
             // Apply changes globally
-            // setActiveTheme(localTheme);
-            // setLayoutEngine(localEngine);
             setActiveTheme(localTheme);
-            useAppStore.getState().setMaxAutoRunCredits(localMaxAutoRunCredits);
 
             // Fetch fresh profile state to container
             onProfileUpdated();
@@ -620,32 +616,107 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
                 </div>
             </div>
 
-            {/* Workflow Section */}
-            <div>
-                <h2 className="text-xs font-semibold text-content-tertiary tracking-wider mb-6">
-                    WORKFLOW
-                </h2>
-                <div className="flex flex-col">
-                    <SettingCard
-                        title="Max Auto-Run Credits"
-                        description="Chat runs costing up to this many credits run automatically. Above it, a Run button appears."
-                        layout="inline"
+            {/* Save Changes Floating Action Bar */}
+            {hasChanges && (
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 md:left-auto md:right-12 md:translate-x-0 glassmorphism shadow-2xl rounded-3xl p-4 flex items-center gap-6 animate-in slide-in-from-bottom-10 duration-500 z-50">
+                    <div className="flex items-center gap-3 pl-2">
+                        <div className="w-2 h-2 rounded-full bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(var(--accent-primary-rgb),0.5)]"></div>
+                        <span className="text-[10px] font-black text-content-primary uppercase tracking-widest whitespace-nowrap">Unsaved modifications</span>
+                    </div>
+                    <button
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="px-8 py-3 bg-gradient-premium text-white font-black uppercase tracking-widest text-[10px] rounded-2xl hover:opacity-90 transition-all disabled:opacity-50 shadow-premium hover:scale-[1.05] active:scale-[0.95]"
                     >
-                        <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={localMaxAutoRunCredits}
-                            onChange={(e) =>
-                                setLocalMaxAutoRunCredits(
-                                    Math.max(0, Math.min(10000, Math.trunc(Number(e.target.value) || 0)))
-                                )
-                            }
-                            className="w-28 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm text-right focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all"
-                        />
-                    </SettingCard>
+                        {saving ? 'Synchronizing...' : 'Commit Changes'}
+                    </button>
                 </div>
-            </div>
+            )}
+        </div>
+    );
+}
+
+function TokensCreditsUsageView({ user, onProfileUpdated }: { user: any, onProfileUpdated: () => void }) {
+    const { data: breakdown, loading: breakdownLoading, fetchBreakdown } = useCreditBreakdown();
+
+    const [localMaxAutoRunCredits, setLocalMaxAutoRunCredits] = useState<number>(
+        (user?.profile?.preferences as any)?.maxAutoRunCredits ?? 10
+    );
+    const [saving, setSaving] = useState(false);
+
+    const baselineMaxAutoRunCredits: number = (user?.profile?.preferences as any)?.maxAutoRunCredits ?? 10;
+    const hasChanges = localMaxAutoRunCredits !== baselineMaxAutoRunCredits;
+
+    useEffect(() => {
+        fetchBreakdown();
+    }, [fetchBreakdown]);
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const supabase = createClient();
+            // Spread existing preferences so we don't clobber theme/layoutEngine
+            // saved from the Editor & Appearance tab.
+            const newPrefs = {
+                ...(user?.profile?.preferences || {}),
+                maxAutoRunCredits: localMaxAutoRunCredits,
+            };
+
+            const { error } = await supabase.from('profiles').upsert({
+                id: user.id,
+                preferences: newPrefs,
+                avatar_url: user?.profile?.avatar_url || null, // preserve existing
+            });
+
+            if (error) throw error;
+
+            useAppStore.getState().setMaxAutoRunCredits(localMaxAutoRunCredits);
+            onProfileUpdated();
+        } catch (e) {
+            console.error('Failed to save preferences:', e);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="max-w-4xl mx-auto p-6 sm:p-8 space-y-6 pb-24 relative">
+            {/* Header */}
+            <header>
+                <h1 className="text-2xl sm:text-3xl font-black font-display text-content-primary tracking-tight">
+                    Tokens &amp; Credits
+                </h1>
+                <p className="text-sm text-content-secondary mt-1">
+                    See your balance breakdown, set your auto-run limit, and review usage history.
+                </p>
+            </header>
+
+            {/* Credit breakdown (the panel is self-labeling) */}
+            <CreditsBreakdownPanel data={breakdown} loading={breakdownLoading} />
+
+            {/* Auto-run limit */}
+            <section className="rounded-2xl border border-stroke-subtle bg-surface-elevated px-6">
+                <SettingCard
+                    title="Max Auto-Run Credits"
+                    description="Chat runs costing up to this many credits run automatically. Above it, a Run button appears."
+                    layout="inline"
+                >
+                    <NumberInput
+                        min={0}
+                        step={1}
+                        value={localMaxAutoRunCredits}
+                        onChange={(e) =>
+                            setLocalMaxAutoRunCredits(
+                                Math.max(0, Math.min(10000, Math.trunc(Number(e.target.value) || 0)))
+                            )
+                        }
+                        className="w-32"
+                    />
+                </SettingCard>
+            </section>
+
+            {/* Usage history */}
+            <TokenLedgerSection />
 
             {/* Save Changes Floating Action Bar */}
             {hasChanges && (
@@ -675,7 +746,6 @@ const comingSoonDescriptions: Record<string, { title: string; description: strin
     profile: { title: 'Public Profile', description: 'Manage your display name, avatar, and bio visible across the platform.' },
     security: { title: 'Security', description: 'Configure two-factor authentication, manage sessions, and update your password.' },
     notifications: { title: 'Notifications', description: 'Control how and when you receive workflow completion alerts and system updates.' },
-    usage: { title: 'Token / Credit Usage', description: 'Monitor your API token consumption, credit balance, and usage history.' },
     'api-keys': { title: 'API Keys', description: 'Generate and manage API keys for programmatic access to Prisfol.' },
     integrations: { title: 'Integrations', description: 'Connect third-party services like Slack, GitHub, and cloud storage providers.' },
 };
@@ -734,6 +804,10 @@ function SettingsContent() {
 
         if (activeTab === 'plan-billing') {
             return <PlanBillingView />;
+        }
+
+        if (activeTab === 'usage') {
+            return <TokensCreditsUsageView user={user} onProfileUpdated={fetchUser} />;
         }
 
         const info = comingSoonDescriptions[activeTab];
