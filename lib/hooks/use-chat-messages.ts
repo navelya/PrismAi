@@ -10,6 +10,24 @@ import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { expandSelectionForChat } from '@/lib/utils/selection-refs';
 
 
+async function persistRunProposal(messageId: string) {
+    try {
+        const msg = useAppStore.getState().chatMessages.find((m) => m.id === messageId);
+        if (!msg) return;
+        await fetch(`/api/messages/${messageId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                metadata: {
+                    run_proposal: msg.runProposal ?? null,
+                    inline_result_ids: msg.inlineResultIds ?? null,
+                },
+            }),
+        });
+    } catch (e) {
+        console.error('[chat-run] persistRunProposal failed', e);
+    }
+}
 
 export interface UseChatMessagesProps {
     sessionId?: string;
@@ -581,6 +599,57 @@ export function useChatMessages({
                 // Drain after each network chunk so nodes appear as they arrive
                 await drainQueue();
             }
+
+            // ── Chat-run decision (Approach A) ──────────────────────────────
+            // Bound to end-of-stream on the CLEAN path only. Never per-tool,
+            // never per-task, never in catch. This is what guarantees a
+            // multi-task plan runs ONCE, after all tasks finish.
+            try {
+                const store = useAppStore.getState();
+                const touched = store.aiTurn?.touchedNodeIds ?? [];
+                const workflow = store.currentWorkflow;
+                if (streamDone && touched.length > 0 && workflow) {
+                    const { buildRunPlan } = await import('@/lib/billing/run-plan');
+                    const { buildModelsMap } = await import('@/lib/billing/cost');
+                    const modelsById = buildModelsMap(store.models as any[]);
+                    const plan = buildRunPlan(workflow as any, touched, modelsById);
+
+                    if (plan.runTargetIds.length > 0) {
+                        // STAGE 1: auto-run only when free AND all models are known.
+                        // (STAGE 2 widens this to `plan.cost <= store.maxAutoRunCredits`.)
+                        // A missing model means the real cost is unknown — never auto-run it.
+                        const shouldAutoRun = plan.cost === 0 && plan.missingModels.length === 0;
+
+                        if (shouldAutoRun) {
+                            useAppStore.getState().updateMessage(assistantMsgId, {
+                                inlineResultIds: plan.terminalIds,
+                                runProposal: {
+                                    runTargetIds: plan.runTargetIds,
+                                    terminalIds: plan.terminalIds,
+                                    cost: plan.cost,
+                                    status: 'running',
+                                },
+                            });
+                            store.triggerRunSelection(plan.runTargetIds, { preconfirmed: true });
+                        } else {
+                            useAppStore.getState().updateMessage(assistantMsgId, {
+                                inlineResultIds: plan.terminalIds,
+                                runProposal: {
+                                    runTargetIds: plan.runTargetIds,
+                                    terminalIds: plan.terminalIds,
+                                    cost: plan.cost,
+                                    status: 'ready',
+                                },
+                            });
+                        }
+                        // Persist the proposal so it survives refresh as a manual card.
+                        void persistRunProposal(assistantMsgId);
+                    }
+                }
+            } catch (e) {
+                console.error('[chat-run] decision failed', e);
+            }
+            // ────────────────────────────────────────────────────────────────
 
             // Stream finished cleanly — let the AI-zoom tracker run the
             // definitive "settle" fit on the union of touched nodes.
