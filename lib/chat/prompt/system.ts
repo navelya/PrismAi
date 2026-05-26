@@ -1,4 +1,4 @@
-import { VOICE_RULES } from './voice';
+import { VOICE_RULES, THINKING_VOICE } from './voice';
 import { FEWSHOT_EXAMPLES } from './examples';
 import { formatRegistryContext, type RegistryContextInput } from './registry-context';
 import { formatWorkflowContext } from './workflow-context';
@@ -220,6 +220,7 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
   const stable = [
     IDENTITY,
     VOICE_RULES,
+    THINKING_VOICE,
     CAPABILITIES,
     CRITICAL_RULES,
     formatRegistryContext(input.registry),
