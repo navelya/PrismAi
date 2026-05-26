@@ -31,6 +31,55 @@ export async function convertImageToWebP(file: File, quality = 0.8): Promise<Blo
     });
 }
 
+/**
+ * Downscale an image File client-side and return it as base64 (data: prefix
+ * stripped), ready to embed in a JSON request body.
+ *
+ * The longest edge is capped at `maxEdge` (images already smaller are never
+ * upscaled) and the result is re-encoded as JPEG. This keeps the payload small
+ * and predictable regardless of the source file size — a 9 MB+ photo collapses
+ * to well under 1.5 MB of base64, comfortably under the API route body limit
+ * that would otherwise reject the request (and fail silently).
+ *
+ * @param file    The input image file.
+ * @param maxEdge Max length (px) of the longest edge (default 1536).
+ * @param quality JPEG quality from 0 to 1 (default 0.85).
+ */
+export async function downscaleImageToBase64(
+    file: File,
+    maxEdge = 1536,
+    quality = 0.85,
+): Promise<{ mimeType: string; data: string }> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            const longest = Math.max(img.width, img.height);
+            const scale = longest > maxEdge ? maxEdge / longest : 1;
+            const w = Math.max(1, Math.round(img.width * scale));
+            const h = Math.max(1, Math.round(img.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                reject(new Error('Canvas context not supported'));
+                return;
+            }
+            ctx.drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL('image/jpeg', quality);
+            const comma = dataUrl.indexOf(',');
+            resolve({ mimeType: 'image/jpeg', data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl });
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Could not read the image file'));
+        };
+        img.src = objectUrl;
+    });
+}
+
 // Counter for unique filenames within the same millisecond
 let fileCounter = 0;
 

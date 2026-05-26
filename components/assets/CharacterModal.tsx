@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Sparkles, Star, Loader2, Wand2, ScanFace } from 'lucide-react';
 import { uploadApi, charactersApi, generateCharacterStream, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
+import { downscaleImageToBase64 } from '@/lib/utils/image-processing';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 
 type GenSlot = CharacterRefImage | null | 'failed';
@@ -20,20 +21,6 @@ interface CharacterModalProps {
 }
 
 const MAX_IMAGES = 6;
-
-/** Read a File as base64 (strips the data: URL prefix). */
-function fileToBase64(file: File): Promise<{ mimeType: string; data: string }> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const res = String(reader.result);
-            const comma = res.indexOf(',');
-            resolve({ mimeType: file.type || 'image/png', data: comma >= 0 ? res.slice(comma + 1) : res });
-        };
-        reader.onerror = () => reject(new Error('Could not read the image file'));
-        reader.readAsDataURL(file);
-    });
-}
 
 export default function CharacterModal({ open, initial, onClose, onSave, onSaveDraft }: CharacterModalProps) {
     const [name, setName] = useState('');
@@ -190,7 +177,10 @@ export default function CharacterModal({ open, initial, onClose, onSave, onSaveD
         if (!file.type.startsWith('image/')) { setErrorMsg('Please choose an image file'); return; }
         setErrorMsg(null);
         try {
-            const baseImage = await fileToBase64(file);
+            // Downscale before base64-encoding: a full-res photo (9 MB+) would
+            // overflow the JSON body limit on /api/characters/generate and fail
+            // silently. Capping the long edge keeps the payload small for any input.
+            const baseImage = await downscaleImageToBase64(file);
             await runGeneration({ baseImage });
         } catch (err) {
             setErrorMsg(err instanceof Error ? err.message : 'Could not read the photo');

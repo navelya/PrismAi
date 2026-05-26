@@ -267,7 +267,12 @@ export interface GenerateCharacterHandlers {
 /** Shared NDJSON line-reader for character generation streams. */
 async function consumeCharacterStream(res: Response, handlers: GenerateCharacterHandlers): Promise<void> {
     if (!res.ok || !res.body) {
-        let message = `Generation failed (${res.status})`;
+        // 413 = request body rejected before reaching the handler (e.g. an
+        // oversized image). The body usually isn't JSON in that case, so give a
+        // clear message instead of a bare status code.
+        let message = res.status === 413
+            ? 'That image is too large. Please use a smaller photo.'
+            : `Generation failed (${res.status})`;
         try { const j = await res.json(); if (j?.error) message = j.error; } catch { /* not json */ }
         handlers.onError?.(message);
         return;
