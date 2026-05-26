@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
+import { getAuthenticatedUser, requireAdmin } from '@/lib/api/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +51,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
     if (typeof body?.thumbnailUrl === 'string') update.thumbnail_url = body.thumbnailUrl;
 
+    // Sharing is admin-only. Only run the admin check when the client is actually
+    // changing the share flag, so ordinary owner edits stay non-admin.
+    if (typeof body?.isShared === 'boolean') {
+        const adminAuth = await requireAdmin();
+        if (adminAuth.error) return adminAuth.error;
+        update.is_shared = body.isShared;
+    }
+
     if (Object.keys(update).length === 0) {
         return NextResponse.json({ error: 'No editable fields provided' }, { status: 400 });
     }
@@ -67,7 +75,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         .eq('id', id)
         .eq('user_id', user.id)
         .is('deleted_at', null)
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft')
+        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared')
         .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

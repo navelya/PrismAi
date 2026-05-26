@@ -28,14 +28,21 @@ export async function GET(request: NextRequest) {
     const { user, supabase } = auth;
 
     const includeDrafts = request.nextUrl.searchParams.get('includeDrafts') === 'true';
+    const scope = request.nextUrl.searchParams.get('scope') === 'shared' ? 'shared' : 'mine';
 
-    let query = supabase
-        .from('characters')
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft')
-        .eq('user_id', user.id)
-        .is('deleted_at', null);
+    const COLUMNS =
+        'id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared';
 
-    if (!includeDrafts) query = query.eq('is_draft', false);
+    let query = supabase.from('characters').select(COLUMNS).is('deleted_at', null);
+
+    if (scope === 'shared') {
+        // Shared pool: everyone's shared characters EXCEPT the caller's own
+        // (those already show under scope=mine), never drafts.
+        query = query.eq('is_shared', true).eq('is_draft', false).neq('user_id', user.id);
+    } else {
+        query = query.eq('user_id', user.id);
+        if (!includeDrafts) query = query.eq('is_draft', false);
+    }
 
     const { data, error } = await query
         .order('last_used_at', { ascending: false, nullsFirst: false })
@@ -82,7 +89,7 @@ export async function POST(request: NextRequest) {
             weight,
             is_draft: isDraft,
         })
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft')
+        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared')
         .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

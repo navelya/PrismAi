@@ -205,6 +205,7 @@ export interface Character {
     updated_at: string;
     last_used_at: string | null;
     is_draft: boolean;
+    is_shared: boolean;
 }
 
 export interface CharacterInput {
@@ -216,11 +217,16 @@ export interface CharacterInput {
 }
 
 export const charactersApi = {
-    list: (opts?: { includeDrafts?: boolean }) =>
-        apiFetch<{ characters: Character[] }>(
-            `/api/characters${opts?.includeDrafts ? '?includeDrafts=true' : ''}`,
+    list: (opts?: { includeDrafts?: boolean; scope?: 'mine' | 'shared' }) => {
+        const params = new URLSearchParams();
+        if (opts?.includeDrafts) params.set('includeDrafts', 'true');
+        if (opts?.scope) params.set('scope', opts.scope);
+        const qs = params.toString();
+        return apiFetch<{ characters: Character[] }>(
+            `/api/characters${qs ? `?${qs}` : ''}`,
             { cache: 'no-store' },
-        ),
+        );
+    },
 
     create: (input: CharacterInput, opts?: { draft?: boolean }) =>
         apiFetch<{ character: Character }>('/api/characters', {
@@ -236,6 +242,12 @@ export const charactersApi = {
 
     delete: (id: string) =>
         apiFetch<{ success: boolean }>(`/api/characters/${id}`, { method: 'DELETE' }),
+
+    setShared: (id: string, shared: boolean) =>
+        apiFetch<{ character: Character }>(`/api/characters/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ isShared: shared }),
+        }),
 
     autoDescribe: (imageUrl: string) =>
         apiFetch<{ description: string }>('/api/characters/auto-describe', {
