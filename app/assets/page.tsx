@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Plus } from 'lucide-react';
 import { useCharacters } from '@/lib/hooks/use-characters';
-import type { Character, CharacterInput } from '@/lib/api/client';
+import { userApi, type Character, type CharacterInput } from '@/lib/api/client';
 import CharacterGrid from '@/components/assets/CharacterGrid';
 import CharacterModal from '@/components/assets/CharacterModal';
 import CharacterVariantModal from '@/components/assets/CharacterVariantModal';
@@ -18,13 +18,27 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 export default function AssetsPage() {
-    const { characters, loading, createCharacter, createDraft, updateCharacter, deleteCharacter } = useCharacters({ includeDrafts: true });
+    const { characters, loading, createCharacter, createDraft, updateCharacter, deleteCharacter, setShared } = useCharacters({ includeDrafts: true });
     const [activeTab, setActiveTab] = useState<TabId>('assets');
     const [search, setSearch] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<Character | null>(null);
     const [pendingDelete, setPendingDelete] = useState<Character | null>(null);
     const [variantSource, setVariantSource] = useState<Character | null>(null);
+
+    const [isAdmin, setIsAdmin] = useState(false);
+
+    useEffect(() => {
+        let active = true;
+        userApi.me()
+            .then(({ user }) => { if (active) setIsAdmin(user?.is_admin === true); })
+            .catch(() => { /* not admin / not signed in */ });
+        return () => { active = false; };
+    }, []);
+
+    const handleToggleShare = async (c: Character) => {
+        await setShared(c.id, !c.is_shared);
+    };
 
     const filtered = characters.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -87,10 +101,12 @@ export default function AssetsPage() {
                         <CharacterGrid
                             characters={filtered}
                             loading={loading}
+                            isAdmin={isAdmin}
                             onCreate={openCreate}
                             onEdit={openEdit}
                             onDelete={(id) => setPendingDelete(characters.find((c) => c.id === id) ?? null)}
                             onVariant={(c) => setVariantSource(c)}
+                            onToggleShare={handleToggleShare}
                         />
                     </>
                 )}

@@ -8,13 +8,15 @@ import type { Character } from '@/lib/api/client';
 interface CharacterGridProps {
     characters: Character[];
     loading: boolean;
+    isAdmin?: boolean;
     onCreate: () => void;
     onEdit: (c: Character) => void;
     onDelete: (id: string) => void;
     onVariant: (c: Character) => void;
+    onToggleShare?: (c: Character) => void;
 }
 
-export default function CharacterGrid({ characters, loading, onCreate, onEdit, onDelete, onVariant }: CharacterGridProps) {
+export default function CharacterGrid({ characters, loading, isAdmin, onCreate, onEdit, onDelete, onVariant, onToggleShare }: CharacterGridProps) {
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -45,7 +47,7 @@ export default function CharacterGrid({ characters, loading, onCreate, onEdit, o
     return (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
             {characters.map((c) => (
-                <CharacterCard key={c.id} character={c} onEdit={onEdit} onDelete={onDelete} onVariant={onVariant} />
+                <CharacterCard key={c.id} character={c} isAdmin={isAdmin} onEdit={onEdit} onDelete={onDelete} onVariant={onVariant} onToggleShare={onToggleShare} />
             ))}
         </div>
     );
