@@ -142,6 +142,7 @@ export const useAppStore = create<RootState>()(
                     'runFromNodeId',
                     'runMode',
                     'runSelectionIds',
+                    'runPreconfirmed',
                     // One-shot pan/select trigger from the Run-error popover. If it
                     // survives rehydration, the canvas would re-center on that node
                     // on every page load.
@@ -188,6 +189,7 @@ export const useAppStore = create<RootState>()(
                     state.runFromNodeId = null;
                     state.runMode = null;
                     state.runSelectionIds = null;
+                    state.runPreconfirmed = false;
                     state.currentSelectedNodeIds = [];
                     state.selectionClearToken = 0;
                 }

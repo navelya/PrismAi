@@ -27,6 +27,8 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     runFromNodeId: null,
     runMode: null,
     runSelectionIds: null,
+    runPreconfirmed: false,
+    maxAutoRunCredits: 10,
     menuTree: [],
     menuFlat: [],
     isMenuLoading: false,
@@ -157,16 +159,18 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         }
     },
 
-    triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode, runSelectionIds: null }),
-    triggerRunSelection: (nodeIds) => set({
+    triggerRunFromNode: (nodeId, mode = 'chain') => set({ runFromNodeId: nodeId, runMode: mode, runSelectionIds: null, runPreconfirmed: false }),
+    triggerRunSelection: (nodeIds, opts) => set({
         // runFromNodeId stays non-null so the existing SharedWorkflowEditor effect
         // (which gates on `if (!runFromNodeId || !runMode) return`) still fires.
         // The first id is a stable sentinel; the actual targets live in runSelectionIds.
         runFromNodeId: nodeIds[0] ?? null,
         runMode: 'selection',
         runSelectionIds: nodeIds,
+        runPreconfirmed: opts?.preconfirmed ?? false,
     }),
-    clearRunFromNode: () => set({ runFromNodeId: null, runMode: null, runSelectionIds: null }),
+    clearRunFromNode: () => set({ runFromNodeId: null, runMode: null, runSelectionIds: null, runPreconfirmed: false }),
+    setMaxAutoRunCredits: (n) => set({ maxAutoRunCredits: Number.isFinite(n) && n >= 0 ? n : 0 }),
 
     setDragHoverGroupId: (id) => {
         // Drag handlers call this on every frame; skip the store write (and
