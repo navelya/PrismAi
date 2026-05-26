@@ -545,6 +545,7 @@ export default function SharedWorkflowEditor({
     const runFromNodeId = useAppStore((state) => state.runFromNodeId);
     const runMode = useAppStore((state) => state.runMode);
     const runSelectionIds = useAppStore((state) => state.runSelectionIds);
+    const runPreconfirmed = useAppStore((state) => state.runPreconfirmed);
 
     // Reverse an optimistic charge when its run settles. Mirrors the orchestrator's
     // whole-execution rule (orchestrator.ts:286): once none of the run's nodes are
@@ -577,6 +578,7 @@ export default function SharedWorkflowEditor({
         const mode = runMode;
         // Snapshot before clearing the store — clearRunFromNode wipes runSelectionIds too.
         const selectionIds = runSelectionIds ? [...runSelectionIds] : undefined;
+        const preconfirmed = runPreconfirmed;
 
         clearRunFromNode();
 
@@ -587,12 +589,13 @@ export default function SharedWorkflowEditor({
 
             const { cost, count } = calculateExecutionCost(null, 'selection', present);
 
-            if (cost > 0) {
+            if (cost > 0 && !preconfirmed) {
                 setPendingExecutionTarget({ id: null, mode: 'selection', selectionIds: present });
                 setPendingCost(cost);
                 setPendingNodeCount(count);
                 setShowCreditModal(true);
             } else {
+                // preconfirmed: the chat Run card already showed & confirmed the cost.
                 commitExecution(null, 'selection', present);
             }
             return;
@@ -612,7 +615,7 @@ export default function SharedWorkflowEditor({
         } else {
             commitExecution(targetId, mode);
         }
-    }, [runFromNodeId, runMode, runSelectionIds, nodes, calculateExecutionCost]);
+    }, [runFromNodeId, runMode, runSelectionIds, runPreconfirmed, nodes, calculateExecutionCost]);
 
     const confirmCreditRun = () => {
         if (pendingExecutionTarget) {
