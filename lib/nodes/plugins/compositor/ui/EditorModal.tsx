@@ -525,12 +525,28 @@ export default function CompositorEditorModal({
     // Group-drag bookkeeping: positions of every selected Konva node captured
     // at drag START (before any movement), so siblings can be shifted by the
     // dragged node's delta during the gesture and committed together on end.
-    const groupDragRef = useRef<{ start: Map<string, { x: number; y: number }> } | null>(null);
+    const groupDragRef = useRef<{ start: Map<string, { x: number; y: number }>; nodes: Map<string, any> } | null>(null);
 
     const [stageZoom, setStageZoom] = useState(1);
     const [stagePan, setStagePan] = useState({ x: VIEWPORT_PADDING, y: VIEWPORT_PADDING });
     const [isPanning, setIsPanning] = useState(false);
     const [spaceHeld, setSpaceHeld] = useState(false);
+
+    // Stage pixel size, measured via ResizeObserver and held in state. Reading
+    // `stageContainerRef.current.clientWidth` inline in the Stage props forced a
+    // synchronous layout reflow on EVERY render — once per marquee mousemove,
+    // which is a real per-frame cost. Measuring once and storing keeps render
+    // pure (no layout thrash).
+    const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+    useEffect(() => {
+        const el = stageContainerRef.current;
+        if (!el) return;
+        const update = () => setStageSize({ width: el.clientWidth, height: el.clientHeight });
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
 
     // Marquee selection rectangle in CANVAS coords (null when not dragging).
     const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
@@ -795,13 +811,17 @@ export default function CompositorEditorModal({
         if (!stage) { groupDragRef.current = null; return; }
         const cfg = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId)?.data?.config as CompositorConfig | undefined;
         const lockedIds = new Set((cfg?.layers || []).filter((l) => l.locked).map((l) => l.id));
+        // Cache both start positions AND the live Konva node references up
+        // front, so the per-frame drag handler never has to `findOne` (a tree
+        // search) for each sibling on every mousemove.
         const start = new Map<string, { x: number; y: number }>();
+        const nodes = new Map<string, any>();
         for (const lid of sel) {
             if (lockedIds.has(lid)) continue;
             const node = stage.findOne(`.img-${lid}`);
-            if (node) start.set(lid, { x: node.x(), y: node.y() });
+            if (node) { start.set(lid, { x: node.x(), y: node.y() }); nodes.set(lid, node); }
         }
-        groupDragRef.current = { start };
+        groupDragRef.current = { start, nodes };
     }, [pushSnapshot, setIsDragging]);
 
     const handleLayerDragMove = useCallback((layerId: string, pos: { x: number; y: number }) => {
@@ -815,7 +835,7 @@ export default function CompositorEditorModal({
         const dy = pos.y - anchorStart.y;
         for (const [lid, s] of gd.start) {
             if (lid === layerId) continue;
-            const node = stage.findOne(`.img-${lid}`);
+            const node = gd.nodes.get(lid);
             if (node) { node.x(s.x + dx); node.y(s.y + dy); }
         }
         stage.batchDraw();
@@ -834,8 +854,7 @@ export default function CompositorEditorModal({
         // Iterate gd.start (the captured group) — not the live selection, which
         // may have collapsed to just the anchor if the drag triggered onSelect.
         const updates = new Map<string, { x: number; y: number }>();
-        for (const lid of gd.start.keys()) {
-            const node = stage.findOne(`.img-${lid}`);
+        for (const [lid, node] of gd.nodes) {
             if (node) updates.set(lid, { x: node.x(), y: node.y() });
         }
         if (updates.size === 0) return;
@@ -921,8 +940,8 @@ export default function CompositorEditorModal({
                     <div ref={stageContainerRef} className="flex-1 relative bg-[#080808] overflow-hidden" style={{ cursor: (spaceHeld || tool === 'pan') ? (isPanning ? 'grabbing' : 'grab') : 'default' }}>
                         <Stage
                             ref={stageRef}
-                            width={stageContainerRef.current?.clientWidth || window.innerWidth}
-                            height={stageContainerRef.current?.clientHeight || window.innerHeight}
+                            width={stageSize.width || window.innerWidth}
+                            height={stageSize.height || window.innerHeight}
                             onWheel={(e) => {
                                 e.evt.preventDefault();
                                 const stage = e.target.getStage();
@@ -967,8 +986,19 @@ export default function CompositorEditorModal({
                                 setSelectedLayerIds((prev) => additive ? Array.from(new Set([...prev, ...hitIds])) : hitIds);
                             }}
                         >
+                            {/* Static chrome layer: the canvas drop-shadow. A 100px
+                                shadow blur over a canvas-sized rect is the single most
+                                expensive paint here. On its OWN layer it is painted only
+                                when the canvas size/fill or stage transform changes — NOT
+                                on every drag/transform/marquee frame (those redraw only the
+                                interactive layer below), which was the dominant editor lag. */}
+                            <Layer listening={false}>
+                                <Rect x={0} y={0} width={canvasWidth} height={canvasHeight} fill={compositeBaseFill ?? '#121212'} stroke="rgba(255,255,255,0.05)" strokeWidth={1} shadowColor="black" shadowBlur={100} shadowOpacity={0.5} />
+                            </Layer>
                             <Layer>
-                                <Rect name="background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill={compositeBaseFill ?? '#121212'} stroke="rgba(255,255,255,0.05)" strokeWidth={1} shadowColor="black" shadowBlur={100} shadowOpacity={0.5} />
+                                {/* Flat blend base (NO shadow) — must live on the SAME layer
+                                    as the layer nodes so blend modes composite against it. */}
+                                <Rect name="background" x={0} y={0} width={canvasWidth} height={canvasHeight} fill={compositeBaseFill ?? '#121212'} />
                                 <CompositorLayerNodes
                                     layers={renderable}
                                     interactive
