@@ -256,3 +256,42 @@ export function formatTimecode(seconds: number, fps: number): string {
 function pad2(n: number): string {
     return n < 10 ? `0${n}` : String(n);
 }
+
+/** Axis-aligned bounding box in canvas coordinates. */
+export interface AABB { minX: number; minY: number; maxX: number; maxY: number; }
+
+/**
+ * Rotated-rectangle axis-aligned bounding box for a layer, in canvas
+ * coordinates. Mirrors the corner math previously inlined in the editor's
+ * fit-canvas-to-content routine so the marquee hit-test and the fit logic
+ * share one implementation.
+ */
+export function layerAABB(layer: CompositorLayer): AABB {
+    const t = layer.transform;
+    const cx = t.x + t.width / 2;
+    const cy = t.y + t.height / 2;
+    const rad = ((t.rotation || 0) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const hw = t.width / 2;
+    const hh = t.height / 2;
+    const corners = [
+        { x: -hw, y: -hh }, { x: hw, y: -hh },
+        { x: hw, y: hh }, { x: -hw, y: hh },
+    ];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const c of corners) {
+        const rx = c.x * cos - c.y * sin + cx;
+        const ry = c.x * sin + c.y * cos + cy;
+        if (rx < minX) minX = rx;
+        if (ry < minY) minY = ry;
+        if (rx > maxX) maxX = rx;
+        if (ry > maxY) maxY = ry;
+    }
+    return { minX, minY, maxX, maxY };
+}
+
+/** Do two AABBs overlap (touching edges count as overlap)? */
+export function rectsIntersect(a: AABB, b: AABB): boolean {
+    return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
+}
