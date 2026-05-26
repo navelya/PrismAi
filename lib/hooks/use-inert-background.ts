@@ -15,7 +15,9 @@ import { useEffect } from 'react';
  */
 export function useInertBackground(active: boolean, exceptEl: HTMLElement | null): void {
     useEffect(() => {
-        if (!active || typeof document === 'undefined') return;
+        // No-op until the modal's own element is known, so we never mark the
+        // modal itself inert (exceptEl is null for one render on first open).
+        if (!active || !exceptEl || typeof document === 'undefined') return;
 
         const body = document.body;
         const keep = exceptEl

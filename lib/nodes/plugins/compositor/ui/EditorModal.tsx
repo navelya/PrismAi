@@ -359,28 +359,11 @@ export default function CompositorEditorModal({
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const l of layers) {
-            const t = l.transform;
-            const cx = t.x + t.width / 2;
-            const cy = t.y + t.height / 2;
-            const rad = ((t.rotation || 0) * Math.PI) / 180;
-            const cos = Math.cos(rad);
-            const sin = Math.sin(rad);
-            const hw = t.width / 2;
-            const hh = t.height / 2;
-            const corners = [
-                { x: -hw, y: -hh },
-                { x:  hw, y: -hh },
-                { x:  hw, y:  hh },
-                { x: -hw, y:  hh },
-            ];
-            for (const c of corners) {
-                const rx = c.x * cos - c.y * sin + cx;
-                const ry = c.x * sin + c.y * cos + cy;
-                if (rx < minX) minX = rx;
-                if (ry < minY) minY = ry;
-                if (rx > maxX) maxX = rx;
-                if (ry > maxY) maxY = ry;
-            }
+            const b = layerAABB(l);
+            if (b.minX < minX) minX = b.minX;
+            if (b.minY < minY) minY = b.minY;
+            if (b.maxX > maxX) maxX = b.maxX;
+            if (b.maxY > maxY) maxY = b.maxY;
         }
 
         if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return;
@@ -434,14 +417,14 @@ export default function CompositorEditorModal({
     const updateAllSelectedTransform = useCallback((patch: Partial<LayerTransform>) => {
         pushSnapshot();
         const ids = new Set(selectedLayerIdsRef.current);
-        updateLayers((prev) => prev.map((l) => ids.has(l.id) ? { ...l, transform: { ...l.transform, ...patch } } : l));
+        updateLayers((prev) => prev.map((l) => ids.has(l.id) && !l.locked ? { ...l, transform: { ...l.transform, ...patch } } : l));
     }, [updateLayers, pushSnapshot]);
 
     const alignAllSelected = useCallback((type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
         pushSnapshot();
         const ids = new Set(selectedLayerIdsRef.current);
         updateLayers((prev) => prev.map((l) => {
-            if (!ids.has(l.id)) return l;
+            if (!ids.has(l.id) || l.locked) return l;
             const { width, height } = l.transform;
             let x = l.transform.x, y = l.transform.y;
             if (type === 'left') x = 0;
@@ -553,6 +536,15 @@ export default function CompositorEditorModal({
     const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const marqueeRef = useRef<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     marqueeRef.current = marquee;
+
+    // Safety net: if the pointer is released outside the Konva stage, the
+    // Stage's onMouseUp never fires — clear the rubber-band so it can't stick.
+    useEffect(() => {
+        if (!marquee) return;
+        const onUp = () => setMarquee(null);
+        window.addEventListener('mouseup', onUp);
+        return () => window.removeEventListener('mouseup', onUp);
+    }, [marquee]);
 
     // Convert the stage pointer position into canvas coordinates (undo the
     // stage pan/zoom) so marquee math is in the same space as layer transforms.
@@ -799,8 +791,11 @@ export default function CompositorEditorModal({
         if (sel.length < 2) { groupDragRef.current = null; return; }
         const stage = stageRef.current;
         if (!stage) { groupDragRef.current = null; return; }
+        const cfg = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId)?.data?.config as CompositorConfig | undefined;
+        const lockedIds = new Set((cfg?.layers || []).filter((l) => l.locked).map((l) => l.id));
         const start = new Map<string, { x: number; y: number }>();
         for (const lid of sel) {
+            if (lockedIds.has(lid)) continue;
             const node = stage.findOne(`.img-${lid}`);
             if (node) start.set(lid, { x: node.x(), y: node.y() });
         }
@@ -834,8 +829,10 @@ export default function CompositorEditorModal({
         // Read final positions of every selected node and commit in one write.
         // (The anchor's own onDragEnd also committed its x/y; this is the
         // authoritative batch that includes the siblings too.)
+        // Iterate gd.start (the captured group) — not the live selection, which
+        // may have collapsed to just the anchor if the drag triggered onSelect.
         const updates = new Map<string, { x: number; y: number }>();
-        for (const lid of selectedLayerIdsRef.current) {
+        for (const lid of gd.start.keys()) {
             const node = stage.findOne(`.img-${lid}`);
             if (node) updates.set(lid, { x: node.x(), y: node.y() });
         }
@@ -964,7 +961,7 @@ export default function CompositorEditorModal({
                                 // Treat a click-sized box as a plain click (selection already cleared on mousedown).
                                 if (Math.abs(m.x2 - m.x1) < 3 && Math.abs(m.y2 - m.y1) < 3) return;
                                 const additive = e.evt.ctrlKey || e.evt.metaKey;
-                                const hitIds = layers.filter((l) => l.visible && rectsIntersect(layerAABB(l), box)).map((l) => l.id);
+                                const hitIds = layers.filter((l) => l.visible && !l.locked && rectsIntersect(layerAABB(l), box)).map((l) => l.id);
                                 setSelectedLayerIds((prev) => additive ? Array.from(new Set([...prev, ...hitIds])) : hitIds);
                             }}
                         >

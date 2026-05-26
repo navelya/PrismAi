@@ -40,7 +40,6 @@ export interface RenderableLayer {
 interface CompositorLayerNodesProps {
     layers: RenderableLayer[];
     interactive?: boolean;
-    selectedLayerId?: string | null;
     onSelectLayer?: (layerId: string, additive: boolean) => void;
     onTransformLayer?: (layerId: string, updates: Partial<LayerTransform>) => void;
     /** Live position during a drag (canvas coords), used to drive group drag. */
@@ -111,6 +110,7 @@ const LayerImage = memo(function LayerImage({
     layer,
     imageUrl,
     interactive,
+    isSelected,
     onSelect,
     onTransform,
     onLoad,
@@ -121,6 +121,7 @@ const LayerImage = memo(function LayerImage({
     layer: CompositorLayer;
     imageUrl: string;
     interactive: boolean;
+    isSelected?: boolean;
     onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onLoad?: (img: HTMLImageElement) => void;
@@ -171,7 +172,7 @@ const LayerImage = memo(function LayerImage({
             onClick={onSelect}
             onTap={onSelect}
             onDragStart={() => {
-                onSelect?.();
+                if (!isSelected) onSelect?.();
                 onInteractStart?.();
             }}
             onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
@@ -218,6 +219,7 @@ const LayerVideo = memo(function LayerVideo({
     layer,
     videoUrl,
     interactive,
+    isSelected,
     onSelect,
     onTransform,
     onLoad,
@@ -233,6 +235,7 @@ const LayerVideo = memo(function LayerVideo({
     layer: CompositorLayer;
     videoUrl: string;
     interactive: boolean;
+    isSelected?: boolean;
     onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onLoad?: (meta: { duration: number; width: number; height: number }) => void;
@@ -369,7 +372,7 @@ const LayerVideo = memo(function LayerVideo({
             onClick={onSelect}
             onTap={onSelect}
             onDragStart={() => {
-                onSelect?.();
+                if (!isSelected) onSelect?.();
                 onInteractStart?.();
             }}
             onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
@@ -423,6 +426,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
     isPlaying,
     poolKey,
     interactive,
+    isSelected,
     onSelect,
     onTransform,
     onLoad,
@@ -438,6 +442,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
     isPlaying: boolean;
     poolKey: string;
     interactive: boolean;
+    isSelected?: boolean;
     onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onLoad?: (meta: { duration: number; width: number; height: number }) => void;
@@ -581,7 +586,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
             onClick={onSelect}
             onTap={onSelect}
             onDragStart={() => {
-                onSelect?.();
+                if (!isSelected) onSelect?.();
                 onInteractStart?.();
             }}
             onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
@@ -617,6 +622,7 @@ const LayerText = memo(function LayerText({
     layer,
     text,
     interactive,
+    isSelected,
     onSelect,
     onTransform,
     onInteractStart,
@@ -626,6 +632,7 @@ const LayerText = memo(function LayerText({
     layer: CompositorLayer;
     text: string;
     interactive: boolean;
+    isSelected?: boolean;
     onSelect?: (e?: any) => void;
     onTransform?: (updates: Partial<LayerTransform>) => void;
     onInteractStart?: () => void;
@@ -671,7 +678,7 @@ const LayerText = memo(function LayerText({
             onClick={onSelect}
             onTap={onSelect}
             onDragStart={() => {
-                onSelect?.();
+                if (!isSelected) onSelect?.();
                 onInteractStart?.();
             }}
             onDragMove={(e) => onDragMove?.(e.target.x(), e.target.y())}
@@ -779,6 +786,7 @@ export const CompositorAnimator = memo(function CompositorAnimator({
 export const CompositorLayerNodes = memo(function CompositorLayerNodes({
     layers,
     interactive = false,
+    selectedLayerIds,
     onSelectLayer,
     onTransformLayer,
     onLayerDragMove,
@@ -877,6 +885,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             isPlaying={isPlaying}
                             poolKey={poolKey || '_global_'}
                             interactive={interactive}
+                            isSelected={!!selectedLayerIds?.includes(layer.id)}
                             onSelect={interactive && onSelectLayer
                                 ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
                                 : undefined}
@@ -916,6 +925,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             videoUrl={url}
                             interactive={interactive}
+                            isSelected={!!selectedLayerIds?.includes(layer.id)}
                             onSelect={interactive && onSelectLayer
                                 ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
                                 : undefined}
@@ -954,6 +964,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             imageUrl={url}
                             interactive={interactive}
+                            isSelected={!!selectedLayerIds?.includes(layer.id)}
                             onSelect={interactive && onSelectLayer
                                 ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
                                 : undefined}
@@ -985,6 +996,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             text={asText}
                             interactive={interactive}
+                            isSelected={!!selectedLayerIds?.includes(layer.id)}
                             onSelect={interactive && onSelectLayer
                                 ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
                                 : undefined}
