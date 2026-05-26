@@ -1133,6 +1133,14 @@ git commit -m "feat(chat-run): settings control for max auto-run credits"
 
 ---
 
+## Known follow-ups (deferred, non-blocking)
+
+Surfaced by the final holistic review on 2026-05-26. None block Stage 1/2; tracked here for a later pass.
+
+1. **Deleted in-flight terminal node can strand a "running" card.** The freeze watcher in [lib/hooks/use-chat-messages.ts](../../../lib/hooks/use-chat-messages.ts) skips ids whose `nodeStatuses` value is `undefined`. If a terminal node is deleted *while its chat-run is in flight*, its status entry is removed → the watcher skips forever → the card stays "Running…". Fix idea: intersect the watched ids with nodes currently present in `currentWorkflow`, and treat "all terminals missing" as settled (fail). Low likelihood (requires deleting an in-flight terminal).
+2. **Freeze watcher has no per-execution scoping across concurrent running proposals.** It iterates all messages with `status==='running'` against the single global `nodeStatuses`. Safe under the current one-run-per-stream / sequential-user-runs assumption; worth a comment, or execution-id scoping if concurrent chat runs ever become possible.
+3. **Minor polish:** `RunProposalCard` running button could add `disabled:cursor-not-allowed`; settings number input could add `aria-label` + `max={10000}`; `RunPlan.generativeCount` is currently unused. All cosmetic.
+
 ## Self-Review
 
 **1. Spec coverage**
