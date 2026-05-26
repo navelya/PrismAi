@@ -480,13 +480,17 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
     // Initialize local state from DB preferences, falling back to current active state
     const [localTheme, setLocalTheme] = useState(user?.profile?.preferences?.theme || activeTheme);
     const [localEngine, setLocalEngine] = useState(user?.profile?.preferences?.layoutEngine || 'elk');
+    const [localMaxAutoRunCredits, setLocalMaxAutoRunCredits] = useState<number>(
+        (user?.profile?.preferences as any)?.maxAutoRunCredits ?? 10
+    );
 
     const [saving, setSaving] = useState(false);
 
     // Determine baseline to check for unsaved changes
     const baselineTheme = user?.profile?.preferences?.theme || activeTheme;
     const baselineEngine = user?.profile?.preferences?.layoutEngine || 'elk';
-    const hasChanges = localTheme !== baselineTheme || localEngine !== baselineEngine;
+    const baselineMaxAutoRunCredits: number = (user?.profile?.preferences as any)?.maxAutoRunCredits ?? 10;
+    const hasChanges = localTheme !== baselineTheme || localEngine !== baselineEngine || localMaxAutoRunCredits !== baselineMaxAutoRunCredits;
 
 
 
@@ -508,7 +512,8 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
             const newPrefs = {
                 ...(user?.profile?.preferences || {}),
                 theme: localTheme,
-                layoutEngine: localEngine
+                layoutEngine: localEngine,
+                maxAutoRunCredits: localMaxAutoRunCredits,
             };
 
             const { error } = await supabase.from('profiles').upsert({
@@ -523,6 +528,7 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
             // setActiveTheme(localTheme);
             // setLayoutEngine(localEngine);
             setActiveTheme(localTheme);
+            useAppStore.getState().setMaxAutoRunCredits(localMaxAutoRunCredits);
 
             // Fetch fresh profile state to container
             onProfileUpdated();
@@ -610,6 +616,33 @@ function EditorAppearanceView({ user, onProfileUpdated }: { user: any, onProfile
                         <div className="w-11 h-6 bg-surface-tertiary rounded-full relative">
                             <div className="w-5 h-5 bg-content-tertiary rounded-full absolute left-0.5 top-0.5"></div>
                         </div>
+                    </SettingCard>
+                </div>
+            </div>
+
+            {/* Workflow Section */}
+            <div>
+                <h2 className="text-xs font-semibold text-content-tertiary tracking-wider mb-6">
+                    WORKFLOW
+                </h2>
+                <div className="flex flex-col">
+                    <SettingCard
+                        title="Max Auto-Run Credits"
+                        description="Chat runs costing up to this many credits run automatically. Above it, a Run button appears."
+                        layout="inline"
+                    >
+                        <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={localMaxAutoRunCredits}
+                            onChange={(e) =>
+                                setLocalMaxAutoRunCredits(
+                                    Math.max(0, Math.min(10000, Math.trunc(Number(e.target.value) || 0)))
+                                )
+                            }
+                            className="w-28 px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-content-primary text-sm text-right focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all"
+                        />
                     </SettingCard>
                 </div>
             </div>
