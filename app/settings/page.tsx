@@ -691,8 +691,8 @@ function TokensCreditsUsageView({ user, onProfileUpdated }: { user: any, onProfi
                 </p>
             </header>
 
-            {/* Credit breakdown (the panel is self-labeling) */}
-            <CreditsBreakdownPanel data={breakdown} loading={breakdownLoading} />
+            {/* Credit breakdown */}
+            <CreditsBreakdownPanel data={breakdown} loading={breakdownLoading} variant="panel" />
 
             {/* Auto-run limit */}
             <section className="rounded-2xl border border-stroke-subtle bg-surface-elevated px-6">
