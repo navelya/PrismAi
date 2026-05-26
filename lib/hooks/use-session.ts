@@ -190,6 +190,7 @@ export function useSession() {
                             terminalIds: string[];
                             cost: number;
                             status: 'ready' | 'running' | 'done' | 'failed' | 'superseded';
+                            error?: string;
                         } | null;
                         inline_result_ids?: string[] | null;
                     };
@@ -237,6 +238,7 @@ export function useSession() {
                             terminalIds: Array.isArray(rp.terminalIds) ? rp.terminalIds : [],
                             cost: typeof rp.cost === 'number' ? rp.cost : 0,
                             status,
+                            error: typeof rp.error === 'string' ? rp.error : undefined,
                         };
                     }
                     if (msg.role === 'assistant' && Array.isArray(metadata.inline_result_ids)) {

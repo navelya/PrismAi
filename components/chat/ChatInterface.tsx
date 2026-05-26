@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { X, ImagePlus, Pen } from 'lucide-react';
 import { MessageList } from './MessageList';
 import { AutoRunIntroModal } from './AutoRunIntroModal';
+import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 import ChatInput from './ChatInput';
 import { ChatEmptyState } from './ChatEmptyState';
 import { WorkflowEmptyState, ChatSkeletons } from './ChatHelpers';
@@ -143,7 +144,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             store.updateMessage(messageId, { runProposal: { ...rp, status: 'superseded' } });
             return;
         }
-        store.updateMessage(messageId, { runProposal: { ...rp, status: 'running' } });
+        // Pre-flight validation (same gate commitExecution uses). If the run
+        // would silently abort, surface why instead of getting stuck on 'running'.
+        const runErr = firstChatRunError(wf, present, store.models as any[]);
+        if (runErr) {
+            store.updateMessage(messageId, { runProposal: { ...rp, status: 'ready', error: runErr } });
+            return;
+        }
+        store.updateMessage(messageId, { runProposal: { ...rp, status: 'running', error: undefined } });
         store.triggerRunSelection(present, { preconfirmed: true });
     };
 

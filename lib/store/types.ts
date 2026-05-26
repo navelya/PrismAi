@@ -85,6 +85,8 @@ export interface Message {
         terminalIds: string[];
         cost: number;
         status: RunProposalStatus;
+        /** When set, why the run can't dispatch (validation message). Shown on the card. */
+        error?: string;
     };
     // Terminal node ids whose outputs render inline under this message while a
     // chat-triggered run is in flight. Frozen into `result` on completion.

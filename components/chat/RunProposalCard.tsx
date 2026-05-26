@@ -7,9 +7,11 @@ interface RunProposalCardProps {
     cost: number;
     status: RunProposalStatus;
     onRun: () => void;
+    /** Why the run can't dispatch yet (validation). Shown in the ready state. */
+    error?: string;
 }
 
-export function RunProposalCard({ cost, status, onRun }: RunProposalCardProps) {
+export function RunProposalCard({ cost, status, onRun, error }: RunProposalCardProps) {
     if (status === 'superseded') {
         return (
             <div className="mt-2 rounded-lg border border-stroke-subtle/60 bg-surface-secondary/20 px-3 py-2 text-xs text-content-tertiary">
@@ -43,18 +45,25 @@ export function RunProposalCard({ cost, status, onRun }: RunProposalCardProps) {
 
     const running = status === 'running';
     return (
-        <div className="mt-2 flex items-center justify-between rounded-lg border border-stroke-subtle/70 bg-surface-secondary/30 px-3 py-2">
-            <span className="text-xs text-content-secondary">
-                {running ? 'Running…' : 'Ready to run'}
-            </span>
-            <button
-                type="button"
-                disabled={running}
-                onClick={onRun}
-                className="rounded-md bg-accent-primary px-3 py-1 text-xs font-medium text-white hover:bg-accent-primary/90 disabled:opacity-60 transition-colors cursor-pointer"
-            >
-                {running ? 'Running…' : `Run · ${formatCredits(cost)} credits`}
-            </button>
+        <div className="mt-2 rounded-lg border border-stroke-subtle/70 bg-surface-secondary/30 px-3 py-2">
+            <div className="flex items-center justify-between">
+                <span className="text-xs text-content-secondary">
+                    {running ? 'Running…' : 'Ready to run'}
+                </span>
+                <button
+                    type="button"
+                    disabled={running}
+                    onClick={onRun}
+                    className="rounded-md bg-accent-primary px-3 py-1 text-xs font-medium text-white hover:bg-accent-primary/90 disabled:opacity-60 transition-colors cursor-pointer"
+                >
+                    {running ? 'Running…' : `Run · ${formatCredits(cost)} credits`}
+                </button>
+            </div>
+            {!running && error && (
+                <p className="mt-1.5 text-[11px] text-amber-400 leading-snug">
+                    {error}
+                </p>
+            )}
         </div>
     );
 }

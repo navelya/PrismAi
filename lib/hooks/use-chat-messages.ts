@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { expandSelectionForChat } from '@/lib/utils/selection-refs';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
+import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 
 
 async function persistRunProposal(messageId: string) {
@@ -707,7 +708,15 @@ export function useChatMessages({
                             // unknown — never auto-run it.
                             const shouldAutoRun = plan.cost <= store.maxAutoRunCredits && plan.missingModels.length === 0;
 
-                            if (shouldAutoRun) {
+                            // Pre-flight validation: if commitExecution would abort
+                            // (e.g. a node's mandatory input isn't wired yet), don't
+                            // mark 'running' — that left the card stuck on "Running…"
+                            // with nothing happening. Show the reason instead.
+                            const runErr = shouldAutoRun
+                                ? firstChatRunError(workflow as any, plan.runTargetIds, store.models as any[])
+                                : null;
+
+                            if (shouldAutoRun && !runErr) {
                             useAppStore.getState().updateMessage(assistantMsgId, {
                                 inlineResultIds: plan.terminalIds,
                                 runProposal: {
@@ -726,6 +735,7 @@ export function useChatMessages({
                                     terminalIds: plan.terminalIds,
                                     cost: plan.cost,
                                     status: 'ready',
+                                    error: runErr ?? undefined,
                                 },
                             });
                         }

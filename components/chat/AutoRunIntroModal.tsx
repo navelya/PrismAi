@@ -8,6 +8,7 @@ import { NumberInput } from '@/components/ui/NumberInput';
 import { formatCredits } from '@/lib/billing/cost';
 import { userApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
+import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 
 /**
  * One-time onboarding modal for auto-run. Shown the first time a user reaches a
@@ -65,15 +66,21 @@ function AutoRunIntroDialog() {
         store.closeAutoRunIntro();
 
         if (run) {
+            // Pre-flight validation (same gate commitExecution uses) so we don't
+            // mark 'running' for a run that would silently abort.
+            const runErr = firstChatRunError(store.currentWorkflow, intro.runTargetIds, store.models as any[]);
             store.updateMessage(intro.messageId, {
                 runProposal: {
                     runTargetIds: intro.runTargetIds,
                     terminalIds: intro.terminalIds,
                     cost: intro.cost,
-                    status: 'running',
+                    status: runErr ? 'ready' : 'running',
+                    error: runErr ?? undefined,
                 },
             });
-            store.triggerRunSelection(intro.runTargetIds, { preconfirmed: true });
+            if (!runErr) {
+                store.triggerRunSelection(intro.runTargetIds, { preconfirmed: true });
+            }
         }
         // saving state is moot once closed (component unmounts), but keep it tidy.
         setSaving(false);

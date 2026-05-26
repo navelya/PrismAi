@@ -24,9 +24,15 @@ interface MessageRendererProps {
     data: any;
     /** When true (Floating Copilot mode), suppress large image galleries. */
     isCanvasMode?: boolean;
+    /**
+     * Force the full image gallery even in canvas mode. Used for chat-run
+     * results, which the user explicitly wants to see inline in the chat
+     * (not as the compact "added to Canvas" tag), regardless of view mode.
+     */
+    forceGallery?: boolean;
 }
 
-export default function MessageRenderer({ data, isCanvasMode = false }: MessageRendererProps) {
+export default function MessageRenderer({ data, isCanvasMode = false, forceGallery = false }: MessageRendererProps) {
     if (!data) return null;
 
     const actualData = data?.images || data;
@@ -36,7 +42,8 @@ export default function MessageRenderer({ data, isCanvasMode = false }: MessageR
         const firstItem = actualData[0];
         if (firstItem && typeof firstItem === 'object' && ('url' in firstItem)) {
             // ── Canvas Mode: compact "view in canvas" tag instead of gallery ──
-            if (isCanvasMode) {
+            // (forceGallery overrides this for chat-run results.)
+            if (isCanvasMode && !forceGallery) {
                 return <CanvasResultTag count={actualData.length} />;
             }
             return <ImageGallery images={actualData} />;

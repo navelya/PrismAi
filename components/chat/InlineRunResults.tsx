@@ -43,7 +43,9 @@ export function InlineRunResults({ terminalIds, isCanvasMode }: InlineRunResults
 
     return (
         <div className="mt-2">
-            <MessageRenderer data={items} isCanvasMode={isCanvasMode} />
+            {/* forceGallery: chat-run results are shown inline in the chat even in
+                canvas/minimized mode, not as the compact "added to Canvas" tag. */}
+            <MessageRenderer data={items} isCanvasMode={isCanvasMode} forceGallery />
         </div>
     );
 }

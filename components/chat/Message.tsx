@@ -62,6 +62,7 @@ interface Message {
         terminalIds: string[];
         cost: number;
         status: import('@/lib/store/types').RunProposalStatus;
+        error?: string;
     };
     inlineResultIds?: string[];
 }
@@ -336,7 +337,13 @@ export const Message = React.memo(function Message({
 
                     {message.result && (
                         <div className="mt-2">
-                            <MessageRenderer data={message.result} isCanvasMode={isCanvasMode} />
+                            {/* Chat-run results (those with a runProposal) are shown inline
+                                even in canvas/minimized mode, per the chat-run feature. */}
+                            <MessageRenderer
+                                data={message.result}
+                                isCanvasMode={isCanvasMode}
+                                forceGallery={!!message.runProposal}
+                            />
                         </div>
                     )}
 
@@ -412,6 +419,7 @@ export const Message = React.memo(function Message({
                         <RunProposalCard
                             cost={message.runProposal.cost}
                             status={message.runProposal.status}
+                            error={message.runProposal.error}
                             onRun={() => onRunProposal?.(message.id)}
                         />
                     )}
