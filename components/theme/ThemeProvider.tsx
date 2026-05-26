@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import { usePathname } from 'next/navigation';
 import { userApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
+import { useAppStore } from '@/lib/store/app-store';
 
 export type Theme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate';
@@ -63,6 +64,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
                         setThemeState(dbTheme);
                         localStorage.setItem(STORAGE_KEY, dbTheme);
                     }
+                    const pref = (userData.profile?.preferences as any)?.maxAutoRunCredits;
+                    useAppStore.getState().setMaxAutoRunCredits(
+                        typeof pref === 'number' && pref >= 0 ? pref : 10
+                    );
                 }
             } catch (err) {
                 // Not logged in or error
