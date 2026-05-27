@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import * as LucideIcons from 'lucide-react';
 import {
@@ -33,7 +33,10 @@ import {
     Video,
     Settings,
     ArrowDownUp,
-    RotateCcw
+    RotateCcw,
+    Minus,
+    Maximize2,
+    GripVertical
 } from 'lucide-react';
 import { modelsAdminApi } from '@/lib/api/admin';
 import { Select } from '@/components/ui/Select';
@@ -194,6 +197,8 @@ function AdminShell() {
 // =============================================================================
 
 const CALC_STORAGE_KEY = 'prismai-admin-cost-calculator';
+const CALC_WINDOW_STORAGE_KEY = 'prismai-admin-cost-calculator-window';
+const CALC_WIDTH = 288; // w-72
 const DEFAULT_IMAGE_MULTIPLIER = 4;
 const DEFAULT_VIDEO_MULTIPLIER = 3;
 
@@ -219,6 +224,12 @@ function CostCalculator() {
     const [draftImage, setDraftImage] = useState<string>(String(DEFAULT_IMAGE_MULTIPLIER));
     const [draftVideo, setDraftVideo] = useState<string>(String(DEFAULT_VIDEO_MULTIPLIER));
 
+    // Floating-window state
+    const [minimized, setMinimized] = useState(false);
+    const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 128 });
+    const [dragging, setDragging] = useState(false);
+    const dragOffset = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+
     // Hydrate from localStorage on mount
     useEffect(() => {
         try {
@@ -228,6 +239,27 @@ function CostCalculator() {
                 setConfig(prev => ({ ...prev, ...parsed }));
             }
         } catch { /* ignore corrupt storage */ }
+
+        // Restore window position / minimized state, defaulting to top-right.
+        try {
+            const storedWin = localStorage.getItem(CALC_WINDOW_STORAGE_KEY);
+            if (storedWin) {
+                const w = JSON.parse(storedWin) as { x?: number; y?: number; minimized?: boolean };
+                if (typeof w.minimized === 'boolean') setMinimized(w.minimized);
+                if (typeof w.x === 'number' && typeof w.y === 'number') {
+                    setPos({
+                        x: Math.min(Math.max(0, w.x), window.innerWidth - CALC_WIDTH),
+                        y: Math.min(Math.max(0, w.y), window.innerHeight - 60),
+                    });
+                } else {
+                    setPos({ x: window.innerWidth - CALC_WIDTH - 24, y: 128 });
+                }
+            } else {
+                setPos({ x: window.innerWidth - CALC_WIDTH - 24, y: 128 });
+            }
+        } catch {
+            setPos({ x: window.innerWidth - CALC_WIDTH - 24, y: 128 });
+        }
         setHydrated(true);
     }, []);
 
@@ -238,6 +270,36 @@ function CostCalculator() {
             localStorage.setItem(CALC_STORAGE_KEY, JSON.stringify(config));
         } catch { /* ignore quota errors */ }
     }, [config, hydrated]);
+
+    // Persist window position / minimized state
+    useEffect(() => {
+        if (!hydrated) return;
+        try {
+            localStorage.setItem(CALC_WINDOW_STORAGE_KEY, JSON.stringify({ ...pos, minimized }));
+        } catch { /* ignore quota errors */ }
+    }, [pos, minimized, hydrated]);
+
+    // Drag handling via window-level pointer listeners
+    useEffect(() => {
+        if (!dragging) return;
+        const onMove = (e: PointerEvent) => {
+            const x = Math.min(Math.max(0, e.clientX - dragOffset.current.dx), window.innerWidth - CALC_WIDTH);
+            const y = Math.min(Math.max(0, e.clientY - dragOffset.current.dy), window.innerHeight - 60);
+            setPos({ x, y });
+        };
+        const onUp = () => setDragging(false);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        return () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+        };
+    }, [dragging]);
+
+    const startDrag = (e: React.PointerEvent) => {
+        dragOffset.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+        setDragging(true);
+    };
 
     const reverseMode = config.direction === 'tokens-to-cents';
     const multiplier = config.mode === 'image' ? config.imageMultiplier : config.videoMultiplier;
@@ -280,37 +342,58 @@ function CostCalculator() {
     };
 
     return (
-        <div className="hidden xl:block fixed right-6 top-32 z-20 w-72">
-            <div className="glassmorphism rounded-2xl p-5 shadow-2xl border border-white/10 backdrop-blur-3xl bg-surface-primary/70">
-                {/* Header */}
-                <div className="flex items-start justify-between mb-5">
+        <div
+            className={`hidden xl:block fixed z-20 w-72 ${dragging ? 'select-none cursor-grabbing' : ''}`}
+            style={{ left: pos.x, top: pos.y }}
+        >
+            <div className={`glassmorphism rounded-2xl shadow-2xl border border-white/10 backdrop-blur-3xl bg-surface-primary/70 ${minimized ? 'p-3' : 'p-5'}`}>
+                {/* Header (drag handle) */}
+                <div
+                    onPointerDown={startDrag}
+                    className={`flex items-start justify-between ${minimized ? '' : 'mb-5'} cursor-grab active:cursor-grabbing`}
+                >
                     <div className="flex items-center gap-2.5 min-w-0">
+                        <GripVertical className="w-3.5 h-3.5 text-content-tertiary opacity-40 shrink-0" />
                         <div className="w-7 h-7 rounded-lg bg-accent-primary/10 flex items-center justify-center border border-accent-primary/20 shrink-0">
-                            {settingsOpen
+                            {settingsOpen && !minimized
                                 ? <Settings className="w-3.5 h-3.5 text-accent-primary" />
                                 : <Calculator className="w-3.5 h-3.5 text-accent-primary" />}
                         </div>
                         <div className="min-w-0">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-content-primary truncate">
-                                {settingsOpen ? 'Multipliers' : 'Cost Calculator'}
+                                {settingsOpen && !minimized ? 'Multipliers' : 'Cost Calculator'}
                             </h3>
-                            <p className="text-[8px] font-bold uppercase tracking-widest text-content-tertiary opacity-60 mt-0.5 truncate">
-                                {settingsOpen
-                                    ? 'Configure margins'
-                                    : (reverseMode ? 'Tokens → Cents' : 'Cents → Tokens')}
-                            </p>
+                            {!minimized && (
+                                <p className="text-[8px] font-bold uppercase tracking-widest text-content-tertiary opacity-60 mt-0.5 truncate">
+                                    {settingsOpen
+                                        ? 'Configure margins'
+                                        : (reverseMode ? 'Tokens → Cents' : 'Cents → Tokens')}
+                                </p>
+                            )}
                         </div>
                     </div>
-                    <button
-                        onClick={() => settingsOpen ? setSettingsOpen(false) : openSettings()}
-                        title={settingsOpen ? 'Close' : 'Edit multipliers'}
-                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/5 rounded-lg transition-all shrink-0"
-                    >
-                        {settingsOpen ? <X className="w-3.5 h-3.5" /> : <Settings className="w-3.5 h-3.5" />}
-                    </button>
+                    {/* Window controls (don't start a drag) */}
+                    <div className="flex items-center gap-0.5 shrink-0" onPointerDown={e => e.stopPropagation()}>
+                        {!minimized && (
+                            <button
+                                onClick={() => settingsOpen ? setSettingsOpen(false) : openSettings()}
+                                title={settingsOpen ? 'Close' : 'Edit multipliers'}
+                                className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/5 rounded-lg transition-all"
+                            >
+                                {settingsOpen ? <X className="w-3.5 h-3.5" /> : <Settings className="w-3.5 h-3.5" />}
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setMinimized(m => !m)}
+                            title={minimized ? 'Expand' : 'Minimize'}
+                            className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/5 rounded-lg transition-all"
+                        >
+                            {minimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
+                        </button>
+                    </div>
                 </div>
 
-                {settingsOpen ? (
+                {minimized ? null : settingsOpen ? (
                     <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
                         <NumberInput
                             label="Image Multiplier"
