@@ -125,6 +125,15 @@ User wants to improve a low-quality or damaged photo but hasn't told you which p
 
 If the user's request doesn't match any archetype, fall back to your judgment: split when sections are independent, group when 2+ nodes share a logical purpose, otherwise single blueprint with no groups.`;
 
+const EDITING_RESULTS = `EDITING AN EXISTING RESULT:
+- When the user asks to change something about an image/video already produced in this workflow ("add wings", "make the sky darker", "now a dwarf"), treat it as an EDIT of that result — they expect the SAME image with the change, not a different one. Don't just re-roll a fresh generation.
+- Preserve the result by feeding it back in as input: wire the producing node's image/video output into the edit step's image input. Do NOT recreate the result. If the source is an image the user attached (not a node on the canvas), add a media_input with that URL and wire it in instead.
+- Prefer ADDING a new edit node chained after the current result (result → edit → edit) so each change is preserved and stays visible.
+- Change the prompt in place instead of chaining when the user explicitly asks to edit the wording, or when the request is really a redo from scratch where keeping the old pixels isn't wanted. Use judgment: chaining preserves the image; a prompt change regenerates it. You can add new nodes for edits whenever that serves the result better.`;
+
+const MULTI_SUBJECT = `MULTIPLE CHARACTERS / SUBJECTS:
+- When several distinct characters or subjects each need to look right, generate or prepare each one on its own first, then combine them into the final image — feed each into the final generator's image inputs if it accepts multiple, otherwise composite them. Don't try to pull several specific subjects out of a single prompt in one shot; that loses per-subject control.`;
+
 const RESPONSE_FORMAT = `RESPONSE FORMAT:
 - Plain prose. Markdown for emphasis only.
 - Mention cost or tokens only if the user asked.
@@ -228,6 +237,8 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
     GROUPING,
     TASK_SPLITTING,
     USE_CASE_ARCHETYPES,
+    EDITING_RESULTS,
+    MULTI_SUBJECT,
     RESPONSE_FORMAT,
     FEWSHOT_EXAMPLES,
   ].join('\n\n');
