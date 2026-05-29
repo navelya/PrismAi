@@ -141,6 +141,45 @@ export class WebGLCardCompositor {
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
+    /**
+     * Build a 3×3 transform mapping the unit quad to the layer's canvas-space
+     * rectangle. Mirrors Konva's pivot semantics: rotate/flip around the layer's
+     * centre, then translate to (x, y).
+     */
+    private buildModelMatrix(t: LayerDescriptor['transform']): Float32Array {
+        const w = Math.max(1, t.width);
+        const h = Math.max(1, t.height);
+        const cx = t.x + w / 2;
+        const cy = t.y + h / 2;
+        const rad = (t.rotation || 0) * Math.PI / 180;
+        const c = Math.cos(rad);
+        const s = Math.sin(rad);
+        const sx = (t.flipX ? -1 : 1) * w;
+        const sy = (t.flipY ? -1 : 1) * h;
+        const m00 = c * sx;
+        const m01 = s * sx;
+        const m10 = -s * sy;
+        const m11 = c * sy;
+        const tx = cx - 0.5 * (m00 + m10);
+        const ty = cy - 0.5 * (m01 + m11);
+        return new Float32Array([
+            m00, m01, 0,
+            m10, m11, 0,
+            tx,  ty,  1,
+        ]);
+    }
+
+    private buildCropUv(d: LayerDescriptor): [number, number, number, number] {
+        const sw = Math.max(1, d.sourceWidth);
+        const sh = Math.max(1, d.sourceHeight);
+        if (!d.transform.crop) return [0, 0, 1, 1];
+        const cx = d.transform.crop.x / sw;
+        const cy = d.transform.crop.y / sh;
+        const cw = d.transform.crop.width / sw;
+        const ch = d.transform.crop.height / sh;
+        return [cx, cy, cx + cw, cy + ch];
+    }
+
     dispose(): void {
         // GL objects created in later tasks freed here; this is the catch-all.
         const gl = this.gl;
