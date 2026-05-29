@@ -94,7 +94,7 @@ void main() {
     float aS = srcPre.a;
     float aB = dstPre.a;
     float aR = aS + aB * (1.0 - aS);
-    vec3 mixed = mix(Cb, B, aB);
-    vec3 outRgb = mixed * aS + Cb * aB * (1.0 - aS);
+    vec3 outRgb = (1.0 - aS) * aB * Cb
+                + aS * ((1.0 - aB) * Cs + aB * B);
     outColor = vec4(outRgb, aR);
 }`;
