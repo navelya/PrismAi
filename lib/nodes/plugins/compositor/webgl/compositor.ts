@@ -28,9 +28,15 @@ export class WebGLCardCompositor {
     private uModelLoc!: WebGLUniformLocation;
     private uCanvasSizeLoc!: WebGLUniformLocation;
     private uTexLoc!: WebGLUniformLocation;
+    private uDstLoc!: WebGLUniformLocation;
     private uCropLoc!: WebGLUniformLocation;
     private uOpacityLoc!: WebGLUniformLocation;
     private uBlendModeLoc!: WebGLUniformLocation;
+    private fboA!: WebGLFramebuffer;
+    private fboB!: WebGLFramebuffer;
+    private texA!: WebGLTexture;
+    private texB!: WebGLTexture;
+    private read: 'A' | 'B' = 'A';
     private textures = new Map<HTMLVideoElement | HTMLImageElement | HTMLCanvasElement, {
         tex: WebGLTexture;
         lastVersion: number; // for canvas sources; -1 for video (always re-upload)
@@ -64,6 +70,8 @@ export class WebGLCardCompositor {
         this.uOpacityLoc    = gl.getUniformLocation(this.program, 'uOpacity')!;
         this.uBlendModeLoc  = gl.getUniformLocation(this.program, 'uBlendMode')!;
         gl.uniform1i(this.uTexLoc, 0);
+        this.uDstLoc = gl.getUniformLocation(this.program, 'uDst')!;
+        gl.uniform1i(this.uDstLoc, 1);
     }
 
     private linkProgram(vSrc: string, fSrc: string): WebGLProgram {
@@ -106,19 +114,110 @@ export class WebGLCardCompositor {
         this.visible.width = W;
         this.visible.height = H;
         this.gl.viewport(0, 0, W, H);
+        if (this.fboA) {
+            this.gl.deleteFramebuffer(this.fboA);
+            this.gl.deleteFramebuffer(this.fboB);
+            this.gl.deleteTexture(this.texA);
+            this.gl.deleteTexture(this.texB);
+        }
+        this.allocPingPong(W, H);
+    }
+
+    private allocPingPong(w: number, h: number): void {
+        const gl = this.gl;
+        const make = () => {
+            const t = gl.createTexture()!;
+            gl.bindTexture(gl.TEXTURE_2D, t);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            const f = gl.createFramebuffer()!;
+            gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+            return { t, f };
+        };
+        const a = make();
+        const b = make();
+        this.texA = a.t; this.fboA = a.f;
+        this.texB = b.t; this.fboB = b.f;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
 
     /** Render a list of layers + base fill into the offscreen, then present. */
-    render(_layers: LayerDescriptor[], baseFillRgba: [number, number, number, number]): void {
+    render(layers: LayerDescriptor[], baseFillRgba: [number, number, number, number]): void {
         const gl = this.gl;
+
+        // Clear the read FBO to base fill.
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.read === 'A' ? this.fboA : this.fboB);
         gl.clearColor(baseFillRgba[0], baseFillRgba[1], baseFillRgba[2], baseFillRgba[3]);
         gl.clear(gl.COLOR_BUFFER_BIT);
-        // Layers drawn in Task 4+.
-        this.present();
+
+        for (const d of layers) {
+            const tex = this.acquireTexture(d.source);
+            if (!tex) continue;
+
+            const readTex = this.read === 'A' ? this.texA : this.texB;
+            const writeFbo = this.read === 'A' ? this.fboB : this.fboA;
+
+            // Copy read → write so the destination accumulator carries through
+            // areas the new layer doesn't cover.
+            gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, readTex);
+            this.drawTexturedQuad(
+                readTex,
+                this.buildIdentityFullCanvas(),
+                [0, 0, 1, 1],
+                1,
+                0,
+            );
+
+            // Now draw the layer on top, with its blend mode and the accumulator
+            // bound as uDst (texture unit 1).
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, readTex);
+            gl.activeTexture(gl.TEXTURE0);
+            const model = this.buildModelMatrix(d.transform);
+            const crop = this.buildCropUv(d);
+            const mode = blendModeToInt(d.transform.blendMode);
+            this.drawTexturedQuad(tex, model, crop, d.transform.opacity, mode);
+
+            this.read = this.read === 'A' ? 'B' : 'A';
+        }
+
+        // Evict stale textures (caller-owned source elements that didn't appear this frame).
+        const seen = new Set<HTMLElement>(layers.map(l => l.source.el as any));
+        for (const k of Array.from(this.textures.keys())) {
+            if (!seen.has(k as any)) {
+                const e = this.textures.get(k)!;
+                this.gl.deleteTexture(e.tex);
+                this.textures.delete(k);
+            }
+        }
+
+        // Present the most-recent read FBO's texture to the visible canvas.
+        this.presentFromTexture(this.read === 'A' ? this.texA : this.texB);
     }
 
-    private present(): void {
-        // Blit offscreen WebGL canvas → visible 2D canvas, once per frame.
+    private buildIdentityFullCanvas(): Float32Array {
+        return new Float32Array([
+            this.width, 0, 0,
+            0, this.height, 0,
+            0, 0, 1,
+        ]);
+    }
+
+    private presentFromTexture(tex: WebGLTexture): void {
+        const gl = this.gl;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, this.width, this.height);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        this.drawTexturedQuad(tex, this.buildIdentityFullCanvas(), [0, 0, 1, 1], 1, 0);
         this.visibleCtx.clearRect(0, 0, this.width, this.height);
         this.visibleCtx.drawImage(this.offscreen, 0, 0);
     }
@@ -239,7 +338,33 @@ export class WebGLCardCompositor {
         const gl = this.gl;
         this.textures.forEach(({ tex }) => gl.deleteTexture(tex));
         this.textures.clear();
+        if (this.fboA) {
+            gl.deleteFramebuffer(this.fboA);
+            gl.deleteFramebuffer(this.fboB);
+            gl.deleteTexture(this.texA);
+            gl.deleteTexture(this.texB);
+        }
+        if (this.program) gl.deleteProgram(this.program);
+        if (this.quadVbo) gl.deleteBuffer(this.quadVbo);
         const loseCtx = gl.getExtension('WEBGL_lose_context');
         loseCtx?.loseContext();
+    }
+}
+
+function blendModeToInt(m: import('./types').BlendMode): number {
+    switch (m) {
+        case 'source-over': return 0;
+        case 'multiply':    return 1;
+        case 'screen':      return 2;
+        case 'overlay':     return 3;
+        case 'darken':      return 4;
+        case 'lighten':     return 5;
+        case 'color-dodge': return 6;
+        case 'color-burn':  return 7;
+        case 'hard-light':  return 8;
+        case 'soft-light':  return 9;
+        case 'difference':  return 10;
+        case 'exclusion':   return 11;
+        default:            return 0;
     }
 }
