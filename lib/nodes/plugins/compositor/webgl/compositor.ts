@@ -12,7 +12,7 @@
  * ready-to-upload elements per frame (see `webgl/sources.ts`).
  */
 
-import { LayerDescriptor } from './types';
+import { LayerDescriptor, LayerSource } from './types';
 import { VERT_SRC, FRAG_SRC } from './shaders';
 
 export class WebGLCardCompositor {
@@ -31,6 +31,10 @@ export class WebGLCardCompositor {
     private uCropLoc!: WebGLUniformLocation;
     private uOpacityLoc!: WebGLUniformLocation;
     private uBlendModeLoc!: WebGLUniformLocation;
+    private textures = new Map<HTMLVideoElement | HTMLImageElement | HTMLCanvasElement, {
+        tex: WebGLTexture;
+        lastVersion: number; // for canvas sources; -1 for video (always re-upload)
+    }>();
 
     constructor(visible: HTMLCanvasElement) {
         this.visible = visible;
@@ -180,9 +184,61 @@ export class WebGLCardCompositor {
         return [cx, cy, cx + cw, cy + ch];
     }
 
-    dispose(): void {
-        // GL objects created in later tasks freed here; this is the catch-all.
+    /**
+     * Returns a GL texture for the source, uploading the current frame if needed.
+     * For video: re-upload every call (frame may have changed).
+     * For image: upload once on first acquire (loaded images are immutable).
+     * For canvas: upload when `version` changes (caller increments on repaint).
+     *
+     * Caller MUST ensure video sources have readyState >= 2 before calling.
+     */
+    private acquireTexture(source: LayerSource): WebGLTexture | null {
         const gl = this.gl;
+        let entry = this.textures.get(source.el);
+
+        if (!entry) {
+            const tex = gl.createTexture();
+            if (!tex) return null;
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            entry = { tex, lastVersion: -2 };
+            this.textures.set(source.el, entry);
+        }
+
+        gl.bindTexture(gl.TEXTURE_2D, entry.tex);
+
+        if (source.kind === 'video') {
+            const v = source.el;
+            if (v.readyState < 2 || v.videoWidth === 0) return null;
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+            return entry.tex;
+        }
+        if (source.kind === 'image') {
+            const img = source.el;
+            if (!img.complete || img.naturalWidth === 0) return null;
+            if (entry.lastVersion === -2) {
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+                entry.lastVersion = 0;
+            }
+            return entry.tex;
+        }
+        // canvas
+        const can = source.el;
+        if (can.width === 0 || can.height === 0) return null;
+        if (entry.lastVersion !== source.version) {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, can);
+            entry.lastVersion = source.version;
+        }
+        return entry.tex;
+    }
+
+    dispose(): void {
+        const gl = this.gl;
+        this.textures.forEach(({ tex }) => gl.deleteTexture(tex));
+        this.textures.clear();
         const loseCtx = gl.getExtension('WEBGL_lose_context');
         loseCtx?.loseContext();
     }
