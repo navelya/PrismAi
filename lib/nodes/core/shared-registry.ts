@@ -3,6 +3,7 @@ import { promptSharedDef } from '../plugins/prompt/definition';
 import { mediaInputSharedDef } from '../plugins/media_input/definition';
 import { compositorSharedDef } from '../plugins/compositor/definition';
 import { blurSharedDef } from '../plugins/blur/definition';
+import { extractFrameSharedDef } from '../plugins/extract_frame/definition';
 import { levelsSharedDef } from '../plugins/levels/definition';
 import { aiGeneratorSharedDef } from '../plugins/ai_generator/definition';
 import { characterSharedDef } from '../plugins/character/definition';
@@ -12,6 +13,7 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     media_input: mediaInputSharedDef,
     compositor: compositorSharedDef,
     blur: blurSharedDef,
+    extract_frame: extractFrameSharedDef,
     levels: levelsSharedDef,
     ai_generator: aiGeneratorSharedDef,
     character: characterSharedDef,

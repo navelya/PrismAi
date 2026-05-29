@@ -3,6 +3,7 @@ import { mediaInputClientDef } from '../plugins/media_input';
 import { compositorClientDef } from '../plugins/compositor';
 import { promptClientDef } from '../plugins/prompt';
 import { blurClientDef } from '../plugins/blur';
+import { extractFrameClientDef } from '../plugins/extract_frame';
 import { levelsClientDef } from '../plugins/levels';
 import { aiGeneratorClientDef, AIGeneratorNode } from '../plugins/ai_generator';
 import { characterClientDef } from '../plugins/character';
@@ -12,6 +13,7 @@ export const clientRegistry: Record<string, NodeClientDef> = {
     media_input: mediaInputClientDef,
     compositor: compositorClientDef,
     blur: blurClientDef,
+    extract_frame: extractFrameClientDef,
     levels: levelsClientDef,
     ai_generator: aiGeneratorClientDef,
     character: characterClientDef,

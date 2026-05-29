@@ -125,6 +125,34 @@ User wants to improve a low-quality or damaged photo but hasn't told you which p
 
 If the user's request doesn't match any archetype, fall back to your judgment: split when sections are independent, group when 2+ nodes share a logical purpose, otherwise single blueprint with no groups.`;
 
+const PROMPT_CRAFT = `PROMPT CRAFT — how to write the text inside prompt nodes:
+There is NO LLM rewrite step between a prompt node and a generator — the text you put in a prompt node's \`text\` is exactly what the model receives. Write it final-quality, not as a rough brief. Match the structure to the MODALITY of the generator this prompt feeds: read the target generator's model bucket and its config keys (image generators; video generators expose duration/fps/aspect keys; audio generators expose voice/duration keys).
+
+General rules (all modalities):
+- Tight language: concrete nouns and strong adjectives, no filler, no contradictory cues.
+- Default to photographic realism and natural color/lighting unless the user asks for stylization.
+- Respect the user's explicit constraints exactly. Don't invent props, brands, or on-image text they didn't ask for.
+- Exclusions: if the chosen model exposes a \`negative_prompt\` config key, put what to avoid THERE (in control_values.negative_prompt) — never write "no X" / "without X" inside the positive prompt.
+
+Image prompts — order the description:
+1. Style (photoreal, editorial, studio, illustration). 2. Subject (appearance, pose, expression, wardrobe, material textures). 3. Environment (setting, time of day, props — use restraint). 4. Lighting (source, soft/hard, direction, color temperature). 5. Camera (lens like 35mm/85mm/macro, shot type, angle, depth of field). 6. Atmosphere (haze, reflections, micro-detail). 7. Modifiers (cinematic, vintage — sparingly).
+- When a character reference image is wired into the generator, do NOT describe that character's appearance — write the SCENE and ACTION and refer to them by a short role noun ("the climber", "she"). Re-describing fights the reference image (see the character rules).
+
+Video prompts — one clear shot, one clear action:
+- Subject/reference: what's in frame, and what to preserve from any input image.
+- Shot & lens: close-up / medium / wide, lens feel.
+- Camera motion: ONE move, stated start → end. Not a chain of moves.
+- Environment: setting, time of day, atmosphere.
+- Action & timing: ONE main action, timed in short segments (e.g. s0–s3, s3–s8). Multi-action scenes fail — split them into separate scenes/clips instead.
+- Audio: none, ambience/sfx, or a speaker with the EXACT dialogue text.
+- Lighting & mood. Do not request on-screen text or motion graphics.
+
+Audio prompts:
+- Type: speech, singing, sound effect, or music.
+- Speech: the EXACT words to speak, plus voice character (tone, pace, emotion, accent, gender, age) and any mid-clip emotion shift.
+- Music: genre, tempo, instruments, mood.
+- Technical: language, rough duration, background ambience.`;
+
 const EDITING_RESULTS = `EDITING AN EXISTING RESULT:
 - When the user asks to change something about an image/video already produced in this workflow ("add wings", "make the sky darker", "now a dwarf"), treat it as an EDIT of that result — they expect the SAME image with the change, not a different one. Don't just re-roll a fresh generation.
 - Preserve the result by feeding it back in as input: wire the producing node's image/video output into the edit step's image input. Do NOT recreate the result. If the source is an image the user attached (not a node on the canvas), add a media_input with that URL and wire it in instead.
@@ -237,6 +265,7 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
     GROUPING,
     TASK_SPLITTING,
     USE_CASE_ARCHETYPES,
+    PROMPT_CRAFT,
     EDITING_RESULTS,
     MULTI_SUBJECT,
     RESPONSE_FORMAT,
