@@ -24,9 +24,11 @@
  *     vote is independent. Closing lightbox removes its vote and the element
  *     returns to whatever the card wanted.
  *
- * Elements live off-screen but attached to `document.body` so the browser's
- * media pipeline decodes them. They survive remounts (e.g. modal open/close)
- * so we don't repeatedly warm up the same source.
+ * Elements are NEVER appended to the DOM. Browsers decode detached <video>
+ * elements fine as long as they have a src and play() is called. Keeping
+ * them off-DOM mirrors Weavy's pipeline and avoids accidental layout
+ * thrash from style/position writes. They survive remounts (e.g. modal
+ * open/close) so we don't repeatedly warm up the same source.
  */
 
 interface PoolEntry {
@@ -110,15 +112,6 @@ export function acquireVideo(
     el.playsInline = true;
     el.loop = true;
     el.preload = 'auto';
-    el.style.position = 'fixed';
-    el.style.left = '-9999px';
-    el.style.top = '-9999px';
-    el.style.width = '1px';
-    el.style.height = '1px';
-    el.style.pointerEvents = 'none';
-    el.style.opacity = '0';
-    document.body.appendChild(el);
-
     entry = {
         el,
         consumers: new Map([[id, false]]),
@@ -219,7 +212,6 @@ export function releaseVideo(
         } catch {
             // Element going away — nothing meaningful to recover from.
         }
-        entry.el.remove();
         pool.delete(key);
     } else {
         // Other consumers remain; recompute play state + mute without this voter.
