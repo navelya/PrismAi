@@ -13,6 +13,7 @@ import CompositorEditorModal from './ui/EditorModal';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './ui/Renderer';
 import MiniTransport from './ui/MiniTransport';
+import { acquireVideo, releaseVideo } from './video-pool';
 import {
     detectSourceKindFromUrl,
     computeTimelineDuration,
@@ -231,6 +232,42 @@ const checkerboardStyle = {
     backgroundColor: 'rgb(var(--checker-2))'
 };
 
+// --- Preview resolution experiment (A/B) ---------------------------------
+// The card preview's Konva backing canvas was historically drawn at the FULL
+// source resolution (pixelRatio = 1/scale ⇒ e.g. 1920×1080 for a ~420px card),
+// which is 10-15× more fill per frame than the card actually displays — the
+// suspected cause of the "smooth then stutters" video playback. Capping the
+// backing store to display resolution × DPR is the cheap experiment.
+// Set `localStorage.prismCompositorPreviewRes = 'full'` + reload to restore the
+// old full-res behavior on the same card for an A/B comparison.
+function previewResCapped(): boolean {
+    if (typeof window === 'undefined') return true;
+    try {
+        return window.localStorage.getItem('prismCompositorPreviewRes') !== 'full';
+    } catch {
+        return true;
+    }
+}
+
+// Clamp DPR to 2 so 3x phones don't reintroduce the over-render this fixes.
+function maxPreviewDpr(): number {
+    if (typeof window === 'undefined') return 1;
+    return Math.min(window.devicePixelRatio || 1, 2);
+}
+
+// 'webgl' switches the card preview to the new WebGL2 compositor (Weavy-style).
+// Default 'konva' until Task 9. Override via:
+//   localStorage.prismCompositorRenderer = 'webgl' (or 'konva')
+function cardRendererMode(): 'konva' | 'webgl' {
+    if (typeof window === 'undefined') return 'konva';
+    try {
+        return window.localStorage.getItem('prismCompositorRenderer') === 'webgl'
+            ? 'webgl' : 'konva';
+    } catch {
+        return 'konva';
+    }
+}
+
 /**
  * Auto-scaling Konva preview. The container's measured width drives a single
  * scale factor; layers render unscaled inside a scaled <Group>. The preview
@@ -296,6 +333,28 @@ function LivePreview({
 
     const scale = size.width > 0 ? size.width / canvasWidth : 0;
 
+    // Backing-canvas resolution for the Konva layer. Capped to display res × DPR
+    // (see previewResCapped above) instead of the legacy full-source 1/scale.
+    const previewPixelRatio = scale > 0
+        ? (previewResCapped() ? Math.min(1 / scale, maxPreviewDpr()) : 1 / scale)
+        : 1;
+
+    // One-shot log so the A/B is verifiable: confirms the mode is active and
+    // prints the actual backing dimensions (capped vs. full source).
+    const loggedResRef = useRef(false);
+    useEffect(() => {
+        if (scale <= 0 || loggedResRef.current) return;
+        loggedResRef.current = true;
+        console.log('[compositor:preview-res]', {
+            mode: previewResCapped() ? 'capped' : 'full',
+            renderer: cardRendererMode(),
+            display: `${Math.round(size.width)}×${Math.round(size.height)}`,
+            backing: `${Math.round(size.width * previewPixelRatio)}×${Math.round(size.height * previewPixelRatio)}`,
+            source: `${canvasWidth}×${canvasHeight}`,
+            pixelRatio: Number(previewPixelRatio.toFixed(3)),
+        });
+    }, [scale, previewPixelRatio, size.width, size.height, canvasWidth, canvasHeight]);
+
     // Compute total timeline length. computeTimelineDuration handles the
     // null-duration fallback (image/text layers default to "full timeline")
     // and the configured-vs-derived choice.
@@ -311,14 +370,92 @@ function LivePreview({
         onTotalDurationChange(totalDuration);
     }, [totalDuration, onTotalDurationChange]);
 
-    // Advance the playhead only when the parent says we're playing. When
-    // paused, the rAF loop doesn't run and pooled videos are paused via the
-    // LayerVideo isPlaying effect — "paused = nothing moves" is honest.
+    // Master-video clock. The card preview's playhead used to advance via a
+    // pure wall-clock accumulator regardless of whether the actual <video>
+    // decoder was keeping up — so when the decoder stalled or its play()
+    // hadn't started yet, the scrubber ran ahead of the painted frame. Mirror
+    // extract_frame's approach: pick the first video-URL layer as the clock
+    // master, acquire its pooled element (read-only consumer, doesn't affect
+    // LayerVideo's play/mute votes), and drive the playhead from the
+    // element's actual mediaTime via requestVideoFrameCallback. When no video
+    // layer exists (image / text / graph only), fall back to wall-clock.
+    const master = useMemo<{ url: string; startTime: number } | null>(() => {
+        for (const r of renderable) {
+            const resolved: any = r.resolved;
+            if (!resolved || typeof resolved !== 'object') continue;
+            if ((resolved as any).graph) continue;
+            const url = typeof resolved.url === 'string' ? resolved.url : null;
+            if (!url) continue;
+            if (detectSourceKindFromUrl(url) !== 'video') continue;
+            return { url, startTime: r.layer.startTime || 0 };
+        }
+        return null;
+    }, [renderable]);
+    const masterUrl = master?.url ?? null;
+    const masterStartTime = master?.startTime ?? 0;
+
+    const [masterEl, setMasterEl] = useState<HTMLVideoElement | null>(null);
+    useEffect(() => {
+        if (!masterUrl) { setMasterEl(null); return; }
+        const { el, id: cid } = acquireVideo(masterUrl, poolKey);
+        setMasterEl(el);
+        return () => {
+            releaseVideo(masterUrl, cid, poolKey);
+            setMasterEl(null);
+        };
+    }, [masterUrl, poolKey]);
+
+    // Drive cardPlayhead from the master video's mediaTime while playing.
+    // Throttled to ~10Hz because Konva paints the frame itself; React just
+    // needs the scrubber commit cadence.
+    useEffect(() => {
+        if (!isPlaying || !masterEl) return;
+        const PUSH_MS = 100;
+        let cancelled = false;
+        let lastPush = 0;
+        const hasRVFC = typeof (masterEl as any).requestVideoFrameCallback === 'function';
+        if (hasRVFC) {
+            let h = 0;
+            const onFrame = (now: number, metadata: any) => {
+                if (cancelled) return;
+                const mt = (metadata && typeof metadata.mediaTime === 'number')
+                    ? metadata.mediaTime : masterEl.currentTime;
+                if (now - lastPush >= PUSH_MS) {
+                    lastPush = now;
+                    onPlayheadChange(mt + masterStartTime);
+                }
+                h = (masterEl as any).requestVideoFrameCallback(onFrame);
+            };
+            h = (masterEl as any).requestVideoFrameCallback(onFrame);
+            return () => {
+                cancelled = true;
+                try { (masterEl as any).cancelVideoFrameCallback?.(h); } catch { /* noop */ }
+                // Commit the final actual position so LayerVideo's seek-on-pause
+                // effect doesn't snap back to the (slightly stale) throttled value.
+                onPlayheadChange(masterEl.currentTime + masterStartTime);
+            };
+        }
+        // Fallback: timeupdate fires ~4Hz, coarse but accurate.
+        const onTime = () => {
+            if (!cancelled) onPlayheadChange(masterEl.currentTime + masterStartTime);
+        };
+        masterEl.addEventListener('timeupdate', onTime);
+        return () => {
+            cancelled = true;
+            masterEl.removeEventListener('timeupdate', onTime);
+            onPlayheadChange(masterEl.currentTime + masterStartTime);
+        };
+    }, [isPlaying, masterEl, masterStartTime, onPlayheadChange]);
+
+    // Wall-clock fallback for the no-video case (image/text/graph-only). When
+    // a master video exists, the rVFC effect above owns the playhead and this
+    // one returns early so the two clocks don't fight.
     const playheadRef = useRef(playhead);
     playheadRef.current = playhead;
     useEffect(() => {
         if (!isPlaying) return;
         if (totalDuration <= 0) return;
+        if (masterUrl) return;
         let raf: number | null = null;
         let last = performance.now();
         // The accumulator advances every frame so playback timing stays
@@ -374,7 +511,7 @@ function LivePreview({
             // to THROTTLE_MS behind the real playhead on pause).
             onPlayheadChange(live);
         };
-    }, [isPlaying, totalDuration, onPlayheadChange]);
+    }, [isPlaying, totalDuration, onPlayheadChange, masterUrl]);
 
     return (
         <div
@@ -387,11 +524,13 @@ function LivePreview({
         >
             {/*
              * Stage is sized to the card's display size; the Layer's
-             * `pixelRatio = 1 / scale` means the internal canvas is drawn at
-             * (canvasWidth × canvasHeight) pixels and downsampled to display
-             * via the Stage's CSS box. We tried `transform: scale` on the
-             * Stage container instead; Konva managing width/height on its
-             * own container made that layer brittle in practice.
+             * `pixelRatio` controls the internal backing-canvas resolution.
+             * Legacy was `1 / scale` (full source res, e.g. 1920×1080); now
+             * capped to display res × DPR via `previewPixelRatio` to cut the
+             * per-frame fill cost for video playback. The result is downsampled
+             * to display via the Stage's CSS box either way. We tried
+             * `transform: scale` on the Stage container instead; Konva managing
+             * width/height on its own container made that layer brittle.
              */}
             {scale > 0 && (
                 <Stage
@@ -400,7 +539,7 @@ function LivePreview({
                     height={size.height}
                     listening={false}
                 >
-                    <Layer listening={false} pixelRatio={1 / scale}>
+                    <Layer listening={false} pixelRatio={previewPixelRatio}>
                         <Group scaleX={scale} scaleY={scale}>
                             {baseFill && (
                                 <Rect x={0} y={0} width={canvasWidth} height={canvasHeight} fill={baseFill} listening={false} />
@@ -1278,6 +1417,8 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                     playhead={cardPlayhead}
                                     totalDuration={cardTotalDuration}
                                     fps={config.fps || 30}
+                                    frameNumber={Math.round(Math.max(0, cardPlayhead) * (config.fps || 30))}
+                                    totalFrames={cardTotalDuration > 0 ? Math.round(cardTotalDuration * (config.fps || 30)) : 0}
                                     isPlaying={cardIsPlaying}
                                     muted={cardMuted}
                                     onTogglePlay={() => setCardIsPlaying((p) => !p)}
