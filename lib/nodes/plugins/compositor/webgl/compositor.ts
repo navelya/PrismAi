@@ -159,22 +159,23 @@ export class WebGLCardCompositor {
             if (!tex) continue;
 
             const readTex = this.read === 'A' ? this.texA : this.texB;
+            const readFbo = this.read === 'A' ? this.fboA : this.fboB;
             const writeFbo = this.read === 'A' ? this.fboB : this.fboA;
 
-            // Copy read → write so the destination accumulator carries through
-            // areas the new layer doesn't cover.
-            gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
-            gl.clearColor(0, 0, 0, 0);
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, readTex);
-            this.drawTexturedQuad(
-                readTex,
-                this.buildIdentityFullCanvas(),
-                [0, 0, 1, 1],
-                1,
-                0,
+            // Copy read → write via native GL blit. Doing this with the shader
+            // would re-run the Porter-Duff formula and fold whatever stale texture
+            // is bound to uDst (TEXTURE1) into transparent regions of readTex,
+            // producing subtle ghosting in multi-layer transparent composites.
+            gl.bindFramebuffer(gl.READ_FRAMEBUFFER, readFbo);
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, writeFbo);
+            gl.blitFramebuffer(
+                0, 0, this.width, this.height,
+                0, 0, this.width, this.height,
+                gl.COLOR_BUFFER_BIT,
+                gl.NEAREST,
             );
+            // Restore the single-target FRAMEBUFFER binding for the subsequent layer draw.
+            gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
 
             // Now draw the layer on top, with its blend mode and the accumulator
             // bound as uDst (texture unit 1).
