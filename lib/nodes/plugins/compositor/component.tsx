@@ -264,16 +264,16 @@ function maxPreviewDpr(): number {
     return Math.min(window.devicePixelRatio || 1, 2);
 }
 
-// 'webgl' switches the card preview to the new WebGL2 compositor (Weavy-style).
-// Default 'konva' until Task 9. Override via:
-//   localStorage.prismCompositorRenderer = 'webgl' (or 'konva')
+// 'webgl' is the card preview's renderer. Konva remains reachable as the
+// fallback for debugging / A/B comparison via:
+//   localStorage.prismCompositorRenderer = 'konva'
 function cardRendererMode(): 'konva' | 'webgl' {
-    if (typeof window === 'undefined') return 'konva';
+    if (typeof window === 'undefined') return 'webgl';
     try {
-        return window.localStorage.getItem('prismCompositorRenderer') === 'webgl'
-            ? 'webgl' : 'konva';
+        return window.localStorage.getItem('prismCompositorRenderer') === 'konva'
+            ? 'konva' : 'webgl';
     } catch {
-        return 'konva';
+        return 'webgl';
     }
 }
 
