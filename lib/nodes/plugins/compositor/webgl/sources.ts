@@ -84,6 +84,10 @@ export function useImageLayerSources(
     const [tick, setTick] = useState(0);
     useEffect(() => {
         const cache = cacheRef.current;
+        const wanted = new Set(layers.map(l => l.url));
+        for (const url of Array.from(cache.keys())) {
+            if (!wanted.has(url)) cache.delete(url);
+        }
         for (const l of layers) {
             if (cache.has(l.url)) continue;
             const img = new Image();
