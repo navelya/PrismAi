@@ -1,7 +1,7 @@
 'use client';
 
 import React, { forwardRef, useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { blurRevealMotion } from './blur-reveal';
 
@@ -47,27 +47,25 @@ const BlurryVideo = forwardRef<HTMLVideoElement, BlurryVideoProps>(function Blur
 
     return (
         <div className={cn('relative overflow-hidden w-full h-full bg-white/5', containerClassName)}>
-            <AnimatePresence mode="wait">
-                <motion.video
-                    key={src as string}
-                    ref={ref}
-                    src={src}
-                    {...blurRevealMotion(isLoaded, blurAmount, transitionDuration)}
-                    onLoadedData={(e) => {
-                        setIsLoaded(true);
-                        onLoadedData?.(e);
-                    }}
-                    // Also clear the blur on loadedmetadata: with preload="metadata"
-                    // (or the browser default) `loadeddata` may not fire until
-                    // playback, which would leave the first frame stuck blurred.
-                    onLoadedMetadata={(e) => {
-                        setIsLoaded(true);
-                        onLoadedMetadata?.(e);
-                    }}
-                    className={cn('block object-contain max-w-[420px] max-h-[420px]', className)}
-                    {...props}
-                />
-            </AnimatePresence>
+            <motion.video
+                key={src as string}
+                ref={ref}
+                src={src}
+                {...blurRevealMotion(isLoaded, blurAmount, transitionDuration)}
+                onLoadedData={(e) => {
+                    setIsLoaded(true);
+                    onLoadedData?.(e);
+                }}
+                // Also clear the blur on loadedmetadata: with preload="metadata"
+                // (or the browser default) `loadeddata` may not fire until
+                // playback, which would leave the first frame stuck blurred.
+                onLoadedMetadata={(e) => {
+                    setIsLoaded(true);
+                    onLoadedMetadata?.(e);
+                }}
+                className={cn('block object-contain max-w-[420px] max-h-[420px]', className)}
+                {...props}
+            />
 
             {!isLoaded && (
                 <div className="absolute inset-0 bg-white/5 backdrop-blur-sm pointer-events-none" />

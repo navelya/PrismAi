@@ -87,32 +87,30 @@ export default function BlurryImage({
         <div className={cn("relative overflow-hidden w-full h-full bg-white/5", containerClassName)}>
             {/* Full-resolution image. Drives layout size; covered by the blurred
                 placeholder below until it finishes decoding. */}
-            <AnimatePresence mode="wait">
-                <motion.img
-                    key={src}
-                    src={displaySrc}
-                    alt={alt}
-                    {...mainMotion}
-                    onLoad={(e) => {
-                        setIsLoaded(true);
-                        const img = e.currentTarget;
-                        onLoad?.({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight });
-                    }}
-                    onError={() => {
-                        if (fallbackSrc && !didFallback) setDidFallback(true);
-                    }}
-                    className={cn(
-                        // Render at intrinsic size capped at 420 in either
-                        // dimension; the browser auto-preserves aspect ratio
-                        // when both max-width and max-height apply, so the
-                        // image scales to fit within a 420×420 box without
-                        // cropping or distortion.
-                        "block object-contain max-w-[420px] max-h-[420px]",
-                        className
-                    )}
-                    {...props}
-                />
-            </AnimatePresence>
+            <motion.img
+                key={src}
+                src={displaySrc}
+                alt={alt}
+                {...mainMotion}
+                onLoad={(e) => {
+                    setIsLoaded(true);
+                    const img = e.currentTarget;
+                    onLoad?.({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight });
+                }}
+                onError={() => {
+                    if (fallbackSrc && !didFallback) setDidFallback(true);
+                }}
+                className={cn(
+                    // Render at intrinsic size capped at 420 in either
+                    // dimension; the browser auto-preserves aspect ratio
+                    // when both max-width and max-height apply, so the
+                    // image scales to fit within a 420×420 box without
+                    // cropping or distortion.
+                    "block object-contain max-w-[420px] max-h-[420px]",
+                    className
+                )}
+                {...props}
+            />
 
             {/* Blurry full-frame placeholder, laid over the still-loading image and
                 faded out once it has decoded — so the user sees blurry-but-complete
