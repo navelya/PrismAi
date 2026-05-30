@@ -8,6 +8,7 @@ import ImageLightbox from '@/components/ui/ImageLightbox';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
 import { unpackAssets, type AssetItem, type TypeFilter } from '@/lib/assets/unpack';
+import { useVideoPoster } from '@/lib/hooks/use-video-poster';
 
 /**
  * Full-page browse view of every result the user has generated, across all
@@ -97,31 +98,25 @@ export default function AssetsGallery() {
 function AssetCard({ asset, index }: { asset: AssetItem; index: number }) {
     const [loaded, setLoaded] = useState(false);
     const [lightboxOpen, setLightboxOpen] = useState(false);
-    const videoRef = React.useRef<HTMLVideoElement | null>(null);
+    const [hovered, setHovered] = useState(false);
+
+    // See AssetsPanel.tsx for the rationale: cached poster <img> instead of
+    // an always-on <video preload="auto"> decoder, real <video> mounted only
+    // on hover. Fixes browser decoder-pool exhaustion in the gallery view.
+    const { posterUrl, setNode } = useVideoPoster(
+        asset.result_type === 'video' ? asset.result_url : null,
+    );
 
     const mediaType = asset.result_type === 'audio' || asset.result_type === '3d' ? 'any' : asset.result_type;
     const showSkeleton = !loaded && (asset.result_type === 'image' || asset.result_type === 'video');
 
-    const handleMouseEnter = () => {
-        if (asset.result_type !== 'video') return;
-        const v = videoRef.current;
-        if (!v) return;
-        v.currentTime = 0;
-        const result = v.play();
-        if (result && typeof result.catch === 'function') result.catch(() => {});
-    };
-
-    const handleMouseLeave = () => {
-        if (asset.result_type !== 'video') return;
-        const v = videoRef.current;
-        if (!v) return;
-        v.pause();
-        v.currentTime = 0;
-    };
+    const handleMouseEnter = () => setHovered(true);
+    const handleMouseLeave = () => setHovered(false);
 
     return (
         <>
             <motion.div
+                ref={setNode as React.Ref<HTMLDivElement>}
                 initial={{ opacity: 0, scale: 0.92 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.2, delay: Math.min(index, 12) * 0.03 }}
@@ -135,16 +130,26 @@ function AssetCard({ asset, index }: { asset: AssetItem; index: number }) {
 
                 {asset.result_type === 'video' ? (
                     <>
-                        <video
-                            ref={videoRef}
-                            src={asset.result_url}
-                            className="w-full h-full object-cover"
-                            onLoadedMetadata={() => setLoaded(true)}
-                            muted
-                            loop
-                            playsInline
-                            preload="auto"
-                        />
+                        {posterUrl && (
+                            <img
+                                src={posterUrl}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                onLoad={() => setLoaded(true)}
+                            />
+                        )}
+                        {hovered && (
+                            <video
+                                src={asset.result_url}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                muted
+                                loop
+                                playsInline
+                                autoPlay
+                                preload="auto"
+                                onLoadedMetadata={() => setLoaded(true)}
+                            />
+                        )}
                         <div className="absolute top-1.5 left-1.5 z-[1] flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm border border-white/15 shadow-sm pointer-events-none">
                             <Play className="w-2.5 h-2.5 text-white fill-white" />
                         </div>
