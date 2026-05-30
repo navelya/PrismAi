@@ -11,7 +11,6 @@ import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { useAppStore } from '@/lib/store/app-store';
 import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
 import { unpackAssets, type AssetItem, type TypeFilter } from '@/lib/assets/unpack';
-import { useVideoPoster } from '@/lib/hooks/use-video-poster';
 
 type AssetScope = 'current' | 'all';
 
@@ -227,28 +226,31 @@ function AssetCard({
 }) {
     const [loaded, setLoaded] = useState(false);
     const [lightboxOpen, setLightboxOpen] = useState(false);
-    const [hovered, setHovered] = useState(false);
-
-    // Video assets get a cached poster (extracted client-side, on-screen
-    // only) so the card renders as a cheap <img> instead of an always-on
-    // <video preload="auto"> decoder. Hover mounts the real <video> for
-    // playback; leave unmounts it to release the decoder slot. This is the
-    // fix for asset-panel decoder pool exhaustion (prod measured 16+ live
-    // decoders just from this panel).
-    const { posterUrl, setNode } = useVideoPoster(
-        asset.result_type === 'video' ? asset.result_url : null,
-    );
+    const videoRef = React.useRef<HTMLVideoElement | null>(null);
 
     const mediaType = asset.result_type === 'audio' ? 'any' : (asset.result_type === '3d' ? 'any' : asset.result_type);
     const showSkeleton = !loaded && (asset.result_type === 'image' || asset.result_type === 'video');
 
-    const handleMouseEnter = () => setHovered(true);
-    const handleMouseLeave = () => setHovered(false);
+    const handleMouseEnter = () => {
+        if (asset.result_type !== 'video') return;
+        const v = videoRef.current;
+        if (!v) return;
+        v.currentTime = 0;
+        const result = v.play();
+        if (result && typeof result.catch === 'function') result.catch(() => {});
+    };
+
+    const handleMouseLeave = () => {
+        if (asset.result_type !== 'video') return;
+        const v = videoRef.current;
+        if (!v) return;
+        v.pause();
+        v.currentTime = 0;
+    };
 
     return (
         <>
             <motion.div
-                ref={setNode as React.Ref<HTMLDivElement>}
                 initial={{ opacity: 0, scale: 0.92 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.2, delay: index * 0.03 }}
@@ -266,26 +268,28 @@ function AssetCard({
 
                 {asset.result_type === 'video' ? (
                     <>
-                        {posterUrl && (
-                            <img
-                                src={posterUrl}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover"
-                                onLoad={() => setLoaded(true)}
-                            />
-                        )}
-                        {hovered && (
-                            <video
-                                src={asset.result_url}
-                                className="absolute inset-0 w-full h-full object-cover"
-                                muted
-                                loop
-                                playsInline
-                                autoPlay
-                                preload="auto"
-                                onLoadedMetadata={() => setLoaded(true)}
-                            />
-                        )}
+                        <video
+                            ref={videoRef}
+                            src={asset.result_url}
+                            className="w-full h-full object-cover"
+                            // preload="auto" + onLoadedMetadata reveal: with
+                            // preload="metadata" + onLoadedData, the card stays
+                            // invisible forever for any mp4 whose moov atom is
+                            // at the END of the file (Replicate outputs aren't
+                            // muxed with +faststart). The browser stops after
+                            // the head, never finds the index, and neither
+                            // event fires. preload="auto" keeps fetching until
+                            // the index is found; onLoadedMetadata fires as
+                            // soon as it does. We also drop the opacity gate
+                            // entirely so the user at least sees a black tile
+                            // (with the Play badge overlay below) while bytes
+                            // are still arriving — never a phantom blank card.
+                            onLoadedMetadata={() => setLoaded(true)}
+                            muted
+                            loop
+                            playsInline
+                            preload="auto"
+                        />
                         <div className="absolute top-1.5 left-1.5 z-[1] flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm border border-white/15 shadow-sm pointer-events-none">
                             <Play className="w-2.5 h-2.5 text-white fill-white" />
                         </div>
