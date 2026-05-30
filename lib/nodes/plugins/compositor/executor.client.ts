@@ -82,9 +82,13 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
         canvasWidth = 1080,
         canvasHeight = 1080,
         layers = [],
-        outputFormat = 'png',
-        outputQuality = 1.0,
     } = config;
+    // Live-preview path always encodes WebP q0.9 regardless of the user's
+    // chosen outputFormat/outputQuality. Those are honored by the server
+    // executor for the final Run Workflow export. WebP preserves alpha
+    // (unlike JPEG) and is ~10-15x smaller than PNG q1.0, which is what
+    // bites every downstream consumer (blur/levels/AI generator each read
+    // and re-encode this string).
 
     if (!layers || layers.length === 0) return null;
 
@@ -191,10 +195,9 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
 
     if (!drewSomething) return null;
 
-    const mimeType = `image/${outputFormat}`;
     let dataUrl: string;
     try {
-        dataUrl = canvas.toDataURL(mimeType, outputQuality);
+        dataUrl = canvas.toDataURL('image/webp', 0.9);
     } catch (err) {
         // Cross-origin taint or other canvas read error.
         console.error('[compositorClientExecutor] toDataURL failed:', err);
@@ -207,7 +210,7 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
             url: dataUrl,
             resolution: { width: canvasWidth, height: canvasHeight },
             metadata: {
-                format: outputFormat,
+                format: 'webp',
                 source: 'Compositor',
                 processedBy: 'BrowserCanvas',
             },

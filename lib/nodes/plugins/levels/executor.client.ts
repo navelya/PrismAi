@@ -41,7 +41,9 @@ const computeLevelsDataUrl = async (
                 );
                 applyLutInPlace(imageData.data, lut);
                 ctx.putImageData(imageData, 0, 0);
-                resolve(canvas.toDataURL('image/png'));
+                // WebP q0.9: ~10-15x smaller than PNG q1.0, alpha preserved.
+                // Live preview only — final server export still goes through sharp.
+                resolve(canvas.toDataURL('image/webp', 0.9));
             } catch (e) {
                 console.error('[clientLevelsExecutor] Failed to process image (likely CORS taint):', e);
                 resolve(null);

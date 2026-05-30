@@ -38,7 +38,9 @@ export const clientBlurExecutor = async (
             ctx.filter = `blur(${sigma}px)`;
             ctx.drawImage(img, 0, 0);
             try {
-                const dataUrl = canvas.toDataURL('image/png');
+                // WebP q0.9: ~10-15x smaller than PNG q1.0, alpha preserved.
+                // Live preview only — final server export still goes through sharp.
+                const dataUrl = canvas.toDataURL('image/webp', 0.9);
                 resolve(dataUrl);
             } catch (e) {
                 console.error('[clientBlurExecutor] Failed to get data URL (likely CORS taint):', e);

@@ -8,9 +8,11 @@ import { GraphRenderCache, paintGraphFrame } from '../compositor/graph-renderer'
 /**
  * Browser-only Extract Frame executor.
  *
- * Bakes the chosen frame into a static PNG data URL — the same shape the server
- * produces — so downstream image consumers (compositor layer, ai_generator,
- * another filter) get a real image with no server round-trip.
+ * Bakes the chosen frame into a static WebP q0.9 data URL — alpha-preserving
+ * and ~10-15x smaller than PNG q1.0 — so downstream image consumers
+ * (compositor layer, ai_generator, another filter) get a real image with no
+ * server round-trip. Live-preview only; the final Run Workflow path uses
+ * sharp on the server.
  *
  * Three upstream shapes (mirrors blur's input handling):
  *   - live graph (compositor / filter): paint the graph at the chosen time onto
@@ -61,7 +63,7 @@ function extractVideoFrameToDataUrl(url: string, time: number): Promise<string |
                 const ctx = canvas.getContext('2d');
                 if (!ctx) return finish(null);
                 ctx.drawImage(video, 0, 0);
-                finish(canvas.toDataURL('image/png'));
+                finish(canvas.toDataURL('image/webp', 0.9));
             } catch (e) {
                 console.error('[extractFrameClientExecutor] Failed to snapshot video frame:', e);
                 finish(null);
@@ -115,7 +117,7 @@ function renderGraphFrameToDataUrl(graph: GraphDescription, time: number): Promi
 
             let dataUrl: string | null = null;
             try {
-                dataUrl = canvas.toDataURL('image/png');
+                dataUrl = canvas.toDataURL('image/webp', 0.9);
             } catch (e) {
                 console.error('[extractFrameClientExecutor] Failed to snapshot graph frame:', e);
                 dataUrl = null;
