@@ -322,6 +322,12 @@ function WebGLPreviewCanvas({
         return [r * a, g * a, b * a, a];
     }, [baseFill]);
 
+    // Read layerDescriptors via a ref so the rAF loop doesn't tear down and
+    // restart on every playhead tick (layerDescriptors is a memo whose deps
+    // include playhead, so it gets a new identity ~30×/sec during playback).
+    const layerDescriptorsRef = useRef(layerDescriptors);
+    layerDescriptorsRef.current = layerDescriptors;
+
     const settleDep = isPlaying ? '__playing__' : `${playhead.toFixed(3)}|${layerDescriptors.length}`;
     useEffect(() => {
         const comp = compositorRef.current;
@@ -330,7 +336,7 @@ function WebGLPreviewCanvas({
         let stopped = false;
         const tick = () => {
             if (stopped) return;
-            comp.render(layerDescriptors, baseFillRgba);
+            comp.render(layerDescriptorsRef.current, baseFillRgba);
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
@@ -340,7 +346,7 @@ function WebGLPreviewCanvas({
         const timer = setTimeout(() => { stopped = true; if (raf) cancelAnimationFrame(raf); }, WEBGL_SETTLE_MS);
         return () => { stopped = true; clearTimeout(timer); if (raf) cancelAnimationFrame(raf); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settleDep, layerDescriptors, baseFillRgba]);
+    }, [settleDep, baseFillRgba]);
 
     return (
         <canvas
@@ -512,6 +518,52 @@ function LivePreview({
     const imageSources = useImageLayerSources(partitioned.images);
     const textSources = useTextLayerSources(partitioned.texts);
     const subgraphSources = useSubgraphLayerSources(partitioned.subgraphs, playhead, isPlaying, poolKey, muted);
+
+    // Bridge WebGL source readiness to the parent's intrinsic-dimension hooks
+    // (Konva's <CompositorLayerNodes> fires these via LayerVideo/LayerImage in
+    // its render branch; the WebGL path skips that, so without this bridge the
+    // parent never learns about video duration / image dimensions and the
+    // first-layer auto-fit + timeline length both stay at their fallback
+    // defaults). Report once per (layerId, url) pair via a ref-tracked map so
+    // the callback re-fires only when the underlying source actually changes.
+    const reportedVideoRef = useRef<Map<string, string>>(new Map());
+    useEffect(() => {
+        if (!onLayerVideoLoad) return;
+        const reported = reportedVideoRef.current;
+        const currentIds = new Set(videoSources.keys());
+        for (const id of Array.from(reported.keys())) {
+            if (!currentIds.has(id)) reported.delete(id);
+        }
+        for (const [layerId, v] of videoSources) {
+            if (!v.ready) continue;
+            if (v.w === 0 || v.h === 0) continue;
+            const url = v.el.src || '';
+            if (reported.get(layerId) === url) continue;
+            reported.set(layerId, url);
+            onLayerVideoLoad(layerId, {
+                duration: v.el.duration || 0,
+                width: v.w,
+                height: v.h,
+            });
+        }
+    }, [videoSources, onLayerVideoLoad]);
+
+    const reportedImageRef = useRef<Map<string, string>>(new Map());
+    useEffect(() => {
+        if (!onLayerImageLoad) return;
+        const reported = reportedImageRef.current;
+        const currentIds = new Set(imageSources.keys());
+        for (const id of Array.from(reported.keys())) {
+            if (!currentIds.has(id)) reported.delete(id);
+        }
+        for (const [layerId, i] of imageSources) {
+            if (!i.ready) continue;
+            const url = i.el.src || '';
+            if (reported.get(layerId) === url) continue;
+            reported.set(layerId, url);
+            onLayerImageLoad(layerId, i.el);
+        }
+    }, [imageSources, onLayerImageLoad]);
 
     const layerDescriptors = useMemo<LayerDescriptor[]>(() => {
         const out: LayerDescriptor[] = [];
