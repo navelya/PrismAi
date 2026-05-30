@@ -232,20 +232,30 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
         if (canvas.width !== dims.width) canvas.width = Math.max(1, dims.width);
         if (canvas.height !== dims.height) canvas.height = Math.max(1, dims.height);
 
+        // Paint at 15fps. paintGraphFrame issues a main-thread
+        // drawImage(video, ...) per video layer; at 60Hz that starves the
+        // video decoder (prod-measured). The playhead still advances on
+        // real elapsed time, so playback timing stays exact — we just
+        // commit fewer paints per second.
         const dur = graphDuration(upstreamGraph);
+        const FRAME_MS = 1000 / 15;
         let stopped = false;
         let raf = 0;
         let live = playheadRef.current;
         let last = performance.now();
         let lastPush = last;
+        let lastPaint = 0;
         const tick = (now: number) => {
             if (stopped) return;
             const dt = (now - last) / 1000;
             last = now;
             live += dt;
             if (dur > 0 && live >= dur) live = 0;
-            const ctx = canvas.getContext('2d');
-            if (ctx) { cache.releaseAllScratch(); paintGraphFrame(upstreamGraph, live, ctx, cache, true); }
+            if (now - lastPaint >= FRAME_MS) {
+                lastPaint = now;
+                const ctx = canvas.getContext('2d');
+                if (ctx) { cache.releaseAllScratch(); paintGraphFrame(upstreamGraph, live, ctx, cache, true); }
+            }
             if (now - lastPush >= PLAYHEAD_THROTTLE_MS) { lastPush = now; setPlayhead(live); }
             raf = requestAnimationFrame(tick);
         };

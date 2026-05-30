@@ -763,15 +763,35 @@ export const CompositorAnimator = memo(function CompositorAnimator({
         const node = anchorRef.current;
         const konvaLayer = node?.getLayer?.();
         if (!konvaLayer) return;
-        // Empty callback: Konva.Animation marks the layer dirty every frame.
-        // Each redraw re-reads every <KonvaImage>'s `image` prop, which for
-        // pooled HTMLVideoElement sources means the current decoded frame
-        // gets painted naturally.
+        if (isPlaying) {
+            // Throttled to 15fps. Konva.Animation runs at the browser's
+            // display rate (~60Hz); each tick re-reads every <KonvaImage>'s
+            // `image` prop and (for pooled HTMLVideoElement sources) does
+            // an internal drawImage(video, ...) per layer on the main
+            // thread. At 60Hz that synchronous main-thread copy starves
+            // the video decoder and causes the visible playback stutter
+            // (verified in prod: skipping the per-frame draw flipped
+            // playback from 56%-smooth-with-stalls to 100% smooth).
+            // 15fps is the explicit lower bound where a live canvas mirror
+            // still reads as smooth for card-sized previews.
+            const FRAME_MS = 1000 / 15;
+            let raf = 0;
+            let last = 0;
+            const tick = (now: number) => {
+                if (now - last >= FRAME_MS) {
+                    last = now;
+                    konvaLayer.batchDraw();
+                }
+                raf = requestAnimationFrame(tick);
+            };
+            raf = requestAnimationFrame(tick);
+            return () => { cancelAnimationFrame(raf); };
+        }
+        // Paused: settle-burst at full rate so async video decode/seek
+        // lands cleanly, then idle. A paused compositor's scene is static,
+        // so repainting forever was pure waste.
         const anim = new Konva.Animation(() => {}, konvaLayer);
         anim.start();
-        if (isPlaying) {
-            return () => { anim.stop(); };
-        }
         const timer = setTimeout(() => anim.stop(), PAUSED_SETTLE_MS);
         return () => { clearTimeout(timer); anim.stop(); };
     }, [enabled, isPlaying, redrawKey]);
