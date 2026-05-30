@@ -381,7 +381,17 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     outline: `${selBorderWidth}px solid rgb(var(--accent-primary) / 0.2)`,
                     outlineOffset: '0'
                 }),
-                willChange: 'transform',
+                // No `willChange: 'transform'` here on purpose: that hint made
+                // Chromium pre-rasterize each card's composited layer at the
+                // viewport scale that was current AT MOUNT TIME, and never
+                // refresh it when react-flow's pan/zoom transform changed
+                // later. After page refresh, hydrated nodes were stuck at the
+                // initial-mount scale and rendered text/icons blurry; newly
+                // added nodes mounted post-zoom and looked crisp. Dropping the
+                // hint lets Chromium re-rasterize on zoom changes. The
+                // .react-flow__node wrapper already has its own transform (and
+                // thus its own composited layer) for positioning, so drag
+                // performance doesn't regress.
                 ...propsStyle
             }}
             {...props}

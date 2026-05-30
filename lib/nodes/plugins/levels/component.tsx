@@ -2,7 +2,6 @@
 
 import React, { memo, useState, useMemo, useCallback, useEffect } from 'react';
 import { NodeProps } from 'reactflow';
-import { motion } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
@@ -203,8 +202,7 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
             style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
             customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
-            <motion.div
-                layout={!isDragging ? 'size' : false}
+            <div
                 className={cn(
                     'relative w-full rounded-xl overflow-hidden shadow-inner group/node border border-white/10 bg-white/5 min-h-[200px]',
                     !isDragging && 'transition-all duration-500',
@@ -262,7 +260,7 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
                         </filter>
                     </defs>
                 </svg>
-            </motion.div>
+            </div>
 
             <div className="mt-3 px-1 pb-1 flex flex-col gap-1.5">
                 <SliderRow

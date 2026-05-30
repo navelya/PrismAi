@@ -13,6 +13,13 @@ interface MiniTransportProps {
     onTogglePlay: () => void;
     onSeek: (t: number) => void;
     onToggleMute: () => void;
+    /**
+     * Optional absolute-frame readout shown inline next to the timecode.
+     * Shared between the compositor card and the extract_frame node so both
+     * present the same "[timecode] frame N / total" display.
+     */
+    frameNumber?: number;
+    totalFrames?: number;
 }
 
 /**
@@ -35,6 +42,8 @@ const MiniTransport = memo(function MiniTransport({
     onTogglePlay,
     onSeek,
     onToggleMute,
+    frameNumber,
+    totalFrames,
 }: MiniTransportProps) {
     const trackRef = useRef<HTMLDivElement>(null);
     const draggingRef = useRef(false);
@@ -138,13 +147,19 @@ const MiniTransport = memo(function MiniTransport({
                 />
             </div>
 
-            {/* Controls row */}
-            <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[9px] tabular-nums text-white/60 min-w-[54px]">
-                    {formatTimecode(playhead, fps)}
-                </span>
+            {/* Controls row. Both side groups are flex-1 so the play controls
+                stay pinned to the true center of the card width regardless of how
+                wide the timecode (left) or frame+mute (right) groups get. */}
+            <div className="flex items-center gap-2">
+                {/* Left: timecode */}
+                <div className="flex-1 flex items-center min-w-0">
+                    <span className="font-mono text-[9px] tabular-nums text-white/60 whitespace-nowrap">
+                        {formatTimecode(playhead, fps)}
+                    </span>
+                </div>
 
-                <div className="flex items-center gap-0.5">
+                {/* Center: transport — centered in the node width */}
+                <div className="flex items-center gap-0.5 shrink-0">
                     <button
                         onClick={stepBack}
                         className="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors"
@@ -168,13 +183,21 @@ const MiniTransport = memo(function MiniTransport({
                     </button>
                 </div>
 
-                <button
-                    onClick={(e) => { e.stopPropagation(); onToggleMute(); }}
-                    className="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors"
-                    title={muted ? 'Unmute' : 'Mute'}
-                >
-                    {muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                </button>
+                {/* Right: frame readout (sits between play and mute) + mute */}
+                <div className="flex-1 flex items-center justify-end gap-1.5 min-w-0">
+                    {typeof frameNumber === 'number' && (
+                        <span className="font-mono text-[9px] tabular-nums text-accent-primary/70 whitespace-nowrap">
+                            frame {frameNumber}{totalFrames && totalFrames > 0 ? ` / ${totalFrames}` : ''}
+                        </span>
+                    )}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleMute(); }}
+                        className="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors shrink-0"
+                        title={muted ? 'Unmute' : 'Mute'}
+                    >
+                        {muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                    </button>
+                </div>
             </div>
         </div>
     );

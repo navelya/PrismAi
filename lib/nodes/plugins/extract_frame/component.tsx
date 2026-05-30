@@ -2,7 +2,6 @@
 
 import React, { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { NodeProps, useUpdateNodeInternals } from 'reactflow';
-import { motion } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
@@ -352,8 +351,7 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
             style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
             customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
-            <motion.div
-                layout={!isDragging ? 'size' : false}
+            <div
                 className={cn(
                     'relative w-full rounded-xl overflow-hidden shadow-inner group/node border border-white/10 bg-white/5 min-h-[200px]',
                     !isDragging && 'transition-all duration-500',
@@ -396,9 +394,9 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
                         <div className="text-xs font-medium px-4 text-center">Connect a video</div>
                     </div>
                 )}
-            </motion.div>
+            </div>
 
-            {/* Video-player transport + seconds / frame readout. The frame you
+            {/* Video-player transport with inline frame readout. The frame you
                 pause on is the frame that gets extracted. */}
             {showTransport && (
                 <div className="mt-2">
@@ -406,18 +404,14 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
                         playhead={playhead}
                         totalDuration={totalDuration}
                         fps={fps}
+                        frameNumber={frameNumber}
+                        totalFrames={totalFrames}
                         isPlaying={isPlaying}
                         muted={muted}
                         onTogglePlay={handleTogglePlay}
                         onSeek={handleSeek}
                         onToggleMute={() => setMuted((m) => !m)}
                     />
-                    <div className="flex items-center justify-between px-3 pb-1 font-mono text-[9px] tabular-nums text-white/40">
-                        <span>{Math.max(0, playhead).toFixed(2)}s</span>
-                        <span className="text-accent-primary/70">
-                            frame {frameNumber}{totalFrames > 0 ? ` / ${totalFrames}` : ''}
-                        </span>
-                    </div>
                 </div>
             )}
 

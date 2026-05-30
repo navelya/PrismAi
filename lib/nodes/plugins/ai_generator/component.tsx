@@ -278,8 +278,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             isNew={(data as any).isNew}
             customActions={canDownload ? <CardDownloadButton state={downloadState} onClick={handleDownload} /> : undefined}
         >
-            <motion.div
-                layout={!isDragging && activeType !== 'text' ? "size" : false}
+            <div
                 className={cn(
                     "relative w-full rounded-xl overflow-hidden shadow-inner group/node min-h-[200px]",
                     activeType === 'text' ? "bg-transparent border-none" : "border border-white/10 bg-white/5",
@@ -370,7 +369,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                         </button>
                     </div>
                 )}
-            </motion.div>
+            </div>
 
             {/* Model Info Footer (Refined) */}
             {selectedModel && (
