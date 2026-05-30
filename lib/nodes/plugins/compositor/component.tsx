@@ -21,16 +21,7 @@ import {
     GraphLayer,
     GraphLayerSource,
     resolveCompositeBaseFill,
-    isLayerActiveAt,
 } from './shared';
-import { WebGLCardCompositor } from './webgl/compositor';
-import {
-    useVideoLayerSources,
-    useImageLayerSources,
-    useTextLayerSources,
-    useSubgraphLayerSources,
-} from './webgl/sources';
-import { BlendMode, LayerDescriptor, LayerSource } from './webgl/types';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { registerDownloadHandler, unregisterDownloadHandler, getDownloadHandler } from '@/lib/workflow/download-registry';
@@ -264,98 +255,6 @@ function maxPreviewDpr(): number {
     return Math.min(window.devicePixelRatio || 1, 2);
 }
 
-// 'webgl' is the card preview's renderer. Konva remains reachable as the
-// fallback for debugging / A/B comparison via:
-//   localStorage.prismCompositorRenderer = 'konva'
-function cardRendererMode(): 'konva' | 'webgl' {
-    if (typeof window === 'undefined') return 'webgl';
-    try {
-        return window.localStorage.getItem('prismCompositorRenderer') === 'konva'
-            ? 'konva' : 'webgl';
-    } catch {
-        return 'webgl';
-    }
-}
-
-const WEBGL_SETTLE_MS = 800;
-
-function WebGLPreviewCanvas({
-    canvasWidth, canvasHeight, previewPixelRatio, layerDescriptors, baseFill, isPlaying, playhead,
-}: {
-    canvasWidth: number; canvasHeight: number; previewPixelRatio: number;
-    layerDescriptors: LayerDescriptor[]; baseFill: string | null;
-    isPlaying: boolean; playhead: number;
-}) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const compositorRef = useRef<WebGLCardCompositor | null>(null);
-
-    useEffect(() => {
-        const c = canvasRef.current;
-        if (!c) return;
-        try {
-            compositorRef.current = new WebGLCardCompositor(c);
-        } catch (err) {
-            console.error('[compositor:webgl] init failed', err);
-            return;
-        }
-        return () => {
-            compositorRef.current?.dispose();
-            compositorRef.current = null;
-        };
-    }, []);
-
-    useEffect(() => {
-        const comp = compositorRef.current;
-        if (!comp) return;
-        const W = Math.round(canvasWidth * previewPixelRatio);
-        const H = Math.round(canvasHeight * previewPixelRatio);
-        comp.setSize(W, H);
-    }, [canvasWidth, canvasHeight, previewPixelRatio]);
-
-    const baseFillRgba = useMemo<[number, number, number, number]>(() => {
-        if (!baseFill) return [0, 0, 0, 0];
-        const hex = baseFill.replace('#', '');
-        const r = parseInt(hex.substring(0, 2), 16) / 255;
-        const g = parseInt(hex.substring(2, 4), 16) / 255;
-        const b = parseInt(hex.substring(4, 6), 16) / 255;
-        const a = hex.length >= 8 ? parseInt(hex.substring(6, 8), 16) / 255 : 1;
-        return [r * a, g * a, b * a, a];
-    }, [baseFill]);
-
-    // Read layerDescriptors via a ref so the rAF loop doesn't tear down and
-    // restart on every playhead tick (layerDescriptors is a memo whose deps
-    // include playhead, so it gets a new identity ~30×/sec during playback).
-    const layerDescriptorsRef = useRef(layerDescriptors);
-    layerDescriptorsRef.current = layerDescriptors;
-
-    const settleDep = isPlaying ? '__playing__' : `${playhead.toFixed(3)}|${layerDescriptors.length}`;
-    useEffect(() => {
-        const comp = compositorRef.current;
-        if (!comp) return;
-        let raf = 0;
-        let stopped = false;
-        const tick = () => {
-            if (stopped) return;
-            comp.render(layerDescriptorsRef.current, baseFillRgba);
-            raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        if (isPlaying) {
-            return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
-        }
-        const timer = setTimeout(() => { stopped = true; if (raf) cancelAnimationFrame(raf); }, WEBGL_SETTLE_MS);
-        return () => { stopped = true; clearTimeout(timer); if (raf) cancelAnimationFrame(raf); };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settleDep, baseFillRgba]);
-
-    return (
-        <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full"
-        />
-    );
-}
-
 /**
  * Auto-scaling Konva preview. The container's measured width drives a single
  * scale factor; layers render unscaled inside a scaled <Group>. The preview
@@ -435,7 +334,6 @@ function LivePreview({
         loggedResRef.current = true;
         console.log('[compositor:preview-res]', {
             mode: previewResCapped() ? 'capped' : 'full',
-            renderer: cardRendererMode(),
             display: `${Math.round(size.width)}×${Math.round(size.height)}`,
             backing: `${Math.round(size.width * previewPixelRatio)}×${Math.round(size.height * previewPixelRatio)}`,
             source: `${canvasWidth}×${canvasHeight}`,
@@ -481,153 +379,6 @@ function LivePreview({
     }, [renderable]);
     const masterUrl = master?.url ?? null;
     const masterStartTime = master?.startTime ?? 0;
-
-    // --- WebGL path: partition renderable by kind -------------------------
-    const partitioned = useMemo(() => {
-        const videos: { layer: CompositorLayer; url: string; isActive: boolean }[] = [];
-        const images: { layer: CompositorLayer; url: string }[] = [];
-        const texts: { layer: CompositorLayer; text: string }[] = [];
-        const subgraphs: { layer: CompositorLayer; graph: GraphDescription }[] = [];
-        for (const r of renderable) {
-            const resolved: any = r.resolved;
-            if (resolved === null || resolved === undefined) continue;
-            if (typeof resolved === 'string') {
-                texts.push({ layer: r.layer, text: resolved });
-                continue;
-            }
-            if (typeof resolved !== 'object') continue;
-            if (resolved.graph) {
-                subgraphs.push({ layer: r.layer, graph: resolved.graph });
-                continue;
-            }
-            const url = typeof resolved.url === 'string' ? resolved.url : null;
-            if (!url) continue;
-            const kind = detectSourceKindFromUrl(url);
-            if (kind === 'video') {
-                const intrinsic = intrinsicDurations[r.layer.id] ?? null;
-                const isActive = isLayerActiveAt(r.layer, 'video', intrinsic, playhead);
-                videos.push({ layer: r.layer, url, isActive });
-            } else if (kind === 'image') {
-                images.push({ layer: r.layer, url });
-            }
-        }
-        return { videos, images, texts, subgraphs };
-    }, [renderable, intrinsicDurations, playhead]);
-
-    const videoSources = useVideoLayerSources(partitioned.videos, poolKey, isPlaying, muted);
-    const imageSources = useImageLayerSources(partitioned.images);
-    const textSources = useTextLayerSources(partitioned.texts);
-    const subgraphSources = useSubgraphLayerSources(partitioned.subgraphs, playhead, isPlaying, poolKey, muted);
-
-    // Bridge WebGL source readiness to the parent's intrinsic-dimension hooks
-    // (Konva's <CompositorLayerNodes> fires these via LayerVideo/LayerImage in
-    // its render branch; the WebGL path skips that, so without this bridge the
-    // parent never learns about video duration / image dimensions and the
-    // first-layer auto-fit + timeline length both stay at their fallback
-    // defaults). Report once per (layerId, url) pair via a ref-tracked map so
-    // the callback re-fires only when the underlying source actually changes.
-    const reportedVideoRef = useRef<Map<string, string>>(new Map());
-    useEffect(() => {
-        if (!onLayerVideoLoad) return;
-        const reported = reportedVideoRef.current;
-        const currentIds = new Set(videoSources.keys());
-        for (const id of Array.from(reported.keys())) {
-            if (!currentIds.has(id)) reported.delete(id);
-        }
-        for (const [layerId, v] of videoSources) {
-            if (!v.ready) continue;
-            if (v.w === 0 || v.h === 0) continue;
-            const url = v.el.src || '';
-            if (reported.get(layerId) === url) continue;
-            reported.set(layerId, url);
-            onLayerVideoLoad(layerId, {
-                duration: v.el.duration || 0,
-                width: v.w,
-                height: v.h,
-            });
-        }
-    }, [videoSources, onLayerVideoLoad]);
-
-    const reportedImageRef = useRef<Map<string, string>>(new Map());
-    useEffect(() => {
-        if (!onLayerImageLoad) return;
-        const reported = reportedImageRef.current;
-        const currentIds = new Set(imageSources.keys());
-        for (const id of Array.from(reported.keys())) {
-            if (!currentIds.has(id)) reported.delete(id);
-        }
-        for (const [layerId, i] of imageSources) {
-            if (!i.ready) continue;
-            const url = i.el.src || '';
-            if (reported.get(layerId) === url) continue;
-            reported.set(layerId, url);
-            onLayerImageLoad(layerId, i.el);
-        }
-    }, [imageSources, onLayerImageLoad]);
-
-    const layerDescriptors = useMemo<LayerDescriptor[]>(() => {
-        const out: LayerDescriptor[] = [];
-        // Iterate in DRAW order (bottom-to-top → reverse z-order; mirrors Konva's reverse() in CompositorLayerNodes).
-        const ordered = [...renderable].reverse();
-        for (const r of ordered) {
-            if (!r.layer.visible) continue;
-            const intrinsic = intrinsicDurations[r.layer.id] ?? null;
-            const resolved: any = r.resolved;
-            if (resolved === null || resolved === undefined) continue;
-
-            let source: LayerSource | null = null;
-            let w = 0, h = 0;
-
-            if (typeof resolved === 'string') {
-                const t = textSources.get(r.layer.id);
-                if (!t || !t.ready) continue;
-                if (!isLayerActiveAt(r.layer, 'text', intrinsic, playhead)) continue;
-                source = { kind: 'canvas', el: t.el, version: t.version };
-                w = t.w; h = t.h;
-            } else if (resolved.graph) {
-                const s = subgraphSources.get(r.layer.id);
-                if (!s || !s.ready) continue;
-                source = { kind: 'canvas', el: s.el, version: s.version };
-                w = s.w; h = s.h;
-            } else {
-                const url = typeof resolved.url === 'string' ? resolved.url : null;
-                if (!url) continue;
-                const kind = detectSourceKindFromUrl(url);
-                if (kind === 'video') {
-                    if (!isLayerActiveAt(r.layer, 'video', intrinsic, playhead)) continue;
-                    const v = videoSources.get(r.layer.id);
-                    if (!v || !v.ready) continue;
-                    source = { kind: 'video', el: v.el };
-                    w = v.w; h = v.h;
-                } else if (kind === 'image') {
-                    if (!isLayerActiveAt(r.layer, 'image', intrinsic, playhead)) continue;
-                    const i = imageSources.get(r.layer.id);
-                    if (!i || !i.ready) continue;
-                    source = { kind: 'image', el: i.el };
-                    w = i.w; h = i.h;
-                }
-            }
-            if (!source) continue;
-
-            const t = r.layer.transform;
-            out.push({
-                id: r.layer.id,
-                source,
-                sourceWidth: w,
-                sourceHeight: h,
-                transform: {
-                    x: t.x, y: t.y, width: t.width, height: t.height,
-                    rotation: t.rotation || 0,
-                    flipX: !!t.flipX, flipY: !!t.flipY,
-                    opacity: t.opacity ?? 1,
-                    blendMode: ((t.blendMode as BlendMode) || 'source-over'),
-                    crop: t.crop ?? null,
-                },
-            });
-        }
-        return out;
-    }, [renderable, intrinsicDurations, playhead, videoSources, imageSources, textSources, subgraphSources]);
-    // --- end WebGL path ---------------------------------------------------
 
     const [masterEl, setMasterEl] = useState<HTMLVideoElement | null>(null);
     useEffect(() => {
@@ -767,17 +518,7 @@ function LivePreview({
              * `transform: scale` on the Stage container instead; Konva managing
              * width/height on its own container made that layer brittle.
              */}
-            {scale > 0 && cardRendererMode() === 'webgl' ? (
-                <WebGLPreviewCanvas
-                    canvasWidth={canvasWidth}
-                    canvasHeight={canvasHeight}
-                    previewPixelRatio={previewPixelRatio}
-                    layerDescriptors={layerDescriptors}
-                    baseFill={baseFill}
-                    isPlaying={isPlaying}
-                    playhead={playhead}
-                />
-            ) : scale > 0 ? (
+            {scale > 0 && (
                 <Stage
                     ref={stageRef}
                     width={size.width}
@@ -803,7 +544,7 @@ function LivePreview({
                         </Group>
                     </Layer>
                 </Stage>
-            ) : null}
+            )}
         </div>
     );
 }
