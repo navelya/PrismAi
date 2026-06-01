@@ -12,6 +12,120 @@ import {
     hasTemporalContent,
 } from './shared';
 
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 } as const;
+
+/**
+ * A layer's resolved input is either a media URL (image/video to fetch) or a
+ * raw string from an upstream Prompt/Text node. Anything that begins with an
+ * http(s)/data/blob scheme is treated as media; everything else is text.
+ *
+ * Prompt text never carries a URL scheme, so this cleanly separates the two
+ * without needing a separate per-layer "type" field (the compositor model has
+ * none — a layer is whatever its wire resolves to; see definition.ts).
+ */
+function isMediaUrl(value: string): boolean {
+    return /^(https?:|data:|blob:)/i.test(value.trim());
+}
+
+function escapePangoText(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/** Pango's foreground wants #rrggbb — drop any 8-digit alpha suffix. */
+function normalizeHex(color: string | undefined): string {
+    const v = (color || '#ffffff').trim();
+    const m = /^#([0-9a-fA-F]{8})$/.exec(v);
+    return m ? `#${m[1].slice(0, 6)}` : v;
+}
+
+/**
+ * Rasterize a text layer to a transparent `boxW×boxH` RGBA PNG buffer using
+ * libvips/Pango (bundled with sharp — see `sharp.versions.pango`). The text is
+ * wrapped to the layer's box width, horizontally aligned, and vertically
+ * centered inside the box, so a text layer composites EXACTLY like an image
+ * layer of the same transform size. This mirrors the editor's Konva text box
+ * (Renderer.tsx `LayerText`: width/height box, align, verticalAlign:'middle',
+ * default fontSize 48 / family Inter / style bold / fill #ffffff).
+ *
+ * Font-fidelity caveat: rendering uses whatever font fontconfig resolves for
+ * the requested family on the server. If the family (e.g. "Inter") isn't
+ * installed, Pango falls back to a default sans — the text still renders, the
+ * face may differ from the editor. letterSpacing/lineHeight are approximated
+ * via Pango's letter_spacing/spacing.
+ */
+async function renderTextLayerToBuffer(
+    layer: CompositorLayer,
+    text: string,
+    canvasW: number,
+    canvasH: number,
+): Promise<Buffer | null> {
+    const t = layer.transform || ({} as any);
+    const boxW = Math.max(1, Math.round(t.width || canvasW));
+    const boxH = Math.max(1, Math.round(t.height || canvasH));
+    const fontSize = Math.max(1, Math.round(t.fontSize || 48));
+    const family = (t.fontFamily || 'Inter').trim();
+
+    // Konva stores weight/style in `fontStyle` ('bold' | 'italic' |
+    // 'bold italic' | 'normal'), defaulting to 'bold'; LayerTransform also
+    // carries `fontWeight`. Fold both into a Pango font description:
+    // "<Family> [Italic] [Bold] <size>".
+    const rawStyle = (t.fontStyle ?? 'bold').toString().toLowerCase();
+    const rawWeight = (t.fontWeight ?? '').toString().toLowerCase();
+    const italic = rawStyle.includes('italic') || rawWeight.includes('italic');
+    const bold = rawStyle.includes('bold') || /(^|\s)(bold|600|700|800|900)(\s|$)/.test(rawWeight);
+    const fontDesc = `${family}${italic ? ' Italic' : ''}${bold ? ' Bold' : ''} ${fontSize}`;
+
+    const align: 'left' | 'centre' | 'right' =
+        t.textAlign === 'left' ? 'left' : t.textAlign === 'right' ? 'right' : 'centre';
+
+    const letterSpacingUnits = Math.round((t.letterSpacing || 0) * 1024); // Pango units = 1/1024 pt
+    const lineSpacingPx = Math.max(0, Math.round(((t.lineHeight || 1.2) - 1) * fontSize));
+
+    const spanAttrs = [`foreground="${normalizeHex(t.fillColor)}"`];
+    if (letterSpacingUnits) spanAttrs.push(`letter_spacing="${letterSpacingUnits}"`);
+    const markup = `<span ${spanAttrs.join(' ')}>${escapePangoText(text)}</span>`;
+
+    let textBuf: Buffer;
+    try {
+        textBuf = await sharp({
+            text: {
+                text: markup,
+                font: fontDesc,
+                rgba: true,
+                width: boxW,
+                align,
+                spacing: lineSpacingPx,
+            },
+        }).png().toBuffer();
+    } catch (err) {
+        console.error(`[CompositorExecutor] text rasterization failed for layer ${layer.name}:`, err);
+        return null;
+    }
+
+    const tmeta = await sharp(textBuf).metadata();
+    const tw = Math.min(boxW, tmeta.width || boxW);
+    const th = Math.min(boxH, tmeta.height || fontSize);
+
+    // Place inside the box: align horizontally, center vertically
+    // (verticalAlign:'middle'). Clamp to >=0 since sharp.composite rejects
+    // negative offsets — over-tall/over-wide text clips at the box edge,
+    // matching Konva's box clipping.
+    const left = align === 'right' ? boxW - tw : align === 'centre' ? Math.round((boxW - tw) / 2) : 0;
+    const top = Math.round((boxH - th) / 2);
+
+    return sharp({
+        create: { width: boxW, height: boxH, channels: 4, background: TRANSPARENT },
+    })
+        .composite([{ input: textBuf, left: Math.max(0, left), top: Math.max(0, top) }])
+        .png()
+        .toBuffer();
+}
+
 /**
  * Compositor server executor (Stage 1 temporal-aware).
  *
@@ -98,25 +212,38 @@ async function runStillComposite(
     const layerResults = await Promise.all(
         layers.map(async (layer) => {
             if (!layer.visible) return null;
-            const imageUrl = inputs[layer.sourceHandleId];
-            if (!imageUrl || typeof imageUrl !== 'string') return null;
+            const source = inputs[layer.sourceHandleId];
+            if (!source || typeof source !== 'string') return null;
+
+            const tf = layer.transform || ({} as any);
+            const targetW = Math.max(1, Math.round(tf.width || width));
+            const targetH = Math.max(1, Math.round(tf.height || height));
+            const rotation = tf.rotation || 0;
 
             try {
-                const response = await fetch(imageUrl);
-                if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-                const inputBuffer = Buffer.from(await response.arrayBuffer());
-                const tf = layer.transform || ({} as any);
-                const targetW = Math.max(1, Math.round(tf.width || width));
-                const targetH = Math.max(1, Math.round(tf.height || height));
-                const rotation = tf.rotation || 0;
-
-                let imgSharp = sharp(inputBuffer).resize(targetW, targetH, { fit: 'fill' });
-                if (tf.flipX) imgSharp = imgSharp.flop();
-                if (tf.flipY) imgSharp = imgSharp.flip();
-                if (rotation !== 0) {
-                    imgSharp = imgSharp.rotate(rotation, { background: { r: 0, g: 0, b: 0, alpha: 0 } });
+                // A layer is either media (fetchable URL) or a Prompt/Text
+                // string. Text is rasterized to a box-sized PNG so it goes
+                // through the same flip/rotate/composite path as an image —
+                // previously a text layer fell into fetch() below, threw, and
+                // was silently dropped, so it never reached the AI node.
+                let layerSharp: sharp.Sharp;
+                if (isMediaUrl(source)) {
+                    const response = await fetch(source);
+                    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+                    const inputBuffer = Buffer.from(await response.arrayBuffer());
+                    layerSharp = sharp(inputBuffer).resize(targetW, targetH, { fit: 'fill' });
+                } else {
+                    const textBox = await renderTextLayerToBuffer(layer, source, width, height);
+                    if (!textBox) return null;
+                    layerSharp = sharp(textBox);
                 }
-                const processedBuffer = await imgSharp.toBuffer();
+
+                if (tf.flipX) layerSharp = layerSharp.flop();
+                if (tf.flipY) layerSharp = layerSharp.flip();
+                if (rotation !== 0) {
+                    layerSharp = layerSharp.rotate(rotation, { background: TRANSPARENT });
+                }
+                const processedBuffer = await layerSharp.toBuffer();
                 return {
                     input: processedBuffer,
                     left: Math.round(tf.x || 0),
@@ -132,7 +259,14 @@ async function runStillComposite(
     const overlays = layerResults.filter(
         (o): o is { input: Buffer; left: number; top: number } => o !== null,
     );
-    if (overlays.length > 0) baseCanvas = baseCanvas.composite(overlays);
+    // Z-order: array[0] is the TOP layer (matches the Konva editor and the
+    // graph renderer, which reverse before drawing — see graph-renderer.ts
+    // "array[0] is on top", and the temporal path below which reverses too).
+    // Sharp composites in array order with the LAST entry painted on top, so
+    // reverse here. Without this, array[0] (the layer the user put on top, e.g.
+    // a logo or text) was composited at the BOTTOM and buried under the
+    // full-canvas base image — the exact "only the base image survived" bug.
+    if (overlays.length > 0) baseCanvas = baseCanvas.composite([...overlays].reverse());
 
     let finalBuffer: Buffer;
     let contentType: string;
@@ -250,6 +384,32 @@ export async function renderCompositorVideo(
                 layerDiagnostics.push({ layerName: layer.name, url: undefined, urlKind: 'unknown', skipped: 'no-input-url' });
                 continue;
             }
+
+            // Text layer (Prompt/Text string, no URL scheme). Rasterize it to a
+            // box-sized PNG and feed it into the overlay graph as an image —
+            // otherwise it classified as 'unknown' below and was dropped as
+            // `unsupported-kind:text`, so text never appeared in video output.
+            if (!isMediaUrl(url)) {
+                const textBox = await renderTextLayerToBuffer(layer, url, width, height);
+                if (!textBox) {
+                    layerDiagnostics.push({ layerName: layer.name, url: '(text)', urlKind: 'text', skipped: 'text-render-empty' });
+                    continue;
+                }
+                const inputPath = path.join(tmpDir, `in_${i}.png`);
+                await fs.writeFile(inputPath, textBox);
+                layerDiagnostics.push({ layerName: layer.name, url: '(text)', urlKind: 'text', finalKind: 'image' });
+                processed.push({
+                    layer,
+                    inputPath,
+                    sourceKind: 'text',
+                    intrinsicDuration: 0,
+                    effectiveDuration: 0, // filled below once we know the timeline total
+                    startTime: Math.max(0, layer.startTime || 0),
+                    hasAudio: false,
+                });
+                continue;
+            }
+
             let kind: 'video' | 'image' | 'text' | 'unknown' = detectSourceKindFromUrl(url);
 
             // Content-Type fallback: when the URL doesn't carry a recognizable

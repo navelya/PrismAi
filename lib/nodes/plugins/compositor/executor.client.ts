@@ -61,6 +61,43 @@ const loadVideoFirstFrame = (src: string): Promise<HTMLVideoElement> =>
     });
 
 /**
+ * Draw a text layer onto the live-preview canvas. Mirrors the editor's Konva
+ * text (Renderer.tsx `LayerText`) and the graph renderer's `drawTextLayer`:
+ * same box transform, alignment, middle baseline, and bold/Inter/48px/#fff
+ * defaults. Single-line vanilla `fillText` — multi-line wrap + letterSpacing
+ * are not replicated here (same trade-off the graph renderer documents); the
+ * server executor handles wrapping for the final render.
+ */
+const drawTextLayerOnCanvas = (
+    ctx: CanvasRenderingContext2D,
+    layer: { transform: any },
+    text: string,
+): void => {
+    const t = layer.transform;
+    const w = Math.max(1, t.width);
+    const h = Math.max(1, t.height);
+    const fontSize = t.fontSize || 48;
+    const fontStyle = t.fontStyle || 'bold';
+    const fontFamily = t.fontFamily || 'Inter';
+
+    ctx.save();
+    ctx.globalAlpha = t.opacity ?? 1;
+    if (t.blendMode) ctx.globalCompositeOperation = t.blendMode as GlobalCompositeOperation;
+    ctx.translate(t.x + w / 2, t.y + h / 2);
+    if (t.rotation) ctx.rotate((t.rotation * Math.PI) / 180);
+    if (t.flipX || t.flipY) ctx.scale(t.flipX ? -1 : 1, t.flipY ? -1 : 1);
+    ctx.translate(-w / 2, -h / 2);
+
+    ctx.font = `${fontStyle} ${fontSize}px ${fontFamily}`;
+    ctx.fillStyle = t.fillColor || '#ffffff';
+    ctx.textAlign = (t.textAlign as CanvasTextAlign) || 'center';
+    ctx.textBaseline = 'middle';
+    const x = t.textAlign === 'left' ? 0 : t.textAlign === 'right' ? w : w / 2;
+    ctx.fillText(text, x, h / 2);
+    ctx.restore();
+};
+
+/**
  * Browser-only Compositor executor used by useNodeAutoCompute.
  *
  * Mirrors the canvas branch of [executor.ts](executor.ts) but lives in a
@@ -127,7 +164,12 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
 
     let drewSomething = false;
 
-    for (const layer of layers) {
+    // Z-order: array[0] is the TOP layer (matches the Konva editor + graph
+    // renderer, which reverse before drawing). Canvas paints later draws on
+    // top, so iterate reversed — array[0] painted last lands on top. Without
+    // this the preview buried the top layers under the base image, the same
+    // inversion the server still path had.
+    for (const layer of [...layers].reverse()) {
         if (!layer.visible) continue;
 
         const rawUpstream = inputs[layer.sourceHandleId];
@@ -137,6 +179,19 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
         // ImageObject, or an array of ImageObjects — toLegacyRenderableOutput
         // collapses all three to a consistent shape.
         const normalized = toLegacyRenderableOutput(rawUpstream);
+
+        // Text layer: a Prompt/Text node resolves to a plain string. Draw it
+        // with the editor's text box/align/baseline so the downstream preview
+        // matches the canvas — previously these had no `.url` and were skipped.
+        const asText = typeof normalized === 'string' ? normalized : null;
+        if (asText !== null) {
+            if (asText.trim().length > 0) {
+                drawTextLayerOnCanvas(ctx, layer, asText);
+                drewSomething = true;
+            }
+            continue;
+        }
+
         const sourceArray: ImageObject[] = Array.isArray(normalized)
             ? normalized
             : [normalized];
