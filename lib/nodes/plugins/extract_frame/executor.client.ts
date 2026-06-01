@@ -102,19 +102,19 @@ function renderGraphFrameToDataUrl(graph: GraphDescription, time: number): Promi
 
         const cache = new GraphRenderCache(`extract_frame_exec_${Math.random().toString(36).slice(2)}`);
         const start = performance.now();
+        // Snapshotting after a blind GRAPH_SETTLE_MS captured a black/empty
+        // frame whenever the upstream graph's media hadn't decoded yet — and
+        // here that empty frame becomes the node's persisted OUTPUT, not just a
+        // preview. Wait until paintGraphFrame reports the frame is COMPLETE
+        // (all media ready), then a short settle so a freshly seeked video
+        // frame lands, then snapshot. MAX_WAIT_MS caps the wait so a
+        // never-loading source resolves with whatever painted instead of
+        // hanging the execution forever.
+        const MAX_WAIT_MS = 15000;
         let raf = 0;
+        let completeAt = -1;
 
-        const tick = (now: number) => {
-            cache.releaseAllScratch();
-            // isPlaying=false → the renderer seeks each layer to its local time
-            // at `time` and holds (no playhead advance).
-            paintGraphFrame(graph, time, ctx, cache, false);
-
-            if (now - start < GRAPH_SETTLE_MS) {
-                raf = requestAnimationFrame(tick);
-                return;
-            }
-
+        const snapshot = () => {
             let dataUrl: string | null = null;
             try {
                 dataUrl = canvas.toDataURL('image/webp', 0.9);
@@ -125,6 +125,20 @@ function renderGraphFrameToDataUrl(graph: GraphDescription, time: number): Promi
             if (raf) cancelAnimationFrame(raf);
             cache.dispose();
             resolve(dataUrl);
+        };
+
+        const tick = (now: number) => {
+            cache.releaseAllScratch();
+            // isPlaying=false → the renderer seeks each layer to its local time
+            // at `time` and holds (no playhead advance).
+            const complete = paintGraphFrame(graph, time, ctx, cache, false);
+
+            if (complete) {
+                if (completeAt < 0) completeAt = now;
+                if (now - completeAt >= GRAPH_SETTLE_MS) { snapshot(); return; }
+            }
+            if (now - start >= MAX_WAIT_MS) { snapshot(); return; }
+            raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
     });

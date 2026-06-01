@@ -527,30 +527,60 @@ const LayerSubgraph = memo(function LayerSubgraph({
         const c = offscreenRef.current;
         const cache = cacheRef.current;
         if (!c || !cache) return;
+        const ctx = c.getContext('2d');
         let stopped = false;
         let raf = 0;
-        const draw = () => {
+
+        // While PLAYING the subgraph animates every frame; CompositorAnimator
+        // owns the Stage blit. Run uncapped until the effect tears down.
+        if (isPlaying) {
+            const draw = () => {
+                if (stopped) return;
+                if (ctx) {
+                    cache.releaseAllScratch();
+                    paintGraphFrame(graph, playheadRef.current, ctx, cache, true, mutedRef.current);
+                }
+                raf = requestAnimationFrame(draw);
+            };
+            raf = requestAnimationFrame(draw);
+            return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
+        }
+
+        // PAUSED: the scene is static, so we must NOT repaint forever (that
+        // pegged the GPU and stuttered the whole canvas). But a fixed-length
+        // burst races the nested media's async load — on a cold page load the
+        // upstream image/video frequently isn't decoded within the window, so
+        // the offscreen canvas paints empty and idles black until some later
+        // interaction (e.g. a zoom) happens to re-arm a burst. Instead, keep
+        // painting until `paintGraphFrame` reports the frame is COMPLETE (all
+        // active media ready), then run the short settle and idle. A hard cap
+        // guarantees we still stop if a source never loads.
+        const MAX_PAUSED_WAIT_MS = 10000;
+        // Blit the freshly-painted offscreen canvas onto the visible Stage.
+        // Required because a frame that completes AFTER the parent
+        // CompositorAnimator's own settle burst has stopped would otherwise
+        // land in the offscreen canvas but never reach the screen.
+        const blit = () => { try { shapeRef.current?.getLayer()?.batchDraw(); } catch { /* noop */ } };
+        let startMs = -1;
+        let completeAtMs = -1;
+        const draw = (now: number) => {
             if (stopped) return;
-            const ctx = c.getContext('2d');
+            if (startMs < 0) startMs = now;
+            let complete = false;
             if (ctx) {
                 cache.releaseAllScratch();
-                paintGraphFrame(
-                    graph,
-                    isPlaying ? playheadRef.current : playhead,
-                    ctx,
-                    cache,
-                    isPlaying,
-                    mutedRef.current,
-                );
+                complete = paintGraphFrame(graph, playhead, ctx, cache, false, mutedRef.current);
             }
+            blit();
+            if (complete) {
+                if (completeAtMs < 0) completeAtMs = now;
+                if (now - completeAtMs >= PAUSED_SETTLE_MS) { stopped = true; return; }
+            }
+            if (now - startMs >= MAX_PAUSED_WAIT_MS) { stopped = true; return; }
             raf = requestAnimationFrame(draw);
         };
         raf = requestAnimationFrame(draw);
-        if (isPlaying) {
-            return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
-        }
-        const timer = setTimeout(() => { stopped = true; if (raf) cancelAnimationFrame(raf); }, PAUSED_SETTLE_MS);
-        return () => { stopped = true; clearTimeout(timer); if (raf) cancelAnimationFrame(raf); };
+        return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [graph, paintDep]);
 

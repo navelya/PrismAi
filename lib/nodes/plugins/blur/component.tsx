@@ -294,10 +294,16 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         // pressure while idle, it won't re-decode until the next hover/change.
         const hovering = isHoveringGraphPreview;
         const duration = graphDuration(upstreamGraph);
+        // Hard cap so a source that never loads can't keep the idle loop alive
+        // forever (it would re-introduce the GPU drain the settle burst exists
+        // to prevent). Normal media decodes well inside this.
+        const MAX_IDLE_WAIT_MS = 10000;
         let stopped = false;
         let raf = 0;
         let playhead = 0;
         let last = performance.now();
+        let startMs = -1;
+        let completeAtMs = -1;
 
         const tick = (now: number) => {
             if (stopped) return;
@@ -312,18 +318,30 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             }
 
             const ctx = canvas.getContext('2d');
+            let complete = false;
             if (ctx) {
                 cache.releaseAllScratch();
-                paintGraphFrame(upstreamGraph, playhead, ctx, cache, hovering);
+                complete = paintGraphFrame(upstreamGraph, playhead, ctx, cache, hovering);
+            }
+
+            // Hovering plays continuously. The idle path used to run a fixed
+            // IDLE_SETTLE_MS burst, which raced the upstream graph's async media
+            // load — on a cold page load the frame painted empty before the
+            // video/image decoded and then idled black until a hover re-armed
+            // it. Instead, keep painting until paintGraphFrame reports the frame
+            // is COMPLETE (all media ready), then settle and idle.
+            if (!hovering) {
+                if (startMs < 0) startMs = now;
+                if (complete) {
+                    if (completeAtMs < 0) completeAtMs = now;
+                    if (now - completeAtMs >= IDLE_SETTLE_MS) { stopped = true; return; }
+                }
+                if (now - startMs >= MAX_IDLE_WAIT_MS) { stopped = true; return; }
             }
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
-        if (hovering) {
-            return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
-        }
-        const timer = setTimeout(() => { stopped = true; if (raf) cancelAnimationFrame(raf); }, IDLE_SETTLE_MS);
-        return () => { stopped = true; clearTimeout(timer); if (raf) cancelAnimationFrame(raf); };
+        return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
     }, [upstreamGraph, isHoveringGraphPreview]);
 
     // Derived blur style. Blur preview always applies its own filter; for

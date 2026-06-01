@@ -375,18 +375,25 @@ function voteVideoPoolState(
     // !isActive && !wasActive: nothing to do; element stays paused at 0.
 }
 
+/**
+ * Returns `true` if the layer's media was ready and drawn (or n/a), `false`
+ * if the asset hasn't finished loading/decoding yet. Callers use the boolean
+ * to keep a paused render loop alive until every active layer is ready — see
+ * `LayerSubgraph`'s paint loop. Without it, a cold-load subgraph paints one
+ * empty frame before its media decodes and then idles black.
+ */
 function drawMediaLayer(
     ctx: CanvasRenderingContext2D,
     gl: GraphLayer,
     cache: GraphRenderCache,
-): void {
+): boolean {
     const { layer, source } = gl;
-    if (source.kind !== 'media') return;
+    if (source.kind !== 'media') return true;
     const url = source.url;
 
     if (source.mediaKind === 'video') {
         const el = cache.getVideo(url);
-        if (!el || el.videoWidth === 0) return;
+        if (!el || el.videoWidth === 0) return false;
         const t = layer.transform;
         applyTransform(ctx, layer, (w, h) => {
             try {
@@ -405,12 +412,12 @@ function drawMediaLayer(
                 // CORS-tainted draw can throw; skip this frame.
             }
         });
-        return;
+        return true;
     }
 
     // image
     const img = cache.getImage(url);
-    if (!img) return;
+    if (!img) return false;
     const t = layer.transform;
     applyTransform(ctx, layer, (w, h) => {
         try {
@@ -429,6 +436,7 @@ function drawMediaLayer(
             // ignore
         }
     });
+    return true;
 }
 
 function drawTextLayer(ctx: CanvasRenderingContext2D, gl: GraphLayer): void {
@@ -459,9 +467,9 @@ function drawGraphLayer(
     isPlaying: boolean,
     cache: GraphRenderCache,
     muted: boolean,
-): void {
+): boolean {
     const { layer, source } = gl;
-    if (source.kind !== 'graph') return;
+    if (source.kind !== 'graph') return true;
     // Render the nested graph into a scratch canvas at its natural
     // resolution, then composite as a regular layer in our coord space.
     const sub = source.graph;
@@ -476,8 +484,10 @@ function drawGraphLayer(
 
     const scratch = cache.borrowScratch(dims.width, dims.height);
     const sctx = scratch.getContext('2d');
-    if (!sctx) return;
-    paintGraphFrame(sub, time, sctx, cache, isPlaying, muted);
+    if (!sctx) return false;
+    // Propagate the nested frame's readiness up: this layer is only "complete"
+    // once the graph it wraps has all of ITS media decoded too.
+    const complete = paintGraphFrame(sub, time, sctx, cache, isPlaying, muted);
 
     applyTransform(ctx, layer, (w, h) => {
         try {
@@ -486,6 +496,7 @@ function drawGraphLayer(
             // ignore
         }
     });
+    return complete;
 }
 
 /**
@@ -499,6 +510,11 @@ function drawGraphLayer(
  * `muted` defaults to true so existing callers (blur preview, etc.) keep their
  * silent behavior without a code change; LayerSubgraph passes the consumer's
  * mute vote through so chained compositors can carry audio.
+ *
+ * Returns `true` when every active layer's media was ready and drawn this
+ * frame, `false` when at least one asset is still loading/decoding. A paused
+ * caller keeps repainting until this returns `true` (then settles + idles) so
+ * a cold-load subgraph doesn't freeze on an empty first frame.
  */
 export function paintGraphFrame(
     graph: GraphDescription,
@@ -507,7 +523,7 @@ export function paintGraphFrame(
     cache: GraphRenderCache,
     isPlaying: boolean,
     muted: boolean = true,
-): void {
+): boolean {
     if (graph.kind === 'filter') {
         // Recurse into the base graph onto a scratch, then draw with filter.
         let base: GraphDescription = graph;
@@ -520,8 +536,8 @@ export function paintGraphFrame(
         const baseGraph = base as Exclude<GraphDescription, { kind: 'filter' }>;
         const scratch = cache.borrowScratch(baseGraph.canvasWidth, baseGraph.canvasHeight);
         const sctx = scratch.getContext('2d');
-        if (!sctx) return;
-        paintGraphFrame(base, time, sctx, cache, isPlaying, muted);
+        if (!sctx) return false;
+        const complete = paintGraphFrame(base, time, sctx, cache, isPlaying, muted);
         const targetW = ctx.canvas.width;
         const targetH = ctx.canvas.height;
         ctx.save();
@@ -533,7 +549,7 @@ export function paintGraphFrame(
             // ignore
         }
         ctx.restore();
-        return;
+        return complete;
     }
 
     // compositor graph
@@ -556,7 +572,10 @@ export function paintGraphFrame(
     }
 
     // Second pass: draw active layers. Reverse order so array[0] is on top —
-    // matches the top-level Konva renderer's convention.
+    // matches the top-level Konva renderer's convention. Track whether every
+    // active media/graph layer was ready this frame; text is synchronous and
+    // never blocks completeness.
+    let complete = true;
     const layers = [...graph.layers].reverse();
     for (const gl of layers) {
         const { layer, source } = gl;
@@ -567,11 +586,12 @@ export function paintGraphFrame(
         if (!isLayerActiveAt(layer, kind, intrinsic, time)) continue;
 
         if (source.kind === 'media') {
-            drawMediaLayer(ctx, gl, cache);
+            complete = drawMediaLayer(ctx, gl, cache) && complete;
         } else if (source.kind === 'text') {
             drawTextLayer(ctx, gl);
         } else if (source.kind === 'graph') {
-            drawGraphLayer(ctx, gl, time, isPlaying, cache, muted);
+            complete = drawGraphLayer(ctx, gl, time, isPlaying, cache, muted) && complete;
         }
     }
+    return complete;
 }

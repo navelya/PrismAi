@@ -275,17 +275,32 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
         if (canvas.height !== dims.height) canvas.height = Math.max(1, dims.height);
 
         const t = Math.max(0, playhead);
+        // Hard cap so a never-loading source can't keep the idle loop running
+        // forever (which would peg the GPU). Normal media decodes well inside.
+        const MAX_IDLE_WAIT_MS = 10000;
         let stopped = false;
         let raf = 0;
-        const tick = () => {
+        let startMs = -1;
+        let completeAtMs = -1;
+        const tick = (now: number) => {
             if (stopped) return;
+            if (startMs < 0) startMs = now;
             const ctx = canvas.getContext('2d');
-            if (ctx) { cache.releaseAllScratch(); paintGraphFrame(upstreamGraph, t, ctx, cache, false); }
+            let complete = false;
+            if (ctx) { cache.releaseAllScratch(); complete = paintGraphFrame(upstreamGraph, t, ctx, cache, false); }
+            // A fixed GRAPH_SETTLE_MS burst raced the upstream graph's async
+            // media load — on a cold load the frame painted empty before the
+            // video/image decoded, then idled black. Keep painting until the
+            // frame is COMPLETE (all media ready), then settle and idle.
+            if (complete) {
+                if (completeAtMs < 0) completeAtMs = now;
+                if (now - completeAtMs >= GRAPH_SETTLE_MS) { stopped = true; return; }
+            }
+            if (now - startMs >= MAX_IDLE_WAIT_MS) { stopped = true; return; }
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
-        const timer = setTimeout(() => { stopped = true; if (raf) cancelAnimationFrame(raf); }, GRAPH_SETTLE_MS);
-        return () => { stopped = true; clearTimeout(timer); if (raf) cancelAnimationFrame(raf); };
+        return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
     }, [upstreamGraph, isPlaying, playhead]);
 
     // ── Transport callbacks ──────────────────────────────────────────────────
