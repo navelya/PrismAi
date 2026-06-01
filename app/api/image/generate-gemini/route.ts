@@ -68,7 +68,6 @@ export async function GET(request: NextRequest) {
         let lastError = '';
         for (const model of modelsToTry) {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-            console.log(`🎨 Trying Gemini image model: ${model}`);
 
             try {
                 const response = await fetch(url, {
@@ -128,7 +127,6 @@ export async function GET(request: NextRequest) {
                 // Success!
                 const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
                 const mimeType = imagePart.inlineData.mimeType || 'image/png';
-                console.log(`✅ Image generated with ${model} (${imageBuffer.length} bytes)`);
 
                 return new NextResponse(imageBuffer, {
                     headers: {

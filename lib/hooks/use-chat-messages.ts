@@ -421,7 +421,6 @@ export function useChatMessages({
             const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
 
             const renderLoop = async () => {
-                let lastLogTime = 0;
                 while (!streamDone || displayedText.length < networkText.length) {
                     if (displayedText.length < networkText.length) {
                         const remaining = networkText.length - displayedText.length;
@@ -431,19 +430,10 @@ export function useChatMessages({
                         useAppStore.getState().updateMessage(assistantMsgId, {
                             content: displayedText
                         });
-                        
-                        // Log every 500ms to avoid spam
-                        const now = Date.now();
-                        if (now - lastLogTime > 500) {
-                            console.log('📝 [Render] Displayed:', displayedText.length, '/', networkText.length);
-                            lastLogTime = now;
-                        }
                     }
                     await nextFrame();
                 }
-                
-                console.log('✅ [Render] Complete. Final text length:', displayedText.length);
-                
+
                 // Update message with final workflow after streaming completes
                 if (finalWorkflow) {
                     useAppStore.getState().updateMessage(assistantMsgId, {
@@ -467,7 +457,6 @@ export function useChatMessages({
                     // Accept either new-brain `text` field or legacy `content` field
                     const chunk = parsed.text ?? parsed.content ?? '';
                     networkText += chunk;
-                    console.log('📝 [Stream] Text chunk received:', chunk, '| Total length:', networkText.length);
                 }
                 else if (parsed.type === 'thinking_start') {
                     const current = useAppStore.getState().chatMessages.find(m => m.id === assistantMsgId);

@@ -189,7 +189,6 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
         const handleResultChange = (payload: any) => {
             const record = payload.new;
             if (!record) return;
-            console.log(`[ExecutionChannel] ${payload.eventType} → node ${record.node_id}: ${record.status}`);
             applyNodeResult(record, sessionId, 'realtime');
         };
 

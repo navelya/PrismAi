@@ -33,8 +33,6 @@ export async function GET(request: NextRequest) {
         const provider = 'hf-inference';
         const url = `https://router.huggingface.co/${provider}/models/${modelId}`;
 
-        console.log(`🎨 Calling HF Router: ${url}`);
-
         // Add negative prompt for better quality
         const negativePrompt = "blurry, bad quality";
 
