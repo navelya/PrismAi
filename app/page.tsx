@@ -809,7 +809,10 @@ function PhaseCaption({
     const end = start + 0.2;
     const op = useTransform(
         scrollYProgress,
-        [Math.max(0, start - 0.05), start + 0.02, end - 0.04, end + 0.05],
+        // Keep every breakpoint within [0,1]: framer-motion accelerates scroll-linked
+        // opacity onto the WAAPI ScrollTimeline and feeds this input range in as keyframe
+        // offsets, which throw if any value exceeds 1 (the last phase's end is 1.0).
+        [Math.max(0, start - 0.05), start + 0.02, end - 0.04, Math.min(1, end + 0.05)],
         isLast ? [0.25, 1, 1, 1] : [0.25, 1, 1, 0.35]
     );
     const x = useTransform(
