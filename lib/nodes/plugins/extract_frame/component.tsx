@@ -290,20 +290,26 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
 
     // ── Transport callbacks ──────────────────────────────────────────────────
     const handleTogglePlay = useCallback(() => {
-        setIsPlaying((prev) => {
-            const next = !prev;
-            const v = videoRef.current;
-            if (next) {
-                if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-                if (v && !upstreamGraph) { v.play().catch(() => { /* gesture/autoplay */ }); }
-            } else {
-                if (v && !upstreamGraph) { try { v.pause(); } catch { /* noop */ } }
-                // Pausing commits the current frame as the output.
-                commitNow(v && !upstreamGraph ? v.currentTime : playheadRef.current);
-                if (v && !upstreamGraph) setPlayhead(v.currentTime);
-            }
-            return next;
-        });
+        // Side effects (store mutation via commitNow, video play/pause, playhead
+        // commit) must NOT run inside a setIsPlaying functional updater — React
+        // executes that updater during the render phase, so commitNow's
+        // takeSnapshot() set() would fire while ExtractFrameNode renders and
+        // schedule an update on store subscribers (AppLayout) → "Cannot update a
+        // component while rendering a different component". Do them here in the
+        // event handler instead, deriving `next` from playingRef.
+        const next = !playingRef.current;
+        playingRef.current = next; // stay consistent across rapid re-clicks before re-render
+        const v = videoRef.current;
+        if (next) {
+            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+            if (v && !upstreamGraph) { v.play().catch(() => { /* gesture/autoplay */ }); }
+        } else {
+            if (v && !upstreamGraph) { try { v.pause(); } catch { /* noop */ } }
+            // Pausing commits the current frame as the output.
+            commitNow(v && !upstreamGraph ? v.currentTime : playheadRef.current);
+            if (v && !upstreamGraph) setPlayhead(v.currentTime);
+        }
+        setIsPlaying(next);
     }, [upstreamGraph, commitNow]);
 
     const handleSeek = useCallback((t: number) => {

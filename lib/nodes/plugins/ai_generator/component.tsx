@@ -245,8 +245,12 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     //   clamped between min and max. The image already grows the height via
     //   `h-auto`, so this is the symmetric horizontal version.
     // Empty-state placeholder uses the wider 320 minWidth so the node has a
-    // proper landscape footprint before any result arrives; once a result
-    // exists we drop minWidth to 200 so the node can hug smaller outputs.
+    // proper landscape footprint. We only drop the floor to 200 once an image
+    // has actually loaded (previewWidth set) so the node can hug smaller,
+    // portrait outputs. Gating on `output` instead would shrink the node to 200
+    // whenever a value merely *exists* but hasn't rendered — a dead/expired URL
+    // that never fires onLoad, or a result that hasn't arrived yet after a
+    // refresh — leaving a skinny box instead of the default landscape footprint.
     const isFixedWidth = activeType === 'text' || activeType === 'audio';
     const fixedWidth = activeType === 'audio' ? 280 : 320;
     const mediaStyle: React.CSSProperties = {
@@ -255,7 +259,10 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         // max-width-vs-max-height intrinsic-sizing quirk that left a gray band
         // beside portrait outputs.
         width: previewWidth ?? 'max-content',
-        minWidth: output ? 200 : 320,
+        // previewWidth is clamped >=200, so the 200 floor never overrides a
+        // pinned portrait width; while previewWidth is null the 320 floor keeps
+        // the landscape footprint.
+        minWidth: previewWidth != null ? 200 : 320,
         maxWidth: 420,
     };
     const textMinHeightClass = "min-h-[140px]";
