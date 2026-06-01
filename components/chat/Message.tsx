@@ -101,7 +101,19 @@ function NodeRefStrip({ refs }: { refs: NodeRef[] }) {
     );
 }
 
-const ChatMessageContent = ({
+// Stable module-level plugin array. Passing a fresh `[remarkGfm, remarkBreaks]`
+// literal on every render defeats react-markdown's internal memoization and
+// forces a full re-parse each time. One shared frozen array fixes that.
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+// Memoized so a parent re-render (e.g. an unrelated `currentWorkflow` change
+// when duplicating a node) does NOT re-run react-markdown's `fromMarkdown`
+// tokenizer over this message. Props are content-stable: `message` keeps its
+// reference across workflow edits (messages live in a separate store slice),
+// and isGenerating/isCanvasMode are primitives. Without this, every node
+// duplication re-parsed the markdown of EVERY chat message — a multi-second
+// main-thread freeze on long chats (profiled: fromMarkdown ≈ 1.9s of a 6s task).
+const ChatMessageContent = React.memo(({
     message,
     isGenerating,
     isCanvasMode
@@ -137,7 +149,7 @@ const ChatMessageContent = ({
                     : 'prose-p:text-[15px] prose-p:leading-relaxed'}`}
         >
             <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkBreaks]}
+                remarkPlugins={MARKDOWN_REMARK_PLUGINS}
                 components={{
                     table: ({ children }) => (
                         <div className="group/table relative my-4 max-w-full">
@@ -176,15 +188,21 @@ const ChatMessageContent = ({
                 onClose={() => setIsTableModalOpen(false)}
                 title="Data Table"
             >
-                <div className="prose prose-sm max-w-none dark:prose-invert prose-code:text-accent-primary">
-                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                        {stableText}
-                    </ReactMarkdown>
-                </div>
+                {/* Only parse the second copy of the markdown once the modal is
+                    actually opened. Previously this ReactMarkdown rendered
+                    unconditionally, so every message parsed its content TWICE. */}
+                {isTableModalOpen && (
+                    <div className="prose prose-sm max-w-none dark:prose-invert prose-code:text-accent-primary">
+                        <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS}>
+                            {stableText}
+                        </ReactMarkdown>
+                    </div>
+                )}
             </TableModal>
         </div>
     );
-};
+});
+ChatMessageContent.displayName = 'ChatMessageContent';
 
 export const Message = React.memo(function Message({
     message,

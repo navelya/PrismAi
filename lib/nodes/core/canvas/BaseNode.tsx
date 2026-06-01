@@ -183,6 +183,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     // in React (not CSS :hover) because the toolbar is portaled outside this
     // node's DOM tree, so `group-hover` can't reach it.
     const [isHovered, setIsHovered] = useState(false);
+    // Force the action toolbar closed immediately after a click action
+    // (duplicate) even if the node stays selected/hovered. Clicking Duplicate
+    // on a big graph kicks off a brief re-render cascade; without this the
+    // toolbar sits there in its pressed state looking frozen. Dismissing it on
+    // click makes the action feel acknowledged instantly. Re-armed on the next
+    // pointer-enter so hovering the node again brings the toolbar back.
+    const [toolbarDismissed, setToolbarDismissed] = useState(false);
     useEffect(() => {
         // If the wire drag ends while the cursor is still inside the card,
         // onPointerLeave won't fire — reset eagerly.
@@ -298,6 +305,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
 
     const handleDuplicate = (e: React.MouseEvent) => {
         e.stopPropagation();
+        // Dismiss the action toolbar right away — see toolbarDismissed above.
+        setIsHovered(false);
+        setIsHoveredDuringWireDrag(false);
+        setToolbarDismissed(true);
         // Read from Zustand (the source of truth), not from React Flow's internal
         // store — RF's getNode() can return a node whose zIndex/position has been
         // mutated by drag interactions, and addNodes() goes through a sync round-
@@ -347,6 +358,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             }}
             onPointerEnter={() => {
                 setIsHovered(true);
+                setToolbarDismissed(false);
                 if (wireDrag) setIsHoveredDuringWireDrag(true);
             }}
             onPointerLeave={() => {
@@ -421,7 +433,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 handles bulk actions. */}
             <NodeToolbar
                 nodeId={id}
-                isVisible={!isReadOnlyCanvas && !isMultiSelectActive && (isHovered || !!selected)}
+                isVisible={!isReadOnlyCanvas && !isMultiSelectActive && !toolbarDismissed && (isHovered || !!selected)}
                 position={Position.Top}
                 align="end"
             >

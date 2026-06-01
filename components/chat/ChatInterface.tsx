@@ -20,6 +20,7 @@ import { Toast } from '@/components/ui/Toast';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useFileUpload } from '@/lib/hooks/use-file-upload';
 import { useChatMessages } from '@/lib/hooks/use-chat-messages';
+import { useStableCallback } from '@/lib/hooks/use-stable-callback';
 import { useSession } from '@/lib/hooks/use-session';
 import { useChatRealtime } from '@/lib/hooks/use-chat-realtime';
 import { sessionsApi, uploadApi, userApi } from '@/lib/api/client';
@@ -271,6 +272,32 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         setInput('');
     };
 
+    // Stable identities for every callback handed to <MessageList> → memoized
+    // <Message>. All these handlers are recreated on each ChatInterface render,
+    // and ChatInterface re-renders on any `currentWorkflow` change (e.g.
+    // duplicating a node). Passing the raw handlers defeated Message's
+    // React.memo, re-rendering the ENTIRE chat — a multi-second main-thread
+    // freeze on long chats (profiled: beginWork ≈ 1.9s). useStableCallback keeps
+    // identity fixed while always calling the latest handler.
+    const stableRevert = useStableCallback(handleRevert);
+    const stableEdit = useStableCallback(handleEdit);
+    const stableRetry = useStableCallback(retryLast);
+    const stablePlanApprove = useStableCallback(handlePlanApprove);
+    const stablePlanFeedback = useStableCallback(handlePlanFeedback);
+    const stableRunProposal = useStableCallback(handleRunProposal);
+    const stableClarificationAnswer = useStableCallback(
+        (payload: { questionMessageId: string; chosenIndex: number | null; text: string }) => {
+            sendMessage(
+                payload.text,
+                [],
+                [],
+                () => {},
+                () => {},
+                { questionMessageId: payload.questionMessageId, chosenIndex: payload.chosenIndex }
+            );
+        }
+    );
+
     const onReadyRef = useRef(onReady);
     const latestDepsRef = useRef({ sessionId: effectiveSessionId, saveMessageToDb, router, addMessage });
 
@@ -451,22 +478,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 isLoadingSession={isLoadingSession}
                 statusMessage={statusMessage}
                 isCanvasMode={isCanvasMode}
-                onRevert={handleRevert}
-                onEdit={handleEdit}
-                onRetry={retryLast}
-                onClarificationAnswer={(payload) => {
-                    sendMessage(
-                        payload.text,
-                        [],
-                        [],
-                        () => {},
-                        () => {},
-                        { questionMessageId: payload.questionMessageId, chosenIndex: payload.chosenIndex }
-                    );
-                }}
-                onPlanApprove={handlePlanApprove}
-                onPlanFeedback={handlePlanFeedback}
-                onRunProposal={handleRunProposal}
+                onRevert={stableRevert}
+                onEdit={stableEdit}
+                onRetry={stableRetry}
+                onClarificationAnswer={stableClarificationAnswer}
+                onPlanApprove={stablePlanApprove}
+                onPlanFeedback={stablePlanFeedback}
+                onRunProposal={stableRunProposal}
                 scrollContainerRef={scroll.scrollContainerRef}
                 contentRef={scroll.contentRef}
                 messagesEndRef={scroll.messagesEndRef}

@@ -279,23 +279,34 @@ const EditorCanvasInner = ({
     // is the intermittent "nodes load but wires are missing until I refresh
     // again" bug.
     //
-    // Once nodesInitialized flips true (every node measured), force a one-shot
-    // re-scan of every node's handle geometry. This is purely a re-measure — it
-    // mutates no workflow data — and it deterministically closes the race: any
-    // edge whose endpoints weren't measured when it was committed now gets valid
-    // handle bounds and is redrawn. Re-arms whenever nodesInitialized drops back
-    // to false (e.g. nodes added/removed) so a later structural change is covered
-    // too.
+    // Once nodesInitialized flips true, force a re-scan of handle geometry so
+    // any edge whose endpoints weren't measured when it was committed gets valid
+    // handle bounds and is redrawn.
+    //
+    // CRITICAL: only re-measure nodes we have NOT measured before — NOT the whole
+    // graph. On the initial load that's every node (closes the race for all the
+    // freshly-arrived wires). On an incremental add (e.g. duplicating a node) it's
+    // just the new node(s): existing nodes were already measured and their wires
+    // already drawn, so re-measuring them buys nothing — but `updateNodeInternals`
+    // on all N nodes forces RF to synchronously re-commit every node wrapper,
+    // which on a large graph froze the main thread for ~1.7s on EVERY add. Scoping
+    // to new ids keeps the wire-race fix while making duplication O(1).
     const updateNodeInternals = useUpdateNodeInternals();
-    const hasSweptInternalsRef = useRef(false);
+    const sweptInternalIdsRef = useRef<Set<string>>(new Set());
     useEffect(() => {
-        if (!nodesInitialized) {
-            hasSweptInternalsRef.current = false;
-            return;
+        if (!nodesInitialized) return;
+        const swept = sweptInternalIdsRef.current;
+        for (const n of localNodes) {
+            if (swept.has(n.id)) continue;
+            updateNodeInternals(n.id);
+            swept.add(n.id);
         }
-        if (hasSweptInternalsRef.current) return;
-        hasSweptInternalsRef.current = true;
-        for (const n of localNodes) updateNodeInternals(n.id);
+        // Drop ids that no longer exist so a future re-add of the same id (rare)
+        // is re-measured, and the set doesn't grow unbounded across a session.
+        if (swept.size > localNodes.length) {
+            const live = new Set(localNodes.map((n) => n.id));
+            for (const id of Array.from(swept)) if (!live.has(id)) swept.delete(id);
+        }
     }, [nodesInitialized, localNodes, updateNodeInternals]);
 
     // One-shot smooth fit-to-node when something elsewhere (e.g. the Run
@@ -1492,6 +1503,15 @@ const EditorCanvasInner = ({
                 selectionOnDrag={!readOnly && !isPanMode}
                 selectNodesOnDrag={!readOnly && !isPanMode}
                 nodesDraggable={!readOnly && !isPanMode}
+                // Don't let React Flow auto-elevate the *selected* node by +1000.
+                // The app does its own bring-to-front (bringNodeToFront on click /
+                // drag-stop + a local zIndex pop on mousedown), so this default is
+                // redundant — and it actively breaks duplication: a freshly created
+                // copy is `selected: false` with an explicit zIndex of maxZ+1, but
+                // the still-selected SOURCE gets +1000 from RF and renders on top of
+                // it. Turning this off makes RF honor the explicit zIndex, so the
+                // copy lands above the original deterministically.
+                elevateNodesOnSelect={false}
                 nodesConnectable={!readOnly}
                 elementsSelectable={!readOnly}
                 selectionMode={!isPanMode ? SelectionMode.Partial : undefined}
