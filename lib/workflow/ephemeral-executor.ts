@@ -129,19 +129,13 @@ export async function executeEphemeralNode(
     console.log(`[EphemeralExecutor] Node ${nodeId} completed`);
     return { success: true, result_type: resultType, result_data: resultData };
   } catch (error) {
+    // Deliberately do NOT write a 'failed' status to this (ephemeral) node's
+    // row. Ephemeral nodes never show an error status — the caller
+    // (dispatchEphemeralNode → handleNodeFailure) owns failure handling and
+    // attributes the error to the nearest non-ephemeral consumer instead.
+    // Writing 'failed' here would flash an error badge on the ephemeral node
+    // before the orchestrator resets it to 'idle'.
     console.error(`[EphemeralExecutor] Error in node ${nodeId}:`, error);
-    try {
-      await supabase.from('node_results').upsert({
-        execution_id: executionId,
-        node_id: nodeId,
-        session_id: currentSessionId,
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Execution failed',
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'execution_id,node_id' });
-    } catch (dbErr) {
-      console.error('[EphemeralExecutor] Could not update failed status:', dbErr);
-    }
     return { success: false, error: error instanceof Error ? error.message : 'Internal server error' };
   }
 }

@@ -232,6 +232,9 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
                 const { userApi, uploadApi } = await import('@/lib/api/client');
                 const { user } = await userApi.me();
                 if (user && activeSessionId) {
+                    // Only the EPHEMERAL `thumbnails/` folder is wiped here. Permanent
+                    // AI outputs live under `results/{nodeId}` (see the Replicate v2
+                    // webhook) and must survive node deletion — do NOT delete those.
                     const folderPath = `${user.id}/${activeSessionId}/thumbnails/${nodeId}`;
                     await uploadApi.deleteFolder(folderPath);
                 }

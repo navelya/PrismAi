@@ -12,7 +12,33 @@ import { inferResultTypeFromValue, toResultDataForType } from './result-format';
 
 const WEBHOOK_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-import { checkAndDispatchChildren } from './orchestrator';
+import { checkAndDispatchChildren, handleNodeFailure } from './orchestrator';
+
+/**
+ * Supabase REST calls occasionally fail at the transport layer with an opaque
+ * `TypeError: fetch failed` (a dropped keep-alive socket, a brief network blip).
+ * A single dropped STATE write must never orphan a node in a non-terminal
+ * status — that hangs the whole execution — so we retry a few times with short
+ * backoff before giving up. The callback throws on a returned PostgREST error
+ * (supabase-js surfaces `fetch failed` as a returned error, not a throw).
+ */
+export async function withRetry<T>(fn: () => Promise<T>, label: string, attempts = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const isLast = i === attempts - 1;
+      console.warn(
+        `[Dispatch] ${label} failed (attempt ${i + 1}/${attempts})${isLast ? '' : ', retrying'}:`,
+        err instanceof Error ? err.message : err
+      );
+      if (!isLast) await new Promise((res) => setTimeout(res, 250 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
 
 /**
  * Main dispatch function - routes to appropriate handler based on node type
@@ -59,17 +85,22 @@ export async function dispatchNode(
     return { success: false, error: `Unsupported node type: ${nodeType}` };
     
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown dispatch error';
     console.error(`[Dispatch] Error dispatching node ${nodeId}:`, error);
-    
-    await updateNodeState(executionId, nodeId, {
-      status: 'failed',
-      error: error instanceof Error ? error.message : 'Unknown dispatch error',
-    }, sessionId, currentBaseUrl);
-    
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown dispatch error' 
-    };
+
+    // Route the failure through the orchestrator's ephemeral-aware handler. It
+    // decides WHERE the error surfaces (ephemeral nodes never show an error —
+    // it's attributed to the consumer that ran them), marks every affected node
+    // terminally so nothing hangs, and finalizes the execution. We call it
+    // directly (NOT updateNodeState(failed)) precisely so an ephemeral node is
+    // never written 'failed' even momentarily. Best-effort: never let it throw.
+    try {
+      await handleNodeFailure(executionId, nodeId, message);
+    } catch (writeErr) {
+      console.error(`[Dispatch] CRITICAL: could not handle failure for ${nodeId}:`, writeErr);
+    }
+
+    return { success: false, error: message };
   }
 }
 
@@ -94,9 +125,12 @@ async function dispatchEphemeralNode(
     }, sessionId, baseUrl);
     
     const result = await executeEphemeralNode(executionId, nodeId, sessionId, inputs);
-    
+
     if (!result.success) {
-      throw new Error(result.error || 'Ephemeral execution failed');
+      // Distinct, node-typed message so the canvas error badge says what
+      // actually broke (e.g. "compositor processing failed: ...") rather than
+      // a generic failure — and the node leaves the loading state.
+      throw new Error(`${nodeConfig.type} processing failed: ${result.error || 'unknown error'}`);
     }
     
     console.log(`[Dispatch/Ephemeral] ✅ Successfully executed node ${nodeId} directly. Triggering children.`);
@@ -274,25 +308,30 @@ async function updateNodeState(
   const resolvedResultType = state.result_type ?? (state.result_url ? inferResultTypeFromValue(state.result_url) : undefined);
   const resolvedResultData = state.result_data ?? (state.result_url ? [state.result_url] : undefined);
   
-  // 1. Update node_results table (Engine source of truth)
-  const { error: upsertError } = await supabase
-    .from('node_results')
-    .upsert({
-      execution_id: executionId,
-      node_id: nodeId,
-      session_id: sessionId,
-      status: state.status || 'running',
-      result_type: resolvedResultType,
-      result_data: resolvedResultData,
-      error: state.error,
-      replicate_id: state.replicate_prediction_id,
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'execution_id,node_id'
-    });
-  
-  if (upsertError) {
-    throw new Error(`Failed to update node state for ${nodeId}: ${upsertError.message}`);
+  // 1. Update node_results table (Engine source of truth). Retried because a
+  // transient `fetch failed` here would otherwise orphan the node in a
+  // non-terminal status and hang the whole execution in 'running'.
+  try {
+    await withRetry(async () => {
+      const { error: upsertError } = await supabase
+        .from('node_results')
+        .upsert({
+          execution_id: executionId,
+          node_id: nodeId,
+          session_id: sessionId,
+          status: state.status || 'running',
+          result_type: resolvedResultType,
+          result_data: resolvedResultData,
+          error: state.error,
+          replicate_id: state.replicate_prediction_id,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'execution_id,node_id'
+        });
+      if (upsertError) throw new Error(upsertError.message);
+    }, `node_results upsert for ${nodeId}`);
+  } catch (err) {
+    throw new Error(`Failed to update node state for ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // 2. If node is now finished, trigger the "Chain Reaction"

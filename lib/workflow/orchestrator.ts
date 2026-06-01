@@ -5,9 +5,9 @@
 
 import { createServiceClient } from '@/lib/supabase/service';
 import { GraphJson, NodeConfig } from './types-v2';
-import { dispatchNode } from './dispatch-v2';
+import { dispatchNode, withRetry } from './dispatch-v2';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from './result-format';
-import { serverRegistry } from '@/lib/nodes/core/server-registry';
+import { serverRegistry, isEphemeralNode } from '@/lib/nodes/core/server-registry';
 
 const EPHEMERAL_BUCKET = 'workflow-ephemeral-tmp';
 
@@ -83,7 +83,30 @@ export async function checkAndDispatchChildren(
     
     const graph: GraphJson = execution.graph_json as any;
     const sessionId = execution.session_id;
-    
+
+    // If the node that just finished FAILED, nothing downstream of it can ever
+    // run. Hand off to handleNodeFailure, which attributes the error, marks
+    // every affected node terminally, and finalizes the execution — otherwise
+    // descendants sit in 'pending' forever and the canvas spins with no error.
+    // This branch is the entry point for callers that write 'failed' directly
+    // then call us (the Replicate webhook, dispatchReplicateNode); the
+    // in-process dispatch path calls handleNodeFailure itself. (completedNodeId
+    // is a misnomer: this fires for any finished node, success OR failure.)
+    const { data: selfResult } = await supabase
+      .from('node_results')
+      .select('status, error')
+      .eq('execution_id', executionId)
+      .eq('node_id', completedNodeId)
+      .single();
+
+    if (selfResult?.status === 'failed') {
+      const msg = typeof selfResult.error === 'string'
+        ? selfResult.error
+        : (selfResult.error ? JSON.stringify(selfResult.error) : 'Node failed');
+      await handleNodeFailure(executionId, completedNodeId, msg);
+      return;
+    }
+
     // 2. Identify all direct successors (children) of the completed node
     const outgoingEdges = (graph.edges || []).filter(edge => edge.source === completedNodeId);
     
@@ -151,6 +174,148 @@ export async function checkAndDispatchChildren(
     
   } catch (error) {
     console.error(`[Orchestrator] Unexpected error in checkAndDispatchChildren:`, error);
+  }
+}
+
+/**
+ * A node failed. Compute a terminal status for it and every node downstream,
+ * then finalize the execution. The execution can never hang on a non-terminal
+ * node because every reachable node is given a terminal status here.
+ *
+ * Status rules (product decision — ephemeral nodes are plumbing, not results):
+ *  - Ephemeral nodes NEVER show an error. A failed or blocked ephemeral node is
+ *    reset to 'idle' (neutral: no badge, no spinner).
+ *  - When an EPHEMERAL node fails, the error is attributed to its nearest
+ *    non-ephemeral descendant(s) — "the node that made it run" — reached through
+ *    only-ephemeral edges. Those carry the real message.
+ *  - When a NON-ephemeral node fails, it carries the error itself.
+ *  - Non-ephemeral nodes further downstream are blocked ("Blocked by upstream
+ *    failure").
+ *
+ * Independent branches that don't depend on the failed node are untouched and
+ * keep running; updateExecutionFinalStatus finalizes as 'failed' once nothing
+ * is left running (refund + ephemeral cleanup happen there).
+ */
+export async function handleNodeFailure(
+  executionId: string,
+  failedNodeId: string,
+  errorMessage: string
+): Promise<void> {
+  const supabase = createServiceClient();
+  try {
+    const { data: execution } = await supabase
+      .from('executions')
+      .select('graph_json, session_id')
+      .eq('id', executionId)
+      .single();
+    if (!execution) return;
+    const graph: GraphJson = execution.graph_json as any;
+    const sessionId = execution.session_id;
+
+    const typeById = new Map((graph.nodes || []).map(n => [n.id, n.type]));
+    const isEph = (id: string) => isEphemeralNode(typeById.get(id) || '');
+    const edges = graph.edges || [];
+
+    // node_id -> { status, error } we intend to write.
+    const updates = new Map<string, { status: string; error: string | null }>();
+    const setFailed = (id: string, err: string) =>
+      updates.set(id, { status: isEph(id) ? 'idle' : 'failed', error: isEph(id) ? null : err });
+
+    // The failed node itself: shows the error if non-ephemeral, neutral if not.
+    setFailed(failedNodeId, errorMessage);
+
+    // Pass 1 — expand through ONLY ephemeral edges. Ephemeral nodes on the way
+    // become 'idle'; the first non-ephemeral node on each path is a "consumer"
+    // that carries the real error.
+    const consumers = new Set<string>();
+    {
+      const visited = new Set<string>([failedNodeId]);
+      const queue = [failedNodeId];
+      while (queue.length) {
+        const cur = queue.shift()!;
+        for (const edge of edges) {
+          if (edge.source !== cur || visited.has(edge.target)) continue;
+          visited.add(edge.target);
+          if (isEph(edge.target)) {
+            updates.set(edge.target, { status: 'idle', error: null });
+            queue.push(edge.target);
+          } else {
+            consumers.add(edge.target);
+            updates.set(edge.target, { status: 'failed', error: errorMessage });
+          }
+        }
+      }
+    }
+
+    // No non-ephemeral consumer exists (pure-ephemeral subgraph or ephemeral
+    // leaf) → there is nowhere to attribute the error. Fall back to marking the
+    // ephemeral node itself failed so the execution fails instead of falsely
+    // completing. (Rare; the normal case always has a downstream consumer.)
+    if (consumers.size === 0 && isEph(failedNodeId)) {
+      updates.set(failedNodeId, { status: 'failed', error: errorMessage });
+    }
+
+    // Pass 2 — full downstream reachability. Anything not already classified
+    // (i.e. downstream of a consumer) gets a terminal status so nothing hangs.
+    {
+      const visited = new Set<string>([failedNodeId]);
+      const queue = [failedNodeId];
+      while (queue.length) {
+        const cur = queue.shift()!;
+        for (const edge of edges) {
+          if (edge.source !== cur || visited.has(edge.target)) continue;
+          visited.add(edge.target);
+          queue.push(edge.target);
+          if (updates.has(edge.target)) continue;
+          updates.set(edge.target, isEph(edge.target)
+            ? { status: 'idle', error: null }
+            : { status: 'failed', error: 'Blocked by upstream failure' });
+        }
+      }
+    }
+
+    // Only transition nodes that are still unfinished — never clobber a node
+    // that already completed/failed via an independent path. (The failed node
+    // itself is 'running' right now, so it qualifies.)
+    const ids = Array.from(updates.keys());
+    const { data: existingRows } = await supabase
+      .from('node_results')
+      .select('node_id, status')
+      .eq('execution_id', executionId)
+      .in('node_id', ids);
+    const statusById = new Map((existingRows || []).map(r => [r.node_id, r.status]));
+
+    const rows = ids
+      .filter(id => {
+        const cur = statusById.get(id);
+        return cur === undefined || cur === 'pending' || cur === 'running' || id === failedNodeId;
+      })
+      .map(id => ({
+        execution_id: executionId,
+        node_id: id,
+        session_id: sessionId,
+        status: updates.get(id)!.status,
+        error: updates.get(id)!.error,
+        updated_at: new Date().toISOString(),
+      }));
+
+    if (rows.length > 0) {
+      try {
+        await withRetry(async () => {
+          const { error } = await supabase
+            .from('node_results')
+            .upsert(rows, { onConflict: 'execution_id,node_id' });
+          if (error) throw new Error(error.message);
+        }, `failure write for ${failedNodeId}`);
+      } catch (e) {
+        console.error(`[Orchestrator] Failed to write failure states for ${failedNodeId}:`, e);
+      }
+      console.log(`[Orchestrator] Node ${failedNodeId} failed; wrote ${rows.length} terminal status(es), error attributed to: ${Array.from(consumers).join(', ') || failedNodeId}.`);
+    }
+
+    await updateExecutionFinalStatus(executionId);
+  } catch (error) {
+    console.error(`[Orchestrator] handleNodeFailure error for ${failedNodeId}:`, error);
   }
 }
 

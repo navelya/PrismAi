@@ -163,7 +163,12 @@ async function mirrorMediaToStorage(
 
     const extMatch = sourceUrl.match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|avi|mkv|mp3|wav|ogg|m4a|aac|flac|glb|gltf|obj|fbx|stl|usd|usdz)(\?|$)/i);
     const ext = extMatch?.[1]?.toLowerCase() || WEBHOOK_MEDIA_EXTENSIONS[resultType];
-    const storagePath = `${userId}/${sessionId}/thumbnails/${nodeId}/result_${now}_${i}.${ext}`;
+    // Store under `results/`, NOT `thumbnails/`. The `thumbnails/{nodeId}` folder
+    // is treated as ephemeral and is wiped wholesale when a node is deleted
+    // (see deleteNodeWithAssets in lib/store/slices/ui-slice.ts). This is the only
+    // persisted copy of an AI node's output, so it must live in a permanent path
+    // that node deletion never touches.
+    const storagePath = `${userId}/${sessionId}/results/${nodeId}/result_${now}_${i}.${ext}`;
 
     const { error: uploadError } = await supabase.storage.from('chat-assets').upload(storagePath, buffer, {
       contentType: WEBHOOK_MEDIA_CONTENT_TYPES[resultType],
