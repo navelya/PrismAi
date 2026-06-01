@@ -117,21 +117,30 @@ The existing service-role `FOR ALL` policy is unchanged.
 
 For each soft-deleted session, **before** deleting the session row:
 
-1. **Stamp keepers:**
-   `UPDATE node_results SET user_id = <session.user_id> WHERE session_id = sid AND user_id IS NULL`.
-   Guarantees post-orphan visibility regardless of the write path.
-2. **Compute keeper file set:** select `result_data` of keeper rows for the
-   session; parse each public URL into a storage key by stripping the
+1. **Enumerate keepers once:**
+   `SELECT id, result_data FROM node_results WHERE session_id = sid AND <keeper predicate>`.
+   Capture `keeperIds` and the `result_data` arrays. This single fetch drives
+   steps 2–4, so the keeper/ephemeral split is computed exactly once and is
+   immune to SQL three-valued-logic edge cases (e.g. a `completed` row with NULL
+   `result_type`, which a `NOT (<predicate>)` filter would silently leave behind).
+2. **Stamp keepers:**
+   `UPDATE node_results SET user_id = <session.user_id> WHERE id IN (keeperIds) AND user_id IS NULL`.
+   Guarantees post-orphan visibility regardless of what the write path set. Only
+   keepers are stamped, so ephemeral rows never become user-owned dead rows.
+3. **Wipe storage precisely:** build a `Set<string>` of keeper storage keys by
+   parsing each keeper `result_data` URL — strip the
    `…/storage/v1/object/public/chat-assets/` prefix and any `?…` cache-buster
-   (URL-decode for safety). Collect into a `Set<string>`.
-3. **Wipe storage precisely:** recurse `{userId}/{sessionId}/` as today, but
-   exclude any path present in the keeper set from the `remove()` chunks.
-   Keeper files survive; thumbnails, character refs, and ephemeral result files
-   are removed. No folder-name coupling, no leaks.
-4. **Delete ephemeral rows:**
-   `DELETE FROM node_results WHERE session_id = sid AND NOT (<keeper predicate>)`.
-5. **Delete the session row** → remaining keeper rows get `session_id` and
-   `execution_id` set null by the FK behavior.
+   (URL-decode for safety). Recurse `{userId}/{sessionId}/` as today, but exclude
+   any path in the keeper set from the `remove()` chunks. Keeper files survive;
+   thumbnails, character refs, and ephemeral result files are removed. No
+   folder-name coupling, no leaks.
+4. **Delete ephemeral rows (NULL-safe):**
+   `DELETE FROM node_results WHERE session_id = sid AND id <> ALL(keeperIds)`
+   — i.e. delete every row for the session that is not a keeper. Chunk the id
+   list if a session ever has a very large row count.
+5. **Delete the session row** → remaining (keeper) rows get `session_id` and
+   `execution_id` set null by the FK behavior, surviving as a session-less
+   library entry.
 
 URLs that are not under the `chat-assets` bucket (e.g. mirroring failed and the
 URL is still `replicate.delivery`) contribute nothing to the keeper set — there
@@ -163,10 +172,22 @@ scope** (YAGNI); they simply appear in the gallery ordered by `created_at`.
   folder is partially retained after deletion. The path is an opaque key; public
   URLs still resolve. Physically relocating files to a user-level path is exactly
   the cost of the rejected `user_assets` approach and is not worth it.
-- **Cascade semantics on `node_results` change globally.** Verified safe:
-  sessions are only ever hard-deleted by the cron (soft-delete sets `is_deleted`);
-  and if an execution is ever deleted while its session lives, only `execution_id`
-  is nulled while `session_id` still anchors the row, so no premature orphaning.
+- **Cascade semantics on `node_results` change globally.** Verified safe by
+  code audit:
+  - Sessions are only ever hard-deleted by the cron (the UI does a soft-delete
+    that sets `is_deleted`).
+  - Executions are **never** deleted during normal operation — the only delete is
+    `clearSessionExecutions` ([`lib/db/workflows.ts:305`](../../../lib/db/workflows.ts)),
+    which has no callers, plus the session-delete cascade. Re-running a node
+    creates a *new* execution and upserts new `node_results`; it does not delete
+    old executions. So `execution_id → SET NULL` is inert except at session
+    delete and causes no orphan accumulation on re-run.
+  - Every `node_results` insert/upsert sets `session_id` (orchestrator
+    [`:296`](../../../lib/workflow/orchestrator.ts), dispatch-v2
+    [`:321`](../../../lib/workflow/dispatch-v2.ts), webhook success/failure
+    [`:367`/`:301`](../../../app/api/webhooks/replicate-v2/route.ts); fan-out
+    finalize updates the pre-existing `running` row, preserving its
+    `session_id`). The cron's per-session queries are therefore complete.
 
 ## Out of scope
 
