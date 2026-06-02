@@ -17,8 +17,12 @@ import { NextResponse } from 'next/server';
 import { EventName } from '@paddle/paddle-node-sdk';
 import { getPaddle } from '@/lib/billing/paddle-server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { lookupPlanByPriceId, lookupPackByPriceId } from '@/lib/billing/paddle-mapping';
-import { PLANS } from '@/lib/billing/plans-config';
+import {
+    lookupPlanByPriceId,
+    lookupPackByPriceId,
+    monthlyCreditsForPlan,
+    creditsForPack,
+} from '@/lib/billing/pricing-source';
 import { sendAdminAlert } from '@/lib/email/admin-alerts';
 
 export const dynamic = 'force-dynamic';
@@ -97,7 +101,7 @@ async function handleSubscriptionUpserted(data: any, supabase: ReturnType<typeof
 
     const item = data.items?.[0];
     const priceId: string | undefined = item?.price?.id;
-    const lookup = priceId ? lookupPlanByPriceId(priceId) : null;
+    const lookup = priceId ? await lookupPlanByPriceId(priceId) : null;
 
     if (!lookup) {
         console.error('[Paddle Webhook] No plan match for Paddle price', priceId);
@@ -211,13 +215,14 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
         // original purchase and shouldn't be re-granted on a refund line.
         if (isRefundLine(item)) continue;
 
-        const pack = lookupPackByPriceId(priceId);
+        const pack = await lookupPackByPriceId(priceId);
         if (pack) {
             // One-time credit packs always grant their full pack size,
             // regardless of proration (packs aren't subscription items).
+            const packCredits = await creditsForPack(pack.packId);
             await grantCredits(supabase, {
                 userId,
-                amount: pack.credits,
+                amount: packCredits,
                 reason: 'paddle_pack_purchase',
                 idempotencyKey: `paddle:tx:${data.id}:item:${priceId}`,
                 paddleEventId: eventId,
@@ -230,14 +235,14 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
             continue;
         }
 
-        const plan = lookupPlanByPriceId(priceId);
+        const plan = await lookupPlanByPriceId(priceId);
         if (plan) {
             // Same-plan cycle swap (e.g. Studio monthly → Studio yearly):
             // Paddle emits a positive line for the new cycle's price AND a
             // negative line for the old cycle's price. Both map to the same
             // plan_id. The user already has credits for the current billing
             // period — don't grant again just because the cycle changed.
-            if (isSamePlanCycleSwap(item, lineItems, plan.planId)) continue;
+            if (await isSamePlanCycleSwap(item, lineItems, plan.planId)) continue;
 
             // Match credits to money paid. For first-time purchases and
             // renewals, proration is null (or rate=1) and the user is paying
@@ -246,7 +251,8 @@ async function handleTransactionCompleted(data: any, eventId: string, supabase: 
             // charges a prorated diff and the line item has rate<1; grant
             // proportionally so we don't over-credit.
             const rate = parseProrationRate(item.proration);
-            const wouldGrant = Math.max(0, Math.round(plan.monthlyCredits * rate));
+            const planMonthlyCredits = await monthlyCreditsForPlan(plan.planId);
+            const wouldGrant = Math.max(0, Math.round(planMonthlyCredits * rate));
             if (wouldGrant === 0) continue;
 
             // Cap-this-period: prevent the cycling exploit where a user goes
@@ -319,7 +325,7 @@ async function computePeriodGrantCap(
     userId: string,
     incomingPlanId: string,
 ): Promise<{ maxCredits: number; alreadyGranted: number; samePlanAlreadyGranted: boolean }> {
-    const incomingPlanCredits = monthlyCreditsForPlan(incomingPlanId);
+    const incomingPlanCredits = await monthlyCreditsForPlan(incomingPlanId);
 
     // Find the period anchor: the timestamp of the most recent
     // "fresh-period" grant (initial purchase or renewal). We deliberately
@@ -361,18 +367,13 @@ async function computePeriodGrantCap(
         for (const row of priorGrants as any[]) {
             alreadyGranted += row.amount;
             const pid = row.metadata?.plan_id;
-            const planCredits = pid ? monthlyCreditsForPlan(pid) : 0;
+            const planCredits = pid ? await monthlyCreditsForPlan(pid) : 0;
             if (planCredits > maxCredits) maxCredits = planCredits;
             if (pid === incomingPlanId && row.amount > 0) samePlanAlreadyGranted = true;
         }
     }
 
     return { maxCredits, alreadyGranted, samePlanAlreadyGranted };
-}
-
-function monthlyCreditsForPlan(planId: string): number {
-    const plan = PLANS.find((p) => p.id === planId);
-    return plan?.monthlyCredits ?? 0;
 }
 
 /**
@@ -385,7 +386,7 @@ function monthlyCreditsForPlan(planId: string): number {
  * plan, since the user paid for Studio and didn't previously have Studio
  * credits — only same-plan, different-cycle is the no-op case.
  */
-function isSamePlanCycleSwap(item: any, allItems: any[], planId: string): boolean {
+async function isSamePlanCycleSwap(item: any, allItems: any[], planId: string): Promise<boolean> {
     const positivePriceId = item?.price?.id || item?.priceId;
     if (!positivePriceId) return false;
     for (const other of allItems) {
@@ -393,7 +394,7 @@ function isSamePlanCycleSwap(item: any, allItems: any[], planId: string): boolea
         const otherPriceId = other?.price?.id || other?.priceId;
         if (!otherPriceId || otherPriceId === positivePriceId) continue;
         if (!isRefundLine(other)) continue;
-        const otherPlan = lookupPlanByPriceId(otherPriceId);
+        const otherPlan = await lookupPlanByPriceId(otherPriceId);
         if (otherPlan && otherPlan.planId === planId) return true;
     }
     return false;
