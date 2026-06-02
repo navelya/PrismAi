@@ -79,6 +79,12 @@ export const sessionsApi = {
         apiFetch<{ success: boolean; message: string }>(`/api/sessions/${id}/reset`, {
             method: 'POST',
         }),
+
+    /** Open a shared canvas → returns the caller's { threadId, canvasId, role } */
+    open: (canvasId: string) =>
+        apiFetch<{ threadId: string; canvasId: string; role: 'owner' | 'editor' | 'viewer' }>(
+            `/api/sessions/${canvasId}/open`, { method: 'POST' }
+        ),
 };
 
 // ─── Message APIs ──────────────────────────────────────────────────────
