@@ -13,8 +13,21 @@ export async function GET() {
         auth.supabase.from('pricing_audit').select('*').order('created_at', { ascending: false }).limit(50),
     ]);
 
-    if (plansRes.error || packsRes.error || auditRes.error) {
-        return NextResponse.json({ error: 'Failed to load pricing' }, { status: 500 });
+    const failed = [
+        ['plans', plansRes.error],
+        ['credit_packs', packsRes.error],
+        ['pricing_audit', auditRes.error],
+    ].filter(([, e]) => e) as [string, { message: string }][];
+
+    if (failed.length) {
+        console.error('[admin/pricing] load failed:', failed.map(([t, e]) => `${t}: ${e.message}`).join('; '));
+        return NextResponse.json(
+            {
+                error: 'Failed to load pricing',
+                detail: failed.map(([t, e]) => `${t}: ${e.message}`).join('; '),
+            },
+            { status: 500 },
+        );
     }
 
     return NextResponse.json({
