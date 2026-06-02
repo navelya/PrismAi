@@ -43,10 +43,16 @@ function SelectionsLayer({ peers }: { peers: Record<string, { selectedIds: strin
                         {sel.selectedIds.map((id) => {
                             const n: any = nodeInternals.get(id);
                             if (!n || !n.width || !n.height) return null;
+                            // Groups already render a prominent framed border of their own;
+                            // drawing a peer ring around it reads as an ugly, colour-shifting
+                            // SECOND border. Skip groups entirely — their own border stays the
+                            // original colour regardless of who has them selected. Regular
+                            // nodes still get the peer selection box (intentional).
+                            if (n.type === 'group_container') return null;
                             const pos = n.positionAbsolute || n.position;
                             // Draw the selection ring OUTSET from the node bounds so it reads
-                            // as a selection box around the node/group — never recolouring the
-                            // element's own border (important for group frames).
+                            // as a selection box around the node — never recolouring the
+                            // element's own border.
                             const out = 4 * zoom;
                             return (
                                 <div key={id} style={{
