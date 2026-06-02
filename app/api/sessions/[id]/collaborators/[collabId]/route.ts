@@ -7,7 +7,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
     const { supabase } = auth;
-    const { role } = await req.json();
+    // Owner-only enforcement relies on session_collaborators RLS policies + the user-scoped supabase client (do NOT switch to service-role here).
+    let body: any;
+    try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
+    const { role } = body;
     if (!['editor', 'viewer'].includes(role)) {
         return NextResponse.json({ error: 'role must be editor|viewer' }, { status: 400 });
     }
@@ -23,6 +26,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
     const { supabase } = auth;
+    // Owner-only enforcement relies on session_collaborators RLS policies + the user-scoped supabase client (do NOT switch to service-role here).
 
     const { data: row } = await supabase
         .from('session_collaborators').select('user_id')

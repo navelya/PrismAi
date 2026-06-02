@@ -22,7 +22,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (auth.error) return auth.error;
     const { user, supabase } = auth;
 
-    const { email, role } = await req.json();
+    let body: any;
+    try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
+    const { email, role } = body;
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail || !['editor', 'viewer'].includes(role)) {
         return NextResponse.json({ error: 'email and role (editor|viewer) required' }, { status: 400 });
