@@ -303,6 +303,13 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
             // inverse child-local-position shift that keeps children world-
             // pinned. Snapshot already taken at pointerdown.
             resizeGroup(id, newW, newH, { anchorRight, anchorBottom, skipSnapshot: true });
+            // Push the SETTLED structure to peers at once (Zustand set above is
+            // synchronous, so currentWorkflow already holds the committed size).
+            // This replaces the peer's live ghost immediately — without it the
+            // commit only rode the 250ms debounce, which post-resize measured-
+            // size churn kept rescheduling, so the peer snapped back to the old
+            // size instead of updating.
+            collab.commitNow();
         }
         setLiveSize(null);
         setLiveShift(null);

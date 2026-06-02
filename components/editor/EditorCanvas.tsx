@@ -485,6 +485,27 @@ const EditorCanvasInner = ({
         },
     );
 
+    // Broadcast the current structural state to peers right now (no debounce).
+    // Shared by the debounced auto-broadcast effect and the gesture-commit path.
+    const broadcastStateNow = useCallback(() => {
+        const latest = useAppStore.getState().currentWorkflow;
+        if (!latest) return;
+        // Sanitize: structure only. Stripping execution state keeps the payload
+        // small and avoids clobbering the peer's own results.
+        const sanitizedNodes = latest.nodes.map((n) => ({
+            ...n,
+            data: {
+                ...n.data,
+                status: undefined,
+                output: undefined,
+                outputMetadata: undefined,
+                errorMessage: undefined,
+                error: undefined,
+            },
+        }));
+        sendState(sanitizedNodes, latest.edges || []);
+    }, [sendState]);
+
     // Canvas-level collaboration API for node components that own their pointer
     // gestures (GroupNode's resize handles) and so can't ride ReactFlow's drag
     // events. Lets them broadcast live resize geometry + cursor during the drag.
@@ -502,7 +523,15 @@ const EditorCanvasInner = ({
             const pos = reactFlowInstance.screenToFlowPosition({ x: clientX, y: clientY });
             sendCursor(pos.x, pos.y);
         },
-    }), [me, canvasId, reactFlowInstance, sendGroupResize, sendCursor]);
+        // On gesture commit, push the settled structure at once so it replaces
+        // the peer's live ghost immediately instead of after the 250ms debounce
+        // (which post-commit measured-size churn keeps rescheduling). Gated like
+        // the debounced effect — viewers/solo don't send.
+        commitNow: () => {
+            if (!canEdit || !me || !canvasId) return;
+            broadcastStateNow();
+        },
+    }), [me, canvasId, canEdit, reactFlowInstance, sendGroupResize, sendCursor, broadcastStateNow]);
 
     // ── Outbound structural state broadcast (instant peer sync) ──────────────
     // Mirrors the autosave trigger but on a much shorter debounce. Fires ONLY
@@ -522,29 +551,12 @@ const EditorCanvasInner = ({
         if (!wf) return;
 
         if (stateBroadcastTimerRef.current) clearTimeout(stateBroadcastTimerRef.current);
-        stateBroadcastTimerRef.current = setTimeout(() => {
-            const latest = useAppStore.getState().currentWorkflow;
-            if (!latest) return;
-            // Sanitize: structure only. Stripping execution state keeps the
-            // payload small and avoids clobbering the peer's own results.
-            const sanitizedNodes = latest.nodes.map((n) => ({
-                ...n,
-                data: {
-                    ...n.data,
-                    status: undefined,
-                    output: undefined,
-                    outputMetadata: undefined,
-                    errorMessage: undefined,
-                    error: undefined,
-                },
-            }));
-            sendState(sanitizedNodes, latest.edges || []);
-        }, 250);
+        stateBroadcastTimerRef.current = setTimeout(broadcastStateNow, 250);
 
         return () => {
             if (stateBroadcastTimerRef.current) clearTimeout(stateBroadcastTimerRef.current);
         };
-    }, [canEdit, me, canvasId, isWorkflowDirtyForBroadcast, isDraggingForBroadcast, currentWorkflowForBroadcast, sendState]);
+    }, [canEdit, me, canvasId, isWorkflowDirtyForBroadcast, isDraggingForBroadcast, currentWorkflowForBroadcast, broadcastStateNow]);
 
     // Drop a peer's cursor element when they leave the roster.
     const presenceForCursors = useAppStore((s) => s.presence);

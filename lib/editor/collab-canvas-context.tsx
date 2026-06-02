@@ -21,11 +21,19 @@ export interface CollabCanvasApi {
     liveResize: (nodeId: string, w: number, h: number, sx: number, sy: number) => void;
     /** Broadcast the live cursor from a raw screen point (throttled + converted). */
     cursorMove: (clientX: number, clientY: number) => void;
+    /**
+     * Immediately broadcast the current structural state to peers, bypassing the
+     * debounced auto-broadcast. Used on resize/gesture COMMIT so the settled
+     * geometry replaces the peer's live ghost at once instead of after the
+     * debounce (which post-commit measured-size churn keeps rescheduling).
+     */
+    commitNow: () => void;
 }
 
 const NOOP_API: CollabCanvasApi = {
     liveResize: () => {},
     cursorMove: () => {},
+    commitNow: () => {},
 };
 
 const CollabCanvasContext = createContext<CollabCanvasApi>(NOOP_API);
