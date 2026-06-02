@@ -280,17 +280,19 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                         onClose={() => setActionSheetSessionId(null)}
                         title="Session Options"
                     >
-                        <ActionItem
-                            icon={Trash2}
-                            label="Delete Chat"
-                            variant="danger"
-                            onClick={() => {
-                                if (actionSheetSessionId) {
-                                    setDeleteConfirmation({ isOpen: true, sessionId: actionSheetSessionId });
-                                    setActionSheetSessionId(null);
-                                }
-                            }}
-                        />
+                        {!sessions.find(s => s.id === actionSheetSessionId)?.shared && (
+                            <ActionItem
+                                icon={Trash2}
+                                label="Delete Chat"
+                                variant="danger"
+                                onClick={() => {
+                                    if (actionSheetSessionId) {
+                                        setDeleteConfirmation({ isOpen: true, sessionId: actionSheetSessionId });
+                                        setActionSheetSessionId(null);
+                                    }
+                                }}
+                            />
+                        )}
                     </MobileActionSheet>
 
                     {/* Bottom Section - Fixed in Flex column */}
@@ -777,17 +779,19 @@ function SidebarSessionItem({
                 </motion.div>
             )}
 
-            <button
-                onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onDeleteClick(session.id);
-                }}
-                className={`p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all z-10 ${isExecuting ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-0 group-hover:opacity-100 scale-100'}`}
-                title="Delete session"
-            >
-                <Trash2 className="w-4 h-4" />
-            </button>
+            {!session.shared && (
+                <button
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onDeleteClick(session.id);
+                    }}
+                    className={`p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all z-10 ${isExecuting ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-0 group-hover:opacity-100 scale-100'}`}
+                    title="Delete session"
+                >
+                    <Trash2 className="w-4 h-4" />
+                </button>
+            )}
         </Link>
     );
 }
