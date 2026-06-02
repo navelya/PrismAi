@@ -71,6 +71,8 @@ function PackCard({ pack }: { pack: CreditPack }) {
 
 export default async function PricingPage() {
     const { plans, packs } = await getPricing();
+    const visiblePlans = plans.filter((p) => p.available);
+    const visiblePacks = packs.filter((p) => p.available);
     return (
         <article>
             <header className="mb-16 space-y-4">
@@ -89,7 +91,7 @@ export default async function PricingPage() {
                     Monthly plans
                 </h2>
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                    {plans.map((plan) => (
+                    {visiblePlans.map((plan) => (
                         <PlanCard key={plan.id} plan={plan} />
                     ))}
                 </div>
@@ -106,7 +108,7 @@ export default async function PricingPage() {
                     Need a burst of credits without changing your plan? Top-up packs work on any tier, including Free.
                 </p>
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-                    {packs.map((pack) => (
+                    {visiblePacks.map((pack) => (
                         <PackCard key={pack.id} pack={pack} />
                     ))}
                 </div>

@@ -81,3 +81,44 @@ CREATE TABLE IF NOT EXISTS public.pricing_audit (
 
 ALTER TABLE public.pricing_audit ENABLE ROW LEVEL SECURITY;
 -- No SELECT policy: service-role only.
+
+-- 5. Admin write/read access. The admin pricing routes use the RLS-scoped user
+-- session client (like other /api/admin routes), so admins need explicit
+-- policies. (The webhook + getPricing use the service client and bypass RLS.)
+-- Mirrors the split-policy pattern from 20260313_fix_admin_rls.sql.
+
+-- plans
+DROP POLICY IF EXISTS "Allow admin insert for plans" ON public.plans;
+CREATE POLICY "Allow admin insert for plans" ON public.plans FOR INSERT WITH CHECK (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin update for plans" ON public.plans;
+CREATE POLICY "Allow admin update for plans" ON public.plans FOR UPDATE USING (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin delete for plans" ON public.plans;
+CREATE POLICY "Allow admin delete for plans" ON public.plans FOR DELETE USING (public.is_admin());
+
+-- credit_packs
+DROP POLICY IF EXISTS "Allow admin insert for credit_packs" ON public.credit_packs;
+CREATE POLICY "Allow admin insert for credit_packs" ON public.credit_packs FOR INSERT WITH CHECK (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin update for credit_packs" ON public.credit_packs;
+CREATE POLICY "Allow admin update for credit_packs" ON public.credit_packs FOR UPDATE USING (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin delete for credit_packs" ON public.credit_packs;
+CREATE POLICY "Allow admin delete for credit_packs" ON public.credit_packs FOR DELETE USING (public.is_admin());
+
+-- pricing_price_history
+DROP POLICY IF EXISTS "Allow admin insert for pricing_price_history" ON public.pricing_price_history;
+CREATE POLICY "Allow admin insert for pricing_price_history" ON public.pricing_price_history FOR INSERT WITH CHECK (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin update for pricing_price_history" ON public.pricing_price_history;
+CREATE POLICY "Allow admin update for pricing_price_history" ON public.pricing_price_history FOR UPDATE USING (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin delete for pricing_price_history" ON public.pricing_price_history;
+CREATE POLICY "Allow admin delete for pricing_price_history" ON public.pricing_price_history FOR DELETE USING (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin select for pricing_price_history" ON public.pricing_price_history;
+CREATE POLICY "Allow admin select for pricing_price_history" ON public.pricing_price_history FOR SELECT USING (public.is_admin());
+
+-- pricing_audit
+DROP POLICY IF EXISTS "Allow admin insert for pricing_audit" ON public.pricing_audit;
+CREATE POLICY "Allow admin insert for pricing_audit" ON public.pricing_audit FOR INSERT WITH CHECK (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin update for pricing_audit" ON public.pricing_audit;
+CREATE POLICY "Allow admin update for pricing_audit" ON public.pricing_audit FOR UPDATE USING (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin delete for pricing_audit" ON public.pricing_audit;
+CREATE POLICY "Allow admin delete for pricing_audit" ON public.pricing_audit FOR DELETE USING (public.is_admin());
+DROP POLICY IF EXISTS "Allow admin select for pricing_audit" ON public.pricing_audit;
+CREATE POLICY "Allow admin select for pricing_audit" ON public.pricing_audit FOR SELECT USING (public.is_admin());
