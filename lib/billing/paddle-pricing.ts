@@ -30,6 +30,9 @@ export async function getProductIdForPrice(priceId: string): Promise<string> {
 /** Create a new Paddle price and return its id. */
 export async function createPaddlePrice(args: CreatePriceArgs): Promise<string> {
     const paddle = getPaddle();
+    if (!Number.isFinite(args.amountDollars) || args.amountDollars < 0) {
+        throw new Error(`Invalid price amount: ${args.amountDollars}`);
+    }
     const amount = String(Math.round(args.amountDollars * 100)); // minor units, USD
     const payload: CreatePriceRequestBody = {
         description: args.description,
