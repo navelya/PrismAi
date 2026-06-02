@@ -1,6 +1,7 @@
 import { Check } from 'lucide-react';
 import { Section, P, Strong } from '@/components/legal/LegalProse';
-import { PLANS, CREDIT_PACKS, type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
+import { type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
+import { getPricing } from '@/lib/billing/pricing-source';
 
 export const metadata = {
     title: 'Pricing — Prisfol',
@@ -68,7 +69,8 @@ function PackCard({ pack }: { pack: CreditPack }) {
     );
 }
 
-export default function PricingPage() {
+export default async function PricingPage() {
+    const { plans, packs } = await getPricing();
     return (
         <article>
             <header className="mb-16 space-y-4">
@@ -87,7 +89,7 @@ export default function PricingPage() {
                     Monthly plans
                 </h2>
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                    {PLANS.map((plan) => (
+                    {plans.map((plan) => (
                         <PlanCard key={plan.id} plan={plan} />
                     ))}
                 </div>
@@ -104,7 +106,7 @@ export default function PricingPage() {
                     Need a burst of credits without changing your plan? Top-up packs work on any tier, including Free.
                 </p>
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-                    {CREDIT_PACKS.map((pack) => (
+                    {packs.map((pack) => (
                         <PackCard key={pack.id} pack={pack} />
                     ))}
                 </div>
