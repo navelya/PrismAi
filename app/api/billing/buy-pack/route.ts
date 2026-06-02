@@ -33,8 +33,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getPaddle } from '@/lib/billing/paddle-server';
-import { lookupPackByPriceId } from '@/lib/billing/paddle-mapping';
-import { CREDIT_PACKS } from '@/lib/billing/plans-config';
+import { getPricing, lookupPackByPriceId } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +76,8 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'packId is required' }, { status: 400 });
         }
 
-        const pack = CREDIT_PACKS.find((p) => p.id === body.packId);
+        const { packs } = await getPricing();
+        const pack = packs.find((p) => p.id === body.packId);
         if (!pack || !pack.paddlePriceId) {
             return NextResponse.json({ error: 'Unknown credit pack' }, { status: 400 });
         }
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
         // Defence-in-depth: confirm the price ID we hold maps to the pack we
         // just looked up. Guards against config drift between the catalog and
         // the mapping module.
-        const lookup = lookupPackByPriceId(pack.paddlePriceId);
+        const lookup = await lookupPackByPriceId(pack.paddlePriceId);
         if (!lookup || lookup.packId !== pack.id) {
             return NextResponse.json(
                 { error: 'Credit pack price is misconfigured. Contact support.' },

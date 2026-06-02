@@ -15,7 +15,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { lookupPlanByPriceId } from '@/lib/billing/paddle-mapping';
+import { lookupPlanByPriceId } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'priceId is required' }, { status: 400 });
         }
 
-        const target = lookupPlanByPriceId(body.priceId);
+        const target = await lookupPlanByPriceId(body.priceId);
         if (!target) {
             return NextResponse.json({ error: 'Unknown price ID' }, { status: 400 });
         }
