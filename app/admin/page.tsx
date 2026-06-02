@@ -30,6 +30,7 @@ import {
     Edit2,
     Users,
     Calculator,
+    BarChart3,
     Video,
     Settings,
     ArrowDownUp,
@@ -49,13 +50,14 @@ import { ModelForm } from '@/components/admin/ModelForm';
 import { ContextMenuBuilder } from '@/components/admin/ContextMenuBuilder';
 import { UsersAdminContent } from '@/components/admin/UsersAdminContent';
 import { PricingAdminContent } from '@/components/admin/PricingAdminContent';
+import { StatisticsAdminContent } from '@/components/admin/StatisticsAdminContent';
 import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
 
 // =============================================================================
 // SECTION NAVIGATION CONFIG
 // =============================================================================
 
-type SectionId = 'models' | 'users' | 'pricing';
+type SectionId = 'models' | 'users' | 'pricing' | 'statistics';
 
 interface SectionNavItem {
     id: SectionId;
@@ -68,6 +70,7 @@ const sectionNavItems: SectionNavItem[] = [
     { id: 'models', label: 'Models', icon: <Database className="w-4 h-4" /> },
     { id: 'users', label: 'Users', icon: <Users className="w-4 h-4" /> },
     { id: 'pricing', label: 'Pricing', icon: <Calculator className="w-4 h-4" /> },
+    { id: 'statistics', label: 'Statistics', icon: <BarChart3 className="w-4 h-4" /> },
 ];
 
 // =============================================================================
@@ -94,7 +97,10 @@ function AdminShell() {
 
     const sectionParam = searchParams.get('section') as SectionId | null;
     const activeSection: SectionId =
-        sectionParam === 'users' ? 'users' : sectionParam === 'pricing' ? 'pricing' : 'models';
+        sectionParam === 'users' ? 'users'
+        : sectionParam === 'pricing' ? 'pricing'
+        : sectionParam === 'statistics' ? 'statistics'
+        : 'models';
 
     const [mobileShowContent, setMobileShowContent] = useState(false);
     const [sidebarHovered, setSidebarHovered] = useState(false);
@@ -191,6 +197,7 @@ function AdminShell() {
                 {activeSection === 'models' && <ModelsAdminContent onMobileBack={() => setMobileShowContent(false)} />}
                 {activeSection === 'users' && <UsersAdminContent onMobileBack={() => setMobileShowContent(false)} />}
                 {activeSection === 'pricing' && <PricingAdminContent onMobileBack={() => setMobileShowContent(false)} />}
+                {activeSection === 'statistics' && <StatisticsAdminContent onMobileBack={() => setMobileShowContent(false)} />}
             </main>
         </div>
     );
