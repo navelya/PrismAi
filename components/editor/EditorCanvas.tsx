@@ -319,6 +319,21 @@ const EditorCanvasInner = ({
     const clearPendingCenterNodeId = useAppStore((s) => s.clearPendingCenterNodeId);
     const setCurrentSelectedNodeIds = useAppStore((s) => s.setCurrentSelectedNodeIds);
     const selectionClearToken = useAppStore((s) => s.selectionClearToken);
+    const liveNodePositions = useAppStore((s) => s.liveNodePositions);
+
+    // Overlay live peer-drag positions onto localNodes for rendering. When the
+    // map is empty (no collaboration, or no peer currently dragging) this returns
+    // the exact same localNodes reference — zero overhead for solo sessions. Only
+    // the peer-dragged node gets a new object, so only it re-renders.
+    const renderedNodes = useMemo(() => {
+        if (!liveNodePositions || Object.keys(liveNodePositions).length === 0) return localNodes;
+        return localNodes.map((n: any) =>
+            liveNodePositions[n.id]
+                ? { ...n, position: liveNodePositions[n.id] }
+                : n
+        );
+    }, [localNodes, liveNodePositions]);
+
     useEffect(() => {
         if (!pendingCenterNodeId || !reactFlowInstance) return;
         const node = reactFlowInstance.getNode(pendingCenterNodeId);
@@ -390,6 +405,10 @@ const EditorCanvasInner = ({
                     const m = new Map<string, { x: number; y: number }>();
                     m.set(nodeId, position);
                     store.updateNodePositions(m);
+                    // Clear the live drag position so the committed position from
+                    // the store (now applied via updateNodePositions) takes over
+                    // and the stale drag ghost stops overriding it.
+                    useAppStore.getState().clearLiveNodePosition(nodeId);
                 }
                 break;
             }
@@ -1603,13 +1622,13 @@ const EditorCanvasInner = ({
                 setContextMenu({ x: e.clientX, y: e.clientY });
             }}
             onMouseDownCapture={handleWrapperMouseDown}
-            onMouseMove={handleMouseMove}
+            onMouseMove={(e) => { handleMouseMove(e); handlePaneMouseMove(e); }}
             onMouseLeave={() => setIsMouseActive(false)}
         >
             <WireDragProvider value={wireDrag}>
             <NodeValidationProvider>
             <ReactFlow
-                nodes={localNodes}
+                nodes={renderedNodes}
                 edges={memoizedEdges}
                 onNodesChange={handleNodesChange}
                 onEdgesChange={handleEdgesChange}
@@ -1660,7 +1679,6 @@ const EditorCanvasInner = ({
                 selectionMode={!isPanMode ? SelectionMode.Partial : undefined}
                 connectionMode={"loose" as any}
                 onPaneClick={handlePaneClick}
-                onPaneMouseMove={handlePaneMouseMove}
                 proOptions={PRO_OPTIONS}
             >
                 <BaseGridLayers />

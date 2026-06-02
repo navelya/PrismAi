@@ -22,6 +22,15 @@ export const createLivePositionSlice: StateCreator<RootState, [], [], LivePositi
 
     clearLiveNodePositions: () => set({ liveNodePositions: {} }),
 
+    clearLiveNodePosition: (nodeId) => {
+        set((state) => {
+            if (!(nodeId in state.liveNodePositions)) return state;
+            const next = { ...state.liveNodePositions };
+            delete next[nodeId];
+            return { liveNodePositions: next };
+        });
+    },
+
     syncLivePositionsToWorkflow: () => {
         const { liveNodePositions, currentWorkflow, updateNodePositions } = get();
         if (!currentWorkflow || Object.keys(liveNodePositions).length === 0) return;

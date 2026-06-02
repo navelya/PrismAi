@@ -423,6 +423,7 @@ export interface UISlice {
 export interface LivePositionSlice {
     liveNodePositions: Record<string, { x: number; y: number }>;
     setLiveNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
+    clearLiveNodePosition: (nodeId: string) => void;
     clearLiveNodePositions: () => void;
     syncLivePositionsToWorkflow: () => void;
 }
