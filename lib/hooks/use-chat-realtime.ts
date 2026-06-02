@@ -64,6 +64,11 @@ export function useChatRealtime({
     const sessionsChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
     const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
 
+    // Track activeCanvasId so the canvas-state channel re-keys when it resolves
+    // (e.g. loadSession sets activeSessionId before activeCanvasId, so the
+    // sessions channel would otherwise subscribe to the wrong row for collaborators).
+    const activeCanvasId = useAppStore((state) => state.activeCanvasId);
+
     // =========================================================================
     // SUPABASE REALTIME: Listen for completed AI responses & session status
     // =========================================================================
@@ -315,7 +320,10 @@ export function useChatRealtime({
                 // Canvas-state updates are written to the shared canvas session row,
                 // so the sessions channel must key on the canvas id (shared across all
                 // collaborators), while messages remain on the per-user thread id.
-                const canvasId = useAppStore.getState().activeCanvasId || activeSessionId;
+                // activeCanvasId is captured from the hook-level selector so that
+                // when the effect re-runs after activeCanvasId resolves (e.g. after
+                // loadSession finishes setting it), the channel uses the correct id.
+                const canvasId = activeCanvasId || activeSessionId;
 
                 const messagesChannel = supabase
                     .channel(`chat-messages-${activeSessionId}`)
@@ -434,5 +442,5 @@ export function useChatRealtime({
             sessionsChannelRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionId]);
+    }, [sessionId, activeCanvasId]);
 }
