@@ -2,10 +2,12 @@
 import React from 'react';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
+import { useCurrentUser } from '@/lib/hooks/use-current-user';
 
 export function PresenceAvatars() {
     const presence = useAppStore(useShallow((s) => s.presence));
-    const people = Object.values(presence);
+    const me = useCurrentUser();
+    const people = Object.values(presence).filter((p) => p.userId !== me?.id);
     if (people.length === 0) return null;
     return (
         <div className="flex items-center -space-x-2 pointer-events-auto">
