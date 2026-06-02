@@ -19,9 +19,10 @@ interface CursorEls {
 const CURSOR_PATH = 'M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 // Pixel offset of the path tip when the 24-unit viewBox is rendered at 20px
-// (4.04 * 20/24, 4.69 * 20/24). The SVG is shifted up-left by this so the
-// arrow TIP lands exactly on the cursor coordinate (Figma-style).
-const TIP_X = 3.4, TIP_Y = 3.9;
+// (4.04 * 20/24 ≈ 3.4, 4.69 * 20/24 ≈ 3.9). Rounded to whole pixels: a
+// fractional left/top on a filtered (drop-shadow) SVG rasterises onto a
+// sub-pixel boundary and blurs the glyph. The ≤0.5px tip shift is invisible.
+const TIP_X = 3, TIP_Y = 4;
 
 // Renders remote cursors. Positions are pushed imperatively (via ref) to avoid
 // React re-renders on every cursor broadcast. flow-coords → screen via the RF viewport.
@@ -33,7 +34,11 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
     useImperativeHandle(ref, () => ({
         update(userId, name, color, fx, fy) {
             const { x, y, zoom } = rf.getViewport();
-            const sx = fx * zoom + x, sy = fy * zoom + y;
+            // Snap to whole pixels. The root is a GPU-composited layer (will-change
+            // + transition); a fractional translate places its quad on a sub-pixel
+            // boundary and Chromium bilinear-samples it, blurring the glyph AND the
+            // label. Integer translate keeps both crisp (device-aligned at 1x/2x DPR).
+            const sx = Math.round(fx * zoom + x), sy = Math.round(fy * zoom + y);
             let entry = elsRef.current.get(userId);
             if (!entry && layerRef.current) {
                 const root = document.createElement('div');
