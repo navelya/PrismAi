@@ -87,12 +87,18 @@ export async function GET(request: Request) {
             }
 
             // 3d. Crawl storage under {userId}/{sessionId}, then remove everything
-            // EXCEPT keeper files.
+            // EXCEPT keeper files. If any list or removal step fails, we must NOT
+            // proceed to delete the session row: the cron only ever revisits
+            // sessions (not bare storage prefixes), so a session deleted with
+            // files still present would orphan them permanently. On failure we
+            // leave the session soft-deleted and retry wholesale next run.
             let filesToRemove: string[] = [];
+            let removalFailed = false;
             async function fetchAllFiles(path: string) {
                 const { data, error } = await supabaseAdmin.storage.from('chat-assets').list(path);
                 if (error) {
                     console.error(`[Cron Wipe] List error at ${path}:`, error);
+                    removalFailed = true;
                     return;
                 }
                 if (!data) return;
@@ -116,10 +122,17 @@ export async function GET(request: Request) {
                         .remove(chunk);
                     if (removeError) {
                         console.error(`[Cron Wipe] Chunk removal error for session ${session.id}:`, removeError);
+                        removalFailed = true;
                     } else {
                         totalFilesDeleted += chunk.length;
                     }
                 }
+            }
+
+            // Storage cleanup incomplete -> retry next run; do not orphan files.
+            if (removalFailed) {
+                console.error(`[Cron Wipe] Storage cleanup incomplete for session ${session.id}; leaving soft-deleted for retry.`);
+                continue;
             }
 
             // 3e. Delete the EPHEMERAL rows (everything for this session that is
