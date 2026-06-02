@@ -34,15 +34,18 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
     useImperativeHandle(ref, () => ({
         update(userId, name, color, fx, fy) {
             const { x, y, zoom } = rf.getViewport();
-            // Snap to whole pixels. The root is a GPU-composited layer (will-change
-            // + transition); a fractional translate places its quad on a sub-pixel
-            // boundary and Chromium bilinear-samples it, blurring the glyph AND the
-            // label. Integer translate keeps both crisp (device-aligned at 1x/2x DPR).
+            // Snap to whole pixels (avoids sub-pixel bilinear blur on the translate).
             const sx = Math.round(fx * zoom + x), sy = Math.round(fy * zoom + y);
             let entry = elsRef.current.get(userId);
             if (!entry && layerRef.current) {
                 const root = document.createElement('div');
-                root.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;transition:transform 80ms linear;z-index:50;will-change:transform';
+                // NO `will-change: transform` and NO transform-transition: either one
+                // promotes this to its own GPU layer, and Chromium clamps that layer's
+                // raster scale BELOW the device pixel ratio (badly so when an ancestor
+                // uses backdrop-filter — which the app's glass chrome does), baking the
+                // SVG glyph + label text into a low-res bitmap that looks pixelated.
+                // Painting into the parent layer keeps everything at full DPR = crisp.
+                root.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:50';
 
                 const svg = document.createElementNS(SVG_NS, 'svg');
                 svg.setAttribute('width', '20');
@@ -58,7 +61,7 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
                 svg.appendChild(path);
 
                 const label = document.createElement('div');
-                label.style.cssText = 'position:absolute;left:11px;top:13px;color:#fff;font-size:11px;font-weight:600;line-height:1.2;border-radius:6px;padding:2px 7px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.2);font-family:system-ui,-apple-system,sans-serif';
+                label.style.cssText = 'position:absolute;left:11px;top:13px;color:#fff;font-size:11px;font-weight:600;line-height:1.2;border-radius:6px;padding:2px 7px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.2);text-shadow:0 1px 2px rgba(0,0,0,.55);font-family:system-ui,-apple-system,sans-serif';
 
                 root.appendChild(svg);
                 root.appendChild(label);
