@@ -19,7 +19,7 @@ There is no test runner. Ad-hoc integration scripts in [scripts/](scripts/) are 
 
 A separate Python background-removal service runs on port 8000 (see [STARTUP.md](STARTUP.md), [DEPLOYMENT.md](DEPLOYMENT.md)) — its `python-backend/` directory ships separately to Hugging Face Spaces and is not in this repo.
 
-Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY` (chat brain), `GEMINI_API_KEY` (used by session-title generation and other Gemini features), `REPLICATE_API_TOKEN`, `REPLICATE_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_APP_URL` (used as the Replicate webhook base URL — must be publicly reachable), `CRON_SECRET`, `RESEND_API_KEY` (admin alert emails for billing exceptions), `ADMIN_ALERT_EMAIL` (destination for billing alerts), `ADMIN_ALERT_FROM` (optional, defaults to `alerts@prismai.local`).
+Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY` (chat brain), `GEMINI_API_KEY` (used by session-title generation and other Gemini features), `REPLICATE_API_TOKEN`, `REPLICATE_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_APP_URL` (used as the Replicate webhook base URL — must be publicly reachable), `CRON_SECRET`, `RESEND_API_KEY` (admin alert emails for billing exceptions), `ADMIN_ALERT_EMAIL` (destination for billing alerts), `ADMIN_ALERT_FROM` (optional, defaults to `alerts@prismai.local`). Billing (Paddle): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENVIRONMENT`, `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT`.
 
 ## Things that bite
 
@@ -29,4 +29,7 @@ Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABAS
 - **Three-way registry split** in [lib/nodes/core/](lib/nodes/core/) — shared/client/server. Don't import the server registry from a client component (pulls `sharp` into the browser bundle) or vice versa.
 - **`ai_generator` is dynamic** — its handles come from the `ai_models.inputs_schema` JSONB column at runtime, not from TypeScript. Adding a new generative model is usually a DB row, not a code change.
 - **Workflow generation is patch-based** ([lib/workflow/workflow-patch.ts](lib/workflow/workflow-patch.ts)) — the LLM emits ops, not full rewrites, so user edits between turns survive.
+- **The chat brain is Claude, not Gemini.** [lib/chat/](lib/chat/) runs an Anthropic Claude agentic tool loop (`nodejs` runtime, not edge — the SDK imports `node:fs`). Gemini is only used for session titles and a couple of image-gen routes. The system prompt's stable block is cached for 1h — keep registry/rules in the stable block, per-turn workflow/selection in the dynamic block, or you nuke the cache.
+- **Generative runs cost credits, debited before dispatch.** `/api/executions/start` runs a cost pre-flight + debit; failures must refund via the `refund_tokens` RPC ([lib/workflow/orchestrator.ts](lib/workflow/orchestrator.ts)). Don't add a generative dispatch path that skips the debit/refund accounting, or balances drift.
+- **`character` nodes embed a frozen snapshot**, not a live reference — editing the source character does not change a saved workflow. The chat brain is shown only name/description; image URLs are hydrated server-side so the LLM can't fabricate them.
 - **Path alias** `@/*` → repo root.
