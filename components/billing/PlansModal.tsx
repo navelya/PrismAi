@@ -5,7 +5,8 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { PLANS, CREDIT_PACKS, type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
+import { type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
+import { usePricing } from '@/lib/billing/use-pricing';
 import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
 import { openPaddleCheckout } from '@/lib/billing/paddle-client';
@@ -21,6 +22,7 @@ interface PlansModalProps {
 }
 
 export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
+    const { plans, packs } = usePricing();
     const { subscription } = useSubscription();
     const currentPlanId = subscription?.planId ?? 'free';
     const currentCycle = subscription?.billingCycle ?? 'monthly';
@@ -112,10 +114,11 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
 
                             {/* Plan cards grid */}
                             <div className="relative px-6 sm:px-8 pt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-                                {PLANS.map((plan) => (
+                                {plans.map((plan) => (
                                     <PlanCard
                                         key={plan.id}
                                         plan={plan}
+                                        plans={plans}
                                         currentPlanId={currentPlanId}
                                         currentCycle={currentCycle}
                                         selectedCycle={selectedCycle}
@@ -140,7 +143,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                                    {CREDIT_PACKS.map((pack) => (
+                                    {packs.map((pack) => (
                                         <CreditPackCard key={pack.id} pack={pack} />
                                     ))}
                                 </div>
@@ -200,6 +203,7 @@ function CycleToggle({
 
 interface PlanCardProps {
     plan: PlanDisplay;
+    plans: PlanDisplay[];
     currentPlanId: string;
     currentCycle: 'monthly' | 'yearly';
     selectedCycle: 'monthly' | 'yearly';
@@ -211,6 +215,7 @@ interface PlanCardProps {
 
 function PlanCard({
     plan,
+    plans,
     currentPlanId,
     currentCycle,
     selectedCycle,
@@ -286,6 +291,7 @@ function PlanCard({
             {/* CTA */}
             <PlanCTA
                 plan={plan}
+                plans={plans}
                 isCurrent={isCurrent}
                 currentPlanId={currentPlanId}
                 currentCycle={currentCycle}
@@ -504,6 +510,7 @@ function planRank(planId: string): number {
 
 function PlanCTA({
     plan,
+    plans,
     isCurrent,
     currentPlanId,
     currentCycle,
@@ -514,6 +521,7 @@ function PlanCTA({
     onClose,
 }: {
     plan: PlanDisplay;
+    plans: PlanDisplay[];
     isCurrent: boolean;
     currentPlanId: string;
     currentCycle: 'monthly' | 'yearly';
@@ -620,7 +628,7 @@ function PlanCTA({
     // same cancel flow as the plan card's cancel button so the user has a
     // single mental model: "to go back to Free, cancel your subscription."
     if (plan.id === 'free' && currentPlanId !== 'free') {
-        const currentPlan = PLANS.find((p) => p.id === currentPlanId);
+        const currentPlan = plans.find((p) => p.id === currentPlanId);
         const currentPlanName = currentPlan?.name ?? currentPlanId;
 
         // Already scheduled to cancel — surface that instead of offering it again.

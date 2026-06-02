@@ -7,7 +7,7 @@ import { ArrowLeft, Loader2, Lock } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
 import { createClient } from '@/lib/supabase/client';
 import { loadPaddle } from '@/lib/billing/paddle-client';
-import { getPlanDisplay } from '@/lib/billing/plans-config';
+import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
 
 type Cycle = 'monthly' | 'yearly';
 
@@ -19,12 +19,13 @@ export default function CheckoutPage() {
     const planId = (params?.planId as string) || '';
     const initialCycle: Cycle = searchParams?.get('cycle') === 'yearly' ? 'yearly' : 'monthly';
 
+    const { plans, loading: pricingLoading } = usePricing();
     const [cycle, setCycle] = useState<Cycle>(initialCycle);
     const [user, setUser] = useState<{ id: string; email: string } | null>(null);
     const [authChecked, setAuthChecked] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const plan = getPlanDisplay(planId);
+    const plan = getPlanFrom(plans, planId);
     const priceId = cycle === 'yearly' ? plan?.paddlePriceIdYearly : plan?.paddlePriceIdMonthly;
 
     // Auth gate — redirect to login if not signed in.
@@ -95,6 +96,14 @@ export default function CheckoutPage() {
             console.error('[Checkout] Failed to update billing cycle:', e);
         }
     }, [cycle, plan]);
+
+    if (pricingLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-[#020617] text-slate-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+        );
+    }
 
     if (!plan || plan.id === 'free' || !plan.paddlePriceIdMonthly) {
         return (

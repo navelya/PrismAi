@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { useSubscription } from '@/lib/billing/use-subscription';
-import { getPlanDisplay, PLANS } from '@/lib/billing/plans-config';
+import { type PlanDisplay } from '@/lib/billing/plans-config';
+import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
 import { formatCredits } from '@/lib/billing/cost';
 import { loadPaddle } from '@/lib/billing/paddle-client';
 import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
@@ -26,6 +27,7 @@ function formatDate(iso: string): string {
 const SYNC_SESSION_FLAG = 'prisfol_billing_synced';
 
 export default function PlanBillingView() {
+    const { plans } = usePricing();
     const { balance } = useTokenBalance();
     const { subscription, loading: subLoading } = useSubscription();
     const [showPlans, setShowPlans] = useState(false);
@@ -69,7 +71,7 @@ export default function PlanBillingView() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const plan = getPlanDisplay(subscription?.planId ?? 'free');
+    const plan = getPlanFrom(plans, subscription?.planId ?? 'free');
 
     return (
         <>
@@ -153,6 +155,7 @@ export default function PlanBillingView() {
                             {/* Subscription actions / cancel banner */}
                             {subscription && subscription.planId !== 'free' && (
                                 <SubscriptionActions
+                                    plans={plans}
                                     cancelAtPeriodEnd={subscription.cancelAtPeriodEnd}
                                     currentPeriodEnd={subscription.currentPeriodEnd}
                                     planName={plan?.name ?? subscription.planId}
@@ -173,6 +176,7 @@ export default function PlanBillingView() {
 }
 
 interface SubscriptionActionsProps {
+    plans: PlanDisplay[];
     cancelAtPeriodEnd: boolean;
     currentPeriodEnd: string | null;
     planName: string;
@@ -180,6 +184,7 @@ interface SubscriptionActionsProps {
 }
 
 function SubscriptionActions({
+    plans,
     cancelAtPeriodEnd,
     currentPeriodEnd,
     planName,
@@ -336,9 +341,9 @@ function SubscriptionActions({
 
                 {!cancelAtPeriodEnd && pendingPlanChangePriceId && currentPeriodEnd && (() => {
                     // Resolve the pending price ID to a display name. Walk
-                    // PLANS rather than calling getPlanDisplay so we can find
+                    // plans rather than calling getPlanFrom so we can find
                     // both yearly and monthly cycle entries.
-                    const targetPlan = PLANS.find(
+                    const targetPlan = plans.find(
                         (p) =>
                             p.paddlePriceIdMonthly === pendingPlanChangePriceId ||
                             p.paddlePriceIdYearly === pendingPlanChangePriceId,

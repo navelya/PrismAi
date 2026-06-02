@@ -6,7 +6,8 @@ import { motion, useMotionValue, useTransform, useReducedMotion, animate } from 
 import { Check, Loader2, ArrowRight, AlertCircle } from 'lucide-react';
 import { useTokenBalance } from '@/lib/billing/use-balance';
 import { formatCredits } from '@/lib/billing/cost';
-import { getPlanDisplay, type PlanId } from '@/lib/billing/plans-config';
+import { type PlanId } from '@/lib/billing/plans-config';
+import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
 import { pollSubscriptionUntil, type SubscriptionRow } from '@/lib/billing/poll-subscription';
 
 /**
@@ -47,6 +48,7 @@ function AnimatedCredits({ value }: { value: number }) {
 }
 
 export default function BillingSuccessPage() {
+    const { plans } = usePricing();
     const { balance } = useTokenBalance();
     const [status, setStatus] = useState<Status>('processing');
     const [confirmedRow, setConfirmedRow] = useState<SubscriptionRow | null>(null);
@@ -69,7 +71,7 @@ export default function BillingSuccessPage() {
         return () => { cancelled = true; };
     }, []);
 
-    const plan = confirmedRow ? getPlanDisplay(confirmedRow.plan_id as PlanId) : null;
+    const plan = confirmedRow ? getPlanFrom(plans, confirmedRow.plan_id as PlanId) : null;
 
     return (
         <div className="min-h-screen w-full bg-bg-primary text-content-primary flex items-center justify-center p-6">
