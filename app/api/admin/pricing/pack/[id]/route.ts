@@ -14,10 +14,22 @@ interface PackPatchBody {
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
-
     const { supabase, user } = auth;
+
     const packId = params.id;
     const body = (await req.json()) as PackPatchBody;
+
+    for (const [key, val] of [
+        ['price_dollars', body.price_dollars],
+        ['credits', body.credits],
+    ] as const) {
+        if (val != null && (typeof val !== 'number' || !Number.isFinite(val))) {
+            return NextResponse.json({ error: `${key} must be a number` }, { status: 400 });
+        }
+    }
+    if (body.is_active != null && typeof body.is_active !== 'boolean') {
+        return NextResponse.json({ error: 'is_active must be a boolean' }, { status: 400 });
+    }
 
     const { data: pack, error: loadErr } = await supabase
         .from('credit_packs').select('*').eq('id', packId).single();
@@ -27,7 +39,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const updates: Record<string, any> = {};
     const auditRows: any[] = [];
+    let historyRow: { paddle_price_id: string; entity_type: 'pack'; entity_id: string; cycle: null } | null = null;
+    let archiveOldId: string | null = null;
 
+    // Phase 1: create the new one-time Paddle price (no archiving / DB write yet).
     if (body.price_dollars != null) {
         const newCents = Math.round(body.price_dollars * 100);
         if (newCents !== pack.price_cents) {
@@ -41,14 +56,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
                 const newPriceId = await createPaddlePrice({
                     productId, amountDollars: body.price_dollars,
                     description: `${pack.display_name} credit pack`,
-                });
+                }); // no interval -> one-time
                 updates.price_cents = newCents;
                 updates.paddle_price_id = newPriceId;
-                await supabase.from('pricing_price_history').insert({
-                    paddle_price_id: pack.paddle_price_id, entity_type: 'pack', entity_id: packId, cycle: null,
-                });
-                try { await archivePaddlePrice(pack.paddle_price_id); }
-                catch (e) { console.error('[admin/pricing] archive old pack price failed (non-fatal):', e); }
+                historyRow = { paddle_price_id: pack.paddle_price_id, entity_type: 'pack', entity_id: packId, cycle: null };
+                archiveOldId = pack.paddle_price_id;
                 auditRows.push({ changed_by: user.id, entity_type: 'pack', entity_id: packId,
                     field: 'price_cents', old_value: String(pack.price_cents), new_value: String(newCents),
                     paddle_price_id_created: newPriceId });
@@ -72,13 +84,29 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     if (Object.keys(updates).length === 0) return NextResponse.json({ ok: true, unchanged: true });
 
+    // Phase 2: single DB update before any archiving.
     updates.updated_at = new Date().toISOString();
     const { error: updErr } = await supabase.from('credit_packs').update(updates).eq('id', packId);
     if (updErr) {
-        console.error('[admin/pricing] pack DB update failed after Paddle changes:', updErr, updates);
+        console.error('[admin/pricing] pack DB update failed after Paddle price creation:', updErr, updates);
         return NextResponse.json({ error: 'Saved price in Paddle but DB write failed — check logs', detail: updErr.message }, { status: 500 });
     }
-    if (auditRows.length) await supabase.from('pricing_audit').insert(auditRows);
+
+    // Phase 3: history + archive (best-effort, after DB is consistent).
+    if (historyRow) {
+        const { error: histErr } = await supabase
+            .from('pricing_price_history')
+            .upsert([historyRow], { onConflict: 'paddle_price_id', ignoreDuplicates: true });
+        if (histErr) console.error('[admin/pricing] pack price history insert failed (non-fatal):', histErr);
+    }
+    if (archiveOldId) {
+        try { await archivePaddlePrice(archiveOldId); }
+        catch (e) { console.error('[admin/pricing] archive old pack price failed (non-fatal):', archiveOldId, e); }
+    }
+    if (auditRows.length) {
+        const { error: auditErr } = await supabase.from('pricing_audit').insert(auditRows);
+        if (auditErr) console.error('[admin/pricing] pack audit insert failed (non-fatal):', auditErr);
+    }
 
     bustPricingCache();
     return NextResponse.json({ ok: true });
