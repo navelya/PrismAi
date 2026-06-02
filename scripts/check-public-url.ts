@@ -27,4 +27,10 @@ assert.strictEqual(
   null,
 );
 
+// Marker present but no object key after it -> null (not empty string)
+assert.strictEqual(
+  storageKeyFromPublicUrl('https://abc.supabase.co/storage/v1/object/public/chat-assets/'),
+  null,
+);
+
 console.log('OK: storageKeyFromPublicUrl');

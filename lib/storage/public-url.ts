@@ -16,6 +16,7 @@ export function storageKeyFromPublicUrl(url: string): string | null {
 
   const afterMarker = url.slice(idx + marker.length);
   const noQuery = afterMarker.split('?')[0]; // drop the ?t= cache-buster
+  if (!noQuery) return null; // marker present but no object key -> nothing to act on
   try {
     return decodeURIComponent(noQuery);
   } catch {
