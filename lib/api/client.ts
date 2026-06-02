@@ -87,6 +87,23 @@ export const sessionsApi = {
         ),
 };
 
+// ─── Collaborator APIs ─────────────────────────────────────────────────
+
+export const collaboratorsApi = {
+    list: (canvasId: string) =>
+        apiFetch<{ collaborators: any[] }>(`/api/sessions/${canvasId}/collaborators`),
+    invite: (canvasId: string, email: string, role: 'editor' | 'viewer') =>
+        apiFetch<{ collaborator: any; emailSent: boolean }>(
+            `/api/sessions/${canvasId}/collaborators`,
+            { method: 'POST', body: JSON.stringify({ email, role }) }
+        ),
+    setRole: (canvasId: string, collabId: string, role: 'editor' | 'viewer') =>
+        apiFetch(`/api/sessions/${canvasId}/collaborators/${collabId}`,
+            { method: 'PATCH', body: JSON.stringify({ role }) }),
+    remove: (canvasId: string, collabId: string) =>
+        apiFetch(`/api/sessions/${canvasId}/collaborators/${collabId}`, { method: 'DELETE' }),
+};
+
 // ─── Message APIs ──────────────────────────────────────────────────────
 
 export const messagesApi = {
