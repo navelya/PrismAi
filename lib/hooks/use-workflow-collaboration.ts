@@ -10,16 +10,42 @@ function colorFor(userId: string): string {
 }
 
 export interface CursorEvent { userId: string; x: number; y: number; }
-export interface WorkflowOp {
+
+/**
+ * Full structural state broadcast payload. Replaces the old per-op model:
+ * the originator of a settled local edit broadcasts the WHOLE {nodes, edges}
+ * structure, and peers MERGE it into their currentWorkflow (preserving their
+ * own selection + execution state). This catches every edit kind uniformly
+ * (multi-node move, group create/resize, config edits, deletes, adds) where
+ * per-op broadcasting missed cases.
+ */
+export interface WorkflowStateEvent {
     origin: string;
-    kind: 'node:add' | 'node:delete' | 'node:move-commit' | 'node:config' | 'edge:add' | 'edge:delete';
-    payload: any;
+    nodes: any[];
+    edges: any[];
+}
+
+// A live drag broadcast. New shape carries an array of {id,x,y} items so a
+// multi-node / selection drag moves all dragged nodes on the peer in one send.
+// The legacy single-node shape ({ userId, nodeId, x, y }) is still accepted by
+// the receiver for safety.
+export interface NodeDragItem { id: string; x: number; y: number; }
+export interface NodeDragEvent {
+    userId: string;
+    items?: NodeDragItem[];
+    nodeId?: string;
+    x?: number;
+    y?: number;
 }
 
 export function useWorkflowCollaboration(
     canvasId: string | null,
     me: { id: string; name: string; role: 'owner' | 'editor' | 'viewer' } | null,
-    handlers: { onOp: (op: WorkflowOp) => void; onCursor: (c: CursorEvent) => void; onNodeDrag: (e: any) => void; },
+    handlers: {
+        onState: (e: WorkflowStateEvent) => void;
+        onCursor: (c: CursorEvent) => void;
+        onNodeDrag: (e: NodeDragEvent) => void;
+    },
 ) {
     const supabaseRef = useRef(createClient());
     const opsChannelRef = useRef<any>(null);
@@ -50,7 +76,7 @@ export function useWorkflowCollaboration(
         });
 
         const ops = supabase.channel(`workflow-ops-${canvasId}`, { config: { broadcast: { self: false } } });
-        ops.on('broadcast', { event: 'op' }, ({ payload }: any) => handlersRef.current.onOp(payload));
+        ops.on('broadcast', { event: 'state' }, ({ payload }: any) => handlersRef.current.onState(payload));
         ops.on('broadcast', { event: 'cursor' }, ({ payload }: any) => handlersRef.current.onCursor(payload));
         ops.on('broadcast', { event: 'node-drag' }, ({ payload }: any) => handlersRef.current.onNodeDrag(payload));
         ops.subscribe();
@@ -63,13 +89,21 @@ export function useWorkflowCollaboration(
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'cursor', payload: { userId: me.id, x, y } });
     };
+    // Legacy single-node drag send (kept for callers/back-compat).
     const sendNodeDrag = (nodeId: string, x: number, y: number) => {
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'node-drag', payload: { userId: me.id, nodeId, x, y } });
     };
-    const sendOp = (op: Omit<WorkflowOp, 'origin'>) => {
+    // Multi-node drag send — broadcast all dragged nodes' live positions.
+    const sendNodeDrags = (items: NodeDragItem[]) => {
         if (!me) return;
-        opsChannelRef.current?.send({ type: 'broadcast', event: 'op', payload: { ...op, origin: me.id } });
+        opsChannelRef.current?.send({ type: 'broadcast', event: 'node-drag', payload: { userId: me.id, items } });
     };
-    return { sendCursor, sendNodeDrag, sendOp };
+    // Full structural state broadcast — the instant peer sync layer (the 2s DB
+    // autosave still handles durability). Sent only on a SETTLED local edit.
+    const sendState = (nodes: any[], edges: any[]) => {
+        if (!me) return;
+        opsChannelRef.current?.send({ type: 'broadcast', event: 'state', payload: { origin: me.id, nodes, edges } });
+    };
+    return { sendCursor, sendNodeDrag, sendNodeDrags, sendState };
 }

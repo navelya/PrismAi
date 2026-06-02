@@ -393,68 +393,50 @@ const EditorCanvasInner = ({
     // Viewers may broadcast their cursor but never edit ops.
     const canEdit = collabRole !== 'viewer';
 
-    // Apply an incoming peer op to the local store via existing actions, then
-    // clear the dirty flag — save authority belongs to the originator (each
-    // client autosaving the same blob would be redundant).
-    const applyRemoteOp = useCallback((op: { kind: string; payload: any }) => {
-        const store = useAppStore.getState();
-        switch (op.kind) {
-            case 'node:move-commit': {
-                const { nodeId, position } = op.payload || {};
-                if (nodeId && position) {
-                    const m = new Map<string, { x: number; y: number }>();
-                    m.set(nodeId, position);
-                    store.updateNodePositions(m);
-                    // Clear the live drag position so the committed position from
-                    // the store (now applied via updateNodePositions) takes over
-                    // and the stale drag ghost stops overriding it.
-                    useAppStore.getState().clearLiveNodePosition(nodeId);
-                }
-                break;
-            }
-            case 'node:add': {
-                // payload is a full WorkflowNode. Route through onNodesChange as
-                // an `add` change (the canonical add path — seeds outputs + zIndex).
-                const node = op.payload?.node ?? op.payload;
-                if (node?.id) {
-                    store.onNodesChange([{ type: 'add', item: node } as any]);
-                }
-                break;
-            }
-            case 'node:delete': {
-                const nodeId = op.payload?.nodeId ?? op.payload?.id;
-                if (nodeId) {
-                    store.onNodesChange([{ type: 'remove', id: nodeId } as any]);
-                }
-                break;
-            }
-            case 'node:config': {
-                const { nodeId, config } = op.payload || {};
-                if (nodeId && config !== undefined) {
-                    store.updateNodeConfig(nodeId, config);
-                }
-                break;
-            }
-            case 'edge:add': {
-                // payload is a Connection (the same object handleConnect receives).
-                if (op.payload) store.onConnect(op.payload);
-                break;
-            }
-            case 'edge:delete': {
-                const edgeId = op.payload?.edgeId ?? op.payload?.id;
-                if (edgeId) {
-                    store.onEdgesChange([{ type: 'remove', id: edgeId } as any]);
-                }
-                break;
-            }
-            default:
-                break;
-        }
-        // Applied peer ops must NOT schedule this client's autosave.
-        useAppStore.getState().setWorkflowDirty(false);
+    // Merge an incoming peer's full structural state into currentWorkflow.
+    // We take the peer's nodes/edges as the source of truth for STRUCTURE
+    // (positions, config, parentNode, add/delete, group geometry) but preserve
+    // the RECEIVER's own selection and execution state, since those are local
+    // concerns the peer has no authority over:
+    //   - `selected` comes from this client's React Flow store, not the peer.
+    //   - status/output/outputMetadata/error come from node_results (the
+    //     execution engine), never from a peer's canvas blob.
+    // Applying with dirty=false means this does NOT retrigger our outbound
+    // state broadcast or the autosave — that's how the echo is avoided.
+    const applyRemoteState = useCallback((payload: { nodes?: any[]; edges?: any[] }) => {
+        // Don't yank a node out from under a local drag; the next broadcast (or
+        // the 2s DB sync) reconciles once the drag settles.
+        if (useAppStore.getState().isDragging) return;
+        const cur = useAppStore.getState().currentWorkflow;
+        if (!cur) return;
+        const existingById = new Map(cur.nodes.map((n) => [n.id, n]));
+        const mergedNodes = (payload.nodes || []).map((inc: any) => {
+            const ex = existingById.get(inc.id);
+            return {
+                ...inc,
+                selected: (ex as any)?.selected ?? false, // preserve receiver's selection
+                data: {
+                    ...inc.data,
+                    // Preserve receiver's execution state (results come from
+                    // node_results, not the peer's structure-only broadcast).
+                    status: ex?.data?.status,
+                    output: ex?.data?.output,
+                    outputMetadata: ex?.data?.outputMetadata,
+                    errorMessage: ex?.data?.errorMessage,
+                    error: (ex?.data as any)?.error,
+                },
+            };
+        });
+        // dirty=false → applied peer state does NOT rebroadcast/save.
+        useAppStore.getState().setCurrentWorkflow(
+            { ...cur, name: cur.name, id: cur.id, nodes: mergedNodes, edges: payload.edges || [] },
+            false,
+        );
+        // Committed positions now live in currentWorkflow — drop any live ghosts.
+        useAppStore.getState().clearLiveNodePositions();
     }, []);
 
-    const { sendCursor, sendNodeDrag, sendOp } = useWorkflowCollaboration(
+    const { sendCursor, sendNodeDrag, sendNodeDrags, sendState } = useWorkflowCollaboration(
         canvasId,
         me ? { id: me.id, name: me.name, role: (collabRole || 'editor') } : null,
         {
@@ -463,11 +445,62 @@ const EditorCanvasInner = ({
                 cursorsRef.current?.update(c.userId, p?.name || 'User', p?.color || '#888', c.x, c.y);
             },
             onNodeDrag: (e) => {
-                useAppStore.getState().setLiveNodePosition(e.nodeId, { x: e.x, y: e.y });
+                // Normalize both the new multi-node shape ({ items: [{id,x,y}] })
+                // and the legacy single-node shape ({ nodeId, x, y }).
+                const store = useAppStore.getState();
+                if (Array.isArray(e?.items)) {
+                    for (const item of e.items) {
+                        store.setLiveNodePosition(item.id, { x: item.x, y: item.y });
+                    }
+                } else if (e?.nodeId && typeof e.x === 'number' && typeof e.y === 'number') {
+                    store.setLiveNodePosition(e.nodeId, { x: e.x, y: e.y });
+                }
             },
-            onOp: (op) => { applyRemoteOp(op); },
+            onState: (payload) => { applyRemoteState(payload); },
         },
     );
+
+    // ── Outbound structural state broadcast (instant peer sync) ──────────────
+    // Mirrors the autosave trigger but on a much shorter debounce. Fires ONLY
+    // for a SETTLED local edit: gated on isWorkflowDirty so applied peer state
+    // (which sets dirty=false) can't echo, and on !isDragging so we send one
+    // structural snapshot when the drag commits rather than spamming per tick
+    // (live in-flight motion rides the separate node-drag channel). The 2s DB
+    // autosave still runs alongside this for durability.
+    const isWorkflowDirtyForBroadcast = useAppStore((s) => s.isWorkflowDirty);
+    const isDraggingForBroadcast = useAppStore((s) => s.isDragging);
+    const currentWorkflowForBroadcast = useAppStore((s) => s.currentWorkflow);
+    const stateBroadcastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => {
+        if (!canEdit || !me || !canvasId) return;
+        if (!isWorkflowDirtyForBroadcast || isDraggingForBroadcast) return;
+        const wf = currentWorkflowForBroadcast;
+        if (!wf) return;
+
+        if (stateBroadcastTimerRef.current) clearTimeout(stateBroadcastTimerRef.current);
+        stateBroadcastTimerRef.current = setTimeout(() => {
+            const latest = useAppStore.getState().currentWorkflow;
+            if (!latest) return;
+            // Sanitize: structure only. Stripping execution state keeps the
+            // payload small and avoids clobbering the peer's own results.
+            const sanitizedNodes = latest.nodes.map((n) => ({
+                ...n,
+                data: {
+                    ...n.data,
+                    status: undefined,
+                    output: undefined,
+                    outputMetadata: undefined,
+                    errorMessage: undefined,
+                    error: undefined,
+                },
+            }));
+            sendState(sanitizedNodes, latest.edges || []);
+        }, 250);
+
+        return () => {
+            if (stateBroadcastTimerRef.current) clearTimeout(stateBroadcastTimerRef.current);
+        };
+    }, [canEdit, me, canvasId, isWorkflowDirtyForBroadcast, isDraggingForBroadcast, currentWorkflowForBroadcast, sendState]);
 
     // Drop a peer's cursor element when they leave the roster.
     const presenceForCursors = useAppStore((s) => s.presence);
@@ -1137,7 +1170,7 @@ const EditorCanvasInner = ({
     const setNodeParent = useAppStore((state) => state.setNodeParent);
     const setDragHoverGroupId = useAppStore((state) => state.setDragHoverGroupId);
 
-    const handleNodeDrag: NodeDragHandler = useCallback((_event, node, _nodes) => {
+    const handleNodeDrag: NodeDragHandler = useCallback((event, node, nodes) => {
         // Broadcast the live drag to peers (throttled). Editors/owners only —
         // viewers can't reach this handler since nodesDraggable is gated by
         // readOnly, but guard on canEdit defensively. No-op when not collaborating.
@@ -1145,7 +1178,23 @@ const EditorCanvasInner = ({
             const now = Date.now();
             if (now - lastDragSentRef.current >= 35) {
                 lastDragSentRef.current = now;
-                sendNodeDrag(node.id, node.position.x, node.position.y);
+                // Broadcast ALL dragged nodes (multi-select). The peer overlays
+                // each onto liveNodePositions. Dragging a group node carries only
+                // the group; its children render parentNode-relative so they
+                // follow automatically. Fall back to the single node if RF didn't
+                // supply the multi-node array.
+                if (nodes && nodes.length > 0) {
+                    sendNodeDrags(nodes.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })));
+                } else {
+                    sendNodeDrag(node.id, node.position.x, node.position.y);
+                }
+                // Cursor freezes for peers during a node drag because RF captures
+                // the pointer (wrapper onMouseMove stops firing). Re-broadcast the
+                // cursor from the drag event so the dragger's cursor keeps moving.
+                if (event && reactFlowInstance && 'clientX' in event) {
+                    const p = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+                    sendCursor(p.x, p.y);
+                }
             }
         }
 
@@ -1193,7 +1242,7 @@ const EditorCanvasInner = ({
             }
         }
         setDragHoverGroupId(hoverId);
-    }, [reactFlowInstance, setDragHoverGroupId, canEdit, sendNodeDrag]);
+    }, [reactFlowInstance, setDragHoverGroupId, canEdit, sendNodeDrag, sendNodeDrags, sendCursor]);
 
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = false;
@@ -1206,13 +1255,9 @@ const EditorCanvasInner = ({
         if (updatePositions) {
             updatePositions(positionsMap);
         }
-
-        // Broadcast the committed position(s) to peers. Editors/owners only.
-        if (canEdit) {
-            nodes.forEach((n) => {
-                sendOp({ kind: 'node:move-commit', payload: { nodeId: n.id, position: n.position } });
-            });
-        }
+        // Committed positions are picked up by the outbound `state` broadcast
+        // (the position write dirties the workflow → debounced full-structure
+        // sync). No per-node op broadcast here anymore.
 
         // ── DRAG-IN: attach the dragged node to the hovered group, if any. ─────
         // Only the primary `node` arg is the one being dragged. Selection drags
@@ -1249,7 +1294,7 @@ const EditorCanvasInner = ({
 
         touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
-    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, reactFlowInstance, setNodeParent, setDragHoverGroupId, canEdit, sendOp]);
+    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, reactFlowInstance, setNodeParent, setDragHoverGroupId]);
 
     // After a marquee selection, React Flow renders a `.react-flow__nodesselection-rect`
     // overlay with `pointer-events: all` — grabbing anywhere inside it (even on a
@@ -1260,6 +1305,23 @@ const EditorCanvasInner = ({
         isDraggingRef.current = true;
         setIsDragging(true);
     }, [setIsDragging]);
+
+    // Live selection drag — broadcast all dragged nodes' positions (throttled)
+    // plus the dragger's cursor (RF captures the pointer during a selection
+    // drag too, so the wrapper onMouseMove stops firing). Mirrors handleNodeDrag.
+    const handleSelectionDrag = useCallback((event: React.MouseEvent, nodes: Node[]) => {
+        if (!canEdit) return;
+        const now = Date.now();
+        if (now - lastDragSentRef.current < 35) return;
+        lastDragSentRef.current = now;
+        if (nodes && nodes.length > 0) {
+            sendNodeDrags(nodes.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })));
+        }
+        if (event && reactFlowInstance && 'clientX' in event) {
+            const p = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+            sendCursor(p.x, p.y);
+        }
+    }, [canEdit, reactFlowInstance, sendNodeDrags, sendCursor]);
 
     const handleSelectionDragStop = useCallback((_event: React.MouseEvent, nodes: any[]) => {
         isDraggingRef.current = false;
@@ -1303,10 +1365,9 @@ const EditorCanvasInner = ({
         if (readOnly) return;
         touchInteraction();
         onConnect(connection);
-        // Broadcast the connection to peers so the edge appears on their canvas.
-        // onConnect on the peer rebuilds the same edge id deterministically.
-        if (canEdit) sendOp({ kind: 'edge:add', payload: connection });
-    }, [touchInteraction, onConnect, readOnly, canEdit, sendOp]);
+        // The new edge dirties the workflow → the outbound `state` broadcast
+        // syncs the full {nodes, edges} structure to peers (no per-op send).
+    }, [touchInteraction, onConnect, readOnly]);
 
     // Capture the originating side of a connection drag so we can filter the
     // context menu by data-type compatibility when it ends on empty canvas.
@@ -1642,6 +1703,7 @@ const EditorCanvasInner = ({
                 onSelectionStart={handleSelectionStart}
                 onSelectionEnd={handleSelectionEnd}
                 onSelectionDragStart={handleSelectionDragStart}
+                onSelectionDrag={handleSelectionDrag}
                 onSelectionDragStop={handleSelectionDragStop}
                 onEdgeClick={handleEdgeClick}
                 onInit={setReactFlowInstance}
