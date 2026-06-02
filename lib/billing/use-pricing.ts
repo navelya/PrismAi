@@ -9,25 +9,41 @@ interface PricingState {
     loading: boolean;
 }
 
-// Module-level cache so multiple components share one fetch.
+// Module-level cache so multiple components share one fetch. Given a short TTL
+// so long-lived tabs pick up admin price changes (incl. rotated Paddle price ids)
+// rather than serving a stale snapshot for the whole session.
+const SHARED_TTL_MS = 120_000;
 let shared: { plans: PlanDisplay[]; packs: CreditPack[] } | null = null;
+let sharedAt = 0;
+
+function sharedFresh(): boolean {
+    return shared !== null && Date.now() - sharedAt < SHARED_TTL_MS;
+}
 
 export function usePricing(): PricingState {
     const [state, setState] = useState<PricingState>(
-        shared
-            ? { ...shared, loading: false }
+        sharedFresh() && shared
+            ? { plans: shared.plans, packs: shared.packs, loading: false }
             : { plans: PLANS, packs: CREDIT_PACKS, loading: true },
     );
 
     useEffect(() => {
-        if (shared) return;
+        if (sharedFresh() && shared) {
+            setState({ plans: shared.plans, packs: shared.packs, loading: false });
+            return;
+        }
         let alive = true;
         fetch('/api/pricing')
             .then((r) => r.json())
             .then((data) => {
                 if (!alive) return;
-                shared = { plans: data.plans, packs: data.packs };
-                setState({ ...shared, loading: false });
+                // Defensive: a malformed/partial response must not poison the
+                // cache and crash every consumer's .map(). Fall back to static.
+                const plans = Array.isArray(data?.plans) ? data.plans : PLANS;
+                const packs = Array.isArray(data?.packs) ? data.packs : CREDIT_PACKS;
+                shared = { plans, packs };
+                sharedAt = Date.now();
+                setState({ plans, packs, loading: false });
             })
             .catch(() => {
                 if (alive) setState((s) => ({ ...s, loading: false }));
