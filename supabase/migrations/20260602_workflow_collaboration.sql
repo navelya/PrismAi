@@ -16,6 +16,10 @@ ALTER TABLE public.sessions
 CREATE INDEX IF NOT EXISTS idx_sessions_canvas_session_id
   ON public.sessions (canvas_session_id) WHERE canvas_session_id IS NOT NULL;
 
+-- One companion thread per (user, canvas): prevents duplicates from concurrent opens.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_sessions_companion_thread
+  ON public.sessions (user_id, canvas_session_id) WHERE canvas_session_id IS NOT NULL;
+
 -- 2. COLLABORATORS TABLE ------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.session_collaborators (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),

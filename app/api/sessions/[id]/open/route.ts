@@ -46,8 +46,17 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
         .from('sessions')
         .insert({ user_id: user.id, title: canvas.title || 'Shared workflow', canvas_session_id: canvasId })
         .select('id').single();
-    if (insErr || !created) {
-        return NextResponse.json({ error: insErr?.message || 'Create failed' }, { status: 500 });
+    if (insErr) {
+        // Lost a concurrent-open race → the row now exists; fetch and return it.
+        if ((insErr as any).code === '23505') {
+            const { data: raced } = await supabase
+                .from('sessions').select('id')
+                .eq('user_id', user.id).eq('canvas_session_id', canvasId)
+                .eq('is_deleted', false).maybeSingle();
+            if (raced) return NextResponse.json({ threadId: raced.id, canvasId, role: 'editor' });
+        }
+        return NextResponse.json({ error: insErr.message || 'Create failed' }, { status: 500 });
     }
+    if (!created) return NextResponse.json({ error: 'Create failed' }, { status: 500 });
     return NextResponse.json({ threadId: created.id, canvasId, role: 'editor' });
 }
