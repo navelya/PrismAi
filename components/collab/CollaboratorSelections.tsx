@@ -44,15 +44,19 @@ function SelectionsLayer({ peers }: { peers: Record<string, { selectedIds: strin
                             const n: any = nodeInternals.get(id);
                             if (!n || !n.width || !n.height) return null;
                             const pos = n.positionAbsolute || n.position;
+                            // Draw the selection ring OUTSET from the node bounds so it reads
+                            // as a selection box around the node/group — never recolouring the
+                            // element's own border (important for group frames).
+                            const out = 4 * zoom;
                             return (
                                 <div key={id} style={{
                                     position: 'absolute',
-                                    left: pos.x * zoom + x,
-                                    top: pos.y * zoom + y,
-                                    width: n.width * zoom,
-                                    height: n.height * zoom,
-                                    border: `2px solid ${color}`,
-                                    borderRadius: 6 * zoom,
+                                    left: pos.x * zoom + x - out,
+                                    top: pos.y * zoom + y - out,
+                                    width: n.width * zoom + out * 2,
+                                    height: n.height * zoom + out * 2,
+                                    border: `1.5px solid ${color}`,
+                                    borderRadius: 8 * zoom + out,
                                     boxSizing: 'border-box',
                                 }} />
                             );
