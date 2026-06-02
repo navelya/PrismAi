@@ -19,7 +19,7 @@ This is built by **extending the realtime infrastructure that already exists** (
 - Live presence: cursors, who's-online roster, live node movement.
 - Edits propagate in real time between everyone viewing the same workflow.
 - Generative runs are billed to **the user who triggers them** (not the owner). Viewers cannot run.
-- **Each collaborator gets their own private chat thread** on the shared canvas. When a user opens a shared workflow they automatically get a fresh, private thread (as if they pressed "new chat"); all threads edit the one shared canvas.
+- **Each editor gets their own private chat thread** on the shared canvas. When an editor opens a shared workflow they automatically get a fresh, private thread (as if they pressed "new chat"); all threads edit the one shared canvas. **Viewers get no thread** — they see the owner's ("admin") thread read-only and all other side panels are locked.
 
 ## Non-goals
 
@@ -106,7 +106,8 @@ Rather than move `canvas_state` into a new table (high blast radius), add a poin
 
 ### Companion-thread lifecycle
 
-- **Open:** `POST /api/sessions/[canvasId]/open` creates-or-returns the calling user's companion thread for that canvas (owner gets the canvas session itself). Idempotent — one thread per (user, canvas) in v1.
+- **Open (editor):** `POST /api/sessions/[canvasId]/open` creates-or-returns the calling editor's companion thread for that canvas (owner gets the canvas session itself). Idempotent — one thread per (editor, canvas) in v1.
+- **Open (viewer):** no companion thread is created. The viewer reads the **owner's thread** (the canvas session's messages = the "admin" conversation) in read-only mode. Message-read access for the owner's thread is granted to anyone who can access the canvas; companion threads remain readable only by their owner. See Section 4 for the viewer UI lockdown.
 - **Revoke / downgrade-removal:** when the owner revokes a collaborator, delete that user's companion thread for the canvas (their private chat goes away; the shared canvas is untouched).
 - **Canvas delete:** `ON DELETE CASCADE` on `canvas_session_id` removes all companion threads when the owner deletes the workflow.
 - **Single-user workflows are unchanged:** `canvas_session_id IS NULL`, no collaborators, no companion threads — existing behavior preserved.
@@ -200,7 +201,9 @@ When the owner removes/downgrades a collaborator, a `membership` broadcast tells
 
 ### Viewer read-only mode (`role === 'viewer'`)
 - ReactFlow `nodesDraggable={false}`, `nodesConnectable={false}`, edges not deletable; selection kept for inspection.
-- Run/generate buttons hidden; chat composer disabled with "View only — ask an editor to make changes" hint.
+- **No private thread.** Viewers do not get a companion chat thread; instead the chat window shows the **owner's thread (the "admin" conversation)** in read-only mode — they can read the conversation driving the canvas but the composer is disabled with a "View only" hint. They cannot create or switch threads.
+- **All other side windows/panels are locked** for viewers — Assets, Characters, node config/inspector, and any node-editing affordance are disabled/read-only. Viewers get cursors + canvas + the read-only admin chat, nothing more.
+- Run/generate buttons hidden.
 - Write API calls also rejected server-side by RLS (UI gating is convenience, not the security boundary).
 
 ### Performance guardrails
