@@ -22,6 +22,24 @@ export const createLivePositionSlice: StateCreator<RootState, [], [], LivePositi
 
     clearLiveNodePositions: () => set({ liveNodePositions: {} }),
 
+    liveNodeSizes: {},
+
+    setLiveNodeSize: (nodeId, size) => {
+        set((state) => {
+            const previous = state.liveNodeSizes[nodeId];
+            if (previous && previous.w === size.w && previous.h === size.h && previous.sx === size.sx && previous.sy === size.sy) {
+                return state;
+            }
+            return {
+                liveNodeSizes: { ...state.liveNodeSizes, [nodeId]: size },
+            };
+        });
+    },
+
+    clearLiveNodeSizes: () => set((state) => (
+        Object.keys(state.liveNodeSizes).length === 0 ? state : { liveNodeSizes: {} }
+    )),
+
     clearLiveNodePosition: (nodeId) => {
         set((state) => {
             if (!(nodeId in state.liveNodePositions)) return state;

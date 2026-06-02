@@ -47,6 +47,18 @@ export interface NodeDragEvent {
     y?: number;
 }
 
+// In-flight group resize. Carries the live width/height plus the anchored-edge
+// CSS shift (sx/sy) so the peer can mirror the exact geometry — including W/N
+// resizes that pin the far edge. The committed size arrives later via `state`.
+export interface GroupResizeEvent {
+    userId: string;
+    nodeId: string;
+    w: number;
+    h: number;
+    sx: number;
+    sy: number;
+}
+
 export function useWorkflowCollaboration(
     canvasId: string | null,
     me: { id: string; name: string; role: 'owner' | 'editor' | 'viewer' } | null,
@@ -55,6 +67,7 @@ export function useWorkflowCollaboration(
         onCursor: (c: CursorEvent) => void;
         onNodeDrag: (e: NodeDragEvent) => void;
         onSelection?: (e: SelectionEvent) => void;
+        onGroupResize?: (e: GroupResizeEvent) => void;
     },
 ) {
     const supabaseRef = useRef(createClient());
@@ -90,6 +103,7 @@ export function useWorkflowCollaboration(
         ops.on('broadcast', { event: 'cursor' }, ({ payload }: any) => handlersRef.current.onCursor(payload));
         ops.on('broadcast', { event: 'node-drag' }, ({ payload }: any) => handlersRef.current.onNodeDrag(payload));
         ops.on('broadcast', { event: 'selection' }, ({ payload }: any) => handlersRef.current.onSelection?.(payload));
+        ops.on('broadcast', { event: 'group-resize' }, ({ payload }: any) => handlersRef.current.onGroupResize?.(payload));
         ops.subscribe();
         opsChannelRef.current = ops;
 
@@ -116,6 +130,11 @@ export function useWorkflowCollaboration(
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'state', payload: { origin: me.id, nodes, edges } });
     }, [me?.id]);
+    // In-flight group-resize broadcast — peers mirror the live geometry.
+    const sendGroupResize = useCallback((nodeId: string, w: number, h: number, sx: number, sy: number) => {
+        if (!me) return;
+        opsChannelRef.current?.send({ type: 'broadcast', event: 'group-resize', payload: { userId: me.id, nodeId, w, h, sx, sy } });
+    }, [me?.id]);
     // Ephemeral peer-selection broadcast (selected node ids + live marquee box).
     // No-ops while solo (me === null), so a non-collaborative session never sends.
     const sendSelection = useCallback((
@@ -125,5 +144,5 @@ export function useWorkflowCollaboration(
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'selection', payload: { userId: me.id, selectedIds, marquee } });
     }, [me?.id]);
-    return { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection };
+    return { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection, sendGroupResize };
 }

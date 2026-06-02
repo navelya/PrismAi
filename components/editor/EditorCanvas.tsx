@@ -50,6 +50,7 @@ import {
     wouldCreateCycle,
 } from '@/lib/editor/handle-compatibility';
 import { WireDragProvider, type WireDragState } from '@/lib/editor/wire-drag-context';
+import { CollabCanvasProvider } from '@/lib/editor/collab-canvas-context';
 import { NodeValidationProvider } from '@/lib/hooks/use-node-validation';
 import { useWorkflowCollaboration } from '@/lib/hooks/use-workflow-collaboration';
 import { useCurrentUser } from '@/lib/hooks/use-current-user';
@@ -440,11 +441,13 @@ const EditorCanvasInner = ({
             { ...cur, name: cur.name, id: cur.id, nodes: mergedNodes, edges: payload.edges || [] },
             false,
         );
-        // Committed positions now live in currentWorkflow — drop any live ghosts.
+        // Committed positions/sizes now live in currentWorkflow — drop any live
+        // ghosts (peer drag positions + peer group-resize geometry).
         useAppStore.getState().clearLiveNodePositions();
+        useAppStore.getState().clearLiveNodeSizes();
     }, []);
 
-    const { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection } = useWorkflowCollaboration(
+    const { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection, sendGroupResize } = useWorkflowCollaboration(
         canvasId,
         me ? { id: me.id, name: me.name, role: (collabRole || 'editor') } : null,
         {
@@ -473,8 +476,33 @@ const EditorCanvasInner = ({
                 }
             },
             onState: (payload) => { applyRemoteState(payload); },
+            // In-flight group resize from a peer → live size override read by
+            // that group's GroupNode (cleared when the committed state arrives).
+            onGroupResize: (e) => {
+                if (!e?.nodeId) return;
+                useAppStore.getState().setLiveNodeSize(e.nodeId, { w: e.w, h: e.h, sx: e.sx, sy: e.sy });
+            },
         },
     );
+
+    // Canvas-level collaboration API for node components that own their pointer
+    // gestures (GroupNode's resize handles) and so can't ride ReactFlow's drag
+    // events. Lets them broadcast live resize geometry + cursor during the drag.
+    // Throttle mirrors handlePaneMouseMove (shared 35ms cursor gate).
+    const collabCanvasApi = useMemo(() => ({
+        liveResize: (nodeId: string, w: number, h: number, sx: number, sy: number) => {
+            if (!me || !canvasId) return;
+            sendGroupResize(nodeId, w, h, sx, sy);
+        },
+        cursorMove: (clientX: number, clientY: number) => {
+            if (!me || !reactFlowInstance) return;
+            const now = Date.now();
+            if (now - lastCursorSentRef.current < 35) return;
+            lastCursorSentRef.current = now;
+            const pos = reactFlowInstance.screenToFlowPosition({ x: clientX, y: clientY });
+            sendCursor(pos.x, pos.y);
+        },
+    }), [me, canvasId, reactFlowInstance, sendGroupResize, sendCursor]);
 
     // ── Outbound structural state broadcast (instant peer sync) ──────────────
     // Mirrors the autosave trigger but on a much shorter debounce. Fires ONLY
@@ -1749,6 +1777,7 @@ const EditorCanvasInner = ({
         >
             <WireDragProvider value={wireDrag}>
             <NodeValidationProvider>
+            <CollabCanvasProvider value={collabCanvasApi}>
             <ReactFlow
                 nodes={renderedNodes}
                 edges={memoizedEdges}
@@ -2007,6 +2036,7 @@ const EditorCanvasInner = ({
                 Same provider subtree so useStore/useViewport resolve; renders
                 nothing until a peer broadcasts a selection. */}
             <CollaboratorSelections />
+            </CollabCanvasProvider>
             </NodeValidationProvider>
             </WireDragProvider>
 

@@ -426,6 +426,13 @@ export interface LivePositionSlice {
     clearLiveNodePosition: (nodeId: string) => void;
     clearLiveNodePositions: () => void;
     syncLivePositionsToWorkflow: () => void;
+    // In-flight group-resize geometry pushed by a peer (w/h plus the anchored-
+    // edge CSS shift). GroupNode reads its own entry and renders it like the
+    // local liveSize/liveShift so peers see the border resize live. Cleared when
+    // the committed structural state lands (applyRemoteState).
+    liveNodeSizes: Record<string, { w: number; h: number; sx: number; sy: number }>;
+    setLiveNodeSize: (nodeId: string, size: { w: number; h: number; sx: number; sy: number }) => void;
+    clearLiveNodeSizes: () => void;
 }
 
 export interface CollaboratorPresence {

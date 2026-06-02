@@ -9,6 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { GROUP_PADDING, GROUP_RESIZE_HANDLE_SIZE } from '@/lib/nodes/group-constants';
 import { GroupHeaderToolbar } from './GroupHeaderToolbar';
 import { useWireDrag } from '@/lib/editor/wire-drag-context';
+import { useCollabCanvas } from '@/lib/editor/collab-canvas-context';
 
 interface GroupNodeData {
     label: string;
@@ -120,10 +121,19 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     const [liveSize, setLiveSize] = useState<{ w: number; h: number } | null>(null);
     const [liveShift, setLiveShift] = useState<{ x: number; y: number } | null>(null);
 
+    // Collaboration: broadcast our own in-flight resize, and mirror a peer's.
+    const collab = useCollabCanvas();
+    // A peer's live resize geometry for THIS group (undefined unless a peer is
+    // actively resizing it). We're never both the resizer and a receiver of our
+    // own broadcast (self:false), so liveSize (local) and remoteLive never clash.
+    const remoteLive = useAppStore((s) => s.liveNodeSizes[id]);
+
     const baseWidth  = Math.max(storedWidth,  requiredWidth);
     const baseHeight = Math.max(storedHeight, requiredHeight);
-    const width  = liveSize?.w ?? baseWidth;
-    const height = liveSize?.h ?? baseHeight;
+    const width  = liveSize?.w ?? remoteLive?.w ?? baseWidth;
+    const height = liveSize?.h ?? remoteLive?.h ?? baseHeight;
+    // Anchored-edge shift: our own during a local resize, else a peer's.
+    const shift = liveShift ?? (remoteLive ? { x: remoteLive.sx, y: remoteLive.sy } : null);
 
     const hoveredGroupId = useAppStore((s) => s.dragHoverGroupId);
     const isHoverTarget = hoveredGroupId === id;
@@ -225,15 +235,19 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
         // world-pinning happens for free.
         const anchorRight = s.dir.includes('w');
         const anchorBottom = s.dir.includes('n');
+        const sx = anchorRight ? -(newW - s.startW) : 0;
+        const sy = anchorBottom ? -(newH - s.startH) : 0;
         if (anchorRight || anchorBottom) {
-            setLiveShift({
-                x: anchorRight ? -(newW - s.startW) : 0,
-                y: anchorBottom ? -(newH - s.startH) : 0,
-            });
+            setLiveShift({ x: sx, y: sy });
         } else if (liveShift !== null) {
             setLiveShift(null);
         }
-    }, [getZoom, liveShift]);
+
+        // Broadcast the in-flight geometry + live cursor so peers see the border
+        // resize (and the cursor track) during the drag, not only on release.
+        collab.liveResize(id, newW, newH, sx, sy);
+        collab.cursorMove(pos.clientX, pos.clientY);
+    }, [getZoom, liveShift, collab, id]);
 
     const onResizePointerDown = useCallback((e: React.PointerEvent, dir: ResizeDir) => {
         e.stopPropagation();
@@ -280,6 +294,11 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
             if (s.dir.includes('n')) newH = s.startH - dy;
             const anchorRight = s.dir.includes('w');
             const anchorBottom = s.dir.includes('n');
+            // Final geometry to peers so their live ghost matches the commit;
+            // the committed structural state (debounced) clears it shortly after.
+            const sx = anchorRight ? -(newW - s.startW) : 0;
+            const sy = anchorBottom ? -(newH - s.startH) : 0;
+            collab.liveResize(id, newW, newH, sx, sy);
             // Slice owns the soft-floor clamp, the group-origin shift, and the
             // inverse child-local-position shift that keeps children world-
             // pinned. Snapshot already taken at pointerdown.
@@ -289,7 +308,7 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
         setLiveShift(null);
         dragStateRef.current = null;
         latestPointerRef.current = null;
-    }, [id, resizeGroup, getZoom]);
+    }, [id, resizeGroup, getZoom, collab]);
 
     return (
         <>
@@ -385,8 +404,9 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     borderColor: (isHoverTarget || selected) ? undefined : GROUP_COLOR_CLASSES[colorToken]?.borderRgba,
                     // CSS transform during anchored-axis drags (W/N) — shifts
                     // the inner div visually without touching RF's data model
-                    // for the group OR its children. Cleared on pointerup.
-                    transform: liveShift ? `translate(${liveShift.x}px, ${liveShift.y}px)` : undefined,
+                    // for the group OR its children. Cleared on pointerup. Uses a
+                    // peer's broadcast shift when they're the one resizing.
+                    transform: shift ? `translate(${shift.x}px, ${shift.y}px)` : undefined,
                     // Let pointer events pass through the body so edges (wires)
                     // routed inside the group remain clickable. Interactive bits
                     // (resize handles, title bubble) opt back in below.

@@ -97,6 +97,7 @@ export const useAppStore = create<RootState>()(
                     currentSelectedNodeIds: [],
                     selectionClearToken: 0,
                     liveNodePositions: {},
+                    liveNodeSizes: {},
                     selectedChatModel: undefined,
                 });
             },
@@ -128,6 +129,9 @@ export const useAppStore = create<RootState>()(
                     // from a previous session.
                     'isCanvasMode',
                     'liveNodePositions',
+                    // Ephemeral peer group-resize geometry — runtime-only, like
+                    // liveNodePositions; never persist.
+                    'liveNodeSizes',
                     // History does not need to survive a page refresh; persisting
                     // forces a JSON.stringify of every snapshot on every set(),
                     // including takeSnapshot()/setIsDragging() on drag start,
