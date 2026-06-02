@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.credit_packs (
   display_name      TEXT NOT NULL,
   price_cents       INTEGER NOT NULL,
   credits           NUMERIC(20, 6) NOT NULL,
-  paddle_price_id   TEXT,
+  paddle_price_id   TEXT UNIQUE,
   paddle_product_id TEXT,
   is_active         BOOLEAN NOT NULL DEFAULT true,
   sort_order        INTEGER NOT NULL DEFAULT 0,
@@ -69,7 +69,7 @@ ALTER TABLE public.pricing_price_history ENABLE ROW LEVEL SECURITY;
 -- 4. Audit trail for every pricing change.
 CREATE TABLE IF NOT EXISTS public.pricing_audit (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  changed_by             UUID NOT NULL,
+  changed_by             UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   entity_type            TEXT NOT NULL CHECK (entity_type IN ('plan', 'pack')),
   entity_id              TEXT NOT NULL,
   field                  TEXT NOT NULL,
