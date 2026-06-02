@@ -109,6 +109,27 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceClient();
 
     // ─────────────────────────────────────────────────────────────────────────
+    // COLLAB: Verify the runner has edit rights on this canvas session.
+    // The service client bypasses RLS, so we must check explicitly.
+    // An owner is identified by: sessions row has no canvas_session_id (it IS
+    // the canonical canvas) and user_id matches the authed caller.
+    // An editor collaborator is accepted via session_collaborators.role.
+    // ─────────────────────────────────────────────────────────────────────────
+    {
+      const { data: canvasRow } = await supabase
+        .from('sessions').select('user_id, canvas_session_id').eq('id', session_id).single();
+      const isOwner = canvasRow && !canvasRow.canvas_session_id && canvasRow.user_id === authedUserId;
+      if (!isOwner) {
+        const { data: collab } = await supabase
+          .from('session_collaborators').select('role')
+          .eq('session_id', session_id).eq('user_id', authedUserId).single();
+        if (!collab || collab.role !== 'editor') {
+          return NextResponse.json({ error: 'No edit access' }, { status: 403 });
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // STEP 3: Build the "Target Set" — which nodes this execution will run.
     // Also build "preseedInputs" — a map of nodeId → inputs sourced from DB
     //         for generative ancestors that are NOT being re-run.

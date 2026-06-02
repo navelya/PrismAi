@@ -408,7 +408,7 @@ export default function SharedWorkflowEditor({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    session_id: activeSessionId,
+                    session_id: useAppStore.getState().activeCanvasId || useAppStore.getState().activeSessionId,
                     user_id: user?.id || 'anonymous',
                     workflow: {
                         nodes: workflow.nodes,
