@@ -94,6 +94,10 @@ DROP POLICY IF EXISTS "Allow admin update for plans" ON public.plans;
 CREATE POLICY "Allow admin update for plans" ON public.plans FOR UPDATE USING (public.is_admin());
 DROP POLICY IF EXISTS "Allow admin delete for plans" ON public.plans;
 CREATE POLICY "Allow admin delete for plans" ON public.plans FOR DELETE USING (public.is_admin());
+-- Admin SELECT so the panel can read INACTIVE plans (the read_active policy only
+-- exposes is_active = true rows; without this an admin can't reactivate one).
+DROP POLICY IF EXISTS "Allow admin select for plans" ON public.plans;
+CREATE POLICY "Allow admin select for plans" ON public.plans FOR SELECT USING (public.is_admin());
 
 -- credit_packs
 DROP POLICY IF EXISTS "Allow admin insert for credit_packs" ON public.credit_packs;
@@ -102,6 +106,9 @@ DROP POLICY IF EXISTS "Allow admin update for credit_packs" ON public.credit_pac
 CREATE POLICY "Allow admin update for credit_packs" ON public.credit_packs FOR UPDATE USING (public.is_admin());
 DROP POLICY IF EXISTS "Allow admin delete for credit_packs" ON public.credit_packs;
 CREATE POLICY "Allow admin delete for credit_packs" ON public.credit_packs FOR DELETE USING (public.is_admin());
+-- Admin SELECT so the panel can read INACTIVE packs.
+DROP POLICY IF EXISTS "Allow admin select for credit_packs" ON public.credit_packs;
+CREATE POLICY "Allow admin select for credit_packs" ON public.credit_packs FOR SELECT USING (public.is_admin());
 
 -- pricing_price_history
 DROP POLICY IF EXISTS "Allow admin insert for pricing_price_history" ON public.pricing_price_history;
