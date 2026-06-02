@@ -93,6 +93,8 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
             fetchSessions();
 
+            // NOTE: Shared canvases (owned by other users) will NOT fire these user_id-scoped
+            // row events; their title/metadata updates will only appear after the next sessionsApi.list() call (v1 behavior).
             // Subscribe to session changes (Realtime) with GRANULAR handlers
             // This avoids re-fetching the entire list on every change, eliminating blinks
             let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -708,6 +710,11 @@ function SidebarSessionItem({
                         )}
                     </AnimatePresence>
                 </div>
+                {session.shared && (
+                    <span className="ml-1 text-[10px] uppercase tracking-wide text-text-tertiary border border-stroke-subtle rounded px-1 py-0.5 flex-shrink-0">
+                        Shared
+                    </span>
+                )}
                 {isExecuting && (
                     <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-primary flex-shrink-0" />
@@ -757,6 +764,12 @@ function SidebarSessionItem({
                     )}
                 </AnimatePresence>
             </div>
+
+            {session.shared && (
+                <span className="ml-1 text-[10px] uppercase tracking-wide text-text-tertiary border border-stroke-subtle rounded px-1 py-0.5 flex-shrink-0">
+                    Shared
+                </span>
+            )}
 
             {isExecuting && (
                 <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className="flex-shrink-0 mr-1">
