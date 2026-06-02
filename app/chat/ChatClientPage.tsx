@@ -16,12 +16,14 @@ export default function ChatClientPage({ initialUserName, sessionId }: ChatClien
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const setCurrentWorkflow = useAppStore((state) => state.setCurrentWorkflow);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
+    const activeCanvasId = useAppStore((state) => state.activeCanvasId);
 
     const addResultRef = useRef<((result: any) => void) | null>(null);
 
-    // V3: Mount execution channel at layout level using activeSessionId from store
-    // Listens to node_results table for real-time updates for the entire session
-    useExecutionChannel(activeSessionId);
+    // V3: Mount execution channel at layout level using the shared canvas id so all
+    // collaborators receive node_results rows (written with session_id = canvasId).
+    // Falls back to activeSessionId for solo sessions where canvasId === sessionId.
+    useExecutionChannel(activeCanvasId || activeSessionId);
 
     const handleChatReady = (addResult: (result: any) => void) => {
         addResultRef.current = addResult;

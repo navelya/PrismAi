@@ -312,6 +312,11 @@ export function useChatRealtime({
 
         const subscribe = () => {
             if (activeSessionId) {
+                // Canvas-state updates are written to the shared canvas session row,
+                // so the sessions channel must key on the canvas id (shared across all
+                // collaborators), while messages remain on the per-user thread id.
+                const canvasId = useAppStore.getState().activeCanvasId || activeSessionId;
+
                 const messagesChannel = supabase
                     .channel(`chat-messages-${activeSessionId}`)
                     .on(
@@ -331,14 +336,14 @@ export function useChatRealtime({
                 messagesChannelRef.current = messagesChannel;
 
                 const sessionsChannel = supabase
-                    .channel(`chat-sessions-${activeSessionId}`)
+                    .channel(`chat-sessions-${canvasId}`)
                     .on(
                         'postgres_changes',
                         {
                             event: 'UPDATE',
                             schema: 'public',
                             table: 'sessions',
-                            filter: `id=eq.${activeSessionId}`,
+                            filter: `id=eq.${canvasId}`,
                         },
                         handleSessionUpdate
                     )
