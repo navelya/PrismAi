@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import { useStore, useViewport } from 'reactflow';
+import { useViewport } from 'reactflow';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/lib/store/app-store';
 import { colorFor } from '@/lib/hooks/use-workflow-collaboration';
@@ -11,17 +11,21 @@ function hslaFill(hsl: string, alpha: number) {
 }
 
 /**
- * Renders peers' ephemeral selection (drag-to-select marquee box + a colored
- * outline around each node they have selected), transformed by the live RF
- * viewport. Pure pointer-events:none overlay — it only READS peerSelections +
- * RF's node geometry and NEVER mutates the local user's own selection.
+ * Renders a peer's live drag-to-select marquee rectangle, transformed by the
+ * live RF viewport. Pure pointer-events:none overlay — it only READS
+ * peerSelections and NEVER mutates the local user's own selection.
  *
- * Mounted inside <ReactFlowProvider> (so useStore/useViewport resolve) next to
+ * Deliberately does NOT draw a ring around a peer's selected nodes/groups: a
+ * second border around an element (which would shift colour by who selected it)
+ * was unwanted — each element keeps only its own original border. The marquee
+ * is a transient selection rectangle, not a border on any element, so it stays.
+ *
+ * Mounted inside <ReactFlowProvider> (so useViewport resolves) next to
  * <CollaboratorCursors />. Renders nothing while peerSelections is empty (solo).
  *
- * Split in two so the heavy subscriptions (nodeInternals + viewport, which change
- * on every local drag/zoom) only mount when a peer actually has a selection —
- * the solo/no-peer path subscribes to nothing but the small peerSelections map.
+ * Split in two so the viewport subscription (changes on every local drag/zoom)
+ * only mounts when a peer actually has a selection — the solo/no-peer path
+ * subscribes to nothing but the small peerSelections map.
  */
 export function CollaboratorSelections() {
     const peers = useAppStore(useShallow((s) => s.peerSelections));
@@ -31,8 +35,6 @@ export function CollaboratorSelections() {
 
 function SelectionsLayer({ peers }: { peers: Record<string, { selectedIds: string[]; marquee: { x: number; y: number; w: number; h: number } | null }> }) {
     const { x, y, zoom } = useViewport();
-    // Map<id, Node{ positionAbsolute?, position, width, height }> in reactflow v11.
-    const nodeInternals = useStore((s) => s.nodeInternals);
 
     return (
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 49 }}>
@@ -40,33 +42,11 @@ function SelectionsLayer({ peers }: { peers: Record<string, { selectedIds: strin
                 const color = colorFor(userId);
                 return (
                     <React.Fragment key={userId}>
-                        {sel.selectedIds.map((id) => {
-                            const n: any = nodeInternals.get(id);
-                            if (!n || !n.width || !n.height) return null;
-                            // Groups already render a prominent framed border of their own;
-                            // drawing a peer ring around it reads as an ugly, colour-shifting
-                            // SECOND border. Skip groups entirely — their own border stays the
-                            // original colour regardless of who has them selected. Regular
-                            // nodes still get the peer selection box (intentional).
-                            if (n.type === 'group_container') return null;
-                            const pos = n.positionAbsolute || n.position;
-                            // Draw the selection ring OUTSET from the node bounds so it reads
-                            // as a selection box around the node — never recolouring the
-                            // element's own border.
-                            const out = 4 * zoom;
-                            return (
-                                <div key={id} style={{
-                                    position: 'absolute',
-                                    left: pos.x * zoom + x - out,
-                                    top: pos.y * zoom + y - out,
-                                    width: n.width * zoom + out * 2,
-                                    height: n.height * zoom + out * 2,
-                                    border: `1.5px solid ${color}`,
-                                    borderRadius: 8 * zoom + out,
-                                    boxSizing: 'border-box',
-                                }} />
-                            );
-                        })}
+                        {/* No per-node selection ring: a peer selecting a node/group must
+                            NOT draw a second, colour-shifting border around it — the
+                            element's own border always stays its original colour. We still
+                            render the peer's live drag-to-select marquee below (that's a
+                            transient selection rectangle, not a border on any element). */}
                         {sel.marquee && (
                             <div style={{
                                 position: 'absolute',
