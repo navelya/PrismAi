@@ -65,7 +65,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             inviterName: user.email || 'A PrismAi user',
             acceptUrl: `${base}/share/${row.invite_token}`,
         });
-    } catch { emailSent = false; }
+    } catch (err) {
+        emailSent = false;
+        console.error('[collaborators] invite email failed to send:', err instanceof Error ? err.message : err);
+    }
 
     return NextResponse.json({ collaborator: row, emailSent }, { status: 201 });
 }
