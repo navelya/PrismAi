@@ -17,7 +17,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         .from('sessions')
         .select('*')
         .eq('id', params.id)
-        .eq('user_id', user.id) // Enforce ownership
         .eq('is_deleted', false)
         .single();
 

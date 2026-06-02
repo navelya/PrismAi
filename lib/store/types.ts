@@ -104,6 +104,8 @@ export interface EditorState {
 export interface WorkflowSlice {
     activeSessionId: string | null;
     setActiveSessionId: (sessionId: string | null) => void;
+    activeCanvasId: string | null;
+    setActiveCanvasId: (id: string | null) => void;
     currentWorkflow: Workflow | null;
     setCurrentWorkflow: (workflow: Workflow | null, isDirty?: boolean) => void;
     

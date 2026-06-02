@@ -64,6 +64,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
     return {
     activeSessionId: null,
+    activeCanvasId: null,
     currentWorkflow: null,
     isDragging: false,
     copiedNode: null,
@@ -112,6 +113,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             future: []
         });
     },
+
+    setActiveCanvasId: (id) => set({ activeCanvasId: id }),
 
     setWorkflowDirty: (isDirty) => {
         set({ isWorkflowDirty: isDirty });

@@ -103,7 +103,17 @@ export function useSession() {
             // must still hand the store a valid empty workflow — otherwise currentWorkflow stays
             // null and onNodesChange/onConnect bail on their null guards, making it impossible
             // to add the first node.
-            const rawCanvas = (session.canvas_state || {}) as Partial<Workflow>;
+            //
+            // Collaboration decoupling: if the thread session points at a shared canvas via
+            // canvas_session_id, load the canvas row from the shared session so reads/writes
+            // target the shared canvas while messages stay on the per-user thread.
+            const canvasId = (session as any).canvas_session_id || session.id;
+            let canvasRow: any = session;
+            if (canvasId !== session.id) {
+                const { session: cr } = await sessionsApi.load(canvasId);
+                canvasRow = cr || session;
+            }
+            const rawCanvas = (canvasRow.canvas_state || {}) as Partial<Workflow>;
             // Self-heal orphaned parentNode references: if a node points at a
             // parent id that doesn't exist in the same node array, drop the
             // parentNode field. React Flow throws "Parent node X not found"
@@ -114,7 +124,7 @@ export function useSession() {
             const nodeIdSet = new Set(rawNodes.map((n: any) => n.id));
             const workflow: Workflow = {
                 ...rawCanvas,
-                id: session.id,
+                id: canvasId,
                 name: rawCanvas.name || session.title || 'Untitled Workflow',
                 nodes: rawNodes.map((n: any) => {
                     const hasOrphanParent = n.parentNode && !nodeIdSet.has(n.parentNode);
@@ -137,6 +147,7 @@ export function useSession() {
             };
 
             setServerWorkflowHash(workflow);
+            store.setActiveCanvasId(canvasId);
             store.setCurrentWorkflow(workflow, false); // NOT dirty on initial load!
 
             // Hydrate Messages
@@ -312,8 +323,8 @@ export function useSession() {
 
             if (formattedMessages.length > 0) {
                 const lastAssistantIndex = formattedMessages.map((m: any) => m.type).lastIndexOf('assistant');
-                if (lastAssistantIndex !== -1 && session.canvas_state?.nodes?.length > 0) {
-                    formattedMessages[lastAssistantIndex].workflow = session.canvas_state;
+                if (lastAssistantIndex !== -1 && canvasRow.canvas_state?.nodes?.length > 0) {
+                    formattedMessages[lastAssistantIndex].workflow = canvasRow.canvas_state;
 
                     // Dig back into the raw DB message to check the actual execution status
                     const lastMsgId = formattedMessages[lastAssistantIndex].id;
@@ -330,7 +341,7 @@ export function useSession() {
             // Hydrate node statuses + outputs from node_results (DB is the
             // source of truth; the persisted store cache gets overwritten with
             // fresh values here).
-            if (session.canvas_state?.nodes?.length > 0) {
+            if (canvasRow.canvas_state?.nodes?.length > 0) {
                 if (latestExecutionId) {
                     store.setActiveExecutionId(latestExecutionId);
                 }
@@ -342,7 +353,7 @@ export function useSession() {
                 const isCompleted = lastWorkflowMsgStatus === 'completed' || lastWorkflowMsgStatus === 'failed';
                 const isFailed = lastWorkflowMsgStatus === 'failed' || lastWorkflowMsgHasError;
 
-                session.canvas_state.nodes.forEach((node: any) => {
+                canvasRow.canvas_state.nodes.forEach((node: any) => {
                     const execution = executionMap.get(node.id);
 
                     if (execution) {

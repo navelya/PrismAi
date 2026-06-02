@@ -105,6 +105,7 @@ export const useAppStore = create<RootState>()(
             partialize: (state) => Object.fromEntries(
                 Object.entries(state).filter(([key]) => ![
                     'activeSessionId',
+                    'activeCanvasId',
                     'currentWorkflow',
                     'chatMessages',
                     'executionResults',

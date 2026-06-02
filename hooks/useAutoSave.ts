@@ -27,6 +27,7 @@ import { setServerWorkflowHash, markLocalSave } from '@/lib/hooks/use-chat-realt
 export function useAutoSave() {
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
+    const activeCanvasId = useAppStore((state) => state.activeCanvasId);
     const isWorkflowDirty = useAppStore((state) => state.isWorkflowDirty);
     const setWorkflowDirty = useAppStore((state) => state.setWorkflowDirty);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
@@ -39,11 +40,16 @@ export function useAutoSave() {
     // Store refs for current values to avoid stale closures
     const currentWorkflowRef = useRef(currentWorkflow);
     const activeSessionIdRef = useRef(activeSessionId);
+    const activeCanvasIdRef = useRef(activeCanvasId);
 
     useEffect(() => {
         currentWorkflowRef.current = currentWorkflow;
         activeSessionIdRef.current = activeSessionId;
     }, [currentWorkflow, activeSessionId]);
+
+    useEffect(() => {
+        activeCanvasIdRef.current = activeCanvasId;
+    }, [activeCanvasId]);
 
     // Local backup function (will be throttled)
     const saveLocal = useCallback(async () => {
@@ -88,6 +94,10 @@ export function useAutoSave() {
 
         if (!workflow || !sessionId || isSavingRemoteRef.current) return;
 
+        // Use the shared canvas id when available (collab decoupling); fall back
+        // to the thread session id for non-collab sessions.
+        const saveTarget = activeCanvasIdRef.current || sessionId;
+
         // ✅ PHASE 1 FIX: Sanitize execution state before saving
         // CRITICAL: Never save node status/output client-side
         // These are managed by the execution engine and should only come from the server
@@ -114,7 +124,7 @@ export function useAutoSave() {
         try {
             isSavingRemoteRef.current = true;
 
-            const result = await saveWorkflow(sanitizedWorkflow, sessionId);
+            const result = await saveWorkflow(sanitizedWorkflow, saveTarget);
 
             if (result.success) {
                 lastRemoteSavedHashRef.current = currentHash;
