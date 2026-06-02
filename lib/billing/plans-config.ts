@@ -169,3 +169,21 @@ export function getCreditPack(id: string | null | undefined): CreditPack | null 
     if (!id) return null;
     return CREDIT_PACKS.find(p => p.id === id) ?? null;
 }
+
+// =============================================================================
+// STATIC STRUCTURE ACCESSORS (non-pricing fields kept in code)
+// =============================================================================
+// getPricing() merges DB pricing onto these. name/tagline/features/accent are
+// editorial and stay in code; price/credits/availability/paddle ids come from DB.
+
+export function getPlanStatic(id: string): Pick<PlanDisplay, 'name' | 'tagline' | 'features' | 'accent'> | null {
+    const p = PLANS.find(x => x.id === id);
+    if (!p) return null;
+    return { name: p.name, tagline: p.tagline, features: p.features, accent: p.accent };
+}
+
+export function getPackStatic(id: string): Pick<CreditPack, 'name' | 'tagline' | 'accent'> | null {
+    const p = CREDIT_PACKS.find(x => x.id === id);
+    if (!p) return null;
+    return { name: p.name, tagline: p.tagline, accent: p.accent };
+}
