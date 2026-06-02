@@ -93,12 +93,15 @@ function PlanRow({ plan, onSaved }: { plan: AdminPlanRow; onSaved: () => void })
         setSaving(true);
         setErr(null);
         try {
-            await pricingAdminApi.updatePlan(plan.id, {
-                price_monthly_dollars: monthly,
-                price_yearly_dollars: yearly,
-                monthly_floor: credits,
-                is_active: active,
-            });
+            const patch = isFree
+                ? { monthly_floor: credits, is_active: active }
+                : {
+                    price_monthly_dollars: monthly,
+                    price_yearly_dollars: yearly,
+                    monthly_floor: credits,
+                    is_active: active,
+                };
+            await pricingAdminApi.updatePlan(plan.id, patch);
             setConfirmOpen(false);
             onSaved();
         } catch (e: any) {

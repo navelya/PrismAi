@@ -18,11 +18,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const { supabase, user } = auth;
 
     const planId = params.id;
-    if (planId === 'free') {
+    const body = (await req.json()) as PlanPatchBody;
+
+    // The free plan has no price (no Paddle product), but its monthly credit
+    // grant and availability are still editable. Reject only price changes.
+    if (planId === 'free' && (body.price_monthly_dollars != null || body.price_yearly_dollars != null)) {
         return NextResponse.json({ error: 'The free plan has no editable price' }, { status: 400 });
     }
-
-    const body = (await req.json()) as PlanPatchBody;
 
     // Validate input types before touching Paddle or the DB.
     for (const [key, val] of [
