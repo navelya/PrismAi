@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { CreditsBreakdownPanel } from '@/components/billing/CreditsBreakdownPanel';
 import PlansModal from '@/components/billing/PlansModal';
 import { useAppStore } from '@/lib/store/app-store';
+import { ShareDialog } from '@/components/collab/ShareDialog';
 
 interface EditorToolbarProps {
     workflowName: string;
@@ -23,6 +24,8 @@ interface EditorToolbarProps {
     onDelete: () => void;
     onNew: () => void;
     isPaletteOpen?: boolean;
+    canvasId?: string | null;
+    isOwner?: boolean;
 }
 
 export default function EditorToolbar({
@@ -35,8 +38,11 @@ export default function EditorToolbar({
     onDelete,
     onNew,
     isPaletteOpen = true,
+    canvasId,
+    isOwner = false,
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
+    const [shareOpen, setShareOpen] = React.useState(false);
     const [showPlans, setShowPlans] = useState(false);
     const [showBreakdown, setShowBreakdown] = useState(false);
     const { balance, loading: balanceLoading } = useTokenBalance();
@@ -127,6 +133,19 @@ export default function EditorToolbar({
             </div>
 
             <div className="flex-1" />
+
+            {/* Share Button */}
+            {canvasId && (
+                <button
+                    onClick={() => setShareOpen(true)}
+                    className={`${islandBase} rounded-xl mr-2`}
+                >
+                    <span className="text-xs font-semibold text-content-primary uppercase tracking-wider">Share</span>
+                </button>
+            )}
+            {shareOpen && canvasId && (
+                <ShareDialog canvasId={canvasId} isOwner={!!isOwner} onClose={() => setShareOpen(false)} />
+            )}
 
             {/* Actions Island (Right) — minimal */}
             <div className="pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle shadow-lg rounded-xl px-1.5 py-1 flex items-center gap-1 transition-colors">

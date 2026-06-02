@@ -38,7 +38,9 @@ export default function SharedWorkflowEditor({
     readOnly = false,
 }: SharedWorkflowEditorProps) {
     const activeExecutionId = useAppStore((state) => state.activeExecutionId);
-    
+    const activeCanvasId = useAppStore((state) => state.activeCanvasId);
+    const collabRole = useAppStore((state) => state.collabRole);
+
     // Global Catalog State
     const isModelsLoading = useAppStore(state => state.isModelsLoading);
     const fetchModelCatalog = useAppStore(state => state.fetchModelCatalog);
@@ -670,6 +672,8 @@ export default function SharedWorkflowEditor({
                         isRunning={isExecuting}
                         onDelete={handleDelete}
                         onNew={handleNew}
+                        canvasId={activeCanvasId}
+                        isOwner={collabRole === 'owner'}
                     />
                 )}
 
