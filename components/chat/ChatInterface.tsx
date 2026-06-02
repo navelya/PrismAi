@@ -70,6 +70,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     }, [sessionId, prevSessionId]);
 
     const storeActiveSessionId = useAppStore((state) => state.activeSessionId);
+    const storeActiveCanvasId = useAppStore((state) => state.activeCanvasId);
     const selectedChatModel = useAppStore((state) => state.selectedChatModel);
     const setSelectedChatModel = useAppStore((state) => state.setSelectedChatModel);
     const { subscription } = useSubscription();
@@ -96,6 +97,22 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const statusMessage = useAppStore((state) => state.statusMessage);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
     const isViewer = useAppStore((state) => state.collabRole) === 'viewer';
+
+    // CHAT scoping (collab decoupling): chat must be scoped to the per-user
+    // THREAD id (store activeSessionId), NOT the URL param (which is always the
+    // shared CANVAS id). For an editor collaborator the thread id is their
+    // private companion thread; using the canvas id would send/read messages on
+    // the shared canvas row instead.
+    //
+    // NAVIGATION-RACE GUARD: when navigating A → B the URL param flips to B's
+    // canvasId immediately, but the store still holds A's thread id until
+    // loadSession(B) resolves. Trust the store thread id only once loadSession
+    // for the CURRENT url canvas has completed — i.e. activeCanvasId (what
+    // loadSession resolved) matches the URL canvas (sessionId) AND we are not
+    // mid-load. Until then, treat the chat as still loading so we never feed a
+    // stale thread id (and thus stale messages) to the chat/realtime hooks.
+    const isChatReady = !isLoadingSession && storeActiveCanvasId === sessionId;
+    const chatThreadId = isChatReady ? storeActiveSessionId : null;
 
     const [isListening, setIsListening] = useState(false);
     const recognitionRef = useRef<any>(null);
@@ -129,7 +146,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         handlePlanApprove,
         handlePlanFeedback
     } = useChatMessages({
-        sessionId: effectiveSessionId || undefined,
+        sessionId: chatThreadId || undefined,
         onWorkflowGenerated,
         abortControllerRef
     });
@@ -179,14 +196,14 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     };
 
     useChatRealtime({
-        sessionId: effectiveSessionId || null,
+        sessionId: chatThreadId || null,
         onWorkflowGenerated,
         handleRevert
     });
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    const scroll = useChatScroll({ messages, isLoading, sessionId: effectiveSessionId });
+    const scroll = useChatScroll({ messages, isLoading, sessionId: chatThreadId });
 
     const toggleListening = () => {
         if (typeof window === 'undefined') return;
@@ -476,7 +493,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 messages={messages}
                 editingMessageId={editingMessageId}
                 isLoading={isLoading}
-                isLoadingSession={isLoadingSession}
+                isLoadingSession={isLoadingSession || !isChatReady}
                 statusMessage={statusMessage}
                 isCanvasMode={isCanvasMode}
                 onRevert={stableRevert}
@@ -524,7 +541,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         </button>
                     </div>
                 )}
-                <ChatInput ref={textareaRef} {...chatInputProps} disabled={isViewer || isLoading || isLoadingSession} hasMessages={messages.length > 0} />
+                <ChatInput ref={textareaRef} {...chatInputProps} disabled={isViewer || isLoading || isLoadingSession || !isChatReady} hasMessages={messages.length > 0} />
                 {isViewer && <p className="text-xs text-content-tertiary px-3 pb-2">View only — ask an editor to make changes.</p>}
             </div>
             {evictionToast && (

@@ -284,7 +284,11 @@ export default function SharedWorkflowEditor({
             return;
         }
 
-        const result = await saveWorkflow(workflow, activeSessionId);
+        // Save to the shared CANVAS id, not the per-user thread id. For an editor
+        // collaborator activeSessionId is their private companion thread; saving
+        // there hides the change from others and gets overwritten on reload.
+        // Mirrors useAutoSave's `activeCanvasId || activeSessionId` target.
+        const result = await saveWorkflow(workflow, useAppStore.getState().activeCanvasId || activeSessionId);
         if (result.success) {
             alert('Workflow saved successfully!');
         } else {

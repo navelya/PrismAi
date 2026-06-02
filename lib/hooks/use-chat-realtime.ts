@@ -392,10 +392,15 @@ export function useChatRealtime({
                         await handleMessageUpdate({ new: latestAssistant });
                     }
 
+                    // canvas_state lives on the shared CANVAS row, not the
+                    // per-user thread. For a collaborator the thread row's
+                    // canvas_state is empty/stale, so reading it here on tab
+                    // refocus would wipe the shared canvas. Use the canvas id.
+                    const canvasId = useAppStore.getState().activeCanvasId || activeSessionId;
                     const { data: sessionData } = await supabase
                         .from('sessions')
                         .select('canvas_state, status_message')
-                        .eq('id', activeSessionId)
+                        .eq('id', canvasId)
                         .single();
 
                     if (sessionData) {
