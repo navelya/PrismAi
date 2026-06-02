@@ -18,12 +18,21 @@ function hslaFill(hsl: string, alpha: number) {
  *
  * Mounted inside <ReactFlowProvider> (so useStore/useViewport resolve) next to
  * <CollaboratorCursors />. Renders nothing while peerSelections is empty (solo).
+ *
+ * Split in two so the heavy subscriptions (nodeInternals + viewport, which change
+ * on every local drag/zoom) only mount when a peer actually has a selection —
+ * the solo/no-peer path subscribes to nothing but the small peerSelections map.
  */
 export function CollaboratorSelections() {
+    const peers = useAppStore(useShallow((s) => s.peerSelections));
+    if (Object.keys(peers).length === 0) return null;
+    return <SelectionsLayer peers={peers} />;
+}
+
+function SelectionsLayer({ peers }: { peers: Record<string, { selectedIds: string[]; marquee: { x: number; y: number; w: number; h: number } | null }> }) {
     const { x, y, zoom } = useViewport();
     // Map<id, Node{ positionAbsolute?, position, width, height }> in reactflow v11.
     const nodeInternals = useStore((s) => s.nodeInternals);
-    const peers = useAppStore(useShallow((s) => s.peerSelections));
 
     return (
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 49 }}>
