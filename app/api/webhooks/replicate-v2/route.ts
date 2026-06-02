@@ -257,6 +257,10 @@ export async function POST(request: NextRequest) {
 
     const sessionId = executionCtx?.session_id || null;
     const userId = (executionCtx?.sessions as any)?.user_id || 'unknown_user';
+    // Real owner UUID (or null) for the node_results.user_id column. Distinct
+    // from `userId` above, which may be the 'unknown_user' string used only for
+    // storage paths and is not a valid uuid.
+    const userUuid: string | null = (executionCtx?.sessions as any)?.user_id ?? null;
     const storageSessionId = sessionId || 'unknown_session';
 
     // Fan-out (iterations > 1) tracks each prediction in node_predictions. If a
@@ -304,6 +308,7 @@ export async function POST(request: NextRequest) {
             execution_id: executionId,
             node_id: nodeId,
             session_id: sessionId,
+            user_id: userUuid,
             status: 'failed',
             error: `Media upload to storage failed: ${
               uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'
@@ -336,6 +341,7 @@ export async function POST(request: NextRequest) {
             execution_id: executionId,
             node_id: nodeId,
             session_id: sessionId,
+            user_id: userUuid,
             status: 'failed',
             error: 'Media could not be permanently stored. Please re-run the node.',
             replicate_id: predictionId,
@@ -365,6 +371,7 @@ export async function POST(request: NextRequest) {
           execution_id: executionId,
           node_id: nodeId,
           session_id: sessionId,
+          user_id: userUuid,
           status: 'completed',
           result_type: outputType,
           result_data: resultData,
