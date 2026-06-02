@@ -60,9 +60,11 @@ export async function middleware(request: NextRequest) {
         );
     }
 
-    // If logged in and at login page, redirect to chat
+    // If logged in and at login page, redirect to chat (honour ?next= if safe)
     if (path === '/login' && user) {
-        return NextResponse.redirect(new URL('/chat', request.url));
+        const next = request.nextUrl.searchParams.get('next');
+        const dest = next && next.startsWith('/') && !next.startsWith('//') ? next : '/chat';
+        return NextResponse.redirect(new URL(dest, request.url));
     }
 
     return supabaseResponse;

@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, ArrowRight, Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 import { Logo } from '@/components/ui/Logo';
 
-export default function LoginPage() {
+function LoginContent() {
     const [isLogin, setIsLogin] = useState(true);
     const [checkEmail, setCheckEmail] = useState(false);
     const [email, setEmail] = useState('');
@@ -183,7 +183,7 @@ export default function LoginPage() {
                                         type="text"
                                         value={fullName}
                                         onChange={(e) => setFullName(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl 
+                                        className="w-full pl-10 pr-4 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl
                                                 text-content-primary placeholder:text-content-tertiary
                                                 focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
                                                 transition-all"
@@ -203,7 +203,7 @@ export default function LoginPage() {
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl 
+                                    className="w-full pl-10 pr-4 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl
                                                text-content-primary placeholder:text-content-tertiary
                                                focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
                                                transition-all"
@@ -222,7 +222,7 @@ export default function LoginPage() {
                                     type={showPassword ? "text" : "password"}
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full pl-10 pr-10 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl 
+                                    className="w-full pl-10 pr-10 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl
                                                text-content-primary placeholder:text-content-tertiary
                                                focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
                                                transition-all"
@@ -256,7 +256,7 @@ export default function LoginPage() {
                         <button
                             type="submit"
                             disabled={loading || googleLoading}
-                            className="w-full py-3 px-4 bg-gradient-premium text-white font-medium rounded-xl 
+                            className="w-full py-3 px-4 bg-gradient-premium text-white font-medium rounded-xl
                                        shadow-lg shadow-accent-primary/25 hover:shadow-xl hover:shadow-accent-primary/40
                                        active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2"
                         >
@@ -295,5 +295,13 @@ export default function LoginPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><span className="text-content-secondary text-sm">Loading…</span></div>}>
+            <LoginContent />
+        </Suspense>
     );
 }
