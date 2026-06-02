@@ -19,6 +19,7 @@ This is built by **extending the realtime infrastructure that already exists** (
 - Live presence: cursors, who's-online roster, live node movement.
 - Edits propagate in real time between everyone viewing the same workflow.
 - Generative runs are billed to **the user who triggers them** (not the owner). Viewers cannot run.
+- **Each collaborator gets their own private chat thread** on the shared canvas. When a user opens a shared workflow they automatically get a fresh, private thread (as if they pressed "new chat"); all threads edit the one shared canvas.
 
 ## Non-goals
 
@@ -26,6 +27,7 @@ This is built by **extending the realtime infrastructure that already exists** (
 - Collaborators re-sharing (only the owner manages access).
 - A "manage access" role tier (only Owner / Editor / Viewer).
 - Public/link-anyone sharing — sharing is always to a specific email.
+- **Multiple chat threads per user, a thread switcher dropdown, and browsing/opening other users' chats — deferred.** v1 gives each user exactly one private thread per workflow. The decoupling below is built now so this UX can layer on later without a second migration.
 
 ## Chosen approach: Presence + granular op-broadcast, per-node last-write-wins
 
@@ -83,6 +85,38 @@ The home-screen session list currently filters `.eq('user_id', me)` in code, so 
 
 ---
 
+## Section 1b — Chat threading: per-user private threads on a shared canvas
+
+### The decoupling problem
+
+Today a `sessions` row **is** both the chat thread and the canvas: `canvas_state` lives on the row, and `messages.session_id` / `executions_v2.session_id` / `node_results.session_id` all point at it. To give one shared canvas many private chat threads, the chat thread must be separated from the canvas it edits. Without this, a shared chat would race the agentic Claude loop (two users → two concurrent loops mutating one thread + one canvas) and muddle the brain's context.
+
+### Approach: canvas-owner session + per-user companion threads
+
+Rather than move `canvas_state` into a new table (high blast radius), add a pointer and resolve it:
+
+- Add column `sessions.canvas_session_id uuid REFERENCES sessions(id) ON DELETE CASCADE` (nullable).
+  - The **owner's original session is the canvas session**: `canvas_session_id IS NULL`, and it continues to hold `canvas_state` exactly as today. It also doubles as the owner's own chat thread for v1.
+  - When a collaborator opens the shared workflow, a **companion session** is created for them: a thin `sessions` row with `user_id = collaborator`, `canvas_session_id = <owner's canvas session>`, holding only their private messages. Its own `canvas_state` is unused.
+- Everywhere canvas identity is needed, resolve `effectiveCanvasId = session.canvas_session_id ?? session.id`.
+  - **Canvas reads/writes** (load, autosave, chat-brain patches) operate on `effectiveCanvasId`.
+  - **Messages** stay keyed on the per-user `session.id` (private threads).
+  - **Executions & node_results** key on `effectiveCanvasId` (the shared canvas) but carry `user_id = runner` — so all collaborators see the same node results, and the runner is billed.
+  - **`session_collaborators`** (Section 1) attach to the **canvas session id**; `can_access_session` / `can_edit_session` are evaluated against `effectiveCanvasId`.
+
+### Companion-thread lifecycle
+
+- **Open:** `POST /api/sessions/[canvasId]/open` creates-or-returns the calling user's companion thread for that canvas (owner gets the canvas session itself). Idempotent — one thread per (user, canvas) in v1.
+- **Revoke / downgrade-removal:** when the owner revokes a collaborator, delete that user's companion thread for the canvas (their private chat goes away; the shared canvas is untouched).
+- **Canvas delete:** `ON DELETE CASCADE` on `canvas_session_id` removes all companion threads when the owner deletes the workflow.
+- **Single-user workflows are unchanged:** `canvas_session_id IS NULL`, no collaborators, no companion threads — existing behavior preserved.
+
+### Backward compatibility
+
+All existing sessions have `canvas_session_id = NULL`, so `effectiveCanvasId` falls back to `session.id` and current single-user flows behave identically. No data backfill required.
+
+---
+
 ## Section 2 — Sharing, invites & email flow
 
 ### Share button + dialog
@@ -111,20 +145,23 @@ The home-screen session list currently filters `.eq('user_id', me)` in code, so 
 
 ### Billing
 
-No new billing code. Collaborator runs execute under their own session, so the existing pre-flight debit/refund in `/api/executions/start` and `lib/workflow/orchestrator.ts` charges the right person. Viewers blocked by RLS (`can_edit_session`) and in UI (run buttons hidden). Verify the executions-start route does not re-assert `sessions.user_id = me` anywhere that would block an editor.
+No new billing code. A collaborator's run creates an execution against the **shared canvas** (`effectiveCanvasId`) but stamped with `user_id = runner`, so the existing pre-flight debit/refund in `/api/executions/start` and `lib/workflow/orchestrator.ts` charges the runner while node results stay visible to everyone on the canvas. Viewers blocked by RLS (`can_edit_session`) and in UI (run buttons hidden). Verify the executions-start route does not re-assert `sessions.user_id = me` anywhere that would block an editor, and that it resolves `effectiveCanvasId` rather than assuming the chat session holds the canvas.
 
 ---
 
 ## Section 3 — Realtime collaboration layer
 
-A new client hook `useWorkflowCollaboration(sessionId)` owns two new Supabase Realtime channels per open workflow, layered on top of the existing per-session `canvas_state` sync.
+A new client hook `useWorkflowCollaboration(canvasId)` owns two new Supabase Realtime channels per open workflow, layered on top of the existing `canvas_state` sync. **Channel keying matters with per-user threads (Section 1b):** canvas-scoped channels key on `effectiveCanvasId` (shared across all collaborators), while the chat-message channel stays keyed on the per-user `session.id` (private thread).
 
-### 1. Presence channel — `workflow-presence-{sessionId}`
+- **Shared, keyed on `effectiveCanvasId`:** canvas_state sync (`chat-sessions-{canvasId}`), execution results (`session_results_{canvasId}`), presence, and ops — so everyone sees the same canvas, node results, cursors, and edits.
+- **Private, keyed on the user's `session.id`:** chat messages (`chat-messages-{chatSessionId}`) — each user only receives their own thread's message updates.
+
+### 1. Presence channel — `workflow-presence-{canvasId}`
 
 - Each client `track()`s `{ userId, name, color, role }`. Color assigned deterministically from `userId` (stable across clients).
 - Drives the roster (header avatar stack) and cursor identity. `sync`/`join`/`leave` events update a `collaborators` map in the store (low frequency → store is fine).
 
-### 2. Op + cursor broadcast — `workflow-ops-{sessionId}` (`self: false`)
+### 2. Op + cursor broadcast — `workflow-ops-{canvasId}` (`self: false`)
 
 **High-frequency, ephemeral (never persisted):**
 - `cursor` — `{ userId, x, y }` in flow-coords, throttled ~30–40ms. Rendered as an overlay that transforms with the ReactFlow viewport.
@@ -198,22 +235,27 @@ Cursor/drag broadcasts are throttled; the cursor overlay updates via refs / `req
 ## Affected / new files (indicative)
 
 **New:**
-- `supabase/migrations/2026XXXX_session_collaborators.sql` — table, RPC, trigger, RLS helpers, policy changes.
+- `supabase/migrations/2026XXXX_session_collaborators.sql` — `session_collaborators` table, `sessions.canvas_session_id` column, RPC, trigger, RLS helpers, policy changes.
 - `lib/email/workflow-invite.ts`
 - `app/api/sessions/[id]/collaborators/route.ts` (+ `[collabId]/route.ts`)
+- `app/api/sessions/[canvasId]/open/route.ts` — create-or-return the caller's companion chat thread.
 - `app/api/invites/accept/route.ts`
 - `app/share/[token]/page.tsx`
 - `lib/hooks/use-workflow-collaboration.ts`
 - `components/.../ShareDialog.tsx`, `PresenceAvatars.tsx`, `CollaboratorCursors.tsx`
 
 **Modified:**
-- RLS-affected policies for `sessions`, `messages`, `executions_v2`, `node_results`.
-- Session-list query (surface "shared with me").
+- RLS-affected policies for `sessions`, `messages`, `executions_v2`, `node_results` (evaluate against `effectiveCanvasId`).
+- Canvas load / autosave / chat-brain route to resolve `effectiveCanvasId = canvas_session_id ?? id` for all canvas reads/writes; messages stay on the per-user `session.id`.
+- Execution start to target `effectiveCanvasId` with `user_id = runner`.
+- Session-list query (surface "shared with me"; show the workflow once, resolve/create the user's thread on open).
 - Canvas/session header (Share button, avatar stack, view-only badge).
 - ReactFlow canvas wiring (cursor overlay, peer drag via `liveNodePositions`, viewer read-only props).
 - App store: `collaborators` roster slice; wire op-apply into existing node/edge actions.
 
 ## Open implementation checks (resolve during planning)
-- Confirm `/api/executions/start` and orchestrator don't hard-assert owner identity in a way that blocks editors.
+- Confirm `/api/executions/start` and orchestrator don't hard-assert owner identity in a way that blocks editors, and that they target `effectiveCanvasId`.
 - Confirm Supabase Realtime postgres_changes honors the widened RLS for collaborators on the `sessions` channel.
 - Confirm the `auth.users` insert trigger composes cleanly with the existing `handle_new_user()` trigger.
+- Confirm the chat-brain route ([lib/chat/](lib/chat/)) reads/patches the canvas via `effectiveCanvasId` while persisting messages to the caller's companion `session.id` — i.e. a collaborator's chat edits land on the shared canvas, not their thin companion row.
+- Confirm autosave/`saveWorkflow` and `use-chat-realtime` canvas sync resolve `effectiveCanvasId` (today they assume `session.id` holds the canvas).
