@@ -610,7 +610,7 @@ const EditorCanvasInner = ({
     useEffect(() => {
         if (!me) return;
         sendSelection(localSelectedIds, marqueeRef.current);
-    }, [localSelectedIds, me, sendSelection]);
+    }, [localSelectedIds, me?.id, sendSelection]);
 
     // When the chat pill's X button bumps selectionClearToken, deselect every
     // node on the canvas. Skip the initial mount (token unchanged) so we don't

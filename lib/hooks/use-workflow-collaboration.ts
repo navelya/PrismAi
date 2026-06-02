@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -96,34 +96,34 @@ export function useWorkflowCollaboration(
         return () => { supabase.removeChannel(presence); supabase.removeChannel(ops); opsChannelRef.current = null; };
     }, [canvasId, me?.id, me?.role]);
 
-    const sendCursor = (x: number, y: number) => {
+    const sendCursor = useCallback((x: number, y: number) => {
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'cursor', payload: { userId: me.id, x, y } });
-    };
+    }, [me?.id]);
     // Legacy single-node drag send (kept for callers/back-compat).
-    const sendNodeDrag = (nodeId: string, x: number, y: number) => {
+    const sendNodeDrag = useCallback((nodeId: string, x: number, y: number) => {
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'node-drag', payload: { userId: me.id, nodeId, x, y } });
-    };
+    }, [me?.id]);
     // Multi-node drag send — broadcast all dragged nodes' live positions.
-    const sendNodeDrags = (items: NodeDragItem[]) => {
+    const sendNodeDrags = useCallback((items: NodeDragItem[]) => {
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'node-drag', payload: { userId: me.id, items } });
-    };
+    }, [me?.id]);
     // Full structural state broadcast — the instant peer sync layer (the 2s DB
     // autosave still handles durability). Sent only on a SETTLED local edit.
-    const sendState = (nodes: any[], edges: any[]) => {
+    const sendState = useCallback((nodes: any[], edges: any[]) => {
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'state', payload: { origin: me.id, nodes, edges } });
-    };
+    }, [me?.id]);
     // Ephemeral peer-selection broadcast (selected node ids + live marquee box).
     // No-ops while solo (me === null), so a non-collaborative session never sends.
-    const sendSelection = (
+    const sendSelection = useCallback((
         selectedIds: string[],
         marquee: { x: number; y: number; w: number; h: number } | null,
     ) => {
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'selection', payload: { userId: me.id, selectedIds, marquee } });
-    };
+    }, [me?.id]);
     return { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection };
 }
