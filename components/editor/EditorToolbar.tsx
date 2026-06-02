@@ -13,6 +13,7 @@ import { CreditsBreakdownPanel } from '@/components/billing/CreditsBreakdownPane
 import PlansModal from '@/components/billing/PlansModal';
 import { useAppStore } from '@/lib/store/app-store';
 import { ShareDialog } from '@/components/collab/ShareDialog';
+import { PresenceAvatars } from '@/components/collab/PresenceAvatars';
 
 interface EditorToolbarProps {
     workflowName: string;
@@ -133,6 +134,11 @@ export default function EditorToolbar({
             </div>
 
             <div className="flex-1" />
+
+            {/* Presence avatars — live collaborators on this canvas */}
+            <div className="flex items-center mr-2 pointer-events-auto">
+                <PresenceAvatars />
+            </div>
 
             {/* Share Button */}
             {canvasId && (

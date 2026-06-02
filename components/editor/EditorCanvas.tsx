@@ -51,6 +51,9 @@ import {
 } from '@/lib/editor/handle-compatibility';
 import { WireDragProvider, type WireDragState } from '@/lib/editor/wire-drag-context';
 import { NodeValidationProvider } from '@/lib/hooks/use-node-validation';
+import { useWorkflowCollaboration } from '@/lib/hooks/use-workflow-collaboration';
+import { useCurrentUser } from '@/lib/hooks/use-current-user';
+import { CollaboratorCursors, type CursorsHandle } from '@/components/collab/CollaboratorCursors';
 
 // Stable references for <ReactFlow> object props — see
 // https://reactflow.dev/learn/advanced-use/performance. Hoisted to module
@@ -357,6 +360,125 @@ const EditorCanvasInner = ({
         onDrop(pendingAddNode.type as any, position, pendingAddNode.nodeTypeId, pendingAddNode.modelId, pendingAddNode.initialConfig);
         clearPendingAddNode();
     }, [pendingAddNode, reactFlowInstance, onDrop, clearPendingAddNode]);
+
+    // ── Realtime collaboration (live cursors, presence, peer drags + ops) ────
+    // Everything here is INERT for the single-user / owner-not-collaborating
+    // path: `me` is null until auth resolves, and `canvasId` is the shared
+    // canvas id. The hook returns no-op senders while `me` is null, and the
+    // cursor overlay renders nothing until a peer broadcasts. None of these
+    // sends fire for a non-collaborative session because peers never join the
+    // channel.
+    const me = useCurrentUser();
+    const collabRole = useAppStore((s) => s.collabRole);
+    const canvasId = useAppStore((s) => s.activeCanvasId);
+    const cursorsRef = useRef<CursorsHandle>(null);
+    // Throttle timestamps for high-frequency broadcasts (cursor move, peer-drag).
+    const lastCursorSentRef = useRef(0);
+    const lastDragSentRef = useRef(0);
+    // Viewers may broadcast their cursor but never edit ops.
+    const canEdit = collabRole !== 'viewer';
+
+    // Apply an incoming peer op to the local store via existing actions, then
+    // clear the dirty flag — save authority belongs to the originator (each
+    // client autosaving the same blob would be redundant).
+    const applyRemoteOp = useCallback((op: { kind: string; payload: any }) => {
+        const store = useAppStore.getState();
+        switch (op.kind) {
+            case 'node:move-commit': {
+                const { nodeId, position } = op.payload || {};
+                if (nodeId && position) {
+                    const m = new Map<string, { x: number; y: number }>();
+                    m.set(nodeId, position);
+                    store.updateNodePositions(m);
+                }
+                break;
+            }
+            case 'node:add': {
+                // payload is a full WorkflowNode. Route through onNodesChange as
+                // an `add` change (the canonical add path — seeds outputs + zIndex).
+                const node = op.payload?.node ?? op.payload;
+                if (node?.id) {
+                    store.onNodesChange([{ type: 'add', item: node } as any]);
+                }
+                break;
+            }
+            case 'node:delete': {
+                const nodeId = op.payload?.nodeId ?? op.payload?.id;
+                if (nodeId) {
+                    store.onNodesChange([{ type: 'remove', id: nodeId } as any]);
+                }
+                break;
+            }
+            case 'node:config': {
+                const { nodeId, config } = op.payload || {};
+                if (nodeId && config !== undefined) {
+                    store.updateNodeConfig(nodeId, config);
+                }
+                break;
+            }
+            case 'edge:add': {
+                // payload is a Connection (the same object handleConnect receives).
+                if (op.payload) store.onConnect(op.payload);
+                break;
+            }
+            case 'edge:delete': {
+                const edgeId = op.payload?.edgeId ?? op.payload?.id;
+                if (edgeId) {
+                    store.onEdgesChange([{ type: 'remove', id: edgeId } as any]);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        // Applied peer ops must NOT schedule this client's autosave.
+        useAppStore.getState().setWorkflowDirty(false);
+    }, []);
+
+    const { sendCursor, sendNodeDrag, sendOp } = useWorkflowCollaboration(
+        canvasId,
+        me ? { id: me.id, name: me.name, role: (collabRole || 'editor') } : null,
+        {
+            onCursor: (c) => {
+                const p = useAppStore.getState().presence[c.userId];
+                cursorsRef.current?.update(c.userId, p?.name || 'User', p?.color || '#888', c.x, c.y);
+            },
+            onNodeDrag: (e) => {
+                useAppStore.getState().setLiveNodePosition(e.nodeId, { x: e.x, y: e.y });
+            },
+            onOp: (op) => { applyRemoteOp(op); },
+        },
+    );
+
+    // Drop a peer's cursor element when they leave the roster.
+    const presenceForCursors = useAppStore((s) => s.presence);
+    const knownCursorIdsRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const live = new Set(Object.keys(presenceForCursors));
+        // Remove cursors for anyone who left + our own (never render self).
+        for (const id of Array.from(knownCursorIdsRef.current)) {
+            if (!live.has(id)) {
+                cursorsRef.current?.remove(id);
+                knownCursorIdsRef.current.delete(id);
+            }
+        }
+        for (const id of live) {
+            if (me && id === me.id) continue;
+            knownCursorIdsRef.current.add(id);
+        }
+        if (me) cursorsRef.current?.remove(me.id);
+    }, [presenceForCursors, me]);
+
+    // Throttled pane-move → broadcast our cursor in FLOW coordinates so peers
+    // map it through their own viewport. Viewers may still send cursors.
+    const handlePaneMouseMove = useCallback((e: React.MouseEvent) => {
+        if (!me || !reactFlowInstance) return;
+        const now = Date.now();
+        if (now - lastCursorSentRef.current < 35) return;
+        lastCursorSentRef.current = now;
+        const pos = reactFlowInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        sendCursor(pos.x, pos.y);
+    }, [me, reactFlowInstance, sendCursor]);
 
     const { resolvedTheme } = useTheme();
 
@@ -997,6 +1119,17 @@ const EditorCanvasInner = ({
     const setDragHoverGroupId = useAppStore((state) => state.setDragHoverGroupId);
 
     const handleNodeDrag: NodeDragHandler = useCallback((_event, node, _nodes) => {
+        // Broadcast the live drag to peers (throttled). Editors/owners only —
+        // viewers can't reach this handler since nodesDraggable is gated by
+        // readOnly, but guard on canEdit defensively. No-op when not collaborating.
+        if (canEdit) {
+            const now = Date.now();
+            if (now - lastDragSentRef.current >= 35) {
+                lastDragSentRef.current = now;
+                sendNodeDrag(node.id, node.position.x, node.position.y);
+            }
+        }
+
         // Only consider drag-IN for nodes that are NOT already inside a group.
         // (A node already in a group can be dragged out — Task 6 handles that.)
         if ((node as any).parentNode) {
@@ -1041,7 +1174,7 @@ const EditorCanvasInner = ({
             }
         }
         setDragHoverGroupId(hoverId);
-    }, [reactFlowInstance, setDragHoverGroupId]);
+    }, [reactFlowInstance, setDragHoverGroupId, canEdit, sendNodeDrag]);
 
     const handleNodeDragStop: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = false;
@@ -1053,6 +1186,13 @@ const EditorCanvasInner = ({
 
         if (updatePositions) {
             updatePositions(positionsMap);
+        }
+
+        // Broadcast the committed position(s) to peers. Editors/owners only.
+        if (canEdit) {
+            nodes.forEach((n) => {
+                sendOp({ kind: 'node:move-commit', payload: { nodeId: n.id, position: n.position } });
+            });
         }
 
         // ── DRAG-IN: attach the dragged node to the hovered group, if any. ─────
@@ -1090,7 +1230,7 @@ const EditorCanvasInner = ({
 
         touchInteraction();
         if (onNodeDragStop) onNodeDragStop(event, node, nodes);
-    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, reactFlowInstance, setNodeParent, setDragHoverGroupId]);
+    }, [setIsDragging, onNodeDragStop, touchInteraction, updatePositions, reactFlowInstance, setNodeParent, setDragHoverGroupId, canEdit, sendOp]);
 
     // After a marquee selection, React Flow renders a `.react-flow__nodesselection-rect`
     // overlay with `pointer-events: all` — grabbing anywhere inside it (even on a
@@ -1144,7 +1284,10 @@ const EditorCanvasInner = ({
         if (readOnly) return;
         touchInteraction();
         onConnect(connection);
-    }, [touchInteraction, onConnect, readOnly]);
+        // Broadcast the connection to peers so the edge appears on their canvas.
+        // onConnect on the peer rebuilds the same edge id deterministically.
+        if (canEdit) sendOp({ kind: 'edge:add', payload: connection });
+    }, [touchInteraction, onConnect, readOnly, canEdit, sendOp]);
 
     // Capture the originating side of a connection drag so we can filter the
     // context menu by data-type compatibility when it ends on empty canvas.
@@ -1517,6 +1660,7 @@ const EditorCanvasInner = ({
                 selectionMode={!isPanMode ? SelectionMode.Partial : undefined}
                 connectionMode={"loose" as any}
                 onPaneClick={handlePaneClick}
+                onPaneMouseMove={handlePaneMouseMove}
                 proOptions={PRO_OPTIONS}
             >
                 <BaseGridLayers />
@@ -1713,6 +1857,11 @@ const EditorCanvasInner = ({
                     readOnly={readOnly}
                 />
             </ReactFlow>
+            {/* Remote collaborator cursors — inside the RF provider subtree so
+                useReactFlow works, and inside the positioned wrapper so the
+                absolute overlay aligns with the canvas. Renders nothing until a
+                peer broadcasts a cursor. */}
+            <CollaboratorCursors ref={cursorsRef} />
             </NodeValidationProvider>
             </WireDragProvider>
 
