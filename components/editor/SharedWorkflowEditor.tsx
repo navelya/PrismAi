@@ -260,6 +260,7 @@ export default function SharedWorkflowEditor({
     }, []);
 
     const handlePaste = useCallback(() => {
+        if (effectiveReadOnly) return;
         const copiedNode = useAppStore.getState().copiedNode;
         if (!copiedNode) return;
         const newNode = {
@@ -271,7 +272,7 @@ export default function SharedWorkflowEditor({
             },
         };
         duplicateNodes([newNode], []);
-    }, [duplicateNodes]);
+    }, [duplicateNodes, effectiveReadOnly]);
 
 
     const handleSave = async () => {
