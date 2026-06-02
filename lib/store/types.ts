@@ -442,6 +442,12 @@ export interface CollabSlice {
     setCollabRole: (r: CollabSlice['collabRole']) => void;
     setPresence: (p: Record<string, CollaboratorPresence>) => void;
     upsertCursor: (userId: string, cursor: { x: number; y: number }) => void;
+    // Ephemeral peer selection presence (like cursors): each peer's selected
+    // node ids + their in-flight marquee rectangle (flow coords). Rendered as a
+    // colored overlay; NEVER touches the local user's own ReactFlow selection.
+    peerSelections: Record<string, { selectedIds: string[]; marquee: { x: number; y: number; w: number; h: number } | null }>;
+    setPeerSelection: (userId: string, sel: { selectedIds: string[]; marquee: { x: number; y: number; w: number; h: number } | null }) => void;
+    clearPeerSelection: (userId: string) => void;
 }
 
 export type RootState = WorkflowSlice & ChatSlice & ExecutionSlice & UISlice & LivePositionSlice & CollabSlice & {

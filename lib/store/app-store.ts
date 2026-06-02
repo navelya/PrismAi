@@ -178,6 +178,8 @@ export const useAppStore = create<RootState>()(
                     // Persisting collabRole would show stale role badges on refresh.
                     'collabRole',
                     'presence',
+                    // Ephemeral peer selection overlay — like cursors, never persist.
+                    'peerSelections',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {

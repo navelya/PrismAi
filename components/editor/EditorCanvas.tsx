@@ -54,6 +54,7 @@ import { NodeValidationProvider } from '@/lib/hooks/use-node-validation';
 import { useWorkflowCollaboration } from '@/lib/hooks/use-workflow-collaboration';
 import { useCurrentUser } from '@/lib/hooks/use-current-user';
 import { CollaboratorCursors, type CursorsHandle } from '@/components/collab/CollaboratorCursors';
+import { CollaboratorSelections } from '@/components/collab/CollaboratorSelections';
 
 // Stable references for <ReactFlow> object props — see
 // https://reactflow.dev/learn/advanced-use/performance. Hoisted to module
@@ -390,6 +391,13 @@ const EditorCanvasInner = ({
     // Throttle timestamps for high-frequency broadcasts (cursor move, peer-drag).
     const lastCursorSentRef = useRef(0);
     const lastDragSentRef = useRef(0);
+    // Ephemeral peer-selection marquee tracking. isMarqueeingRef gates the
+    // wrapper mousemove path; marqueeStartRef holds the drag origin (flow
+    // coords); marqueeRef holds the current rect so the selection-change effect
+    // can include it. All refs — they never trigger a local re-render.
+    const isMarqueeingRef = useRef(false);
+    const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+    const marqueeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
     // Viewers may broadcast their cursor but never edit ops.
     const canEdit = collabRole !== 'viewer';
 
@@ -436,10 +444,18 @@ const EditorCanvasInner = ({
         useAppStore.getState().clearLiveNodePositions();
     }, []);
 
-    const { sendCursor, sendNodeDrag, sendNodeDrags, sendState } = useWorkflowCollaboration(
+    const { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection } = useWorkflowCollaboration(
         canvasId,
         me ? { id: me.id, name: me.name, role: (collabRole || 'editor') } : null,
         {
+            // Ephemeral peer selection (marquee box + selected-node outlines).
+            // Writes ONLY to peerSelections — never to the local RF selection.
+            onSelection: (p) => {
+                useAppStore.getState().setPeerSelection(p.userId, {
+                    selectedIds: p.selectedIds || [],
+                    marquee: p.marquee || null,
+                });
+            },
             onCursor: (c) => {
                 const p = useAppStore.getState().presence[c.userId];
                 cursorsRef.current?.update(c.userId, p?.name || 'User', p?.color || '#888', c.x, c.y);
@@ -511,6 +527,9 @@ const EditorCanvasInner = ({
         for (const id of Array.from(knownCursorIdsRef.current)) {
             if (!live.has(id)) {
                 cursorsRef.current?.remove(id);
+                // Drop the departed peer's selection overlay too, so a stale
+                // marquee/outline doesn't linger after they leave.
+                useAppStore.getState().clearPeerSelection(id);
                 knownCursorIdsRef.current.delete(id);
             }
         }
@@ -530,7 +549,22 @@ const EditorCanvasInner = ({
         lastCursorSentRef.current = now;
         const pos = reactFlowInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         sendCursor(pos.x, pos.y);
-    }, [me, reactFlowInstance, sendCursor]);
+        // While drag-to-selecting, also broadcast the live marquee rectangle so
+        // peers see A's selection box. Reuses the cursor throttle gate above.
+        if (isMarqueeingRef.current && marqueeStartRef.current) {
+            const start = marqueeStartRef.current;
+            const rect = {
+                x: Math.min(start.x, pos.x),
+                y: Math.min(start.y, pos.y),
+                w: Math.abs(pos.x - start.x),
+                h: Math.abs(pos.y - start.y),
+            };
+            marqueeRef.current = rect;
+            // Read the live selected ids from the store at send time so the
+            // outlines stay in sync as nodes enter the box.
+            sendSelection(useAppStore.getState().currentSelectedNodeIds, rect);
+        }
+    }, [me, reactFlowInstance, sendCursor, sendSelection]);
 
     const { resolvedTheme } = useTheme();
 
@@ -564,6 +598,19 @@ const EditorCanvasInner = ({
         if (isMarqueeActive) return;
         setCurrentSelectedNodeIds(selectedNodeIds);
     }, [isMarqueeActive, selectedNodeIds, setCurrentSelectedNodeIds]);
+
+    // Broadcast the local selection-node set to peers so they see A's selected
+    // nodes outlined (the live marquee box rides the separate mousemove path).
+    // Watches the store's currentSelectedNodeIds so it fires once the selection
+    // settles — including after a marquee, when the mirror effect above writes
+    // the final set. sendSelection no-ops while solo (me === null), so this is
+    // inert for non-collaborative sessions. We only READ the selection here;
+    // nothing writes back to the local RF selection.
+    const localSelectedIds = useAppStore((s) => s.currentSelectedNodeIds);
+    useEffect(() => {
+        if (!me) return;
+        sendSelection(localSelectedIds, marqueeRef.current);
+    }, [localSelectedIds, me, sendSelection]);
 
     // When the chat pill's X button bumps selectionClearToken, deselect every
     // node on the canvas. Skip the initial mount (token unchanged) so we don't
@@ -1112,8 +1159,15 @@ const EditorCanvasInner = ({
     // Marquee box-selection lifecycle. Selection lives only in localNodes; these
     // handlers just gate the downstream (pill/validation/toolbar) work so it runs
     // once on release rather than per node entering the box.
-    const handleSelectionStart = useCallback(() => {
+    const handleSelectionStart = useCallback((event?: React.MouseEvent) => {
         isSelectingRef.current = true;
+        // Begin tracking the peer-selection marquee. The origin is the drag's
+        // start point in flow coords; the wrapper mousemove path computes + sends
+        // the rect from here. No-op for solo (sendSelection guards on `me`).
+        if (reactFlowInstance && event && typeof event.clientX === 'number') {
+            isMarqueeingRef.current = true;
+            marqueeStartRef.current = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        }
         // Make floating overlays click-through for the drag so the marquee
         // pointer never leaves the React Flow pane (which would fire the pane's
         // mouseleave → onSelectionEnd and cancel the selection) and so it can't
@@ -1127,11 +1181,18 @@ const EditorCanvasInner = ({
         // localNodes), so nodes still select instantly; only the downstream
         // logic waits until the box is released.
         setIsMarqueeActive(true);
-    }, []);
+    }, [reactFlowInstance]);
 
     const handleSelectionEnd = useCallback(() => {
         // Always restore overlay interactivity, even if we early-return below.
         document.body.classList.remove('marquee-selecting');
+        // Tear down the peer-selection marquee tracking and clear the box for
+        // peers (the selected-node outlines persist via the selection-change
+        // effect below). Done unconditionally so a stray end can't strand the box.
+        isMarqueeingRef.current = false;
+        marqueeStartRef.current = null;
+        marqueeRef.current = null;
+        sendSelection(useAppStore.getState().currentSelectedNodeIds, null);
         if (!isSelectingRef.current) return;
         isSelectingRef.current = false;
         // Un-gating isMarqueeActive lets the pill mirror + validation memos run
@@ -1139,7 +1200,7 @@ const EditorCanvasInner = ({
         // already committed locally (handleNodesChange) — there's nothing to push
         // to the store, since selection no longer lives in currentWorkflow.
         setIsMarqueeActive(false);
-    }, []);
+    }, [sendSelection]);
 
     const handleNodeDragStart: NodeDragHandler = useCallback((event, node, nodes) => {
         isDraggingRef.current = true;
@@ -1942,6 +2003,10 @@ const EditorCanvasInner = ({
                 absolute overlay aligns with the canvas. Renders nothing until a
                 peer broadcasts a cursor. */}
             <CollaboratorCursors ref={cursorsRef} />
+            {/* Peer selection overlay (marquee box + selected-node outlines).
+                Same provider subtree so useStore/useViewport resolve; renders
+                nothing until a peer broadcasts a selection. */}
+            <CollaboratorSelections />
             </NodeValidationProvider>
             </WireDragProvider>
 

@@ -4,12 +4,21 @@ import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
 
 // Deterministic per-user color so it's stable across clients.
-function colorFor(userId: string): string {
+export function colorFor(userId: string): string {
     let h = 0; for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) % 360;
     return `hsl(${h} 70% 55%)`;
 }
 
 export interface CursorEvent { userId: string; x: number; y: number; }
+
+// Ephemeral peer-selection broadcast: which nodes a peer has selected, plus
+// their live drag-to-select marquee rectangle (flow coords) or null when no
+// marquee is in flight. Rendered as a colored overlay on the receiver.
+export interface SelectionEvent {
+    userId: string;
+    selectedIds: string[];
+    marquee: { x: number; y: number; w: number; h: number } | null;
+}
 
 /**
  * Full structural state broadcast payload. Replaces the old per-op model:
@@ -45,6 +54,7 @@ export function useWorkflowCollaboration(
         onState: (e: WorkflowStateEvent) => void;
         onCursor: (c: CursorEvent) => void;
         onNodeDrag: (e: NodeDragEvent) => void;
+        onSelection?: (e: SelectionEvent) => void;
     },
 ) {
     const supabaseRef = useRef(createClient());
@@ -79,6 +89,7 @@ export function useWorkflowCollaboration(
         ops.on('broadcast', { event: 'state' }, ({ payload }: any) => handlersRef.current.onState(payload));
         ops.on('broadcast', { event: 'cursor' }, ({ payload }: any) => handlersRef.current.onCursor(payload));
         ops.on('broadcast', { event: 'node-drag' }, ({ payload }: any) => handlersRef.current.onNodeDrag(payload));
+        ops.on('broadcast', { event: 'selection' }, ({ payload }: any) => handlersRef.current.onSelection?.(payload));
         ops.subscribe();
         opsChannelRef.current = ops;
 
@@ -105,5 +116,14 @@ export function useWorkflowCollaboration(
         if (!me) return;
         opsChannelRef.current?.send({ type: 'broadcast', event: 'state', payload: { origin: me.id, nodes, edges } });
     };
-    return { sendCursor, sendNodeDrag, sendNodeDrags, sendState };
+    // Ephemeral peer-selection broadcast (selected node ids + live marquee box).
+    // No-ops while solo (me === null), so a non-collaborative session never sends.
+    const sendSelection = (
+        selectedIds: string[],
+        marquee: { x: number; y: number; w: number; h: number } | null,
+    ) => {
+        if (!me) return;
+        opsChannelRef.current?.send({ type: 'broadcast', event: 'selection', payload: { userId: me.id, selectedIds, marquee } });
+    };
+    return { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection };
 }
