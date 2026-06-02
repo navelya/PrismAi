@@ -15,10 +15,13 @@ interface CursorEls {
     color: string;
 }
 
-// Figma-style pointer arrow. The tip sits at (0,0) of the SVG so the element's
-// translate(sx, sy) places the tip exactly at the collaborator's cursor point.
-const CURSOR_PATH = 'M0 0 L0 11.6 L2.86 9.3 L4.54 12.96 L6.1 12.3 L4.43 8.66 L8 8.66 Z';
+// Lucide `mouse-pointer-2` path (24x24 viewBox). Tip is at ~(4.04, 4.69).
+const CURSOR_PATH = 'M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
+// Pixel offset of the path tip when the 24-unit viewBox is rendered at 20px
+// (4.04 * 20/24, 4.69 * 20/24). The SVG is shifted up-left by this so the
+// arrow TIP lands exactly on the cursor coordinate (Figma-style).
+const TIP_X = 3.4, TIP_Y = 3.9;
 
 // Renders remote cursors. Positions are pushed imperatively (via ref) to avoid
 // React re-renders on every cursor broadcast. flow-coords → screen via the RF viewport.
@@ -37,19 +40,20 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
                 root.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;transition:transform 80ms linear;z-index:50;will-change:transform';
 
                 const svg = document.createElementNS(SVG_NS, 'svg');
-                svg.setAttribute('width', '15');
-                svg.setAttribute('height', '21');
-                svg.setAttribute('viewBox', '0 0 8 13');
-                svg.style.cssText = 'display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))';
+                svg.setAttribute('width', '20');
+                svg.setAttribute('height', '20');
+                svg.setAttribute('viewBox', '0 0 24 24');
+                svg.style.cssText = `position:absolute;left:${-TIP_X}px;top:${-TIP_Y}px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))`;
                 const path = document.createElementNS(SVG_NS, 'path');
                 path.setAttribute('d', CURSOR_PATH);
                 path.setAttribute('stroke', 'white');
-                path.setAttribute('stroke-width', '1');
+                path.setAttribute('stroke-width', '2');
                 path.setAttribute('stroke-linejoin', 'round');
+                path.setAttribute('stroke-linecap', 'round');
                 svg.appendChild(path);
 
                 const label = document.createElement('div');
-                label.style.cssText = 'position:absolute;left:12px;top:13px;color:#fff;font-size:11px;font-weight:600;line-height:1.2;border-radius:6px;padding:2px 7px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.2);font-family:system-ui,-apple-system,sans-serif';
+                label.style.cssText = 'position:absolute;left:11px;top:13px;color:#fff;font-size:11px;font-weight:600;line-height:1.2;border-radius:6px;padding:2px 7px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.2);font-family:system-ui,-apple-system,sans-serif';
 
                 root.appendChild(svg);
                 root.appendChild(label);
