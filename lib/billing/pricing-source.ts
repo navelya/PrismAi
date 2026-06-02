@@ -61,6 +61,7 @@ export interface PricingSnapshot {
 
 const TTL_MS = 60_000;
 let cache: { snapshot: PricingSnapshot; at: number } | null = null;
+let inflight: Promise<PricingSnapshot> | null = null;
 
 function mapPlan(row: PlanRow): PlanDisplay {
     const stat = getPlanStatic(row.id);
@@ -94,6 +95,19 @@ function mapPack(row: PackRow): CreditPack {
     };
 }
 
+/** Reconstruct the price-id history from static config (DB-outage fallback). */
+function staticHistory(): HistoryRow[] {
+    const rows: HistoryRow[] = [];
+    for (const p of PLANS) {
+        if (p.paddlePriceIdMonthly) rows.push({ paddle_price_id: p.paddlePriceIdMonthly, entity_type: 'plan', entity_id: p.id, cycle: 'monthly' });
+        if (p.paddlePriceIdYearly) rows.push({ paddle_price_id: p.paddlePriceIdYearly, entity_type: 'plan', entity_id: p.id, cycle: 'yearly' });
+    }
+    for (const pk of CREDIT_PACKS) {
+        if (pk.paddlePriceId) rows.push({ paddle_price_id: pk.paddlePriceId, entity_type: 'pack', entity_id: pk.id, cycle: null });
+    }
+    return rows;
+}
+
 async function loadSnapshot(): Promise<PricingSnapshot> {
     const supabase = createServiceClient();
     const [plansRes, packsRes, histRes] = await Promise.all([
@@ -103,8 +117,9 @@ async function loadSnapshot(): Promise<PricingSnapshot> {
     ]);
 
     if (plansRes.error || packsRes.error || histRes.error) {
-        // Fall back to static config so reads never hard-fail.
-        return { plans: PLANS, packs: CREDIT_PACKS, history: [] };
+        console.error('[pricing-source] DB read failed, falling back to static config:',
+            plansRes.error || packsRes.error || histRes.error);
+        return { plans: PLANS, packs: CREDIT_PACKS, history: staticHistory() };
     }
 
     return {
@@ -117,9 +132,17 @@ async function loadSnapshot(): Promise<PricingSnapshot> {
 export async function getPricing(): Promise<PricingSnapshot> {
     const now = Date.now();
     if (cache && now - cache.at < TTL_MS) return cache.snapshot;
-    const snapshot = await loadSnapshot();
-    cache = { snapshot, at: now };
-    return snapshot;
+    if (!inflight) {
+        inflight = loadSnapshot().then((s) => {
+            cache = { snapshot: s, at: Date.now() };
+            inflight = null;
+            return s;
+        }).catch((e) => {
+            inflight = null;
+            throw e;
+        });
+    }
+    return inflight;
 }
 
 export function bustPricingCache(): void {
