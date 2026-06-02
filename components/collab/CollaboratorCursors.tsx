@@ -18,11 +18,14 @@ interface CursorEls {
 // Lucide `mouse-pointer-2` path (24x24 viewBox). Tip is at ~(4.04, 4.69).
 const CURSOR_PATH = 'M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z';
 const SVG_NS = 'http://www.w3.org/2000/svg';
-// Pixel offset of the path tip when the 24-unit viewBox is rendered at 20px
-// (4.04 * 20/24 ≈ 3.4, 4.69 * 20/24 ≈ 3.9). Rounded to whole pixels: a
-// fractional left/top on a filtered (drop-shadow) SVG rasterises onto a
-// sub-pixel boundary and blurs the glyph. The ≤0.5px tip shift is invisible.
-const TIP_X = 3, TIP_Y = 4;
+// Rendered glyph size (px). The SVG is shifted up-left by the path-tip offset
+// so the arrow tip lands on the cursor coordinate (Figma-style).
+const CURSOR_SIZE = 16;
+// Pixel offset of the path tip when the 24-unit viewBox is rendered at
+// CURSOR_SIZE (4.04 * 16/24 ≈ 2.7, 4.69 * 16/24 ≈ 3.1), rounded to whole
+// pixels (a fractional left/top on a drop-shadow-filtered SVG blurs the glyph;
+// the ≤0.5px tip shift is invisible).
+const TIP_X = 3, TIP_Y = 3;
 
 // Renders remote cursors. Positions are pushed imperatively (via ref) to avoid
 // React re-renders on every cursor broadcast. flow-coords → screen via the RF viewport.
@@ -48,8 +51,8 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
                 root.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:50';
 
                 const svg = document.createElementNS(SVG_NS, 'svg');
-                svg.setAttribute('width', '20');
-                svg.setAttribute('height', '20');
+                svg.setAttribute('width', String(CURSOR_SIZE));
+                svg.setAttribute('height', String(CURSOR_SIZE));
                 svg.setAttribute('viewBox', '0 0 24 24');
                 svg.style.cssText = `position:absolute;left:${-TIP_X}px;top:${-TIP_Y}px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))`;
                 const path = document.createElementNS(SVG_NS, 'path');
@@ -61,7 +64,7 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
                 svg.appendChild(path);
 
                 const label = document.createElement('div');
-                label.style.cssText = 'position:absolute;left:11px;top:13px;color:#fff;font-size:11px;font-weight:600;line-height:1.2;border-radius:6px;padding:2px 7px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.2);text-shadow:0 1px 2px rgba(0,0,0,.55);font-family:system-ui,-apple-system,sans-serif';
+                label.style.cssText = 'position:absolute;left:10px;top:11px;color:#fff;font-size:12px;font-weight:600;line-height:1.2;border-radius:7px;padding:3px 9px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.2);font-family:system-ui,-apple-system,sans-serif';
 
                 root.appendChild(svg);
                 root.appendChild(label);
