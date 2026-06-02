@@ -8,6 +8,7 @@ import { synthesizeTaskBlueprint, sleep } from '@/lib/chat/task-loop';
 import { STAGING_DELAY_MS } from '@/lib/chat/config';
 import { MAX_NODE_REFS, type NodeRef } from '@/lib/utils/selection-refs';
 import { sanitizeMentionedCharacterIds, type CharacterSnapshot } from '@/lib/utils/character-refs';
+import { getAuthenticatedUser } from '@/lib/api/auth';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
@@ -32,11 +33,12 @@ function parseImageAttachments(raw: any): ImageAttachment[] {
 async function handlePlanApprove(opts: {
   supabase: ReturnType<typeof createServiceClient>;
   sessionId: string;
+  canvasId: string;
   planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string };
   userMessageId?: string;
   lastUserContent: string;
 }): Promise<Response> {
-  const { supabase, sessionId, planAnswer, userMessageId, lastUserContent } = opts;
+  const { supabase, sessionId, canvasId, planAnswer, userMessageId, lastUserContent } = opts;
   const t0 = Date.now();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -107,11 +109,11 @@ async function handlePlanApprove(opts: {
             return;
           }
 
-          // 3. Load current canvas_state.
+          // 3. Load current canvas_state from the shared canvas.
           const { data: sessionRow } = await supabase
             .from('sessions')
             .select('canvas_state')
-            .eq('id', sessionId)
+            .eq('id', canvasId)
             .single();
           const baseWorkflow =
             sessionRow?.canvas_state &&
@@ -179,7 +181,7 @@ async function handlePlanApprove(opts: {
                 Promise.resolve(supabase.from('sessions').update({
                   canvas_state: { nodes: state.workflow.nodes, edges: state.workflow.edges },
                   updated_at: new Date().toISOString(),
-                }).eq('id', sessionId) as any)
+                }).eq('id', canvasId) as any)
               );
             }
             await Promise.all(dbOps);
@@ -257,12 +259,12 @@ async function handlePlanApprove(opts: {
               encoder.send({ type: 'tool', name: 'add_node', patch: result.patch });
             }
 
-            // Persist incremental updates after each task.
+            // Persist incremental updates after each task to the shared canvas.
             await Promise.all([
               supabase.from('sessions').update({
                 canvas_state: { nodes: state.workflow.nodes, edges: state.workflow.edges },
                 updated_at: new Date().toISOString(),
-              }).eq('id', sessionId),
+              }).eq('id', canvasId),
               supabase.from('messages').update({
                 metadata: {
                   ...planRow.metadata,
@@ -374,6 +376,29 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
 
   const supabase = createServiceClient();
 
+  // Resolve the shared canvas + verify edit rights (service client bypasses RLS).
+  const auth = await getAuthenticatedUser();
+  if (auth.error) return auth.error;
+  const authedUserId = auth.user.id;
+
+  let canvasId = sessionId;
+  if (sessionId) {
+    const { data: threadRow } = await supabase
+      .from('sessions').select('id, user_id, canvas_session_id').eq('id', sessionId).single();
+    if (threadRow) {
+      canvasId = threadRow.canvas_session_id || threadRow.id;
+      const isOwner = !threadRow.canvas_session_id && threadRow.user_id === authedUserId;
+      if (!isOwner) {
+        const { data: collab } = await supabase
+          .from('session_collaborators').select('role')
+          .eq('session_id', canvasId).eq('user_id', authedUserId).single();
+        if (!collab || collab.role !== 'editor') {
+          return new Response(JSON.stringify({ error: 'No edit access' }), { status: 403 });
+        }
+      }
+    }
+  }
+
   // Approve-branch: short-circuit before ALL the brain plumbing. Skips
   // runBrain entirely; applies the stored blueprint via dispatchTool;
   // persists; emits tool + usage(zero) + done.
@@ -381,6 +406,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
     return await handlePlanApprove({
       supabase,
       sessionId,
+      canvasId,
       planAnswer,
       userMessageId,
       lastUserContent:
@@ -602,7 +628,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
               Promise.resolve(supabase.from('sessions').update({
                 canvas_state: { nodes: result.finalWorkflow.nodes, edges: result.finalWorkflow.edges },
                 updated_at: new Date().toISOString()
-              }).eq('id', sessionId) as any)
+              }).eq('id', canvasId) as any)
             );
           }
 
