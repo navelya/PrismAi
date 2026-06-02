@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, ArrowRight, Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
@@ -18,6 +18,8 @@ export default function LoginPage() {
     const [googleLoading, setGoogleLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const nextPath = searchParams.get('next') || '/chat';
     const supabase = createClient();
 
     const handleAuth = async (e: React.FormEvent) => {
@@ -33,9 +35,9 @@ export default function LoginPage() {
                 });
                 if (error) throw error;
 
-                // Successful login
+                // Successful login — honour ?next= if present
                 router.refresh();
-                router.push('/chat');
+                router.push(nextPath);
             } else {
                 const { data, error } = await supabase.auth.signUp({
                     email,
@@ -52,9 +54,9 @@ export default function LoginPage() {
                 if (error) throw error;
 
                 if (data.session) {
-                    // Auto-login if confirmation not required
+                    // Auto-login if confirmation not required — honour ?next= if present
                     router.refresh();
-                    router.push('/chat');
+                    router.push(nextPath);
                 } else if (data.user) {
                     // Confirmation required
                     setLoading(false);
