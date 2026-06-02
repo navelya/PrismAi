@@ -42,5 +42,14 @@ export async function sendWorkflowInvite(args: SendWorkflowInviteArgs): Promise<
              If the button doesn't work, paste this link: ${escapeHtml(args.acceptUrl)}
           </p>
         </div>`;
-    await resend.emails.send({ from, to: args.to, subject, html });
+    // The Resend SDK does NOT throw on API-level rejections (unverified `from`
+    // domain, test-mode recipient restrictions, etc.) — it resolves with an
+    // `error` field. Surface it so the caller's emailSent flag reflects reality.
+    const { data, error } = await resend.emails.send({ from, to: args.to, subject, html });
+    if (error) {
+        throw new Error(`Resend rejected the email: ${error.message || JSON.stringify(error)}`);
+    }
+    if (!data?.id) {
+        throw new Error('Resend returned no message id (email not queued)');
+    }
 }
