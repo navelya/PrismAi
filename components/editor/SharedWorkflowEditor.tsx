@@ -155,8 +155,11 @@ export default function SharedWorkflowEditor({
         }
     }, [nodeStatuses, isExecuting, activeExecutionId]);
 
+    const isViewer = collabRole === 'viewer';
+    const effectiveReadOnly = readOnly || isViewer;
+
     const handleNodeClick = useCallback((_event: any, node: any) => {
-        if (readOnly) return;
+        if (effectiveReadOnly) return;
         
         // 1. Update selection immediately
         setSelectedNode(node.id);
@@ -168,7 +171,7 @@ export default function SharedWorkflowEditor({
         if ((node.zIndex || 0) < maxZ) {
             bringNodeToFront(node.id);
         }
-    }, [readOnly, setSelectedNode, bringNodeToFront]);
+    }, [effectiveReadOnly, setSelectedNode, bringNodeToFront]);
 
     const selectedNodeData = useMemo(() => nodes.find(n => n.id === selectedNode), [nodes, selectedNode]);
 
@@ -225,7 +228,7 @@ export default function SharedWorkflowEditor({
         return sharedRegistry[selectedNodeData.type as keyof typeof sharedRegistry]?.meta?.label || 'Node';
     }, [selectedNodeData, isAiNode, selectedNodeTypeId, nodeTypesForIcon, nodeLabelDraft]);
 
-    const isPropertyPanelVisible = hasPropertyPanel && !readOnly;
+    const isPropertyPanelVisible = hasPropertyPanel && !effectiveReadOnly;
 
     const handleDrop = useCallback((
         type: NodeType,
@@ -235,7 +238,7 @@ export default function SharedWorkflowEditor({
         initialConfig?: Record<string, any>,
         autoConnect?: import('@/lib/editor/handle-compatibility').PendingConnection,
     ) => {
-        if (readOnly) return;
+        if (effectiveReadOnly) return;
 
         let resolvedModelId = modelId;
         if (!resolvedModelId && (type === 'ai_generator' || !Object.prototype.hasOwnProperty.call(
@@ -250,7 +253,7 @@ export default function SharedWorkflowEditor({
         }
 
         addNode(type, position, nodeTypeId, resolvedModelId, initialConfig, autoConnect);
-    }, [readOnly, addNode]);
+    }, [effectiveReadOnly, addNode]);
 
     const handleCopy = useCallback((id: string) => {
         useAppStore.getState().copyNode(id);
@@ -674,6 +677,7 @@ export default function SharedWorkflowEditor({
                         onNew={handleNew}
                         canvasId={activeCanvasId}
                         isOwner={collabRole === 'owner'}
+                        isViewer={isViewer}
                     />
                 )}
 
@@ -703,7 +707,7 @@ export default function SharedWorkflowEditor({
                                 onCopy={handleCopy}
                                 onPaste={handlePaste}
                                 onCanvasReady={() => setIsCanvasReady(true)}
-                                readOnly={readOnly}
+                                readOnly={effectiveReadOnly}
                             />
                         )}
                         <AnimatePresence>

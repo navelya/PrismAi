@@ -44,6 +44,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const isMobileCanvasOpen = useAppStore(s => s.isMobileCanvasOpen);
     const setIsMobileCanvasOpen = useAppStore(s => s.setIsMobileCanvasOpen);
 
+    const isViewer = useAppStore(s => s.collabRole) === 'viewer';
+
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
@@ -69,6 +71,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     }, [sessionId]);
 
     const togglePanel = useCallback((panel: ActivePanel) => {
+        if (isViewer) return;
         setActivePanel(prev => (prev === panel ? null : panel));
         // Mark data-fetching panels as mounted on first open so they persist.
         if (panel === 'assets' || panel === 'characters') {
@@ -76,7 +79,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
         }
         // Close chat when switching to a left panel
         if (!isCopilotMinimized) setIsCopilotMinimized(true);
-    }, [isCopilotMinimized, setIsCopilotMinimized]);
+    }, [isViewer, isCopilotMinimized, setIsCopilotMinimized]);
 
     const isNodeLibraryOpen = activePanel === 'node-library';
     const isAssetsOpen = activePanel === 'assets';
@@ -274,6 +277,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                             isChatOpen={isChatOpen}
                             onChatClick={handleChatToggle}
                             onPanelToggle={togglePanel}
+                            isViewer={isViewer}
                         />
                     </motion.div>
                 )}
@@ -327,9 +331,11 @@ interface ToolRailProps {
     isChatOpen: boolean;
     onChatClick: () => void;
     onPanelToggle: (panel: ActivePanel) => void;
+    /** Viewer role — non-chat panel buttons are visually disabled */
+    isViewer?: boolean;
 }
 
-function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelToggle }: ToolRailProps) {
+function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelToggle, isViewer = false }: ToolRailProps) {
     type Btn = { id: ActivePanel | 'chat'; label: string; icon: React.ComponentType<{ className?: string }>; onClick: () => void; isChat?: boolean };
 
     const buttons: Btn[] = [
@@ -361,14 +367,17 @@ function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelTogg
                         <div className="relative group">
                             <motion.button
                                 onClick={btn.onClick}
-                                whileTap={{ scale: 0.88 }}
+                                whileTap={isViewer && !btn.isChat ? {} : { scale: 0.88 }}
+                                disabled={isViewer && !btn.isChat}
                                 className={cn(
                                     'relative flex items-center justify-center w-9 h-9 rounded-xl transition-all duration-200',
-                                    isActive
-                                        ? 'bg-accent-primary/15 text-accent-primary'
-                                        : btn.isChat
-                                            ? 'text-accent-primary hover:bg-accent-primary/10'
-                                            : 'text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary'
+                                    isViewer && !btn.isChat
+                                        ? 'opacity-40 cursor-not-allowed text-content-tertiary'
+                                        : isActive
+                                            ? 'bg-accent-primary/15 text-accent-primary'
+                                            : btn.isChat
+                                                ? 'text-accent-primary hover:bg-accent-primary/10'
+                                                : 'text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary'
                                 )}
                                 aria-label={btn.label}
                             >

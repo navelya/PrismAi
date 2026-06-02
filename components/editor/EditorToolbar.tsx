@@ -27,6 +27,7 @@ interface EditorToolbarProps {
     isPaletteOpen?: boolean;
     canvasId?: string | null;
     isOwner?: boolean;
+    isViewer?: boolean;
 }
 
 export default function EditorToolbar({
@@ -41,6 +42,7 @@ export default function EditorToolbar({
     isPaletteOpen = true,
     canvasId,
     isOwner = false,
+    isViewer = false,
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
     const [shareOpen, setShareOpen] = React.useState(false);
@@ -174,8 +176,8 @@ export default function EditorToolbar({
                         </Tooltip>
                     );
                 })}
-                {/* Primary CTA: Run / Stop — kept prominent */}
-                {isRunning ? (
+                {/* Primary CTA: Run / Stop — hidden for viewers */}
+                {!isViewer && (isRunning ? (
                     <Tooltip content="Stop workflow" position="bottom">
                         <button
                             onClick={onStop}
@@ -230,7 +232,7 @@ export default function EditorToolbar({
                             </div>
                         )}
                     </div>
-                )}
+                ))}
 
                 <div className="w-px h-4 bg-stroke-subtle mx-0.5" />
 

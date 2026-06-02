@@ -95,6 +95,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const isLoading = useAppStore((state) => state.isLoading);
     const statusMessage = useAppStore((state) => state.statusMessage);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
+    const isViewer = useAppStore((state) => state.collabRole) === 'viewer';
 
     const [isListening, setIsListening] = useState(false);
     const recognitionRef = useRef<any>(null);
@@ -523,7 +524,8 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         </button>
                     </div>
                 )}
-                <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={messages.length > 0} />
+                <ChatInput ref={textareaRef} {...chatInputProps} disabled={isViewer || isLoading || isLoadingSession} hasMessages={messages.length > 0} />
+                {isViewer && <p className="text-xs text-content-tertiary px-3 pb-2">View only — ask an editor to make changes.</p>}
             </div>
             {evictionToast && (
                 <Toast
