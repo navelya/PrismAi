@@ -48,13 +48,14 @@ import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { ModelForm } from '@/components/admin/ModelForm';
 import { ContextMenuBuilder } from '@/components/admin/ContextMenuBuilder';
 import { UsersAdminContent } from '@/components/admin/UsersAdminContent';
+import { PricingAdminContent } from '@/components/admin/PricingAdminContent';
 import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
 
 // =============================================================================
 // SECTION NAVIGATION CONFIG
 // =============================================================================
 
-type SectionId = 'models' | 'users';
+type SectionId = 'models' | 'users' | 'pricing';
 
 interface SectionNavItem {
     id: SectionId;
@@ -66,6 +67,7 @@ interface SectionNavItem {
 const sectionNavItems: SectionNavItem[] = [
     { id: 'models', label: 'Models', icon: <Database className="w-4 h-4" /> },
     { id: 'users', label: 'Users', icon: <Users className="w-4 h-4" /> },
+    { id: 'pricing', label: 'Pricing', icon: <Calculator className="w-4 h-4" /> },
 ];
 
 // =============================================================================
@@ -91,7 +93,8 @@ function AdminShell() {
     const pathname = usePathname();
 
     const sectionParam = searchParams.get('section') as SectionId | null;
-    const activeSection: SectionId = sectionParam === 'users' ? 'users' : 'models';
+    const activeSection: SectionId =
+        sectionParam === 'users' ? 'users' : sectionParam === 'pricing' ? 'pricing' : 'models';
 
     const [mobileShowContent, setMobileShowContent] = useState(false);
     const [sidebarHovered, setSidebarHovered] = useState(false);
@@ -187,6 +190,7 @@ function AdminShell() {
             `}>
                 {activeSection === 'models' && <ModelsAdminContent onMobileBack={() => setMobileShowContent(false)} />}
                 {activeSection === 'users' && <UsersAdminContent onMobileBack={() => setMobileShowContent(false)} />}
+                {activeSection === 'pricing' && <PricingAdminContent onMobileBack={() => setMobileShowContent(false)} />}
             </main>
         </div>
     );
