@@ -11,6 +11,7 @@ export interface Session {
     title: string;
     updated_at: string;
     created_at: string;
+    canvas_session_id?: string | null;
 }
 
 /**
@@ -107,11 +108,17 @@ export function useSession() {
             // Collaboration decoupling: if the thread session points at a shared canvas via
             // canvas_session_id, load the canvas row from the shared session so reads/writes
             // target the shared canvas while messages stay on the per-user thread.
-            const canvasId = (session as any).canvas_session_id || session.id;
+            const canvasId = session.canvas_session_id || session.id;
             let canvasRow: any = session;
             if (canvasId !== session.id) {
-                const { session: cr } = await sessionsApi.load(canvasId);
-                canvasRow = cr || session;
+                try {
+                    const { session: cr } = await sessionsApi.load(canvasId);
+                    if (useAppStore.getState().activeSessionId !== sessionId) return; // Fix 1
+                    canvasRow = cr || session;
+                } catch (canvasErr) {
+                    console.error('[useSession] Failed to load shared canvas row, falling back to thread session:', canvasErr);
+                    // canvasRow stays as `session` → safe empty/partial canvas rather than a hard failure
+                }
             }
             const rawCanvas = (canvasRow.canvas_state || {}) as Partial<Workflow>;
             // Self-heal orphaned parentNode references: if a node points at a

@@ -223,7 +223,7 @@ export function useAutoSave() {
         const handleBeforeUnload = () => {
             if (isWorkflowDirty && currentWorkflow && activeSessionId) {
                 const payload = JSON.stringify({
-                    sessionId: activeSessionId,
+                    sessionId: activeCanvasIdRef.current || activeSessionIdRef.current,
                     canvas_state: currentWorkflow,
                 });
 

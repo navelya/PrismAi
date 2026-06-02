@@ -31,14 +31,15 @@ export async function POST(request: NextRequest) {
 
         // Fire-and-forget update (don't wait for response)
         // Using void operator to explicitly ignore the promise
+        // No .eq('user_id', user.id) filter here — editors don't own the canvas
+        // row but have UPDATE rights via the can_edit_session RLS policy.
         void supabase
             .from('sessions')
             .update({
                 canvas_state,
                 updated_at: new Date().toISOString(),
             })
-            .eq('id', sessionId)
-            .eq('user_id', user.id); // Enforce ownership
+            .eq('id', sessionId);
 
         // Return immediately (don't wait for database)
         return NextResponse.json({ success: true }, { status: 200 });
