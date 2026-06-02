@@ -25,14 +25,37 @@ FROM public.executions e
 JOIN public.sessions s ON s.id = e.session_id
 WHERE nr.execution_id = e.id AND nr.user_id IS NULL;
 
--- 3. session_id FK: ON DELETE CASCADE -> ON DELETE SET NULL.
-ALTER TABLE public.node_results DROP CONSTRAINT IF EXISTS node_results_session_id_fkey;
+-- 3. Swap the session_id and execution_id FKs from ON DELETE CASCADE to
+--    ON DELETE SET NULL. Drop the existing constraints by DISCOVERING their
+--    real names from the catalog rather than guessing the Postgres defaults —
+--    a name mismatch with a blind `DROP ... IF EXISTS` would silently no-op and
+--    leave the old CASCADE constraint in place, defeating the migration.
+DO $$
+DECLARE
+  target_cols smallint[];
+  r RECORD;
+BEGIN
+  SELECT array_agg(attnum) INTO target_cols
+  FROM pg_attribute
+  WHERE attrelid = 'public.node_results'::regclass
+    AND attname IN ('session_id', 'execution_id')
+    AND NOT attisdropped;
+
+  FOR r IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.node_results'::regclass
+      AND contype = 'f'
+      AND conkey && target_cols
+  LOOP
+    EXECUTE format('ALTER TABLE public.node_results DROP CONSTRAINT %I', r.conname);
+  END LOOP;
+END $$;
+
 ALTER TABLE public.node_results
   ADD CONSTRAINT node_results_session_id_fkey
   FOREIGN KEY (session_id) REFERENCES public.sessions(id) ON DELETE SET NULL;
 
--- 4. execution_id FK: ON DELETE CASCADE -> ON DELETE SET NULL.
-ALTER TABLE public.node_results DROP CONSTRAINT IF EXISTS node_results_execution_id_fkey;
 ALTER TABLE public.node_results
   ADD CONSTRAINT node_results_execution_id_fkey
   FOREIGN KEY (execution_id) REFERENCES public.executions(id) ON DELETE SET NULL;
