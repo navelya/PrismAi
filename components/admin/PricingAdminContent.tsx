@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Save, AlertTriangle } from 'lucide-react';
 import { pricingAdminApi, type AdminPlanRow, type AdminPackRow, type PricingAuditRow } from '@/lib/api/admin-pricing';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
+import { NumberInput } from '@/components/ui/NumberInput';
+import { Switch } from '@/components/ui/Switch';
 
 type Tab = 'plans' | 'packs';
 
@@ -120,10 +122,7 @@ function PlanRow({ plan, onSaved }: { plan: AdminPlanRow; onSaved: () => void })
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
             <div className="flex items-center justify-between">
                 <span className="font-bold">{plan.display_name}</span>
-                <label className="flex items-center gap-2 text-xs text-content-tertiary">
-                    <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} disabled={isFree} />
-                    Active
-                </label>
+                <Switch label="Active" checked={active} onCheckedChange={setActive} disabled={isFree} size="sm" />
             </div>
             {!isFree && (
                 <div className="grid grid-cols-3 gap-3">
@@ -200,10 +199,7 @@ function PackRow({ pack, onSaved }: { pack: AdminPackRow; onSaved: () => void })
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
             <div className="flex items-center justify-between">
                 <span className="font-bold">{pack.display_name}</span>
-                <label className="flex items-center gap-2 text-xs text-content-tertiary">
-                    <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                    Active
-                </label>
+                <Switch label="Active" checked={active} onCheckedChange={setActive} size="sm" />
             </div>
             <div className="grid grid-cols-2 gap-3">
                 <Field label="Price $" value={price} onChange={setPrice} />
@@ -232,17 +228,14 @@ function PackRow({ pack, onSaved }: { pack: AdminPackRow; onSaved: () => void })
 
 function Field({ label, value, onChange, step = 0.01 }: { label: string; value: number; onChange: (n: number) => void; step?: number }) {
     return (
-        <label className="block">
-            <span className="block text-[10px] uppercase tracking-wider text-content-tertiary mb-1">{label}</span>
-            <input
-                type="number"
-                step={step}
-                min={0}
-                value={value}
-                onChange={(e) => onChange(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm"
-            />
-        </label>
+        <NumberInput
+            label={label}
+            value={value}
+            step={step}
+            min={0}
+            variant="minimal"
+            onChange={(e) => onChange(Number(e.target.value))}
+        />
     );
 }
 
