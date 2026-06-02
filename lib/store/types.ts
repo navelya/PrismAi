@@ -427,6 +427,22 @@ export interface LivePositionSlice {
     syncLivePositionsToWorkflow: () => void;
 }
 
-export type RootState = WorkflowSlice & ChatSlice & ExecutionSlice & UISlice & LivePositionSlice & {
+export interface CollaboratorPresence {
+    userId: string;
+    name: string;
+    color: string;
+    role: 'owner' | 'editor' | 'viewer';
+    cursor?: { x: number; y: number };
+}
+
+export interface CollabSlice {
+    collabRole: 'owner' | 'editor' | 'viewer' | null;
+    presence: Record<string, CollaboratorPresence>;
+    setCollabRole: (r: CollabSlice['collabRole']) => void;
+    setPresence: (p: Record<string, CollaboratorPresence>) => void;
+    upsertCursor: (userId: string, cursor: { x: number; y: number }) => void;
+}
+
+export type RootState = WorkflowSlice & ChatSlice & ExecutionSlice & UISlice & LivePositionSlice & CollabSlice & {
     clearAllState: () => void;
 };

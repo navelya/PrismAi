@@ -5,7 +5,8 @@ import { createChatSlice } from './slices/chat-slice';
 import { createExecutionSlice } from './slices/execution-slice';
 import { createUISlice } from './slices/ui-slice';
 import { createLivePositionSlice } from './slices/live-position-slice';
-import { RootState, Message, WorkflowSlice, ChatSlice, ExecutionSlice, UISlice, LivePositionSlice } from './types';
+import { createCollabSlice } from './slices/collab-slice';
+import { RootState, Message, WorkflowSlice, ChatSlice, ExecutionSlice, UISlice, LivePositionSlice, CollabSlice } from './types';
 
 export { type Message };
 
@@ -49,6 +50,7 @@ export const useAppStore = create<RootState>()(
             ...createExecutionSlice(set, get, api),
             ...createUISlice(set, get, api),
             ...createLivePositionSlice(set, get, api),
+            ...createCollabSlice(set, get, api),
 
             clearAllState: () => {
                 set({
@@ -172,6 +174,10 @@ export const useAppStore = create<RootState>()(
                     // response. Resurrecting it on refresh would replay the
                     // last turn's zoom against unrelated state.
                     'aiTurn',
+                    // Collaboration role + presence — set fresh on each session load.
+                    // Persisting collabRole would show stale role badges on refresh.
+                    'collabRole',
+                    'presence',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {

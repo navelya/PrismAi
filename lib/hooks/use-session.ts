@@ -80,46 +80,74 @@ export function useSession() {
         store.setIsLoadingSession(true); // Guard auto-save
         store.setActiveSessionId(sessionId);
 
+        // ── Collaboration: resolve the caller's thread + role + canvas ──────────
+        // The open route returns { threadId, canvasId, role } where:
+        //   - threadId     = the per-user chat thread (== sessionId for owner)
+        //   - canvasId     = the shared canvas to hydrate (== sessionId for owner)
+        //   - role         = 'owner' | 'editor' | 'viewer'
+        // For an owner opening their own workflow all three equal sessionId, so
+        // the fallback below keeps single-user behavior unchanged.
+        let threadId = sessionId;
+        let resolvedCanvasId = sessionId;
+        let role: 'owner' | 'editor' | 'viewer' = 'owner';
+        try {
+            const opened = await sessionsApi.open(sessionId);
+            threadId = opened.threadId;
+            resolvedCanvasId = opened.canvasId;
+            role = opened.role;
+        } catch {
+            // Fallback (e.g. sessionId is a legacy/own session or open route unavailable):
+            // treat it as both the thread and the canvas (single-user behavior).
+        }
+        store.setCollabRole(role);
+
+        // Update the active session id to the resolved thread id so that:
+        //   - Chat messages + the realtime channel are scoped to the per-user thread.
+        //   - The stale-guard below uses sessionId (the URL param) not threadId, which
+        //     is fine because the URL never reflects the internal thread rewrite.
+        store.setActiveSessionId(threadId);
 
         try {
-            // Fire both reads in parallel — they have no dependency on each other,
-            // and running them sequentially adds 100-300ms to the time-to-first
-            // correct render.
-            const [sessionResult, executionsResult] = await Promise.all([
-                sessionsApi.load(sessionId),
-                getSessionExecutions(sessionId),
+            // ── Parallel fetches ──────────────────────────────────────────────────
+            // For the owner path threadId === resolvedCanvasId === sessionId, so we
+            // can skip the redundant canvas load and use a single sessionsApi.load().
+            // For a collaborator they diverge: thread load brings messages, canvas
+            // load brings canvas_state.
+            const isSameId = threadId === resolvedCanvasId;
+
+            const [threadResult, canvasLoadResult, executionsResult] = await Promise.all([
+                sessionsApi.load(threadId),
+                isSameId ? Promise.resolve(null) : sessionsApi.load(resolvedCanvasId).catch((err) => {
+                    console.error('[useSession] Failed to load shared canvas row, falling back to thread session:', err);
+                    return null;
+                }),
+                getSessionExecutions(resolvedCanvasId),
             ]);
-            const { session, messages } = sessionResult;
+
+            const { session: threadSession, messages } = threadResult;
+            // For the owner path the canvas comes from the thread result directly.
+            // For a collaborator it comes from the separate canvas load (or falls
+            // back to the thread session if that load failed).
+            const canvasSession = isSameId
+                ? threadSession
+                : ((canvasLoadResult as any)?.session ?? threadSession);
+
             const { executions, latestExecutionId } = executionsResult;
 
             // STALE CHECK: If the user navigated away while we were loading, ignore results
+            // Compare against sessionId (the URL parameter) to catch navigation races; the
+            // internal thread rewrite doesn't change the URL.
             const currentStore = useAppStore.getState();
-            if (currentStore.activeSessionId !== sessionId) {
+            if (currentStore.activeSessionId !== threadId) {
                 console.warn('[useSession] Ignoring stale session load for:', sessionId);
                 return;
             }
 
-            // Hydrate Workflow from Session State (primary source of truth for blueprint/layout).
-            // Freshly-created sessions store canvas_state as `{}` (the column default), so we
-            // must still hand the store a valid empty workflow — otherwise currentWorkflow stays
-            // null and onNodesChange/onConnect bail on their null guards, making it impossible
-            // to add the first node.
-            //
-            // Collaboration decoupling: if the thread session points at a shared canvas via
-            // canvas_session_id, load the canvas row from the shared session so reads/writes
-            // target the shared canvas while messages stay on the per-user thread.
-            const canvasId = session.canvas_session_id || session.id;
-            let canvasRow: any = session;
-            if (canvasId !== session.id) {
-                try {
-                    const { session: cr } = await sessionsApi.load(canvasId);
-                    if (useAppStore.getState().activeSessionId !== sessionId) return; // Fix 1
-                    canvasRow = cr || session;
-                } catch (canvasErr) {
-                    console.error('[useSession] Failed to load shared canvas row, falling back to thread session:', canvasErr);
-                    // canvasRow stays as `session` → safe empty/partial canvas rather than a hard failure
-                }
-            }
+            // Hydrate Workflow from the canvas session row.
+            // For an owner this is identical to the old behaviour (session === canvasSession).
+            // For a collaborator this is the shared canvas, not their private thread.
+            const canvasId = resolvedCanvasId;
+            const canvasRow: any = canvasSession;
             const rawCanvas = (canvasRow.canvas_state || {}) as Partial<Workflow>;
             // Self-heal orphaned parentNode references: if a node points at a
             // parent id that doesn't exist in the same node array, drop the
@@ -132,7 +160,7 @@ export function useSession() {
             const workflow: Workflow = {
                 ...rawCanvas,
                 id: canvasId,
-                name: rawCanvas.name || session.title || 'Untitled Workflow',
+                name: rawCanvas.name || threadSession.title || 'Untitled Workflow',
                 nodes: rawNodes.map((n: any) => {
                     const hasOrphanParent = n.parentNode && !nodeIdSet.has(n.parentNode);
                     const { parentNode: _stripped, ...rest } = n;
