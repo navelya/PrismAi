@@ -179,6 +179,11 @@ export default function SharedWorkflowEditor({
     const nodeTypesForIcon = useAppStore((state) => state.nodeTypes);
     const nodeLabelDraft = useAppStore((state) => state.nodeLabelDraft);
 
+    // While a node (or marquee selection) is being dragged, slide the property
+    // panel off the right edge so it doesn't obstruct the canvas. Driven off the
+    // mounted panel's `animate` prop — not mount/unmount — so it returns smoothly.
+    const isDragging = useAppStore((state) => state.isDragging);
+
     const selectedNodeIcon = useMemo(() => {
         if (!selectedNodeData) return undefined;
         if (isAiNode) {
@@ -727,12 +732,21 @@ export default function SharedWorkflowEditor({
                         <motion.div
                             key={selectedNodeData.id}
                             initial={{ opacity: 0, x: 20, scale: 0.95 }}
-                            animate={{ 
-                                opacity: 1, 
-                                x: 0, 
-                                scale: 1,
-                                transition: { duration: 0.15 } 
-                            }}
+                            animate={
+                                isDragging
+                                    ? {
+                                          opacity: 0,
+                                          x: '110%',
+                                          scale: 1,
+                                          transition: { duration: 0.18, ease: 'easeOut' },
+                                      }
+                                    : {
+                                          opacity: 1,
+                                          x: 0,
+                                          scale: 1,
+                                          transition: { duration: 0.18, ease: 'easeOut' },
+                                      }
+                            }
                             exit={{ opacity: 0, x: 20, scale: 0.95 }}
                             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                             className="absolute top-[72px] right-3 bottom-3 z-40 pointer-events-none flex flex-col items-end"
