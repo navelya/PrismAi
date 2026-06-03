@@ -16,13 +16,16 @@ CREATE TABLE IF NOT EXISTS public.workflow_versions (
   canvas_state  jsonb NOT NULL,
   content_hash  text NOT NULL,
   created_by    uuid REFERENCES auth.users(id) ON DELETE SET NULL,
-  created_at    timestamptz NOT NULL DEFAULT now()
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CHECK (kind = 'auto' OR created_by IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_versions_canvas_created
   ON public.workflow_versions (canvas_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflow_versions_canvas_hash
   ON public.workflow_versions (canvas_id, content_hash);
+CREATE INDEX IF NOT EXISTS idx_workflow_versions_canvas_kind_created
+  ON public.workflow_versions (canvas_id, kind, created_at DESC);
 
 ALTER TABLE public.workflow_versions ENABLE ROW LEVEL SECURITY;
 
