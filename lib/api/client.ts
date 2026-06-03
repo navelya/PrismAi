@@ -104,6 +104,37 @@ export const collaboratorsApi = {
         apiFetch(`/api/sessions/${canvasId}/collaborators/${collabId}`, { method: 'DELETE' }),
 };
 
+// ─── Versions APIs ─────────────────────────────────────────────────────
+
+export interface WorkflowVersion {
+    id: string;
+    canvas_id: string;
+    kind: 'auto' | 'checkpoint';
+    label: string | null;
+    content_hash: string;
+    created_by: string | null;
+    created_at: string;
+}
+
+export const versionsApi = {
+    list: (canvasId: string) =>
+        apiFetch<{ versions: WorkflowVersion[] }>(
+            `/api/versions?canvasId=${encodeURIComponent(canvasId)}`,
+            { cache: 'no-store' }
+        ),
+    createCheckpoint: (canvasId: string, label: string) =>
+        apiFetch<{ version: WorkflowVersion }>('/api/versions/checkpoint', {
+            method: 'POST',
+            body: JSON.stringify({ canvasId, label }),
+        }),
+    restore: (id: string) =>
+        apiFetch<{ canvasId: string; canvasState: any }>(`/api/versions/${id}/restore`, {
+            method: 'POST',
+        }),
+    remove: (id: string) =>
+        apiFetch<{ success: boolean }>(`/api/versions/${id}`, { method: 'DELETE' }),
+};
+
 // ─── Message APIs ──────────────────────────────────────────────────────
 
 export const messagesApi = {
