@@ -453,11 +453,21 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
 
         const nodes = workflow.nodes || [];
 
+        // Self-heal orphaned parentNode references: a node pointing at a parent
+        // id absent from this same array makes React Flow throw "Parent node X
+        // not found" and blank the whole canvas. The session-load path
+        // (use-session.ts) strips these too; doing it here as well covers
+        // restore-from-version and any other caller. Idempotent.
+        const nodeIdSet = new Set(nodes.map((n) => n.id));
+
         const transformedNodes = nodes.map((node) => {
-            let nodeChanged = false;
+            const hasOrphanParent =
+                !!(node as any).parentNode && !nodeIdSet.has((node as any).parentNode);
+
+            let nodeChanged = hasOrphanParent;
             const def = sharedRegistry[node.type];
             let newConfig = node.data?.config || {};
-            
+
             if (def && def.defaultConfig) {
                 const hasMissingDefaults = Object.keys(def.defaultConfig).some(
                     (key) => !(key in newConfig)
@@ -467,7 +477,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                     nodeChanged = true;
                 }
             }
-            
+
             let newPosition = node.position;
             if (!newPosition) {
                 newPosition = { x: 0, y: 0 };
@@ -475,11 +485,16 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             }
 
             if (nodeChanged) {
-                return {
+                const base = {
                     ...node,
                     position: newPosition,
                     data: { ...node.data, config: newConfig }
                 };
+                if (hasOrphanParent) {
+                    const { parentNode: _p, extent: _e, ...rest } = base as any;
+                    return rest;
+                }
+                return base;
             }
             return node;
         });
