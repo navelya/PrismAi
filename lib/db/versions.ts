@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { stableStringify } from '@/lib/utils/stable-stringify';
 import { Workflow } from '@/lib/nodes/types';
 
@@ -29,7 +30,7 @@ export function hashCanvasState(canvasState: any): string {
     })),
     edges,
   };
-  return stableStringify(sanitized);
+  return createHash('sha256').update(stableStringify(sanitized)).digest('hex');
 }
 
 /** List versions (metadata only — no canvas_state payload), newest first. */
@@ -145,10 +146,14 @@ export async function pruneAutoVersions(
     .eq('canvas_id', canvasId)
     .eq('kind', 'auto')
     .order('created_at', { ascending: false });
-  if (error || !autos) return;
+  if (error || !autos) {
+    if (error) console.warn('[versions] prune select failed:', error.message);
+    return;
+  }
   const stale = autos.slice(AUTO_VERSION_KEEP).map((r: any) => r.id);
   if (stale.length === 0) return;
-  await client.from('workflow_versions').delete().in('id', stale);
+  const { error: delErr } = await client.from('workflow_versions').delete().in('id', stale);
+  if (delErr) console.warn('[versions] prune delete failed:', delErr.message);
 }
 
 /** Delete a checkpoint (or any single version row). */
