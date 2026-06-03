@@ -1,6 +1,6 @@
 'use client';
-import React, { useImperativeHandle, useRef, forwardRef } from 'react';
-import { useReactFlow } from 'reactflow';
+import React, { useImperativeHandle, useRef, forwardRef, useEffect } from 'react';
+import { useReactFlow, useStore } from 'reactflow';
 
 export interface CursorsHandle {
     update: (userId: string, name: string, color: string, fx: number, fy: number) => void;
@@ -13,6 +13,10 @@ interface CursorEls {
     label: HTMLDivElement;
     name: string;
     color: string;
+    // Last-known flow-space position so viewport changes can reproject without
+    // waiting for the next cursor broadcast from the peer.
+    fx: number;
+    fy: number;
 }
 
 // Lucide `mouse-pointer-2` path (24x24 viewBox). Tip is at ~(4.04, 4.69).
@@ -33,6 +37,26 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
     const layerRef = useRef<HTMLDivElement>(null);
     const elsRef = useRef<Map<string, CursorEls>>(new Map());
     const rf = useReactFlow();
+
+    // ── Bug 1 fix: reproject all known cursors on every viewport change ──────
+    // Subscribe to the RF transform so that when the LOCAL user pans/zooms, we
+    // re-apply each peer's stored flow-coords through the NEW viewport — exactly
+    // mirroring how CollaboratorSelections uses useViewport().
+    // useStore with a selector that returns the raw transform array is the same
+    // underlying signal that useViewport() reads; we use it here to keep the
+    // reprojection in the imperative DOM path without going through React state.
+    const transform = useStore((s) => s.transform);
+    useEffect(() => {
+        const [x, y, zoom] = transform;
+        for (const entry of elsRef.current.values()) {
+            const sx = Math.round(entry.fx * zoom + x);
+            const sy = Math.round(entry.fy * zoom + y);
+            entry.root.style.transform = `translate(${sx}px, ${sy}px)`;
+        }
+        // transform is a stable array reference that RF replaces on each change,
+        // so this effect fires exactly when the viewport changes — no extra cost
+        // during the steady state where no peer has a cursor yet.
+    }, [transform]);
 
     useImperativeHandle(ref, () => ({
         update(userId, name, color, fx, fy) {
@@ -69,10 +93,14 @@ export const CollaboratorCursors = forwardRef<CursorsHandle, {}>(function Collab
                 root.appendChild(svg);
                 root.appendChild(label);
                 layerRef.current.appendChild(root);
-                entry = { root, path, label, name: '', color: '' };
+                entry = { root, path, label, name: '', color: '', fx: 0, fy: 0 };
                 elsRef.current.set(userId, entry);
             }
             if (!entry) return;
+            // Store the latest flow coords so the viewport-change effect above
+            // can reproject this cursor without waiting for the next broadcast.
+            entry.fx = fx;
+            entry.fy = fy;
             // Update text/colors only when they change (cheap, and lets the name
             // correct itself once the presence roster resolves after the first move).
             if (entry.name !== name) { entry.label.textContent = name; entry.name = name; }

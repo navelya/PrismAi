@@ -68,6 +68,10 @@ export function useWorkflowCollaboration(
         onNodeDrag: (e: NodeDragEvent) => void;
         onSelection?: (e: SelectionEvent) => void;
         onGroupResize?: (e: GroupResizeEvent) => void;
+        // Bug 2 fix: called when a new peer joins presence so the local user
+        // can re-emit their current cursor position once (a single extra
+        // broadcast; joins are rare so steady-state cost is ~zero).
+        onPeerJoined?: () => void;
     },
 ) {
     const supabaseRef = useRef(createClient());
@@ -91,6 +95,14 @@ export function useWorkflowCollaboration(
                 if (p) roster[p.userId] = { userId: p.userId, name: p.name, color: colorFor(p.userId), role: p.role };
             });
             setPresence(roster);
+        });
+        // Bug 2 fix: when ANY peer joins the channel, fire onPeerJoined so the
+        // local user re-broadcasts their last cursor position once. The 'join'
+        // event fires for the remote peer's entry — not for ourselves — so this
+        // doesn't trigger a self-loop. We use handlersRef so the callback always
+        // sees the latest closure without needing to re-subscribe the channel.
+        presence.on('presence', { event: 'join' }, () => {
+            handlersRef.current.onPeerJoined?.();
         });
         presence.subscribe((status: string) => {
             if (status === 'SUBSCRIBED') {

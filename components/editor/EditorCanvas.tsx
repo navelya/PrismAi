@@ -20,6 +20,7 @@ import ReactFlow, {
     NodeToolbar,
     Position,
     SelectionMode,
+    ConnectionMode,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { BaseGridLayers, SpotlightGridLayers } from './canvas/GridLayers';
@@ -392,6 +393,9 @@ const EditorCanvasInner = ({
     // Throttle timestamps for high-frequency broadcasts (cursor move, peer-drag).
     const lastCursorSentRef = useRef(0);
     const lastDragSentRef = useRef(0);
+    // Bug 2 fix: last-known cursor position in flow coords. Updated on every
+    // cursor send so onPeerJoined can re-emit it once to seed a new joiner.
+    const lastCursorPosRef = useRef<{ x: number; y: number } | null>(null);
     // Ephemeral peer-selection marquee tracking. isMarqueeingRef gates the
     // wrapper mousemove path; marqueeStartRef holds the drag origin (flow
     // coords); marqueeRef holds the current rect so the selection-change effect
@@ -481,6 +485,16 @@ const EditorCanvasInner = ({
             onGroupResize: (e) => {
                 if (!e?.nodeId) return;
                 useAppStore.getState().setLiveNodeSize(e.nodeId, { w: e.w, h: e.h, sx: e.sx, sy: e.sy });
+            },
+            // Bug 2 fix: a new peer just joined — re-emit our last cursor
+            // position once so they immediately see where we are, without us
+            // having to move. This is a single extra broadcast per join event;
+            // joins are rare so steady-state cost is ~zero. No-ops when we
+            // haven't moved yet (lastCursorPosRef is null) or when we're not a
+            // real user (me is null — sendCursor is already a no-op then).
+            onPeerJoined: () => {
+                const pos = lastCursorPosRef.current;
+                if (pos) sendCursor(pos.x, pos.y);
             },
         },
     );
@@ -588,6 +602,7 @@ const EditorCanvasInner = ({
         if (now - lastCursorSentRef.current < 35) return;
         lastCursorSentRef.current = now;
         const pos = reactFlowInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        lastCursorPosRef.current = pos;
         sendCursor(pos.x, pos.y);
         // While drag-to-selecting, also broadcast the live marquee rectangle so
         // peers see A's selection box. Reuses the cursor throttle gate above.
@@ -1841,7 +1856,15 @@ const EditorCanvasInner = ({
                 nodesConnectable={!readOnly}
                 elementsSelectable={!readOnly}
                 selectionMode={!isPanMode ? SelectionMode.Partial : undefined}
-                connectionMode={"loose" as any}
+                // Strict mode: React Flow only permits output(source)→input(target)
+                // wires and refuses source→source / target→target. Loose mode
+                // disabled that guard (it only blocks connecting a handle to
+                // itself), which let outputs wire to outputs. The whole
+                // validation layer (handleIsValidConnection / getNodeHandleType)
+                // already assumes source=output, target=input, so Strict is the
+                // correct contract. Dragging from an input handle and node-body
+                // auto-wiring still work — neither is gated by connectionMode.
+                connectionMode={ConnectionMode.Strict}
                 onPaneClick={handlePaneClick}
                 proOptions={PRO_OPTIONS}
             >
