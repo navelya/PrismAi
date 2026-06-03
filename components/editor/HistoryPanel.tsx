@@ -6,6 +6,8 @@ import { History, Star, Clock, RotateCcw, Trash2, Plus, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useAppStore } from '@/lib/store/app-store';
 import { useVersions } from '@/lib/hooks/use-versions';
+import { SaveCheckpointModal } from '@/components/editor/SaveCheckpointModal';
+import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import type { WorkflowVersion } from '@/lib/api/client';
 
 interface HistoryPanelProps {
@@ -30,46 +32,41 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
     // null = non-collab session (user's own canvas) → treat as owner
     const isOwner = collabRole !== 'editor' && collabRole !== 'viewer';
     const [busyId, setBusyId] = useState<string | null>(null);
+    const [saveOpen, setSaveOpen] = useState(false);
+    // Pending restore/delete awaiting confirmation in the shared modal.
+    const [confirmAction, setConfirmAction] = useState<{ kind: 'restore' | 'delete'; version: WorkflowVersion } | null>(null);
 
     const checkpoints = versions.filter((v) => v.kind === 'checkpoint');
     const autos = versions.filter((v) => v.kind === 'auto');
 
-    const handleCheckpoint = async () => {
-        const label = window.prompt('Name this checkpoint:', 'Checkpoint');
-        if (label == null) return;
+    // Run the confirmed restore/delete. ConfirmationModal closes itself on
+    // confirm; the row keeps its busy spinner until the async action settles.
+    const runConfirm = async (action: { kind: 'restore' | 'delete'; version: WorkflowVersion }) => {
+        setBusyId(action.version.id);
         try {
-            await createCheckpoint(label.trim() || 'Checkpoint');
+            if (action.kind === 'restore') await restore(action.version.id);
+            else await remove(action.version.id);
         } catch (err) {
-            console.error('[HistoryPanel] createCheckpoint failed:', err);
-            alert('Failed to save checkpoint. Please try again.');
-        }
-    };
-
-    const handleRestore = async (v: WorkflowVersion) => {
-        if (!window.confirm('Restore this version? Your current canvas will be saved as a version first, then replaced.')) return;
-        setBusyId(v.id);
-        try {
-            await restore(v.id);
-        } catch (err) {
-            console.error('[HistoryPanel] restore failed:', err);
-            alert('Failed to restore version. Please try again.');
+            console.error(`[HistoryPanel] ${action.kind} failed:`, err);
+            alert(`Failed to ${action.kind} version. Please try again.`);
         } finally {
             setBusyId(null);
         }
     };
 
-    const handleDelete = async (v: WorkflowVersion) => {
-        if (!window.confirm('Delete this checkpoint?')) return;
-        setBusyId(v.id);
-        try {
-            await remove(v.id);
-        } catch (err) {
-            console.error('[HistoryPanel] delete failed:', err);
-            alert('Failed to delete checkpoint. Please try again.');
-        } finally {
-            setBusyId(null);
+    const confirmCopy = confirmAction?.kind === 'restore'
+        ? {
+            title: 'Restore this version?',
+            message: 'Your current canvas will be saved as a version first, then replaced with this one.',
+            confirmText: 'Restore',
+            variant: 'warning' as const,
         }
-    };
+        : {
+            title: 'Delete this checkpoint?',
+            message: 'This checkpoint will be permanently removed. Auto-saved versions are not affected.',
+            confirmText: 'Delete',
+            variant: 'danger' as const,
+        };
 
     return (
         <div className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden">
@@ -81,7 +78,7 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
                 <div className="flex items-center gap-0.5">
                     {isOwner && (
                         <button
-                            onClick={handleCheckpoint}
+                            onClick={() => setSaveOpen(true)}
                             className="p-1 hover:bg-white/10 rounded-md transition-colors group"
                             title="Save checkpoint"
                         >
@@ -115,7 +112,7 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
                                 <p className="px-1 text-[10px] font-bold uppercase tracking-wider text-content-tertiary">Checkpoints</p>
                                 <AnimatePresence initial={false}>
                                     {checkpoints.map((v) => (
-                                        <VersionRowItem key={v.id} v={v} isOwner={isOwner} busy={busyId === v.id} onRestore={handleRestore} onDelete={handleDelete} />
+                                        <VersionRowItem key={v.id} v={v} isOwner={isOwner} busy={busyId === v.id} onRestore={(ver) => setConfirmAction({ kind: 'restore', version: ver })} onDelete={(ver) => setConfirmAction({ kind: 'delete', version: ver })} />
                                     ))}
                                 </AnimatePresence>
                             </div>
@@ -125,7 +122,7 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
                                 <p className="px-1 text-[10px] font-bold uppercase tracking-wider text-content-tertiary">Auto-saved</p>
                                 <AnimatePresence initial={false}>
                                     {autos.map((v) => (
-                                        <VersionRowItem key={v.id} v={v} isOwner={isOwner} busy={busyId === v.id} onRestore={handleRestore} onDelete={handleDelete} />
+                                        <VersionRowItem key={v.id} v={v} isOwner={isOwner} busy={busyId === v.id} onRestore={(ver) => setConfirmAction({ kind: 'restore', version: ver })} onDelete={(ver) => setConfirmAction({ kind: 'delete', version: ver })} />
                                     ))}
                                 </AnimatePresence>
                             </div>
@@ -133,6 +130,22 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
                     </>
                 )}
             </div>
+
+            <SaveCheckpointModal
+                isOpen={saveOpen}
+                onClose={() => setSaveOpen(false)}
+                onSave={(label) => createCheckpoint(label)}
+            />
+
+            <ConfirmationModal
+                isOpen={!!confirmAction}
+                onClose={() => setConfirmAction(null)}
+                onConfirm={() => { if (confirmAction) void runConfirm(confirmAction); }}
+                title={confirmCopy.title}
+                message={confirmCopy.message}
+                confirmText={confirmCopy.confirmText}
+                variant={confirmCopy.variant}
+            />
         </div>
     );
 }

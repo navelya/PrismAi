@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/lib/store/app-store';
 import { versionsApi, type WorkflowVersion } from '@/lib/api/client';
+import { onVersionsChanged, emitVersionsChanged } from '@/lib/versions-bus';
 
 export function useVersions() {
     const canvasId = useAppStore((s) => s.activeCanvasId);
@@ -25,28 +26,34 @@ export function useVersions() {
         }
     }, [canvasId]);
 
+    // Initial load + reload when the canvas changes.
     useEffect(() => {
         void refresh();
     }, [refresh]);
 
+    // Stay in sync when a version is created/restored/deleted elsewhere
+    // (e.g. the toolbar "Save checkpoint" button while this panel is open).
+    useEffect(() => onVersionsChanged(() => { void refresh(); }), [refresh]);
+
     const createCheckpoint = useCallback(async (label: string) => {
         if (!canvasId) return;
         await versionsApi.createCheckpoint(canvasId, label);
-        await refresh();
-    }, [canvasId, refresh]);
+        emitVersionsChanged();
+    }, [canvasId]);
 
     const restore = useCallback(async (id: string) => {
         const { canvasState } = await versionsApi.restore(id);
         // Adopt as the new baseline (isDirty=false so autosave doesn't re-save).
         setCurrentWorkflow(canvasState, false);
         clearHistory();
-        await refresh();
-    }, [setCurrentWorkflow, clearHistory, refresh]);
+        // Restore creates a safety auto-version server-side, so the list changed.
+        emitVersionsChanged();
+    }, [setCurrentWorkflow, clearHistory]);
 
     const remove = useCallback(async (id: string) => {
         await versionsApi.remove(id);
-        await refresh();
-    }, [refresh]);
+        emitVersionsChanged();
+    }, []);
 
     return { versions, loading, refresh, createCheckpoint, restore, remove };
 }

@@ -14,6 +14,9 @@ import PlansModal from '@/components/billing/PlansModal';
 import { useAppStore } from '@/lib/store/app-store';
 import { ShareDialog } from '@/components/collab/ShareDialog';
 import { PresenceAvatars } from '@/components/collab/PresenceAvatars';
+import { SaveCheckpointModal } from '@/components/editor/SaveCheckpointModal';
+import { versionsApi } from '@/lib/api/client';
+import { emitVersionsChanged } from '@/lib/versions-bus';
 
 interface EditorToolbarProps {
     workflowName: string;
@@ -33,7 +36,6 @@ interface EditorToolbarProps {
 export default function EditorToolbar({
     workflowName,
     onNameChange,
-    onSave,
     onRun,
     onStop,
     isRunning = false,
@@ -59,6 +61,17 @@ export default function EditorToolbar({
     const { errors: validationErrors } = useExecutionValidation();
     const selectNodeAndCenter = useAppStore((s) => s.selectNodeAndCenter);
     const [showErrorPopover, setShowErrorPopover] = useState(false);
+    const [showSaveCheckpoint, setShowSaveCheckpoint] = useState(false);
+
+    // Save a named checkpoint of the current canvas. Owner-only (checkpoints are
+    // owner-scoped server-side). Self-contained — calls the versions API directly
+    // and pings the versions bus so an open History panel refreshes. The modal
+    // surfaces any thrown error inline.
+    const handleSaveCheckpoint = async (label: string) => {
+        if (!canvasId) throw new Error('No canvas to checkpoint yet.');
+        await versionsApi.createCheckpoint(canvasId, label);
+        emitVersionsChanged();
+    };
     // State for auto-expanding width
     const [titleWidth, setTitleWidth] = useState('auto');
     const spanRef = React.useRef<HTMLSpanElement>(null);
@@ -118,9 +131,15 @@ export default function EditorToolbar({
 
             <PlansModal isOpen={showPlans} onClose={() => setShowPlans(false)} />
 
+            <SaveCheckpointModal
+                isOpen={showSaveCheckpoint}
+                onClose={() => setShowSaveCheckpoint(false)}
+                onSave={handleSaveCheckpoint}
+            />
+
             {/* Workflow Name Island (Centered) */}
             <div
-                className={`${islandBase} rounded-xl absolute left-1/2 -translate-x-1/2`}
+                className={`${islandBase} rounded-xl absolute left-1/2 -translate-x-1/2 ${isViewer ? 'flex-col !gap-0.5' : ''}`}
                 style={{ width: titleWidth }}
             >
                 <div className="flex items-center gap-2 w-full justify-center px-1">
@@ -129,10 +148,17 @@ export default function EditorToolbar({
                         type="text"
                         value={workflowName || ''}
                         onChange={(e) => onNameChange(e.target.value)}
+                        readOnly={isViewer}
                         className="w-full bg-transparent text-sm font-semibold text-content-primary placeholder:text-content-tertiary focus:outline-none text-center"
                         placeholder="Untitled Workflow"
                     />
                 </div>
+                {/* View-only label sits directly under the workflow title. */}
+                {isViewer && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+                        View only
+                    </span>
+                )}
             </div>
 
             <div className="flex-1" />
@@ -142,15 +168,8 @@ export default function EditorToolbar({
                 <PresenceAvatars />
             </div>
 
-            {/* Share Button */}
-            {canvasId && (
-                <button
-                    onClick={() => setShareOpen(true)}
-                    className={`${islandBase} rounded-xl mr-2`}
-                >
-                    <span className="text-xs font-semibold text-content-primary uppercase tracking-wider">Share</span>
-                </button>
-            )}
+            {/* ShareDialog is opened from the Share button now living inside the
+                Actions Island (next to Run workflow). */}
             {shareOpen && canvasId && (
                 <ShareDialog canvasId={canvasId} isOwner={!!isOwner} onClose={() => setShareOpen(false)} />
             )}
@@ -176,8 +195,33 @@ export default function EditorToolbar({
                         </Tooltip>
                     );
                 })}
-                {/* Primary CTA: Run / Stop — hidden for viewers */}
-                {!isViewer && (isRunning ? (
+                {/* Share — sits next to Run workflow in the same island,
+                    regardless of permission. Disabled (grayed) for viewers. */}
+                {canvasId && (
+                    <button
+                        onClick={() => { if (!isViewer) setShareOpen(true); }}
+                        disabled={isViewer}
+                        className={
+                            isViewer
+                                ? "h-8 px-3 bg-surface-secondary text-content-tertiary rounded-lg flex items-center font-bold uppercase tracking-wider text-[11px] opacity-60 pointer-events-none"
+                                : "h-8 px-3 text-content-primary hover:bg-white/10 rounded-lg flex items-center font-bold uppercase tracking-wider text-[11px] transition-colors"
+                        }
+                    >
+                        Share
+                    </button>
+                )}
+
+                {/* Primary CTA: Run / Stop. Viewers see it grayed + disabled
+                    (no block cursor) rather than hidden. */}
+                {isViewer ? (
+                    <button
+                        disabled
+                        className="h-8 px-3 bg-surface-secondary text-content-tertiary rounded-lg flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] opacity-60 pointer-events-none"
+                    >
+                        <Play className="w-3 h-3 fill-current" />
+                        Run workflow
+                    </button>
+                ) : (isRunning ? (
                     <Tooltip content="Stop workflow" position="bottom">
                         <button
                             onClick={onStop}
@@ -234,50 +278,61 @@ export default function EditorToolbar({
                     </div>
                 ))}
 
-                <div className="w-px h-4 bg-stroke-subtle mx-0.5" />
+                {/* Edit/destructive controls (Save · New · Delete) — hidden for
+                    viewers so view-only is truly read-only. */}
+                {!isViewer && (
+                    <>
+                        <div className="w-px h-4 bg-stroke-subtle mx-0.5" />
 
-                <Tooltip content="Save" position="bottom">
-                    <button
-                        onClick={onSave}
-                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
-                    >
-                        <Save className="w-3.5 h-3.5" />
-                    </button>
-                </Tooltip>
-
-                <Tooltip content="New" position="bottom">
-                    <button
-                        onClick={onNew}
-                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
-                    >
-                        <FilePlus className="w-3.5 h-3.5" />
-                    </button>
-                </Tooltip>
-
-                {/* More Menu */}
-                <div className="relative">
-                    <button
-                        onClick={() => setShowMenu(!showMenu)}
-                        className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
-                    >
-                        <MoreVertical className="w-3.5 h-3.5" />
-                    </button>
-
-                    {showMenu && (
-                        <>
-                            <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                            <div className="absolute right-0 top-full mt-1.5 w-44 bg-surface-primary/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl ring-1 ring-white/5 z-20 p-1 overflow-hidden">
+                        {/* Save checkpoint — a named, restorable version. Owner-only
+                            (checkpoints are owner-scoped server-side). Opens the same
+                            modal the History panel uses. */}
+                        {isOwner && (
+                            <Tooltip content="Save checkpoint" position="bottom">
                                 <button
-                                    onClick={() => { onDelete(); setShowMenu(false); }}
-                                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/10 transition-colors"
+                                    onClick={() => setShowSaveCheckpoint(true)}
+                                    className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
                                 >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    Delete Workflow
+                                    <Save className="w-3.5 h-3.5" />
                                 </button>
-                            </div>
-                        </>
-                    )}
-                </div>
+                            </Tooltip>
+                        )}
+
+                        <Tooltip content="New" position="bottom">
+                            <button
+                                onClick={onNew}
+                                className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
+                            >
+                                <FilePlus className="w-3.5 h-3.5" />
+                            </button>
+                        </Tooltip>
+
+                        {/* More Menu */}
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowMenu(!showMenu)}
+                                className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
+                            >
+                                <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+
+                            {showMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+                                    <div className="absolute right-0 top-full mt-1.5 w-44 bg-surface-primary/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl ring-1 ring-white/5 z-20 p-1 overflow-hidden">
+                                        <button
+                                            onClick={() => { onDelete(); setShowMenu(false); }}
+                                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/10 transition-colors"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                            Delete Workflow
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );
