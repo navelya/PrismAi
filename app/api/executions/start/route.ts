@@ -462,6 +462,9 @@ export async function POST(request: NextRequest) {
       .filter(id => Number.isFinite(id));
 
     let cost = 0;
+    // Per-node cost breakdown, stashed in the debit ledger metadata so a later
+    // cancel can refund the EXACT credits for nodes that never dispatched.
+    let costByNode: Record<string, number> = {};
     if (generativeNodeIds.length > 0) {
       const { data: modelRows } = await supabase
         .from('ai_models')
@@ -499,6 +502,7 @@ export async function POST(request: NextRequest) {
 
       const result = computeExecutionCost(costNodes, modelsById, graphForCost);
       cost = result.cost;
+      costByNode = result.costByNode;
 
       console.log(`[Execution/Start] Cost calc — generative nodes: ${result.generativeCount}, total cost: ${cost}, model rows fetched: ${modelRows?.length ?? 0}, model ids referenced: [${generativeNodeIds.join(', ')}]`);
 
@@ -528,7 +532,7 @@ export async function POST(request: NextRequest) {
         p_reason: 'execution_debit',
         p_idempotency_key: `exec:${execution.id}`,
         p_execution_id: execution.id,
-        p_metadata: { mode: mode ?? 'all', node_count: nodesToExecute.length },
+        p_metadata: { mode: mode ?? 'all', node_count: nodesToExecute.length, cost_by_node: costByNode },
       });
 
       if (debitError) {

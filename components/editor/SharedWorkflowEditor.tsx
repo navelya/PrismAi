@@ -643,13 +643,39 @@ export default function SharedWorkflowEditor({
         setPendingExecutionTarget(null);
     };
 
-    const handleStop = () => {
+    const handleStop = async () => {
+        const executionId = useAppStore.getState().activeExecutionId;
+
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
+
+        // Tell the server to cancel. Pending (not-yet-dispatched) nodes are
+        // stopped and their exact credits refunded; in-flight Replicate nodes
+        // are LEFT to finish (already billed) and their results still arrive via
+        // the session realtime channel. Best-effort — the local UI resets either
+        // way, and the cancel route is idempotent if the run finished first.
+        if (executionId) {
+            try {
+                await fetch('/api/executions/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ execution_id: executionId }),
+                });
+            } catch (err) {
+                console.error('[Editor] Cancel request failed:', err);
+            }
+        }
+
         setIsExecuting(false);
         useAppStore.getState().setActiveExecutionId(null);
+        useAppStore.getState().setExecutionStartTime(null);
+        activeRunCountRef.current = 0;
+        if (executionTimeoutRef.current) {
+            clearTimeout(executionTimeoutRef.current);
+            executionTimeoutRef.current = null;
+        }
     };
 
     const handleDelete = () => {

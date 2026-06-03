@@ -72,15 +72,27 @@ export async function checkAndDispatchChildren(
     // 1. Fetch the immutable graph snapshot for this execution
     const { data: execution, error: execError } = await supabase
       .from('executions')
-      .select('graph_json, session_id')
+      .select('graph_json, session_id, status')
       .eq('id', executionId)
       .single();
-      
+
     if (execError || !execution) {
       console.error(`[Orchestrator] Failed to fetch execution snapshot:`, execError);
       return;
     }
-    
+
+    // Cancellation gate. Once an execution is cancelled we stop launching ANY
+    // new nodes. The node that just finished has already had its result saved
+    // by the caller (the Replicate webhook / ephemeral executor write the row
+    // BEFORE calling us), so in-flight outputs are preserved — we simply refuse
+    // to dispatch the next hop. Finalizing here lands the execution terminally
+    // on 'cancelled' once the last in-flight node drains.
+    if ((execution as any).status === 'cancelled') {
+      console.log(`[Orchestrator] Execution ${executionId} is cancelled — not dispatching children of ${completedNodeId}.`);
+      await updateExecutionFinalStatus(executionId);
+      return;
+    }
+
     const graph: GraphJson = execution.graph_json as any;
     const sessionId = execution.session_id;
 
@@ -448,12 +460,13 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
     // 1. Fetch graph snapshot to see all nodes that were supposed to run
     const { data: execution } = await supabase
       .from('executions')
-      .select('graph_json')
+      .select('graph_json, status')
       .eq('id', executionId)
       .single();
-      
+
     if (!execution) return;
     const graph: GraphJson = execution.graph_json as any;
+    const wasCancelled = (execution as any).status === 'cancelled';
     const targetNodeIds = graph.nodes.map(n => n.id);
     
     // 2. Check current status of all nodes in target set
@@ -471,9 +484,13 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
       return;
     }
     
-    // 3. All finished! Determine if overall success or failure
+    // 3. All finished! Determine the terminal status. A cancelled execution
+    //    stays 'cancelled' no matter how its in-flight nodes resolved — the
+    //    partial cancel-refund already settled the credits, so we must NOT let
+    //    a post-cancel node failure flip this to 'failed' (which would fire the
+    //    full refund below and double-refund).
     const anyFailed = results.some(r => r.status === 'failed');
-    const finalStatus = anyFailed ? 'failed' : 'completed';
+    const finalStatus = wasCancelled ? 'cancelled' : (anyFailed ? 'failed' : 'completed');
     
     // Find the "Final Result" (result from a node with no children in this target set)
     const leafNodeIds = targetNodeIds.filter(id => 

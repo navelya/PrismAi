@@ -150,6 +150,13 @@ export interface ExecutionCostResult {
     generativeCount: number;
     /** model_ids referenced by ai_generator nodes that we couldn't find. */
     missingModels: number[];
+    /**
+     * Per-node credit cost, keyed by node id. Only ai_generator nodes that
+     * incurred a cost appear here. Captured so a later partial refund (e.g. a
+     * user cancelling mid-run) can credit back the EXACT amount charged for the
+     * nodes that never dispatched — no recomputation, no drift, no over-refund.
+     */
+    costByNode: Record<string, number>;
 }
 
 /**
@@ -165,6 +172,7 @@ export function computeExecutionCost(
     let cost = 0;
     let generativeCount = 0;
     const missingModels: number[] = [];
+    const costByNode: Record<string, number> = {};
 
     for (const node of nodes) {
         if (node.type !== 'ai_generator') continue;
@@ -187,7 +195,9 @@ export function computeExecutionCost(
 
         nodeCost *= clampIterations(node.config?.iterations);
 
-        cost += Math.max(0, nodeCost);
+        const finalNodeCost = Math.max(0, nodeCost);
+        cost += finalNodeCost;
+        costByNode[node.id] = finalNodeCost;
         generativeCount++;
     }
 
@@ -195,6 +205,7 @@ export function computeExecutionCost(
         cost: Math.max(0, cost),
         generativeCount,
         missingModels,
+        costByNode,
     };
 }
 
