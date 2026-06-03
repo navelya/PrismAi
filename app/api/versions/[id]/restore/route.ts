@@ -30,6 +30,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     const { canvasId, canvasState } = await restoreVersion(supabase, params.id, user.id);
     return NextResponse.json({ canvasId, canvasState });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const status = err?.message === 'Version not found' ? 404 : 500;
+    return NextResponse.json({ error: err.message }, { status });
   }
 }
