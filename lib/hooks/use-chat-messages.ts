@@ -288,6 +288,7 @@ export function useChatMessages({
             // app/chat/[id]/page.tsx), so set 'owner' + the canvas id here or the
             // user is stuck read-only with ghost peers until a refresh.
             useAppStore.getState().setCollabRole('owner');
+            useAppStore.getState().setSessionRole(activeSessionId, 'owner');
             useAppStore.getState().setActiveCanvasId(activeSessionId);
 
             // Background initialization

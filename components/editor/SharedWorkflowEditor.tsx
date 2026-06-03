@@ -9,6 +9,7 @@ import ResultsPanel from './ResultsPanel';
 import { useWorkflowEditor } from '@/hooks/useWorkflowEditor';
 import { NodeType, Workflow } from '@/lib/nodes/types';
 import { saveWorkflow } from '@/lib/db/workflows';
+import { sessionsApi } from '@/lib/api/client';
 import { generateNodeId } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
@@ -158,6 +159,25 @@ export default function SharedWorkflowEditor({
     const isViewer = collabRole === 'viewer';
     const effectiveReadOnly = readOnly || isViewer;
 
+    // Mirror the workflow name onto the session title so the sidebar / "My Files"
+    // entry tracks renames (and a duplicate inherits the name). Debounced and
+    // fired ONLY on explicit user edits — never on load — so it can't clobber the
+    // AI-generated session title for a session the user never renamed.
+    const titleSaveTimer = useRef<NodeJS.Timeout | null>(null);
+    const handleNameChange = useCallback((name: string) => {
+        setWorkflowName(name);
+        if (effectiveReadOnly) return;
+        const canvasId = useAppStore.getState().activeCanvasId;
+        if (!canvasId) return;
+        if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current);
+        titleSaveTimer.current = setTimeout(() => {
+            sessionsApi
+                .update(canvasId, { title: name.trim() || 'Untitled Workflow' })
+                .catch((err) => console.error('[title-mirror] Failed to sync session title:', err));
+        }, 600);
+    }, [setWorkflowName, effectiveReadOnly]);
+    useEffect(() => () => { if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current); }, []);
+
     const handleNodeClick = useCallback((_event: any, node: any) => {
         if (effectiveReadOnly) return;
         
@@ -172,6 +192,21 @@ export default function SharedWorkflowEditor({
             bringNodeToFront(node.id);
         }
     }, [effectiveReadOnly, setSelectedNode, bringNodeToFront]);
+
+    // Close the property panel whenever the user interacts with the canvas
+    // outside the selected node: a click on empty space, or grabbing a
+    // *different* node to drag. Dragging the selected node itself keeps the
+    // panel (it slides off-screen via `isDragging` and returns).
+    const handlePaneClick = useCallback(() => {
+        setSelectedNode(null);
+    }, [setSelectedNode]);
+
+    const handleNodeDragStart = useCallback((event: any, node: any) => {
+        if (selectedNode && node?.id !== selectedNode) {
+            setSelectedNode(null);
+        }
+        onNodeDragStart?.(event, node);
+    }, [onNodeDragStart, selectedNode, setSelectedNode]);
 
     const selectedNodeData = useMemo(() => nodes.find(n => n.id === selectedNode), [nodes, selectedNode]);
 
@@ -699,7 +734,7 @@ export default function SharedWorkflowEditor({
                 {showToolbar && (
                     <EditorToolbar
                         workflowName={workflowName}
-                        onNameChange={setWorkflowName}
+                        onNameChange={handleNameChange}
                         onSave={handleSave}
                         onRun={handleRun}
                         onStop={handleStop}
@@ -726,13 +761,14 @@ export default function SharedWorkflowEditor({
                                 onEdgesChange={onEdgesChange}
                                 onConnect={onConnect}
                                 onNodeClick={handleNodeClick}
+                                onPaneClick={handlePaneClick}
                                 onDrop={handleDrop}
                                 updatePositions={updatePositions}
                                 undo={undo}
                                 redo={redo}
                                 canUndo={canUndo}
                                 canRedo={canRedo}
-                                onNodeDragStart={onNodeDragStart}
+                                onNodeDragStart={handleNodeDragStart}
                                 onDuplicate={duplicateNodes}
                                 onDelete={deleteNodes}
                                 onCopy={handleCopy}

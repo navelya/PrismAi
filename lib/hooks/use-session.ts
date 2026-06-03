@@ -477,6 +477,62 @@ export function useSession() {
         }
     }, []);
 
+    // Duplicate the currently-open workflow into a brand-new session owned by
+    // the caller, then navigate straight to it. Used by the read-only banner so
+    // a viewer can fork a shared workflow into their own files. The new session's
+    // title is seeded from the workflow name (so "My Files" shows it right away),
+    // and the canvas is copied with execution state stripped.
+    const duplicateToMyFiles = useCallback(async () => {
+        const store = useAppStore.getState();
+        const wf = store.currentWorkflow;
+        if (!wf) return;
+
+        const title = (wf.name || '').trim() || 'Untitled Workflow';
+
+        setIsLoading(true);
+        try {
+            // 1. Create the owned session (title up-front → mirrors the workflow name).
+            const { session } = await sessionsApi.create(title);
+            if (!session?.id) throw new Error('Failed to create duplicate session');
+            const newId = session.id;
+
+            // 2. Copy the canvas with a fresh id + name; strip per-node execution
+            //    state (status/output/error) so the fork starts clean.
+            const dupWorkflow: Workflow = {
+                ...wf,
+                id: newId,
+                name: title,
+                nodes: (wf.nodes || []).map((n: any) => ({
+                    ...n,
+                    data: { ...n.data, status: undefined, output: undefined, error: undefined },
+                })),
+                edges: wf.edges || [],
+            };
+            await sessionsApi.update(newId, { canvas_state: dupWorkflow, title });
+
+            // 3. Optimistic store setup (mirrors createNewSession) so the
+            //    destination opens immediately editable as owner, with no stale
+            //    viewer role / peers and no role-resolution flash.
+            store.setActiveSessionId(newId);
+            store.setCollabRole('owner');
+            store.setSessionRole(newId, 'owner');
+            store.setActiveCanvasId(newId);
+            store.setCurrentWorkflow(dupWorkflow, false);
+            store.clearMessages();
+            store.clearExecutionResults();
+            store.resetNodeStatuses();
+            store.clearNodeOutputs();
+
+            router.push(`/chat/${newId}`);
+        } catch (error) {
+            console.error('[duplicateToMyFiles] Failed:', error);
+            setIsLoading(false);
+            throw error;
+        }
+        // NOTE: on success we leave isLoading true through the navigation; the
+        // destination page's own loader takes over.
+    }, [router]);
+
     // Delete a session — OPTIMISTIC: navigate + clear state immediately, DB delete async
     const deleteSession = useCallback(async (sessionId: string) => {
         // Immediately update UI (don't wait for DB)
@@ -497,6 +553,7 @@ export function useSession() {
         createNewSession,
         loadSession,
         deleteSession,
+        duplicateToMyFiles,
         isLoading,
         currentSessionId,
         error // Export error state

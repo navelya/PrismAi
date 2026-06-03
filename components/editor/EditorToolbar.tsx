@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square, Coins, Loader2, AlertCircle } from 'lucide-react';
+import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square, Coins, Loader2, AlertCircle, Eye } from 'lucide-react';
 import { useExecutionValidation } from '@/lib/hooks/use-execution-validation';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { CreditsBreakdownPanel } from '@/components/billing/CreditsBreakdownPanel';
 import PlansModal from '@/components/billing/PlansModal';
 import { useAppStore } from '@/lib/store/app-store';
+import { useSession } from '@/lib/hooks/use-session';
 import { ShareDialog } from '@/components/collab/ShareDialog';
 import { PresenceAvatars } from '@/components/collab/PresenceAvatars';
 import { SaveCheckpointModal } from '@/components/editor/SaveCheckpointModal';
@@ -61,6 +62,20 @@ export default function EditorToolbar({
     const { errors: validationErrors } = useExecutionValidation();
     const selectNodeAndCenter = useAppStore((s) => s.selectNodeAndCenter);
     const [showErrorPopover, setShowErrorPopover] = useState(false);
+
+    // Read-only banner: fork a shared workflow into the caller's own files.
+    const { duplicateToMyFiles } = useSession();
+    const [isDuplicating, setIsDuplicating] = useState(false);
+    const handleDuplicate = async () => {
+        if (isDuplicating) return;
+        setIsDuplicating(true);
+        try {
+            await duplicateToMyFiles();
+        } catch {
+            // duplicateToMyFiles already logs; re-enable the button so the user can retry.
+            setIsDuplicating(false);
+        }
+    };
     const [showSaveCheckpoint, setShowSaveCheckpoint] = useState(false);
 
     // Save a named checkpoint of the current canvas. Owner-only (checkpoints are
@@ -137,9 +152,11 @@ export default function EditorToolbar({
                 onSave={handleSaveCheckpoint}
             />
 
-            {/* Workflow Name Island (Centered) */}
+            {/* Workflow Name Island (Centered). For viewers it shifts down to
+                make room for the read-only banner, which takes the title's
+                original spot (on the same line as the Upgrade / Run islands). */}
             <div
-                className={`${islandBase} rounded-xl absolute left-1/2 -translate-x-1/2 ${isViewer ? 'flex-col !gap-0.5' : ''}`}
+                className={`${islandBase} rounded-xl absolute left-1/2 -translate-x-1/2 ${isViewer ? 'top-16' : ''}`}
                 style={{ width: titleWidth }}
             >
                 <div className="flex items-center gap-2 w-full justify-center px-1">
@@ -153,13 +170,27 @@ export default function EditorToolbar({
                         placeholder="Untitled Workflow"
                     />
                 </div>
-                {/* View-only label sits directly under the workflow title. */}
-                {isViewer && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
-                        View only
-                    </span>
-                )}
             </div>
+
+            {/* Read-only banner — takes the title's original position so it
+                floats on the same line as the Upgrade / Run islands. The title
+                is shifted down to sit directly beneath it. */}
+            {isViewer && (
+                <div className="pointer-events-auto absolute left-1/2 -translate-x-1/2 flex items-center gap-3 pl-3 pr-1.5 py-1.5 rounded-xl bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl shadow-black/20">
+                    <Eye className="w-4 h-4 text-content-tertiary flex-shrink-0" />
+                    <span className="text-xs font-medium text-content-secondary whitespace-nowrap">
+                        You&apos;re viewing a read-only version of this workflow
+                    </span>
+                    <button
+                        onClick={handleDuplicate}
+                        disabled={isDuplicating}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-primary/90 text-white text-xs font-bold whitespace-nowrap shadow-md shadow-accent-primary/20 transition-colors disabled:opacity-60 disabled:pointer-events-none"
+                    >
+                        {isDuplicating && <Loader2 className="w-3 h-3 animate-spin" />}
+                        {isDuplicating ? 'Duplicating…' : 'Duplicate to My Files'}
+                    </button>
+                </div>
+            )}
 
             <div className="flex-1" />
 
