@@ -10,6 +10,7 @@ import { MAX_NODE_REFS, type NodeRef } from '@/lib/utils/selection-refs';
 import { sanitizeMentionedCharacterIds, type CharacterSnapshot } from '@/lib/utils/character-refs';
 import { getAuthenticatedUser } from '@/lib/api/auth';
 import { createAutoVersion } from '@/lib/db/versions';
+import { FAST_LANE_TOOLS } from '@/lib/chat/tools/definitions';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
@@ -450,12 +451,10 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
   }
 
   const isPaid = planId !== 'free';
-  const requestedModel =
-    body.selectedModel === 'sonnet' || body.selectedModel === 'haiku'
-      ? (body.selectedModel as 'haiku' | 'sonnet')
-      : undefined;
-  const model: 'haiku' | 'sonnet' =
-    isPaid && requestedModel ? requestedModel : isPaid ? 'sonnet' : 'haiku';
+  // Capability flag for the heavy lane. Today this is exactly isPaid; the
+  // future free-tier Sonnet quota will OR in `hasRemainingSonnetQuota` here.
+  // The client no longer chooses a model — body.selectedModel is ignored.
+  const canEscalate = isPaid;
 
   // Cached for 5 min — see lib/chat/registry-cache.ts
   const registry = await getRegistryContext(supabase);
@@ -570,16 +569,56 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
       const encoder = new StreamEncoder(controller);
 
       waitUntil((async () => {
-        const result = await runBrain({
+        const commonInput = {
           turns,
           workflow: previousWorkflow,
           registry,
           encoder,
           attachedImageUrls,
-          model,
           nodeRefs,
           characterRefs,
-        });
+        };
+
+        let result;
+        if (!canEscalate) {
+          // Free tier: unchanged behavior — Haiku, full tools, legacy heuristic.
+          result = await runBrain({
+            ...commonInput,
+            model: 'haiku',
+            allowEscalate: false,
+            thinkingMode: 'heuristic',
+          });
+        } else if (planAnswer?.action === 'feedback') {
+          // Plan refinement needs propose_plan + reasoning → straight to heavy lane.
+          result = await runBrain({
+            ...commonInput,
+            model: 'sonnet',
+            allowEscalate: false,
+            thinkingMode: 'on',
+          });
+        } else {
+          // Fast lane: Haiku, no thinking, fast tools + escalate.
+          result = await runBrain({
+            ...commonInput,
+            model: 'haiku',
+            tools: FAST_LANE_TOOLS,
+            allowEscalate: true,
+            thinkingMode: 'off',
+          });
+          if (result.escalated) {
+            // Hand off to the heavy lane in the SAME response stream.
+            encoder.send({ type: 'switching' });
+            result = await runBrain({
+              ...commonInput,
+              model: 'sonnet',
+              allowEscalate: false,
+              thinkingMode: 'on',
+            });
+          }
+        }
+
+        // Tell the client which model actually produced the answer (for the badge).
+        encoder.send({ type: 'model', model: result.model });
 
         if (sessionId && (result.hadAnyOutput || result.clarification || result.plan) && messages?.length > 0) {
           const lastUserMsg = messages[messages.length - 1];
@@ -633,6 +672,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                   usage: result.usage || null,
                   clarification: result.clarification || null,
                   plan: result.plan || null,
+                  model: result.model,
                 },
                 status: 'completed',
                 created_at: new Date(Date.now() + 1000).toISOString()
