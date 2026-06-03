@@ -464,6 +464,11 @@ export async function dispatchTool(state: ToolHandlerState, name: ToolName, args
       // Reached only if the brain forwards it here by mistake; treat as a no-op,
       // mirroring the ask_clarification handling above.
       return { success: true };
+    case 'escalate':
+      // Handled directly by the brain (see brain.ts) — hands the turn to the
+      // heavy lane and never patches the workflow. Reached only if forwarded
+      // here by mistake; treat as a no-op like the cases above.
+      return { success: true };
     default: {
       const _exhaustive: never = name;
       return { success: false, error: `Unknown tool: ${_exhaustive}` };

@@ -338,4 +338,36 @@ Always batch every layer update for this request into ONE call's updates[] array
   },
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan';
+/**
+ * The cheap "fast lane" (Haiku) offers this tool instead of propose_plan.
+ * Calling it hands the turn off to Sonnet+thinking. It must be the model's
+ * FIRST action — see ESCALATE_GUIDANCE in prompt/system.ts. The `reason` is
+ * for logs/observability only; it is never shown to the user.
+ */
+export const ESCALATE_TOOL: AnthropicTool = {
+  name: 'escalate',
+  description:
+    'Hand this turn to a more capable model. Call this — as your FIRST and ONLY ' +
+    'action, before any text or other tool — when the request needs multi-step ' +
+    'reasoning, a plan/approval, or a large or ambiguous build. Do NOT call it for ' +
+    'simple single-node adds, config tweaks, model swaps, or removals — just do those.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      reason: { type: 'string', maxLength: 200, description: 'Why this needs deeper reasoning (one short phrase).' },
+    },
+    required: ['reason'],
+  },
+};
+
+/**
+ * Fast-lane toolset: the workflow-mutation + clarification tools, plus
+ * `escalate`, MINUS `propose_plan` (planning is a heavy-lane job — the model
+ * escalates instead of planning on the cheap tier).
+ */
+export const FAST_LANE_TOOLS: AnthropicTool[] = [
+  ...TOOLS.filter(t => t.name !== 'propose_plan'),
+  ESCALATE_TOOL,
+];
+
+export type ToolName = 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan' | 'escalate';

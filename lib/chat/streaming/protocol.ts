@@ -54,6 +54,9 @@ export interface PlanPayload {
  *   [tasks_complete]
  *   [usage]
  *   [done]
+ *
+ *   [switching?]       ← emitted once if the fast lane escalates to the heavy lane
+ *   [model]            ← final model that produced the answer ('haiku' | 'sonnet')
  */
 export type StreamEvent =
   | { type: 'thinking_start' }
@@ -69,6 +72,8 @@ export type StreamEvent =
   | { type: 'tasks_complete'; total: number }
   | { type: 'usage'; inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number }
   | { type: 'error'; message: string; recoverable: boolean }
+  | { type: 'switching' }
+  | { type: 'model'; model: 'haiku' | 'sonnet' }
   | { type: 'done' };
 
 export type StreamEventType = StreamEvent['type'];

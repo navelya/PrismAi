@@ -27,6 +27,12 @@ const CAPABILITIES = `CAPABILITIES:
 You can: build new workflows, modify existing ones, answer questions about the system, see images attached to the conversation, reason about the current canvas state, ask short clarifying questions with chip options when a request is genuinely ambiguous, propose a workflow plan for the user to approve before complex builds.
 You cannot: run workflows yourself (the user clicks Run), see runtime outputs from past runs unless they are in the conversation history, access files outside of the user's attachments.`;
 
+const ESCALATE_GUIDANCE = `## When to escalate
+If — and only if — you have the \`escalate\` tool available:
+- Call \`escalate\` as your FIRST action (before any text or other tool) when the request needs multi-step reasoning, a plan the user should approve, or a large/ambiguous multi-node build.
+- Do NOT escalate for simple work you can do directly: a single node add, a config tweak, a model swap, a rename, a removal, or answering a question. Just do it.
+- You will not always have this tool. When you don't, proceed normally — never mention escalation to the user.`;
+
 const TOOL_RULES = `TOOL USAGE RULES:
 - Use tools whenever the user asks for a workflow change. Don't use them for pure questions or explanations.
 - Explain in 1-2 sentences before the tool call. Do not output numbered plans before tool calls.
@@ -262,6 +268,7 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
     CRITICAL_RULES,
     formatRegistryContext(input.registry),
     TOOL_RULES,
+    ESCALATE_GUIDANCE,
     GROUPING,
     TASK_SPLITTING,
     USE_CASE_ARCHETYPES,
