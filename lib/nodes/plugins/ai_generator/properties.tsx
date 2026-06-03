@@ -79,6 +79,8 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const models = useAppStore(state => state.models);
     const triggerRunFromNode = useAppStore(state => state.triggerRunFromNode);
     const isModelsLoading = useAppStore(state => state.isModelsLoading);
+    // View-only (collaboration viewer): the run button is grayed + disabled.
+    const isViewer = useAppStore(state => state.collabRole) === 'viewer';
 
     const filteredModels = config.node_type_id 
         ? models.filter(m => m.node_type_id === config.node_type_id)
@@ -317,9 +319,9 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                 </div>
 
                 <button
-                    onClick={() => nodeId && triggerRunFromNode(nodeId, 'solo')}
-                    disabled={!nodeId}
-                    className="h-7 px-2.5 bg-accent-primary hover:bg-accent-primary/90 rounded-lg flex items-center justify-center gap-1 text-white font-bold uppercase tracking-wider text-[10px] shadow-md shadow-accent-primary/20 transition-all disabled:opacity-30 active:scale-95 shrink-0"
+                    onClick={() => { if (!isViewer && nodeId) triggerRunFromNode(nodeId, 'solo'); }}
+                    disabled={!nodeId || isViewer}
+                    className="h-7 px-2.5 bg-accent-primary hover:bg-accent-primary/90 rounded-lg flex items-center justify-center gap-1 text-white font-bold uppercase tracking-wider text-[10px] shadow-md shadow-accent-primary/20 transition-all disabled:opacity-30 disabled:pointer-events-none active:scale-95 shrink-0"
                 >
                     <Play className="w-2.5 h-2.5 fill-white" />
                     Run

@@ -284,9 +284,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         return false;
     });
 
-    // Read-only canvas (mobile preview): suppress the per-node hover action
-    // toolbar (duplicate/delete/etc.) since editing is disabled.
-    const isReadOnlyCanvas = useAppStore((state) => state.isMobileCanvasOpen);
+    // Read-only canvas: suppress the per-node hover action toolbar
+    // (duplicate/delete/etc.) when editing is disabled — either the mobile
+    // canvas preview or a collaboration viewer (view-only) session.
+    const isReadOnlyCanvas = useAppStore((state) => state.isMobileCanvasOpen || state.collabRole === 'viewer');
 
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';

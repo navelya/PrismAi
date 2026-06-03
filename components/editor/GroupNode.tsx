@@ -139,18 +139,24 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     const isHoverTarget = hoveredGroupId === id;
     const updateNodeConfig = useAppStore((s) => s.updateNodeConfig);
     const ungroupNode = useAppStore((s) => s.ungroupNode);
+    // View-only (collaboration viewer): no group editing — rename, icon/color
+    // picker, and ungroup are all disabled.
+    const isViewer = useAppStore((s) => s.collabRole === 'viewer');
 
     const handleIconChange = useCallback((icon: string) => {
+        if (isViewer) return;
         updateNodeConfig(id, { ...data.config, icon });
-    }, [id, data.config, updateNodeConfig]);
+    }, [id, data.config, updateNodeConfig, isViewer]);
 
     const handleColorChange = useCallback((color: 'neutral' | 'indigo' | 'emerald' | 'rose' | 'amber' | 'sky') => {
+        if (isViewer) return;
         updateNodeConfig(id, { ...data.config, color });
-    }, [id, data.config, updateNodeConfig]);
+    }, [id, data.config, updateNodeConfig, isViewer]);
 
     const handleUngroup = useCallback(() => {
+        if (isViewer) return;
         ungroupNode(id);
-    }, [id, ungroupNode]);
+    }, [id, ungroupNode, isViewer]);
 
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(data.label || '');
@@ -373,20 +379,27 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                             type="button"
                             onClick={(e) => {
                                 e.stopPropagation();
+                                if (isViewer) return;
                                 setIsEditingTitle(true);
                             }}
-                            className="text-content-primary text-xs font-medium px-1 cursor-text"
+                            className={
+                                "text-content-primary text-xs font-medium px-1 " +
+                                (isViewer ? "cursor-default" : "cursor-text")
+                            }
                         >
                             {data.label || 'Group'}
                         </button>
                     )}
-                    <GroupHeaderToolbar
-                        currentIcon={iconName}
-                        currentColor={colorToken}
-                        onIconChange={handleIconChange}
-                        onColorChange={handleColorChange}
-                        onUngroup={handleUngroup}
-                    />
+                    {/* Icon / color / ungroup menu — hidden in view-only. */}
+                    {!isViewer && (
+                        <GroupHeaderToolbar
+                            currentIcon={iconName}
+                            currentColor={colorToken}
+                            onIconChange={handleIconChange}
+                            onColorChange={handleColorChange}
+                            onUngroup={handleUngroup}
+                        />
+                    )}
                 </div>
             </NodeToolbar>
 

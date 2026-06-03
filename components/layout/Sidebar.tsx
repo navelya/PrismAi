@@ -85,6 +85,18 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                     const { sessions: data } = await sessionsApi.list();
                     if (data) {
                         setSessions(data);
+                        // Seed last-known roles so navigating into any listed
+                        // session (own or shared) resolves its edit affordances
+                        // without a flash. The server still confirms on open.
+                        const roleMap: Record<string, 'owner' | 'editor' | 'viewer'> = {};
+                        for (const s of data) {
+                            if (s?.id && (s.role === 'owner' || s.role === 'editor' || s.role === 'viewer')) {
+                                roleMap[s.id] = s.role;
+                            }
+                        }
+                        if (Object.keys(roleMap).length > 0) {
+                            useAppStore.getState().setSessionRoles(roleMap);
+                        }
                     }
                 } catch (error) {
                     console.error("[Sidebar] Fetch failed", error);

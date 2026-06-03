@@ -69,6 +69,8 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 
     const triggerRunFromNode = useAppStore(state => state.triggerRunFromNode);
     const updateNodeConfig = useAppStore(state => state.updateNodeConfig);
+    // View-only (collaboration viewer): the run button is grayed + disabled.
+    const isViewer = useAppStore(state => state.collabRole) === 'viewer';
 
     // The persisted, newest-first collection. Backward-compat: a node saved
     // before this feature has only last_output — surface it as a single-item
@@ -401,16 +403,21 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                         const showCost = dynamicCost > 0;
                         return (
                             <button
+                                disabled={isViewer}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                     e.stopPropagation();
+                                    if (isViewer) return;
                                     triggerRunFromNode(id, 'solo');
                                 }}
                                 className={cn(
                                     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg",
                                     "bg-accent-primary/10 text-accent-primary border border-accent-primary/20 hover:bg-accent-primary hover:text-white hover:scale-[1.02] active:scale-[0.98]",
-                                    status === 'running' && "opacity-50 pointer-events-none"
+                                    status === 'running' && "opacity-50 pointer-events-none",
+                                    // Grayed + non-interactive for viewers (pointer-events-none
+                                    // keeps the default cursor — no block/not-allowed cursor).
+                                    isViewer && "opacity-50 pointer-events-none"
                                 )}
                             >
                                 <div className={cn(

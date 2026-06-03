@@ -446,6 +446,16 @@ export interface CollaboratorPresence {
 
 export interface CollabSlice {
     collabRole: 'owner' | 'editor' | 'viewer' | null;
+    // Last-known role per canvas id, used ONLY to seed `collabRole` optimistically
+    // while loadSession resolves the authoritative role from the server. This
+    // avoids a UI flash when entering a shared workflow: an unknown canvas seeds
+    // to nothing (collabRole stays null → least-privilege UI), while a known own
+    // session seeds to 'owner' so its edit affordances appear immediately. The
+    // server response always overwrites collabRole, so staleness self-heals.
+    // Persisted (unlike collabRole) so the seed survives a cold refresh.
+    sessionRoles: Record<string, 'owner' | 'editor' | 'viewer'>;
+    setSessionRole: (canvasId: string, role: 'owner' | 'editor' | 'viewer') => void;
+    setSessionRoles: (roles: Record<string, 'owner' | 'editor' | 'viewer'>) => void;
     presence: Record<string, CollaboratorPresence>;
     setCollabRole: (r: CollabSlice['collabRole']) => void;
     setPresence: (p: Record<string, CollaboratorPresence>) => void;

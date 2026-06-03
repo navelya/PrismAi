@@ -401,6 +401,11 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         onSend: handleSend,
         onStop: handleStop,
         isLoading,
+        // View-only: disable input + action buttons everywhere ChatInput renders
+        // (including the empty-state). The main render site below additionally
+        // folds isLoading/session-readiness into `disabled`.
+        isViewer,
+        disabled: isViewer,
         onOpenImagePicker: () => imageInputRef.current?.click(),
         onToggleVoice: toggleListening,
         isVoiceActive: isListening,
@@ -541,8 +546,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                         </button>
                     </div>
                 )}
-                <ChatInput ref={textareaRef} {...chatInputProps} disabled={isViewer || isLoading || isLoadingSession || !isChatReady} hasMessages={messages.length > 0} />
-                {isViewer && <p className="text-xs text-content-tertiary px-3 pb-2">View only — ask an editor to make changes.</p>}
+                <ChatInput ref={textareaRef} {...chatInputProps} isViewer={isViewer} disabled={isViewer || isLoading || isLoadingSession || !isChatReady} hasMessages={messages.length > 0} />
             </div>
             {evictionToast && (
                 <Toast

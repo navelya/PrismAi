@@ -3,9 +3,16 @@ import { RootState, CollabSlice } from '../types';
 
 export const createCollabSlice: StateCreator<RootState, [], [], CollabSlice> = (set) => ({
     collabRole: null,
+    sessionRoles: {},
     presence: {},
     peerSelections: {},
     setCollabRole: (r) => set({ collabRole: r }),
+    setSessionRole: (canvasId, role) => set((s) => (
+        s.sessionRoles[canvasId] === role
+            ? s
+            : { sessionRoles: { ...s.sessionRoles, [canvasId]: role } }
+    )),
+    setSessionRoles: (roles) => set((s) => ({ sessionRoles: { ...s.sessionRoles, ...roles } })),
     setPresence: (p) => set({ presence: p }),
     upsertCursor: (userId, cursor) => set((s) => ({
         presence: s.presence[userId]

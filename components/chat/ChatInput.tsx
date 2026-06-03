@@ -66,6 +66,8 @@ interface ChatInputProps {
     value: string;
     onChange: (v: string) => void;
     disabled?: boolean;
+    /** Viewer (view-only) role — disables all action-row buttons + submit. */
+    isViewer?: boolean;
     onSend: () => void;
     onStop: () => void;
     isLoading: boolean;
@@ -91,6 +93,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             value,
             onChange,
             disabled,
+            isViewer = false,
             onSend,
             onStop,
             isLoading,
@@ -321,6 +324,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             <form
                 onSubmit={(e) => {
                     e.preventDefault();
+                    if (isViewer) return;
                     onSend();
                 }}
                 className="relative w-full max-w-3xl mx-auto"
@@ -481,7 +485,8 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     ──────────────────────────────────────────────────────────────── */}
                     <div
                         className={`flex w-full items-center justify-between px-2 pb-2
-                                    ${isMultiLine || attachedImages.length > 0 || isCanvasMode ? '' : 'pt-2'}`}
+                                    ${isMultiLine || attachedImages.length > 0 || isCanvasMode ? '' : 'pt-2'}
+                                    ${isViewer ? 'opacity-40 pointer-events-none' : ''}`}
                     >
                         {/* Left: attachment button + model picker */}
                         <div className="flex items-center gap-1">

@@ -45,7 +45,14 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const isMobileCanvasOpen = useAppStore(s => s.isMobileCanvasOpen);
     const setIsMobileCanvasOpen = useAppStore(s => s.setIsMobileCanvasOpen);
 
-    const isViewer = useAppStore(s => s.collabRole) === 'viewer';
+    // The side window buttons (everything but Chat) require CONFIRMED edit
+    // access. While entering a shared workflow the role is unresolved (null)
+    // until the server responds — we treat that as no-edit so the buttons stay
+    // hidden by default and only appear once an owner/editor role is confirmed.
+    // For the user's own sessions the role is seeded to 'owner' immediately
+    // (see sessionRoles), so they never see this gating.
+    const collabRole = useAppStore(s => s.collabRole);
+    const canEdit = collabRole === 'owner' || collabRole === 'editor';
 
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -72,9 +79,9 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     }, [sessionId]);
 
     const togglePanel = useCallback((panel: ActivePanel) => {
-        // History is read-only for non-owners (panel hides write actions),
-        // so viewers may open it even though other left panels are owner/editor-only.
-        if (isViewer && panel !== 'history') return;
+        // Non-chat panels require confirmed edit access. (The rail already hides
+        // these buttons when !canEdit; this is the defensive backstop.)
+        if (!canEdit) return;
         setActivePanel(prev => (prev === panel ? null : panel));
         // Mark data-fetching panels as mounted on first open so they persist.
         if (panel === 'assets' || panel === 'characters' || panel === 'history') {
@@ -82,7 +89,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
         }
         // Close chat when switching to a left panel
         if (!isCopilotMinimized) setIsCopilotMinimized(true);
-    }, [isViewer, isCopilotMinimized, setIsCopilotMinimized]);
+    }, [canEdit, isCopilotMinimized, setIsCopilotMinimized]);
 
     const isNodeLibraryOpen = activePanel === 'node-library';
     const isAssetsOpen = activePanel === 'assets';
@@ -297,7 +304,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                             isChatOpen={isChatOpen}
                             onChatClick={handleChatToggle}
                             onPanelToggle={togglePanel}
-                            isViewer={isViewer}
+                            canEdit={canEdit}
                         />
                     </motion.div>
                 )}
@@ -351,14 +358,16 @@ interface ToolRailProps {
     isChatOpen: boolean;
     onChatClick: () => void;
     onPanelToggle: (panel: ActivePanel) => void;
-    /** Viewer role — non-chat panel buttons are visually disabled */
-    isViewer?: boolean;
+    /** Confirmed edit access (owner/editor). When false — a viewer OR a shared
+     *  workflow whose role hasn't come back from the server yet — only the chat
+     *  button is shown; the other window buttons appear once edit is confirmed. */
+    canEdit?: boolean;
 }
 
-function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelToggle, isViewer = false }: ToolRailProps) {
+function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelToggle, canEdit = false }: ToolRailProps) {
     type Btn = { id: ActivePanel | 'chat'; label: string; icon: React.ComponentType<{ className?: string }>; onClick: () => void; isChat?: boolean };
 
-    const buttons: Btn[] = [
+    const allButtons: Btn[] = [
         { id: 'chat', label: 'Chat', icon: MessageSquare, onClick: onChatClick, isChat: true },
         { id: 'node-library', label: 'Add Node', icon: Plus, onClick: () => onPanelToggle('node-library') },
         { id: 'assets', label: 'Assets', icon: ImageIcon, onClick: () => onPanelToggle('assets') },
@@ -366,6 +375,11 @@ function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelTogg
         { id: 'templates', label: 'Templates', icon: BookOpen, onClick: () => onPanelToggle('templates') },
         { id: 'history', label: 'History', icon: History, onClick: () => onPanelToggle('history') },
     ];
+
+    // Until edit access is confirmed only the chat button is shown — every other
+    // window button is hidden (not merely disabled). This covers both view-only
+    // (viewer) and the unresolved-role window when entering a shared workflow.
+    const buttons: Btn[] = canEdit ? allButtons : allButtons.filter((b) => b.isChat);
 
     return (
         <div className={cn(
@@ -388,17 +402,14 @@ function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelTogg
                         <div className="relative group">
                             <motion.button
                                 onClick={btn.onClick}
-                                whileTap={isViewer && !btn.isChat && btn.id !== 'history' ? {} : { scale: 0.88 }}
-                                disabled={isViewer && !btn.isChat && btn.id !== 'history'}
+                                whileTap={{ scale: 0.88 }}
                                 className={cn(
                                     'relative flex items-center justify-center w-9 h-9 rounded-xl transition-all duration-200',
-                                    isViewer && !btn.isChat && btn.id !== 'history'
-                                        ? 'opacity-40 cursor-not-allowed text-content-tertiary'
-                                        : isActive
-                                            ? 'bg-accent-primary/15 text-accent-primary'
-                                            : btn.isChat
-                                                ? 'text-accent-primary hover:bg-accent-primary/10'
-                                                : 'text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary'
+                                    isActive
+                                        ? 'bg-accent-primary/15 text-accent-primary'
+                                        : btn.isChat
+                                            ? 'text-accent-primary hover:bg-accent-primary/10'
+                                            : 'text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary'
                                 )}
                                 aria-label={btn.label}
                             >

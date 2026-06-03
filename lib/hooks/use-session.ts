@@ -49,6 +49,7 @@ export function useSession() {
                 // canvas id optimistically so the new session is immediately editable
                 // (and shows no ghost peers) before loadSession re-resolves the role.
                 store.setCollabRole('owner');
+                store.setSessionRole(session.id, 'owner');
                 store.setActiveCanvasId(session.id);
 
                 // Clear workflow and other state for fresh start (false = don't mark dirty)
@@ -88,6 +89,17 @@ export function useSession() {
         store.setIsLoadingSession(true); // Guard auto-save
         store.setActiveSessionId(sessionId);
 
+        // Seed the collab role optimistically from the last-known role for this
+        // canvas so the UI doesn't flash while the server resolves the real role.
+        //   - Known own session   → 'owner' → edit affordances render immediately.
+        //   - Known shared/viewer  → that role → correct from the first frame.
+        //   - Unknown (e.g. a brand-new share link) → leave null → the side
+        //     window buttons stay hidden until the server confirms edit access.
+        // setActiveSessionId just cleared collabRole to null (its safety reset),
+        // so this only ADDS optimism where we have a prior signal.
+        const seededRole = store.sessionRoles[sessionId];
+        if (seededRole) store.setCollabRole(seededRole);
+
         // ── Collaboration: resolve the caller's thread + role + canvas ──────────
         // The open route returns { threadId, canvasId, role } where:
         //   - threadId     = the per-user chat thread (== sessionId for owner)
@@ -116,6 +128,9 @@ export function useSession() {
         // Set the role LAST — setActiveSessionId clears collabRole as part of
         // switching session context, so the real role must be applied after it.
         store.setCollabRole(role);
+        // Remember it (keyed by the URL/canvas id) so the next entry into this
+        // session seeds without a flash.
+        store.setSessionRole(sessionId, role);
 
         try {
             // ── Parallel fetches ──────────────────────────────────────────────────

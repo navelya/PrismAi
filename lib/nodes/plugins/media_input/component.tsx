@@ -34,6 +34,8 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
     const [isUploading, setIsUploading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
+    // View-only (collaboration viewer): no add/remove of files.
+    const isViewer = useAppStore((state) => state.collabRole) === 'viewer';
 
     const getMediaUrl = (img: any) => {
         if (typeof img === 'string') return img;
@@ -64,6 +66,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
     // Handle file upload
     const handleFiles = useCallback(async (files: FileList | null) => {
+        if (isViewer) return;
         if (!files || files.length === 0 || !activeSessionId) return;
 
         setIsUploading(true);
@@ -119,6 +122,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
+        if (isViewer) return;
 
         // Support dragging from AssetsPanel directly onto an existing media_input node.
         const rawData = e.dataTransfer.getData('application/reactflow');
@@ -149,6 +153,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
     const removeImage = async (e: React.MouseEvent, index: number) => {
         e.stopPropagation();
         e.preventDefault();
+        if (isViewer) return;
 
         const imageToRemove = images[index];
 
@@ -196,11 +201,13 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                 {images.length === 0 ? (
                     <button
                         type="button"
-                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isViewer}
+                        onClick={() => { if (!isViewer) fileInputRef.current?.click(); }}
                         className={cn(
                             "absolute inset-0 flex flex-col items-center justify-center gap-2 transition-all p-4 text-center",
                             "text-content-tertiary hover:text-accent-primary hover:bg-accent-primary/5",
-                            isDragOver && "text-accent-primary bg-accent-primary/10"
+                            isDragOver && "text-accent-primary bg-accent-primary/10",
+                            isViewer && "pointer-events-none opacity-60"
                         )}
                     >
                         <div className="w-10 h-10 rounded-full bg-surface-primary flex items-center justify-center shadow-sm">
@@ -244,14 +251,16 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                         className="w-full h-full max-w-none max-h-none"
                                     />
                                 )}
-                                <button
-                                    type="button"
-                                    onClick={(e) => removeImage(e, activeImageIndex)}
-                                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                                    className="absolute top-2 left-2 p-1 rounded bg-black/50 text-white opacity-0 group-hover/preview:opacity-100 transition-opacity"
-                                >
-                                    <X className="w-3 h-3" />
-                                </button>
+                                {!isViewer && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => removeImage(e, activeImageIndex)}
+                                        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                        className="absolute top-2 left-2 p-1 rounded bg-black/50 text-white opacity-0 group-hover/preview:opacity-100 transition-opacity"
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             <div className="w-full h-full p-2 overflow-y-auto custom-scrollbar">
@@ -288,25 +297,29 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                                         <Check className="w-3 h-3 text-white" />
                                                     </div>
                                                 )}
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => removeImage(e, index)}
-                                                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                                                    className="absolute top-1 right-1 p-0.5 rounded bg-black/50 text-white opacity-0 hover:bg-red-500 group-hover:opacity-100 transition-opacity"
-                                                    style={{ zIndex: 10 }}
-                                                >
-                                                    <X className="w-2.5 h-2.5" />
-                                                </button>
+                                                {!isViewer && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => removeImage(e, index)}
+                                                        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                                        className="absolute top-1 right-1 p-0.5 rounded bg-black/50 text-white opacity-0 hover:bg-red-500 group-hover:opacity-100 transition-opacity"
+                                                        style={{ zIndex: 10 }}
+                                                    >
+                                                        <X className="w-2.5 h-2.5" />
+                                                    </button>
+                                                )}
                                             </button>
                                         );
                                     })}
-                                    <button
-                                        type="button"
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="aspect-square rounded border border-dashed border-white/10 flex items-center justify-center text-white/20 hover:border-white/20 hover:text-white/40"
-                                    >
-                                        <Plus className="w-4 h-4" />
-                                    </button>
+                                    {!isViewer && (
+                                        <button
+                                            type="button"
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="aspect-square rounded border border-dashed border-white/10 flex items-center justify-center text-white/20 hover:border-white/20 hover:text-white/40"
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         )}

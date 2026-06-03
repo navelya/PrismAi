@@ -14,8 +14,9 @@ interface CanvasToolbarProps {
     isPanMode: boolean;
     onTogglePanMode: (active: boolean) => void;
     isNodesEmpty: boolean;
-    /** View-only mode (mobile canvas preview): hide every edit control
-        (undo/redo, auto-layout, pan mode) — leaving just fit + zoom. */
+    /** View-only mode: hide edit controls (undo/redo, auto-layout) — but the
+        pan (hand) tool stays available since panning is harmless, leaving
+        hand + fit + zoom. */
     readOnly?: boolean;
 }
 
@@ -57,14 +58,16 @@ export function CanvasToolbar({
                             disabled={isNodesEmpty}
                             title="Auto Layout"
                         />
-                        <ToolbarButton
-                            icon={Hand}
-                            onClick={() => onTogglePanMode(!isPanMode)}
-                            active={isPanMode}
-                            title={isPanMode ? 'Exit Pan Mode' : 'Pan Mode'}
-                        />
                     </>
                 )}
+                {/* Pan (hand) tool stays available even in view-only — panning
+                    the canvas is harmless and useful for navigation. */}
+                <ToolbarButton
+                    icon={Hand}
+                    onClick={() => onTogglePanMode(!isPanMode)}
+                    active={isPanMode}
+                    title={isPanMode ? 'Exit Pan Mode' : 'Pan Mode'}
+                />
                 <ToolbarButton
                     icon={Maximize2}
                     onClick={() => fitView({ duration: 800, padding: 0.3 })}
