@@ -100,6 +100,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Claude Code runtime lock (regenerated; never commit)
+.claude/scheduled_tasks.lock
+
 gemini_error.txt
 test_results.txt
 full_models_list.json
