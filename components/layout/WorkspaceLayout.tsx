@@ -4,7 +4,7 @@ import React, { useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     MessageSquare, Minimize2, Plus,
-    Image as ImageIcon, BookOpen, Users
+    Image as ImageIcon, BookOpen, Users, History
 } from 'lucide-react';
 import SharedWorkflowEditor from '@/components/editor/SharedWorkflowEditor';
 import { useAppStore } from '@/lib/store/app-store';
@@ -12,6 +12,7 @@ import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { Workflow } from '@/lib/nodes/types';
 import { AssetsPanel } from '@/components/editor/AssetsPanel';
 import { CharactersPanel } from '@/components/editor/CharactersPanel';
+import { HistoryPanel } from '@/components/editor/HistoryPanel';
 import { TemplatesModal } from '@/components/editor/TemplatesModal';
 import NodeLibraryPanel from '@/components/editor/NodeLibraryPanel';
 
@@ -31,7 +32,7 @@ const SIDEBAR_WIDTH = 340;
 const PANEL_W = 320; // left-side panel width
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type ActivePanel = 'node-library' | 'assets' | 'characters' | 'templates' | null;
+type ActivePanel = 'node-library' | 'assets' | 'characters' | 'templates' | 'history' | null;
 
 export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult, sessionId }: WorkspaceLayoutProps) {
     const isMobile = useIsMobile();
@@ -74,7 +75,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
         if (isViewer) return;
         setActivePanel(prev => (prev === panel ? null : panel));
         // Mark data-fetching panels as mounted on first open so they persist.
-        if (panel === 'assets' || panel === 'characters') {
+        if (panel === 'assets' || panel === 'characters' || panel === 'history') {
             setMountedPanels(prev => (prev.has(panel) ? prev : new Set(prev).add(panel)));
         }
         // Close chat when switching to a left panel
@@ -85,7 +86,8 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const isAssetsOpen = activePanel === 'assets';
     const isCharactersOpen = activePanel === 'characters';
     const isTemplatesOpen = activePanel === 'templates';
-    const hasLeftPanel = isNodeLibraryOpen || isAssetsOpen || isCharactersOpen;
+    const isHistoryOpen = activePanel === 'history';
+    const hasLeftPanel = isNodeLibraryOpen || isAssetsOpen || isCharactersOpen || isHistoryOpen;
 
     // Chat is open when copilot is not minimized (in canvas mode)
     const isChatOpen = isCanvasMode && !isCopilotMinimized;
@@ -253,6 +255,22 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 </motion.div>
             )}
 
+            {/* ── History Panel ──────────────────────────────────────────────── */}
+            {isCanvasMode && mountedPanels.has('history') && (
+                <motion.div
+                    key="history-panel"
+                    className="marquee-passthrough absolute left-4 bottom-4 z-[55]"
+                    style={{ width: `${PANEL_W}px`, top: `${TOP_BAR_OFFSET}px` }}
+                    initial={{ opacity: 0, x: -24 }}
+                    animate={isHistoryOpen
+                        ? { opacity: 1, x: 0, pointerEvents: 'auto' as any }
+                        : { opacity: 0, x: -24, pointerEvents: 'none' as any }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                >
+                    <HistoryPanel onClose={() => setActivePanel(null)} />
+                </motion.div>
+            )}
+
             {/* ── LAYER 3c · Templates Modal ─────────────────────────────────── */}
             <TemplatesModal
                 isOpen={isCanvasMode && isTemplatesOpen}
@@ -344,6 +362,7 @@ function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelTogg
         { id: 'assets', label: 'Assets', icon: ImageIcon, onClick: () => onPanelToggle('assets') },
         { id: 'characters', label: 'Characters', icon: Users, onClick: () => onPanelToggle('characters') },
         { id: 'templates', label: 'Templates', icon: BookOpen, onClick: () => onPanelToggle('templates') },
+        { id: 'history', label: 'History', icon: History, onClick: () => onPanelToggle('history') },
     ];
 
     return (
