@@ -76,7 +76,6 @@ interface ChatInputProps {
     isCanvasMode: boolean;
     attachedImages: string[];
     onRemoveAttachedImage: (index: number) => void;
-    isPaid?: boolean;
     hasMessages?: boolean;
     /** Reports the characters referenced inline in the prompt (@Name tokens),
      *  in order of appearance. The roster above the input is read-only — the
@@ -100,7 +99,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             isCanvasMode,
             attachedImages,
             onRemoveAttachedImage,
-            isPaid = false,
             hasMessages = false,
             onMentionedCharactersChange,
         },
@@ -449,7 +447,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     />
 
                     {/* ── Action row ─────────────────────────────────────────────────
-                         Full-screen (!isCanvasMode):  [ + ] [ ModelPicker ]  ···  [ mic ] [ send ]
+                         Full-screen (!isCanvasMode):  [ + ] [ Auto ]  ···  [ mic ] [ send ]
                          Canvas / minimized (isCanvasMode): textarea goes full width,
                            then this row appears beneath it.
                     ──────────────────────────────────────────────────────────────── */}
