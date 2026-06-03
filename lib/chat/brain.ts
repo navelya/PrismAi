@@ -335,7 +335,14 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               if (input.allowEscalate && accumulatedPatch === null) {
                 escalated = true;
                 calledTerminalTool = true; // stop the loop; caller re-runs on Sonnet
+                break;
               }
+              // Not honored (escalate came AFTER an edit, or this lane can't
+              // escalate). The model still emitted an escalate tool_use block,
+              // so we must satisfy it or the continuation turn is malformed
+              // (Anthropic 400: tool_use without matching tool_result). Mark it
+              // done and let the model finish the turn itself.
+              pendingTools.push({ id: event.id, success: true });
               break;
             }
 

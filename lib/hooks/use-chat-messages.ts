@@ -504,6 +504,13 @@ export function useChatMessages({
                     });
                 }
                 else if (parsed.type === 'switching') {
+                    // The fast lane is handing off to the heavy lane, which
+                    // re-runs the turn from scratch. Discard any fast-lane
+                    // preamble already streamed so the live bubble matches what
+                    // gets persisted (only the heavy-lane output).
+                    networkText = '';
+                    displayedText = '';
+                    useAppStore.getState().updateMessage(assistantMsgId, { content: '' });
                     setStatusMessage('Thinking deeper…');
                 }
                 else if (parsed.type === 'clarification') {
