@@ -21,7 +21,6 @@ import {
 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
-import { ModelPicker } from './ModelPicker';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { SelectionPillRow } from './SelectionPillRow';
 import { useCharacters } from '@/lib/hooks/use-characters';
@@ -78,8 +77,6 @@ interface ChatInputProps {
     attachedImages: string[];
     onRemoveAttachedImage: (index: number) => void;
     isPaid?: boolean;
-    selectedModel?: 'haiku' | 'sonnet';
-    onModelSelect?: (m: 'haiku' | 'sonnet') => void;
     hasMessages?: boolean;
     /** Reports the characters referenced inline in the prompt (@Name tokens),
      *  in order of appearance. The roster above the input is read-only — the
@@ -104,8 +101,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             attachedImages,
             onRemoveAttachedImage,
             isPaid = false,
-            selectedModel = 'sonnet',
-            onModelSelect,
             hasMessages = false,
             onMentionedCharactersChange,
         },
@@ -117,9 +112,8 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
         const [isMultiLine, setIsMultiLine] = useState(false);
         // Single source of truth for which footer dropdown is open. Opening one
         // automatically closes the other so they can't both be visible.
-        const [openMenu, setOpenMenu] = useState<'none' | 'plus' | 'model'>('none');
+        const [openMenu, setOpenMenu] = useState<'none' | 'plus'>('none');
         const plusTriggerRef = useRef<HTMLButtonElement>(null);
-        const modelTriggerRef = useRef<HTMLButtonElement>(null);
 
         const { characters, sharedCharacters, createCharacter, createDraft } = useCharacters({ includeShared: true });
         const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = picker closed
@@ -139,36 +133,12 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             return frag;
         }, []);
 
-        /**
-         * Radix Select disables pointer events on the page while open, so a
-         * click on the *other* dropdown's trigger never fires the trigger's
-         * click handler. We bridge the two by inspecting the outside-pointer-down
-         * target: if it landed on the sibling trigger, switch which menu is
-         * open in the same interaction.
-         *
-         * Functional setState ensures we don't fight with Radix's own
-         * onOpenChange(false) firing right after — we only collapse to 'none'
-         * if the menu is still showing the dropdown that just dismissed.
-         */
-        const handlePlusOutside = (e: CustomEvent<{ originalEvent: PointerEvent }>) => {
-            const target = e.detail?.originalEvent?.target as Node | null | undefined;
-            if (target && modelTriggerRef.current?.contains(target)) {
-                setOpenMenu('model');
-            }
-        };
-        const handleModelOutside = (e: CustomEvent<{ originalEvent: PointerEvent }>) => {
-            const target = e.detail?.originalEvent?.target as Node | null | undefined;
-            if (target && plusTriggerRef.current?.contains(target)) {
-                setOpenMenu('plus');
-            }
-        };
+        // Functional setState ensures we don't fight with Radix's own
+        // onOpenChange(false) firing right after — we only collapse to 'none'
+        // if the menu is still showing the dropdown that just dismissed.
         const handlePlusOpenChange = (o: boolean) => {
             if (o) setOpenMenu('plus');
             else setOpenMenu(prev => (prev === 'plus' ? 'none' : prev));
-        };
-        const handleModelOpenChange = (o: boolean) => {
-            if (o) setOpenMenu('model');
-            else setOpenMenu(prev => (prev === 'model' ? 'none' : prev));
         };
 
         // Internal refs for the ghost element (single-line width probe) and the
@@ -501,23 +471,20 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                                     }}
                                     open={openMenu === 'plus'}
                                     onOpenChange={handlePlusOpenChange}
-                                    onPointerDownOutside={handlePlusOutside}
                                     triggerNode={<PlusTriggerButton ref={plusTriggerRef} />}
                                 />
                             </div>
 
-                            {/* Model picker — same Select dropdown, controlled */}
-                            {onModelSelect && (
-                                <ModelPicker
-                                    selectedModel={selectedModel}
-                                    onSelect={onModelSelect}
-                                    isPaid={isPaid}
-                                    open={openMenu === 'model'}
-                                    onOpenChange={handleModelOpenChange}
-                                    onPointerDownOutside={handleModelOutside}
-                                    triggerRef={modelTriggerRef}
-                                />
-                            )}
+                            {/* Model is chosen automatically server-side. */}
+                            <Tooltip content="Model is selected automatically" position="top">
+                                <span
+                                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-secondary text-content-tertiary text-xs select-none"
+                                    aria-label="Automatic model selection"
+                                >
+                                    <Sparkles className="w-3.5 h-3.5 text-accent-primary" />
+                                    Auto
+                                </span>
+                            </Tooltip>
                         </div>
 
                         {/* Right: voice + send/stop */}

@@ -30,6 +30,8 @@ export interface Message {
         thinkingTokens: number;
         costUsd: number;
     };
+    /** Which model produced this assistant message ('haiku' = fast, 'sonnet' = deep). */
+    model?: 'haiku' | 'sonnet';
     // Clarification chip card (assistant turn): set when the brain emits
     // a `clarification` stream event for this message.
     clarification?: { options: string[] };

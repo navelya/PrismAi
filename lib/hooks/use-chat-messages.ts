@@ -403,7 +403,6 @@ export function useChatMessages({
                     sessionId: activeSessionId,
                     previousWorkflow: useAppStore.getState().currentWorkflow,
                     attachedImages: imagesToSend,
-                    selectedModel: useAppStore.getState().selectedChatModel,
                     clarificationAnswer: resolvedClarificationAnswer,
                     planAnswer: resolvedPlanAnswer,
                     userMessageId: userMsgId,
@@ -498,6 +497,14 @@ export function useChatMessages({
                             costUsd: parsed.costUsd,
                         },
                     });
+                }
+                else if (parsed.type === 'model') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        model: parsed.model === 'haiku' || parsed.model === 'sonnet' ? parsed.model : undefined,
+                    });
+                }
+                else if (parsed.type === 'switching') {
+                    setStatusMessage('Thinking deeper…');
                 }
                 else if (parsed.type === 'clarification') {
                     useAppStore.getState().updateMessage(assistantMsgId, {

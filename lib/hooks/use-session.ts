@@ -239,6 +239,7 @@ export function useSession() {
                     const metadata = (msg.metadata ?? {}) as {
                         thinking?: string | null;
                         usage?: any;
+                        model?: string | null;
                         clarification?: { options: string[] } | null;
                         clarification_answer?: { questionMessageId: string; chosenIndex: number | null } | null;
                         plan?: {
@@ -276,6 +277,9 @@ export function useSession() {
                         workflow: messageWorkflow, // Attach snapshot if available
                         thinking: metadata.thinking ?? '',
                         usage: metadata.usage ?? null,
+                        model: metadata.model === 'haiku' || metadata.model === 'sonnet'
+                            ? metadata.model
+                            : undefined,
                     };
 
                     if (msg.role === 'assistant' && metadata.clarification?.options) {

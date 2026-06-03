@@ -413,8 +413,6 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         attachedImages,
         onRemoveAttachedImage: removeAttachedImage,
         isPaid,
-        selectedModel: effectiveModel,
-        onModelSelect: setSelectedChatModel,
         hasMessages: messages.length > 0,
         onMentionedCharactersChange: setMentionedCharacters,
     };

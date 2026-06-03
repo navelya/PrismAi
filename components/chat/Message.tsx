@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Bot, User, Pen, AlertTriangle, Maximize2 } from 'lucide-react';
+import { Bot, User, Pen, AlertTriangle, Maximize2, Zap, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -35,6 +35,7 @@ interface Message {
     thinking?: string;
     isThinking?: boolean;
     thinkingDurationMs?: number;
+    model?: 'haiku' | 'sonnet';
     clarification?: { options: string[] };
     clarificationAnswer?: { chosenIndex: number | null; text: string };
     plan?: {
@@ -329,6 +330,18 @@ export const Message = React.memo(function Message({
                             isStreaming={(message.status === 'running' || message.isThinking === true)}
                             durationMs={message.thinkingDurationMs}
                         />
+                    )}
+
+                    {message.type === 'assistant' && message.model && (
+                        <div
+                            className="flex items-center gap-1 mb-1 text-[10px] text-content-tertiary select-none"
+                            title={message.model === 'sonnet' ? 'Handled by Sonnet (deep)' : 'Handled by Haiku (fast)'}
+                        >
+                            {message.model === 'sonnet'
+                                ? <Sparkles className="w-3 h-3 text-accent-primary" />
+                                : <Zap className="w-3 h-3 text-content-tertiary" />}
+                            <span>{message.model === 'sonnet' ? 'Deep' : 'Fast'}</span>
+                        </div>
                     )}
 
                     {message.content ? (
