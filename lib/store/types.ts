@@ -152,6 +152,7 @@ export interface WorkflowSlice {
     future: Workflow[];
     undo: () => void;
     redo: () => void;
+    clearHistory: () => void;
     canUndo: () => boolean;
     canRedo: () => boolean;
     takeSnapshot: () => void;

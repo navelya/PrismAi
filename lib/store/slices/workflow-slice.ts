@@ -174,6 +174,8 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         });
     },
 
+    clearHistory: () => set({ past: [], future: [] }),
+
     canUndo: () => get().past.length > 0,
     canRedo: () => get().future.length > 0,
 
