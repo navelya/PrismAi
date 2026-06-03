@@ -9,6 +9,7 @@ import { STAGING_DELAY_MS } from '@/lib/chat/config';
 import { MAX_NODE_REFS, type NodeRef } from '@/lib/utils/selection-refs';
 import { sanitizeMentionedCharacterIds, type CharacterSnapshot } from '@/lib/utils/character-refs';
 import { getAuthenticatedUser } from '@/lib/api/auth';
+import { createAutoVersion } from '@/lib/db/versions';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
@@ -177,6 +178,11 @@ async function handlePlanApprove(opts: {
               }) as any)
             );
             if (result.patch) {
+              try {
+                await createAutoVersion(supabase as any, canvasId, baseWorkflow, null);
+              } catch (verr) {
+                console.error('[chat] auto-version capture (approve) failed:', verr);
+              }
               dbOps.push(
                 Promise.resolve(supabase.from('sessions').update({
                   canvas_state: { nodes: state.workflow.nodes, edges: state.workflow.edges },
@@ -234,6 +240,15 @@ async function handlePlanApprove(opts: {
               },
             })
             .eq('id', planAnswer.planMessageId);
+
+          // Capture the PRE-edit graph as an auto-version before the first
+          // task mutates state.workflow. The tasks loop overwrites canvas_state
+          // incrementally, so we snapshot once here before any task runs.
+          try {
+            await createAutoVersion(supabase as any, canvasId, baseWorkflow, null);
+          } catch (verr) {
+            console.error('[chat] auto-version capture (tasks) failed:', verr);
+          }
 
           let failed = false;
           let failedTaskId: string | null = null;
@@ -624,6 +639,19 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           }
 
           if (result.accumulatedPatch) {
+            // Capture the PRE-edit graph as an auto-version before overwriting.
+            // Service-role client → bypasses owner-only RLS (an editor may be
+            // driving this turn). Never let a version failure break the turn.
+            try {
+              await createAutoVersion(
+                supabase as any,
+                canvasId,
+                previousWorkflow,
+                auth.user?.id ?? null
+              );
+            } catch (verr) {
+              console.error('[chat] auto-version capture failed:', verr);
+            }
             dbOps.push(
               Promise.resolve(supabase.from('sessions').update({
                 canvas_state: { nodes: result.finalWorkflow.nodes, edges: result.finalWorkflow.edges },
