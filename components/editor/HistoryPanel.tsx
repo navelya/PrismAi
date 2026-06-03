@@ -27,6 +27,7 @@ function relativeTime(iso: string): string {
 export function HistoryPanel({ onClose }: HistoryPanelProps) {
     const { versions, loading, createCheckpoint, restore, remove } = useVersions();
     const collabRole = useAppStore((s) => s.collabRole);
+    // null = non-collab session (user's own canvas) → treat as owner
     const isOwner = collabRole !== 'editor' && collabRole !== 'viewer';
     const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -36,19 +37,38 @@ export function HistoryPanel({ onClose }: HistoryPanelProps) {
     const handleCheckpoint = async () => {
         const label = window.prompt('Name this checkpoint:', 'Checkpoint');
         if (label == null) return;
-        await createCheckpoint(label.trim() || 'Checkpoint');
+        try {
+            await createCheckpoint(label.trim() || 'Checkpoint');
+        } catch (err) {
+            console.error('[HistoryPanel] createCheckpoint failed:', err);
+            alert('Failed to save checkpoint. Please try again.');
+        }
     };
 
     const handleRestore = async (v: WorkflowVersion) => {
         if (!window.confirm('Restore this version? Your current canvas will be saved as a version first, then replaced.')) return;
         setBusyId(v.id);
-        try { await restore(v.id); } finally { setBusyId(null); }
+        try {
+            await restore(v.id);
+        } catch (err) {
+            console.error('[HistoryPanel] restore failed:', err);
+            alert('Failed to restore version. Please try again.');
+        } finally {
+            setBusyId(null);
+        }
     };
 
     const handleDelete = async (v: WorkflowVersion) => {
         if (!window.confirm('Delete this checkpoint?')) return;
         setBusyId(v.id);
-        try { await remove(v.id); } finally { setBusyId(null); }
+        try {
+            await remove(v.id);
+        } catch (err) {
+            console.error('[HistoryPanel] delete failed:', err);
+            alert('Failed to delete checkpoint. Please try again.');
+        } finally {
+            setBusyId(null);
+        }
     };
 
     return (
