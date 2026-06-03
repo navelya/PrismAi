@@ -281,6 +281,15 @@ export function useChatMessages({
             activeSessionId = crypto.randomUUID();
             useAppStore.getState().setActiveSessionId(activeSessionId);
 
+            // This freshly-created session is owned by the current user.
+            // setActiveSessionId above already cleared any stale collab role/peers
+            // from a previously-open shared (viewer) workflow; loadSession is then
+            // SKIPPED for this session (it carries optimistic messages — see
+            // app/chat/[id]/page.tsx), so set 'owner' + the canvas id here or the
+            // user is stuck read-only with ghost peers until a refresh.
+            useAppStore.getState().setCollabRole('owner');
+            useAppStore.getState().setActiveCanvasId(activeSessionId);
+
             // Background initialization
             sessionCreationPromise = sessionsApi.create('', activeSessionId).catch(err => console.error("[Session Create] Error:", err));
             sessionsApi.generateTitle({

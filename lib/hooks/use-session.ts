@@ -43,6 +43,14 @@ export function useSession() {
                 // Set active session to the new session ID
                 store.setActiveSessionId(session.id);
 
+                // A brand-new session is owned by its creator. setActiveSessionId
+                // above already cleared any stale collab role/peers carried over
+                // from a previously-open shared (viewer) workflow; set 'owner' + the
+                // canvas id optimistically so the new session is immediately editable
+                // (and shows no ghost peers) before loadSession re-resolves the role.
+                store.setCollabRole('owner');
+                store.setActiveCanvasId(session.id);
+
                 // Clear workflow and other state for fresh start (false = don't mark dirty)
                 store.setCurrentWorkflow(null, false);
                 store.clearMessages();
@@ -99,13 +107,15 @@ export function useSession() {
             // Fallback (e.g. sessionId is a legacy/own session or open route unavailable):
             // treat it as both the thread and the canvas (single-user behavior).
         }
-        store.setCollabRole(role);
 
         // Update the active session id to the resolved thread id so that:
         //   - Chat messages + the realtime channel are scoped to the per-user thread.
         //   - The stale-guard below uses sessionId (the URL param) not threadId, which
         //     is fine because the URL never reflects the internal thread rewrite.
         store.setActiveSessionId(threadId);
+        // Set the role LAST — setActiveSessionId clears collabRole as part of
+        // switching session context, so the real role must be applied after it.
+        store.setCollabRole(role);
 
         try {
             // ── Parallel fetches ──────────────────────────────────────────────────

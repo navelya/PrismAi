@@ -110,7 +110,17 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             activeSessionId: sessionId,
             isWorkflowDirty: false,
             past: [],
-            future: []
+            future: [],
+            // Collab role/presence are scoped to ONE canvas. Switching session
+            // context must clear them here — the single choke point every session
+            // change flows through — so a prior session's 'viewer' role can never
+            // leak forward and lock the user out of (or show ghost peers on) their
+            // own workflow. loadSession sets the real role immediately after (it
+            // calls this, then setCollabRole last); the optimistic-create paths
+            // set 'owner' right after. Default (null) is non-blocking = editable.
+            collabRole: null,
+            presence: {},
+            peerSelections: {},
         });
     },
 
@@ -180,8 +190,24 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
     canRedo: () => get().future.length > 0,
 
     onNodesChange: (changes) => {
-        const { currentWorkflow, nodeOutputs } = get();
-        if (!currentWorkflow) return;
+        let { currentWorkflow, nodeOutputs } = get();
+        if (!currentWorkflow) {
+            // A brand-new session starts with currentWorkflow === null — it's only
+            // hydrated to a non-null {nodes:[],edges:[]} by loadSession (which runs
+            // on a page load / navigation, not on optimistic in-app creation). Until
+            // then, EVERY manual node-add funnels through here and silently no-ops,
+            // so the user can't add nodes (or run) until they refresh. Bootstrap an
+            // empty workflow on the first structural ADD so adding works immediately.
+            // Non-add changes (remove/position) have nothing to act on → keep no-op.
+            if (!changes.some(c => c.type === 'add')) return;
+            const s = get();
+            currentWorkflow = {
+                id: s.activeCanvasId || s.activeSessionId || '',
+                name: 'Untitled Workflow',
+                nodes: [],
+                edges: [],
+            } as Workflow;
+        }
 
         // structural changes (add, remove, reset) should trigger a snapshot
         const isStructural = changes.some(c => c.type === 'remove' || c.type === 'add' || c.type === 'reset');

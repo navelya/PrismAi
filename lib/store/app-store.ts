@@ -55,6 +55,14 @@ export const useAppStore = create<RootState>()(
             clearAllState: () => {
                 set({
                     activeSessionId: null,
+                    // Collab + shared-canvas state is session-scoped; clear it here
+                    // (the canonical session wipe) so a prior 'viewer' role / peers /
+                    // stale canvas id never leak into the next session. loadSession
+                    // resets these to real values for any session it loads.
+                    activeCanvasId: null,
+                    collabRole: null,
+                    presence: {},
+                    peerSelections: {},
                     currentWorkflow: null,
                     isDragging: false,
                     copiedNode: null,

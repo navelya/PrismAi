@@ -96,7 +96,14 @@ CREATE POLICY "collab owner delete" ON public.session_collaborators FOR DELETE
 -- 5. WIDEN sessions policies --------------------------------------------------
 DROP POLICY IF EXISTS "Users can view their own sessions" ON public.sessions;
 CREATE POLICY "Users can view accessible sessions" ON public.sessions FOR SELECT
-  USING (public.can_access_session(id));
+  -- The direct `user_id = auth.uid()` disjunct is REQUIRED for INSERT ... RETURNING
+  -- (supabase-js `.insert().select()`, used by POST /api/sessions). Postgres applies
+  -- the SELECT policy to the newly-inserted row, but can_access_session() is STABLE
+  -- SECURITY DEFINER and its internal query can't see the just-inserted row, so it
+  -- returns false and the insert fails with "new row violates row-level security
+  -- policy". The column check evaluates directly on the row and passes; collaborators
+  -- still gain visibility through can_access_session(id).
+  USING (user_id = auth.uid() OR public.can_access_session(id));
 
 DROP POLICY IF EXISTS "Users can update their own sessions" ON public.sessions;
 CREATE POLICY "Users can update editable sessions" ON public.sessions FOR UPDATE
