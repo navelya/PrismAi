@@ -72,7 +72,9 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     }, [sessionId]);
 
     const togglePanel = useCallback((panel: ActivePanel) => {
-        if (isViewer) return;
+        // History is read-only for non-owners (panel hides write actions),
+        // so viewers may open it even though other left panels are owner/editor-only.
+        if (isViewer && panel !== 'history') return;
         setActivePanel(prev => (prev === panel ? null : panel));
         // Mark data-fetching panels as mounted on first open so they persist.
         if (panel === 'assets' || panel === 'characters' || panel === 'history') {
@@ -255,7 +257,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 </motion.div>
             )}
 
-            {/* ── History Panel ──────────────────────────────────────────────── */}
+            {/* ── LAYER 3b'' · History Panel ──────────────────────────────────── */}
             {isCanvasMode && mountedPanels.has('history') && (
                 <motion.div
                     key="history-panel"
@@ -386,11 +388,11 @@ function ToolRail({ activePanel, panelOpen, isChatOpen, onChatClick, onPanelTogg
                         <div className="relative group">
                             <motion.button
                                 onClick={btn.onClick}
-                                whileTap={isViewer && !btn.isChat ? {} : { scale: 0.88 }}
-                                disabled={isViewer && !btn.isChat}
+                                whileTap={isViewer && !btn.isChat && btn.id !== 'history' ? {} : { scale: 0.88 }}
+                                disabled={isViewer && !btn.isChat && btn.id !== 'history'}
                                 className={cn(
                                     'relative flex items-center justify-center w-9 h-9 rounded-xl transition-all duration-200',
-                                    isViewer && !btn.isChat
+                                    isViewer && !btn.isChat && btn.id !== 'history'
                                         ? 'opacity-40 cursor-not-allowed text-content-tertiary'
                                         : isActive
                                             ? 'bg-accent-primary/15 text-accent-primary'
