@@ -38,8 +38,9 @@ async function handlePlanApprove(opts: {
   planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string };
   userMessageId?: string;
   lastUserContent: string;
+  userId: string | null;
 }): Promise<Response> {
-  const { supabase, sessionId, canvasId, planAnswer, userMessageId, lastUserContent } = opts;
+  const { supabase, sessionId, canvasId, planAnswer, userMessageId, lastUserContent, userId } = opts;
   const t0 = Date.now();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -179,7 +180,7 @@ async function handlePlanApprove(opts: {
             );
             if (result.patch) {
               try {
-                await createAutoVersion(supabase as any, canvasId, baseWorkflow, null);
+                await createAutoVersion(supabase as any, canvasId, baseWorkflow, userId);
               } catch (verr) {
                 console.error('[chat] auto-version capture (approve) failed:', verr);
               }
@@ -245,7 +246,7 @@ async function handlePlanApprove(opts: {
           // task mutates state.workflow. The tasks loop overwrites canvas_state
           // incrementally, so we snapshot once here before any task runs.
           try {
-            await createAutoVersion(supabase as any, canvasId, baseWorkflow, null);
+            await createAutoVersion(supabase as any, canvasId, baseWorkflow, userId);
           } catch (verr) {
             console.error('[chat] auto-version capture (tasks) failed:', verr);
           }
@@ -426,6 +427,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
       userMessageId,
       lastUserContent:
         messages?.length > 0 ? String(messages[messages.length - 1]?.content ?? 'Approved') : 'Approved',
+      userId: auth.user?.id ?? null,
     });
   }
 
