@@ -3,7 +3,7 @@ import type { Workflow } from '@/lib/nodes/types';
 import { createEmptyWorkflow, applyWorkflowPatch, mergeWorkflowPatches, type WorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { buildSystemPrompt } from './prompt/system';
 import type { RegistryContextInput } from './prompt/registry-context';
-import { TOOLS, type ToolName } from './tools/definitions';
+import { TOOLS, type ToolName, type AnthropicTool } from './tools/definitions';
 import { dispatchTool, validateBlueprint, validateTaskList, type ToolHandlerState } from './tools/handlers';
 import type { PlanPayload } from './streaming/protocol';
 import { streamAnthropicTurn, toAnthropicMessages, type ChatTurn } from './provider/anthropic';
@@ -18,6 +18,10 @@ export interface BrainResult {
   usage: { inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number } | null;
   clarification: { options: string[] } | null;
   plan: PlanPayload | null;
+  /** The model that actually ran this brain pass ('haiku' | 'sonnet'). */
+  model: 'haiku' | 'sonnet';
+  /** True if the fast lane called `escalate`; the caller re-runs on Sonnet. */
+  escalated: boolean;
 }
 
 export interface BrainInput {
@@ -35,6 +39,16 @@ export interface BrainInput {
    *  DB. Threaded to the tool layer for node hydration and to the system
    *  prompt for wiring instructions. */
   characterRefs?: import('@/lib/utils/character-refs').CharacterSnapshot[];
+  /** Tool set for this pass. Defaults to TOOLS (full set). The fast lane
+   *  passes FAST_LANE_TOOLS (no propose_plan, plus escalate). */
+  tools?: AnthropicTool[];
+  /** When true, an `escalate` tool call (before any edit) stops the pass and
+   *  sets result.escalated so the caller can re-run on Sonnet. */
+  allowEscalate?: boolean;
+  /** Thinking control. 'off' = never think (fast lane); 'on' = think on
+   *  iteration 1 (heavy lane); 'heuristic' = legacy short-message heuristic
+   *  (free lane / default). */
+  thinkingMode?: 'off' | 'on' | 'heuristic';
 }
 
 /**
@@ -90,6 +104,8 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let usage: BrainResult['usage'] = null;
   let clarification: BrainResult['clarification'] = null;
   let plan: BrainResult['plan'] = null;
+  let escalated = false;
+  const modelKey: 'haiku' | 'sonnet' = input.model ?? 'sonnet';
 
   // Trivial-message heuristic: if the user's last turn is short, has no
   // images, and doesn't look like a workflow change, skip extended thinking
@@ -106,6 +122,13 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     lastUserText.length <= 80 &&
     lastUserImages === 0 &&
     !ACTION_VERBS.test(lastUserText);
+
+  // Resolve the per-pass base thinking decision from thinkingMode.
+  const thinkingMode = input.thinkingMode ?? 'heuristic';
+  const baseDisableThinking =
+    thinkingMode === 'off' ? true :
+    thinkingMode === 'on' ? false :
+    disableThinkingFirstTurn; // 'heuristic'
 
   // Build the Anthropic message array once. We MUTATE this array across
   // continuation iterations by appending the assistant's response and a
@@ -136,13 +159,13 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     // header, thinking can only happen before the first tool use anyway —
     // and tool-result follow-ups don't benefit from a fresh think pass for
     // our use case (deterministic workflow mutations).
-    const iterationDisableThinking = iteration === 1 ? disableThinkingFirstTurn : true;
+    const iterationDisableThinking = iteration === 1 ? baseDisableThinking : true;
 
     try {
       const stream = streamAnthropicTurn({
         system,
         messages,
-        tools: TOOLS,
+        tools: input.tools ?? TOOLS,
         disableThinking: iterationDisableThinking,
         model: input.model,
       });
@@ -305,6 +328,17 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               break;
             }
 
+            if (name === 'escalate') {
+              // Only the fast lane offers this tool. Honor it only before any
+              // edit has been applied this turn, so we never discard committed
+              // patches. Silent to the client — no event is emitted.
+              if (input.allowEscalate && accumulatedPatch === null) {
+                escalated = true;
+                calledTerminalTool = true; // stop the loop; caller re-runs on Sonnet
+              }
+              break;
+            }
+
             if (name !== 'add_node' && name !== 'update_node' && name !== 'update_compositor_layer' && name !== 'remove_node') {
               input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
               pendingTools.push({ id: event.id, success: false, error: `Unknown tool ${name}` });
@@ -404,5 +438,5 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
 
-  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan };
+  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated };
 }
