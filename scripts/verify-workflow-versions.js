@@ -8,6 +8,7 @@
 // 'verify-auto-'. It will NOT touch real auto-versions or real checkpoints.
 // Still, prefer running it against a throwaway/test session you own.
 const { createClient } = require('@supabase/supabase-js');
+const { createHash } = require('crypto');
 
 const canvasId = process.argv[2];
 if (!canvasId) { console.error('Pass a canvasId'); process.exit(1); }
@@ -32,7 +33,7 @@ function stableStringify(obj) {
   // 1. Insert a checkpoint.
   const { data: cp, error: cpErr } = await supabase.from('workflow_versions').insert({
     canvas_id: canvasId, kind: 'checkpoint', label: 'verify-script',
-    canvas_state: state, content_hash: stableStringify(state), created_by: session.user_id,
+    canvas_state: state, content_hash: createHash('sha256').update(stableStringify(state)).digest('hex'), created_by: session.user_id,
   }).select('id').single();
   if (cpErr) { console.error('checkpoint insert failed', cpErr); process.exit(1); }
   console.log('✅ checkpoint created', cp.id);
