@@ -208,6 +208,15 @@ export default function SharedWorkflowEditor({
         onNodeDragStart?.(event, node);
     }, [onNodeDragStart, selectedNode, setSelectedNode]);
 
+    // Finishing a drag (or a long press-and-release in place) opens the dragged
+    // node's property panel — so moving a node then letting go surfaces its
+    // properties. Skip multi-node drags so we don't override the multi-select UI.
+    const handleNodeDragStop = useCallback((_event: any, node: any, draggedNodes: any) => {
+        if (effectiveReadOnly) return;
+        if (Array.isArray(draggedNodes) && draggedNodes.length > 1) return;
+        if (node?.id) setSelectedNode(node.id);
+    }, [effectiveReadOnly, setSelectedNode]);
+
     const selectedNodeData = useMemo(() => nodes.find(n => n.id === selectedNode), [nodes, selectedNode]);
 
     // Derive visibility from selected node type
@@ -769,6 +778,7 @@ export default function SharedWorkflowEditor({
                                 canUndo={canUndo}
                                 canRedo={canRedo}
                                 onNodeDragStart={handleNodeDragStart}
+                                onNodeDragStop={handleNodeDragStop}
                                 onDuplicate={duplicateNodes}
                                 onDelete={deleteNodes}
                                 onCopy={handleCopy}

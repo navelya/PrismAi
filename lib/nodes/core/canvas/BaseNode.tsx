@@ -634,7 +634,14 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 )
             )}
 
+            {/* Header lifted OUT of the frame: rendered absolutely just above
+                the top-left of the card (the motion.div is position:relative
+                with no overflow-hidden, so it escapes cleanly). This minimizes
+                the frame — content now starts at the very top edge. z-10 keeps
+                it above the border but below the status badge (z-20) and
+                handles (z-50), so a running/error badge still wins the corner. */}
             <NodeHeader
+                className="absolute bottom-full left-0 mb-1 z-10"
                 icon={icon || metadata?.icon || 'Box'}
                 label={displayLabel}
                 color={nodeColor}

@@ -107,6 +107,10 @@ interface EditorCanvasProps {
     onEdgesChange: any;
     onConnect: any;
     onNodeClick?: NodeMouseHandler;
+    // Fires on a genuine click on the empty canvas (not a pan / wire-drop).
+    // Used by the parent to dismiss the property panel when the user clicks
+    // away from the selected node.
+    onPaneClick?: () => void;
     onDrop: (
         type: NodeType,
         position: { x: number; y: number },
@@ -145,6 +149,7 @@ const EditorCanvasInner = ({
     onEdgesChange,
     onConnect,
     onNodeClick,
+    onPaneClick: onPaneClickProp,
     onDrop,
     updatePositions,
     undo,
@@ -1700,7 +1705,9 @@ const EditorCanvasInner = ({
         setContextMenu(null);
         setPendingConnection(null);
         setPendingWireAnchor(null);
-    }, []);
+        // Clicking empty canvas clears the property-panel selection.
+        onPaneClickProp?.();
+    }, [onPaneClickProp]);
 
     useEffect(() => {
         const updateRect = () => {
