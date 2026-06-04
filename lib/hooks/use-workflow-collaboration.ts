@@ -111,11 +111,19 @@ export function useWorkflowCollaboration(
         });
 
         const ops = supabase.channel(`workflow-ops-${canvasId}`, { config: { broadcast: { self: false } } });
-        ops.on('broadcast', { event: 'state' }, ({ payload }: any) => handlersRef.current.onState(payload));
-        ops.on('broadcast', { event: 'cursor' }, ({ payload }: any) => handlersRef.current.onCursor(payload));
-        ops.on('broadcast', { event: 'node-drag' }, ({ payload }: any) => handlersRef.current.onNodeDrag(payload));
-        ops.on('broadcast', { event: 'selection' }, ({ payload }: any) => handlersRef.current.onSelection?.(payload));
-        ops.on('broadcast', { event: 'group-resize' }, ({ payload }: any) => handlersRef.current.onGroupResize?.(payload));
+        // Defense-in-depth: never act on our OWN broadcasts. `self: false` only
+        // suppresses echoes within THIS connection. A SECOND connection of the
+        // same user — a duplicate browser tab, or the brief overlap while this
+        // channel re-subscribes after a canvas/role change — is a different
+        // connection, so its messages are NOT "self" here and would otherwise
+        // render a ghost of ourselves (e.g. our own cursor on a solo canvas, or
+        // our own selection/drag mirrored back). Drop anything originating from us.
+        const isSelf = (p: any) => p?.userId === me.id || p?.origin === me.id;
+        ops.on('broadcast', { event: 'state' }, ({ payload }: any) => { if (isSelf(payload)) return; handlersRef.current.onState(payload); });
+        ops.on('broadcast', { event: 'cursor' }, ({ payload }: any) => { if (isSelf(payload)) return; handlersRef.current.onCursor(payload); });
+        ops.on('broadcast', { event: 'node-drag' }, ({ payload }: any) => { if (isSelf(payload)) return; handlersRef.current.onNodeDrag(payload); });
+        ops.on('broadcast', { event: 'selection' }, ({ payload }: any) => { if (isSelf(payload)) return; handlersRef.current.onSelection?.(payload); });
+        ops.on('broadcast', { event: 'group-resize' }, ({ payload }: any) => { if (isSelf(payload)) return; handlersRef.current.onGroupResize?.(payload); });
         ops.subscribe();
         opsChannelRef.current = ops;
 
