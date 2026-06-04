@@ -29,7 +29,12 @@ export function useChatScroll({
     isLoading,
     sessionId,
 }: UseChatScrollOptions): UseChatScrollReturn {
-    const chatScrollTop = useAppStore((state) => state.chatScrollTop);
+    // NOTE: do NOT subscribe to chatScrollTop here. Its value is only ever READ
+    // once, in the mount-restore effect below (via getState). Subscribing would
+    // re-render ChatInterface (which hosts this hook) on EVERY scroll event,
+    // because handleScroll writes scrollTop back to the store on every frame —
+    // re-rendering the heavy chat tree ~60×/s during a scroll drops frames and
+    // makes the conversation visibly stutter / jump. Persist-only, read-at-mount.
     const setChatScrollTop = useAppStore((state) => state.setChatScrollTop);
 
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -82,11 +87,13 @@ export function useChatScroll({
         }
     }, [isLoading, setChatScrollTop]);
 
-    // RESTORE scroll position instantly on mount (avoid eye-jump)
+    // RESTORE scroll position instantly on mount (avoid eye-jump). Read the
+    // persisted value once via getState — see the no-subscribe note above.
     useLayoutEffect(() => {
         if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = chatScrollTop;
-            lastScrollTopRef.current = chatScrollTop;
+            const saved = useAppStore.getState().chatScrollTop;
+            scrollContainerRef.current.scrollTop = saved;
+            lastScrollTopRef.current = saved;
         }
     }, []); // Only on mount
 

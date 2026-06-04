@@ -209,39 +209,40 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             const hasNewlines = currentInput.includes('\n');
 
             // An empty / whitespace-only single-line input is never multi-line.
-            // Bailing here keeps the two measurement branches below (textarea
-            // scrollHeight vs the ghost probe) from disagreeing and toggling
-            // isMultiLine back and forth — the oscillation behind the mobile
-            // infinite-update crash (#185).
+            // (Guards the empty case behind the mobile infinite-update crash #185.)
             if (!hasNewlines && currentInput.trim() === '') {
                 if (isMultiLine) setIsMultiLine(false);
+                textarea.style.height = '';
                 return;
             }
 
-            if (!isMultiLine && !hasNewlines) {
-                if (textarea.scrollHeight > 40) {
-                    setIsMultiLine(true);
-                }
-            } else {
+            // Decide multi-line from a STABLE single-line-width probe (the ghost),
+            // never from the live textarea's own height. The single-line textarea
+            // is inset between the buttons (narrow) while the multi-line textarea
+            // is full-width, so a mid-length line WRAPS in one layout but FITS in
+            // the other. Measuring the live textarea therefore flip-flops
+            // isMultiLine at the wrap boundary — the "jumpy input" (and, via the
+            // footer↔scroll resize chain, the jumpy chat text). The ghost mirrors
+            // the single-line box exactly (same left-24/right-24 insets, px-2
+            // padding, leading-6), so this decision is monotonic in line length.
+            let wantsMultiLine = hasNewlines;
+            if (!hasNewlines && ghost) {
+                ghost.textContent = currentInput;
+                // One line ≈ 24px leading + 16px padding = 40px; two lines ≈ 64px.
+                wantsMultiLine = ghost.scrollHeight >= 50;
+            }
+
+            if (wantsMultiLine !== isMultiLine) {
+                setIsMultiLine(wantsMultiLine);
+            }
+
+            if (wantsMultiLine) {
                 textarea.style.height = 'auto';
-                const contentHeight = textarea.scrollHeight;
-
-                if (!hasNewlines && contentHeight < 60 && ghost) {
-                    ghost.textContent = currentInput;
-                    const singleLineAvailableWidth = textarea.clientWidth - 144;
-                    ghost.style.width = `${singleLineAvailableWidth}px`;
-
-                    if (ghost.scrollHeight < 50) {
-                        setIsMultiLine(false);
-                    }
-                } else if (!hasNewlines && contentHeight < 60) {
-                    setIsMultiLine(false);
-                } else {
-                    setIsMultiLine(hasNewlines || contentHeight > 40);
-                    const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
-                    const newHeight = Math.min(contentHeight, maxHeight);
-                    textarea.style.height = `${newHeight}px`;
-                }
+                const maxHeight = isMobile ? (isExpanded ? 200 : 72) : 200;
+                textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+            } else {
+                // Single-line: the centered min-height layout owns the height.
+                textarea.style.height = '';
             }
         }, [isMultiLine, isMobile, isExpanded, textareaRef]);
 
@@ -387,11 +388,20 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         </div>
                     )}
 
-                    {/* Ghost div for single-line width probe */}
+                    {/* Ghost div for single-line wrap probe. It is inset with the
+                        SAME left-24/right-24 + px-2 padding + leading-6 as the
+                        single-line textarea (which is absolutely positioned in
+                        this same `relative` container), so its width tracks the
+                        real single-line text width in BOTH layouts — no magic
+                        offset, no clientWidth read. Keep these insets in sync with
+                        the single-line textarea classes below. */}
                     <div
                         ref={ghostRef}
-                        className="absolute top-0 left-0 -z-50 invisible whitespace-pre-wrap break-words pointer-events-none"
+                        className="absolute top-0 -z-50 invisible whitespace-pre-wrap break-words pointer-events-none"
                         style={{
+                            left: '6rem',   // matches textarea left-24
+                            right: '6rem',  // matches textarea right-24
+                            boxSizing: 'border-box',
                             fontFamily: 'inherit',
                             fontSize: 'inherit',
                             lineHeight: '1.5rem',
