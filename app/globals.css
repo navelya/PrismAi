@@ -175,6 +175,43 @@
     }
   }
 
+  /* Activity timeline (chat assistant "thinking & steps") — minimal, monochrome.
+     The active step's icon badge breathes a soft accent halo and its label
+     shimmers while streaming. Shared by ActivityTimeline + TaskProgressCard. */
+  .timeline-halo {
+    animation: timeline-halo 1.8s ease-out infinite;
+  }
+  @keyframes timeline-halo {
+    0% {
+      box-shadow: 0 0 0 0 rgb(var(--accent-primary) / 0.32);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 6px rgb(var(--accent-primary) / 0);
+    }
+  }
+  .timeline-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      rgb(var(--text-tertiary)) 0%,
+      rgb(var(--text-primary)) 50%,
+      rgb(var(--text-tertiary)) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: timeline-shimmer 1.7s ease-in-out infinite;
+  }
+  @keyframes timeline-shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
   /* Slim inline caret at the end of the last paragraph while a chat message
      is still streaming. Pseudo-element lives inside the <p>, so it stays on
      the same line as the trailing text. */

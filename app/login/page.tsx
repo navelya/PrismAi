@@ -7,6 +7,41 @@ import { Loader2, ArrowRight, Mail, Lock, AlertCircle, User, Eye, EyeOff } from 
 import Link from 'next/link';
 import { Logo } from '@/components/ui/Logo';
 
+/**
+ * The brand "visual side" of the split-screen login: a full-bleed generated
+ * image with the logo and tagline overlaid on top. Scrims keep the text legible
+ * over the artwork.
+ */
+function BrandPanel() {
+    return (
+        <div className="relative h-full w-full overflow-hidden rounded-[28px] border border-stroke-subtle">
+            {/* artwork — plain img so the browser downscales the high-res source
+                directly (no optimizer recompression / banding) */}
+            <img
+                src="/login-hero.webp"
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+            />
+
+            {/* scrims — top for the logo, bottom for the tagline */}
+            <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/50 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+            {/* content */}
+            <div className="relative z-10 flex h-full flex-col justify-end p-12">
+                <div className="max-w-md">
+                    <p className="text-3xl font-semibold leading-tight text-white drop-shadow">
+                        Create at the speed of thought.
+                    </p>
+                    <p className="mt-4 text-base text-white/80 drop-shadow">
+                        Generate, compose, and ship visuals — all on one canvas.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function LoginContent() {
     const [isLogin, setIsLogin] = useState(true);
     const [checkEmail, setCheckEmail] = useState(false);
@@ -88,18 +123,18 @@ function LoginContent() {
 
     if (checkEmail) {
         return (
-            <div className="min-h-screen w-full bg-surface-primary flex items-center justify-center p-4 relative overflow-hidden">
-                <div className="w-full max-w-sm relative z-10 text-center">
+            <div className="min-h-screen w-full bg-surface-primary flex items-center justify-center p-4">
+                <div className="w-full max-w-sm text-center">
                     <div className="flex justify-center mb-6">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-premium flex items-center justify-center shadow-lg shadow-accent-primary/20 animate-pulse">
-                            <Mail className="w-8 h-8 text-white" />
+                        <div className="w-16 h-16 rounded-2xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center">
+                            <Mail className="w-8 h-8 text-accent-primary" />
                         </div>
                     </div>
                     <h1 className="text-2xl font-bold text-content-primary mb-2">Check your inbox</h1>
                     <p className="text-content-secondary mb-8">
                         We sent a confirmation link to <br /> <strong className="text-content-primary">{email}</strong>
                     </p>
-                    <div className="bg-surface-secondary/50 backdrop-blur-xl border border-stroke-subtle rounded-2xl p-6 shadow-xl">
+                    <div className="bg-surface-secondary border border-stroke-subtle rounded-2xl p-6">
                         <p className="text-sm text-content-tertiary mb-4">
                             Click the link in the email to activate your account and access Prisfol.
                         </p>
@@ -116,22 +151,17 @@ function LoginContent() {
     }
 
     return (
-        <div className="min-h-screen w-full bg-surface-primary flex items-center justify-center p-4 relative overflow-hidden">
-            {/* Background Effects */}
-            <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
-                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-pulse delay-700" />
-            </div>
+        <div className="min-h-screen w-full bg-surface-primary flex">
+            {/* Left — auth */}
+            <div className="flex w-full flex-col items-center justify-center px-6 py-10 lg:w-1/2">
+                <div className="w-full max-w-sm">
+                    {/* Logo */}
+                    <div className="flex justify-center mb-8">
+                        <Link href="/" className="flex items-center gap-3">
+                            <Logo variant="wordmark" className="h-9 w-auto text-content-primary" />
+                        </Link>
+                    </div>
 
-            <div className="w-full max-w-md relative z-10">
-                {/* Logo */}
-                <div className="flex justify-center mb-8">
-                    <Link href="/" className="flex items-center gap-3 group">
-                        <Logo variant="wordmark" className="h-9 w-auto text-content-primary" />
-                    </Link>
-                </div>
-
-                <div className="bg-surface-secondary/50 backdrop-blur-xl border border-stroke-subtle rounded-2xl p-8 shadow-xl">
                     <h2 className="text-2xl font-bold text-content-primary mb-2 text-center">
                         {isLogin ? 'Welcome back' : 'Create an account'}
                     </h2>
@@ -147,7 +177,7 @@ function LoginContent() {
                             type="button"
                             onClick={handleGoogleLogin}
                             disabled={loading || googleLoading}
-                            className="w-full flex items-center justify-center gap-3 py-2.5 px-4 bg-surface-tertiary hover:bg-interactive-hover border border-stroke-subtle text-content-primary rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+                            className="w-full flex items-center justify-center gap-3 py-2.5 px-4 bg-surface-tertiary hover:bg-interactive-hover border border-stroke-subtle text-content-primary rounded-xl transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
                         >
                             {googleLoading ? (
                                 <Loader2 className="w-5 h-5 animate-spin text-accent-primary" />
@@ -168,7 +198,7 @@ function LoginContent() {
                             <div className="w-full border-t border-stroke-subtle"></div>
                         </div>
                         <div className="relative flex justify-center text-sm">
-                            <span className="px-2 bg-surface-secondary text-content-tertiary">Or continue with email</span>
+                            <span className="px-2 bg-surface-primary text-content-tertiary">Or continue with email</span>
                         </div>
                     </div>
 
@@ -252,13 +282,14 @@ function LoginContent() {
                             </div>
                         )}
 
-                        {/* Submit Button */}
+                        {/* Submit Button — flat, no gradient */}
                         <button
                             type="submit"
                             disabled={loading || googleLoading}
-                            className="w-full py-3 px-4 bg-gradient-premium text-white font-medium rounded-xl
-                                       shadow-lg shadow-accent-primary/25 hover:shadow-xl hover:shadow-accent-primary/40
-                                       active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2"
+                            className="w-full py-3 px-4 bg-accent-primary hover:bg-accent-primary/90 text-white font-medium rounded-xl
+                                       shadow-sm hover:shadow-md
+                                       active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2
+                                       disabled:opacity-50 disabled:pointer-events-none"
                         >
                             {loading ? (
                                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -293,6 +324,11 @@ function LoginContent() {
                         </Link>
                     </div>
                 </div>
+            </div>
+
+            {/* Right — brand visual (desktop only) */}
+            <div className="relative hidden p-3 lg:flex lg:w-1/2">
+                <BrandPanel />
             </div>
         </div>
     );

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ImagePlus, Pen, Sparkles } from 'lucide-react';
+import { ImagePlus, Pen } from 'lucide-react';
 import ChatInput from './ChatInput';
 import { Toast } from '@/components/ui/Toast';
 import type { Character } from '@/lib/api/client';
@@ -161,9 +161,6 @@ export function ChatEmptyState({
             <div className="flex-1 flex items-center justify-center p-6">
                 <div className="text-center">
                     <div className="flex items-center justify-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-premium flex items-center justify-center shadow-md">
-                            <Sparkles className="w-4 h-4 text-white" />
-                        </div>
                         <h1 className="text-xl font-bold text-content-primary">
                             {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prisfol'}
                         </h1>

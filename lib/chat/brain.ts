@@ -101,6 +101,10 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let finalThinking = '';
   let accumulatedPatch: WorkflowPatch | null = null;
   let hadAnyOutput = false;
+  // Set when a propose_plan call was malformed (no/invalid blueprint or tasks).
+  // Instead of dumping the raw validation error on the user, we feed it back to
+  // the model as a tool_result and let it retry with a complete plan.
+  let planNeedsRetry = false;
   let usage: BrainResult['usage'] = null;
   let clarification: BrainResult['clarification'] = null;
   let plan: BrainResult['plan'] = null;
@@ -143,6 +147,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     if (!input.encoder.isConnected()) break;
     iteration++;
     continueLoop = false;
+    planNeedsRetry = false;
 
     // Track this iteration's workflow tool results so we can build the
     // synthetic tool_result user message that re-prompts Claude. Terminal
@@ -170,6 +175,60 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
         model: input.model,
       });
 
+      // Some turns — especially thinking-disabled iterations — have the model
+      // narrate its reasoning as literal <thinking>…</thinking> tags inside
+      // TEXT instead of a native thinking block (the THINKING_VOICE few-shots
+      // use that tag format, so the model mimics it). Strip those tags from the
+      // visible reply and re-route their contents to the thinking stream, so
+      // they show in the activity timeline rather than leaking into the bubble.
+      // State is per-iteration; `textCarry` holds a tag possibly split across
+      // stream chunks so it's never emitted half-rendered.
+      let textCarry = '';
+      let inTextThinking = false;
+      const THINK_OPEN = '<thinking>';
+      const THINK_CLOSE = '</thinking>';
+      const feedText = (chunk: string) => {
+        let buf = textCarry + chunk;
+        textCarry = '';
+        while (buf.length > 0) {
+          if (!inTextThinking) {
+            const at = buf.indexOf(THINK_OPEN);
+            if (at === -1) {
+              const [emit, hold] = splitTrailingPartial(buf, THINK_OPEN);
+              if (emit) { finalText += emit; input.encoder.send({ type: 'text', text: emit }); }
+              textCarry = hold;
+              break;
+            }
+            const before = buf.slice(0, at);
+            if (before) { finalText += before; input.encoder.send({ type: 'text', text: before }); }
+            buf = buf.slice(at + THINK_OPEN.length);
+            inTextThinking = true;
+            input.encoder.send({ type: 'thinking_start' });
+          } else {
+            const at = buf.indexOf(THINK_CLOSE);
+            if (at === -1) {
+              const [emit, hold] = splitTrailingPartial(buf, THINK_CLOSE);
+              if (emit) { finalThinking += emit; input.encoder.send({ type: 'thinking_delta', text: emit }); }
+              textCarry = hold;
+              break;
+            }
+            const inside = buf.slice(0, at);
+            if (inside) { finalThinking += inside; input.encoder.send({ type: 'thinking_delta', text: inside }); }
+            buf = buf.slice(at + THINK_CLOSE.length);
+            inTextThinking = false;
+            input.encoder.send({ type: 'thinking_end' });
+          }
+        }
+      };
+      const flushText = () => {
+        if (textCarry) {
+          if (inTextThinking) { finalThinking += textCarry; input.encoder.send({ type: 'thinking_delta', text: textCarry }); }
+          else { finalText += textCarry; input.encoder.send({ type: 'text', text: textCarry }); }
+          textCarry = '';
+        }
+        if (inTextThinking) { inTextThinking = false; input.encoder.send({ type: 'thinking_end' }); }
+      };
+
       for await (const event of stream) {
         if (!input.encoder.isConnected()) break;
         hadAnyOutput = true;
@@ -189,8 +248,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
             break;
 
           case 'text_delta':
-            finalText += event.text;
-            input.encoder.send({ type: 'text', text: event.text });
+            feedText(event.text);
             break;
 
           case 'tool_start': {
@@ -238,74 +296,56 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               calledTerminalTool = true;
               const args = (event.args ?? {}) as Record<string, unknown>;
 
-              const requireString = (key: string): string | null => {
-                const v = args[key];
-                if (typeof v !== 'string' || v.trim().length === 0) {
-                  return `propose_plan requires non-empty string field "${key}".`;
-                }
-                return null;
+              // A malformed plan should self-correct, not surface a raw ⚠️ to
+              // the user. failPlan re-routes the validation error back to the
+              // model as a tool_result so it retries with a complete plan.
+              const failPlan = (message: string) => {
+                pendingTools.push({ id: event.id, success: false, error: message });
+                calledTerminalTool = false;
+                planNeedsRetry = true;
               };
-              for (const key of ['title', 'summary', 'arrows', 'detail']) {
-                const err = requireString(key);
-                if (err) {
-                  input.encoder.send({ type: 'error', message: err, recoverable: true });
-                  break;
-                }
-              }
-              const rawModels = args.models;
-              if (!Array.isArray(rawModels) || !rawModels.every(m => typeof m === 'string')) {
-                input.encoder.send({
-                  type: 'error',
-                  message: 'propose_plan.models must be an array of strings (may be empty).',
-                  recoverable: true,
-                });
-                break;
-              }
 
               const hasTasks = Array.isArray(args.tasks) && (args.tasks as any[]).length > 0;
               const hasBlueprint = !!args.blueprint && typeof args.blueprint === 'object';
-
               const blueprintObj: { nodes?: any[]; edges?: any[] } | null = hasBlueprint
                 ? (args.blueprint as { nodes?: any[]; edges?: any[] })
                 : null;
+              const rawModels = args.models;
 
-              if (hasTasks && hasBlueprint) {
-                input.encoder.send({
-                  type: 'error',
-                  message: 'propose_plan must use EITHER blueprint OR tasks — never both.',
-                  recoverable: true,
-                });
-                break;
+              // Compute the first validation failure (if any), then act once.
+              let planError: string | null = null;
+              for (const key of ['title', 'summary', 'arrows', 'detail']) {
+                const v = args[key];
+                if (typeof v !== 'string' || v.trim().length === 0) {
+                  planError = `propose_plan requires non-empty string field "${key}".`;
+                  break;
+                }
               }
-              if (!hasTasks && !hasBlueprint) {
-                input.encoder.send({
-                  type: 'error',
-                  message: 'propose_plan requires either a blueprint or a non-empty tasks[] array.',
-                  recoverable: true,
-                });
-                break;
+              if (!planError && (!Array.isArray(rawModels) || !rawModels.every(m => typeof m === 'string'))) {
+                planError = 'propose_plan.models must be an array of strings (may be empty).';
               }
-
-              if (hasTasks) {
+              if (!planError && hasTasks && hasBlueprint) {
+                planError = 'propose_plan must use EITHER blueprint OR tasks — never both.';
+              }
+              if (!planError && !hasTasks && !hasBlueprint) {
+                planError = 'propose_plan requires either a blueprint or a non-empty tasks[] array.';
+              }
+              if (!planError && hasTasks) {
                 const validation = validateTaskList(state, args.tasks as any[]);
                 if (!validation.ok) {
-                  input.encoder.send({
-                    type: 'error',
-                    message: `propose_plan tasks invalid (task ${validation.taskIndex}): ${validation.error}`,
-                    recoverable: true,
-                  });
-                  break;
+                  planError = `propose_plan tasks invalid (task ${validation.taskIndex}): ${validation.error}`;
                 }
-              } else {
+              }
+              if (!planError && !hasTasks) {
                 const validation = validateBlueprint(state, blueprintObj);
                 if (!validation.ok) {
-                  input.encoder.send({
-                    type: 'error',
-                    message: `propose_plan blueprint invalid: ${validation.error}`,
-                    recoverable: true,
-                  });
-                  break;
+                  planError = `propose_plan blueprint invalid: ${validation.error}`;
                 }
+              }
+
+              if (planError) {
+                failPlan(planError);
+                break;
               }
 
               if (!plan) {
@@ -399,6 +439,10 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
           }
         }
       }
+
+      // The stream ended; emit any text/thinking held back at a tag boundary,
+      // and close an unterminated <thinking> run.
+      flushText();
     } catch (err: any) {
       const message = err?.message || 'Anthropic stream failed.';
       const recoverable = !/auth|api[_ ]?key|invalid request/i.test(message);
@@ -412,7 +456,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     //   3. We captured the assistant content (needed to echo back)
     //   4. We have headroom under MAX_ITERATIONS
     if (
-      calledWorkflowTool &&
+      (calledWorkflowTool || planNeedsRetry) &&
       !calledTerminalTool &&
       turnAssistantContent &&
       iteration < MAX_ITERATIONS &&
@@ -441,9 +485,34 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     input.encoder.send({ type: 'text', text: fallback });
   }
 
+  // The model kept producing malformed plans until it ran out of retries.
+  // Better to ask for a little more direction than to leave an empty bubble
+  // or a raw validation error.
+  if (finalText.length === 0 && !plan && planNeedsRetry) {
+    const fallback = "I couldn't pull that plan together cleanly — tell me a bit more about what you'd like built and I'll lay it out.";
+    finalText = fallback;
+    input.encoder.send({ type: 'text', text: fallback });
+  }
+
   const finalWorkflow = accumulatedPatch
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
 
   return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated };
+}
+
+/**
+ * Split `buf` into [emit, hold] where `hold` is the longest suffix of `buf`
+ * that could be the start of `tag`. Holding that suffix back means a tag split
+ * across stream chunks (e.g. "…<think" then "ing>…") is never emitted as
+ * half-rendered text. When no suffix matches, the whole buffer is safe to emit.
+ */
+function splitTrailingPartial(buf: string, tag: string): [string, string] {
+  const max = Math.min(buf.length, tag.length - 1);
+  for (let k = max; k > 0; k--) {
+    if (buf.endsWith(tag.slice(0, k))) {
+      return [buf.slice(0, buf.length - k), buf.slice(buf.length - k)];
+    }
+  }
+  return [buf, ''];
 }

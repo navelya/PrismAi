@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { TableModal } from '@/components/ui/TableModal';
 import MessageRenderer from './MessageRenderer';
-import { ThinkingPanel } from './ThinkingPanel';
+import { ActivityTimeline } from './ActivityTimeline';
 import { ChipCard } from './ChipCard';
 import { PlanCard } from './PlanCard';
 import { PlanCardSkeleton } from './PlanCardSkeleton';
@@ -324,11 +324,13 @@ export const Message = React.memo(function Message({
                         </div>
                     )}
 
-                    {message.type === 'assistant' && message.thinking !== undefined && (
-                        <ThinkingPanel
-                            thinking={message.thinking ?? ''}
-                            isStreaming={(message.status === 'running' || message.isThinking === true)}
-                            durationMs={message.thinkingDurationMs}
+                    {message.type === 'assistant' && (
+                        <ActivityTimeline
+                            thinking={message.thinking}
+                            isThinking={message.isThinking === true}
+                            thinkingDurationMs={message.thinkingDurationMs}
+                            planLoading={message.planLoading}
+                            hasPlan={!!message.plan}
                         />
                     )}
 
