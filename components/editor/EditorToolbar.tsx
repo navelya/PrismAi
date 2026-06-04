@@ -102,7 +102,9 @@ export default function EditorToolbar({
     const islandBase = "pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle shadow-xl shadow-black/20 transition-all duration-500 ease-in-out px-2 py-1.5 flex items-center gap-2";
 
     return (
-        <div className="absolute inset-0 z-40 p-4 pointer-events-none flex items-start">
+        // pl-20 keeps the credits island clear of the floating app-menu dock
+        // pinned to the canvas's top-left corner (see AppLayout / Sidebar).
+        <div className="absolute inset-0 z-40 p-4 pl-20 pointer-events-none flex items-start">
             {/* Hidden span for width measurement */}
             <span
                 ref={spanRef}

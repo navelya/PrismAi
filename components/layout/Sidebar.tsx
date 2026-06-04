@@ -3,7 +3,7 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image } from 'lucide-react';
+import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
@@ -27,9 +27,15 @@ const navItems = [
 interface SidebarProps {
     isOpen?: boolean;
     onClose?: () => void;
+    /** Desktop presentation:
+     *  - 'docked'   → traditional collapsible left column (used on full pages
+     *                 like /library, /assets, /nodes, /settings).
+     *  - 'floating' → compact top-left app-menu overlay (used on the canvas /
+     *                 chat session pages where canvas space is precious). */
+    variant?: 'docked' | 'floating';
 }
 
-export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
+export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: SidebarProps) {
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
     const pathname = usePathname();
@@ -362,246 +368,402 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         );
     }
 
-    // Desktop: Side navigation
-    return (
-        <div
-            className={`
-                flex flex-col bg-surface-primary border-r border-stroke-subtle h-full
-                transition-all duration-300 ease-in-out
-                ${isExpanded ? 'w-60' : 'w-16'}
-            `}
-        >
-            {/* Burger Menu */}
-            <div className="h-14 flex items-center px-3">
-                <button
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    className="p-2 rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
-                    aria-label="Toggle menu"
-                >
-                    <Menu className="w-5 h-5" />
-                </button>
-            </div>
+    // Desktop · docked variant — the traditional collapsible left column, used
+    // on full pages (library / assets / nodes / settings). Flush full-height
+    // bar, no inset, no rounded corners.
+    if (variant === 'docked') {
+        return (
+            <div
+                className={`
+                    flex flex-col bg-surface-primary border-r border-stroke-subtle h-full
+                    transition-all duration-300 ease-in-out
+                    ${isExpanded ? 'w-60' : 'w-16'}
+                `}
+            >
+                {/* Burger Menu */}
+                <div className="h-14 flex items-center px-3">
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="p-2 rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
+                        aria-label="Toggle menu"
+                    >
+                        <Menu className="w-5 h-5" />
+                    </button>
+                </div>
 
-            {/* Navigation Section */}
-            <div className={`flex flex-col flex-1 min-h-0 ${isExpanded ? 'overflow-hidden' : ''}`}>
+                {/* Navigation Section */}
+                <div className={`flex flex-col flex-1 min-h-0 ${isExpanded ? 'overflow-hidden' : ''}`}>
 
-                {/* Fixed Nav Items */}
-                <nav className="flex-shrink-0 px-2 py-2">
-                    <ul className="space-y-1 mb-2">
-                        {navItems.map((item) => {
-                            const Icon = item.icon;
-                            let targetPath = item.path;
-                            let isActive = pathname === item.path;
+                    {/* Fixed Nav Items */}
+                    <nav className="flex-shrink-0 px-2 py-2">
+                        <ul className="space-y-1 mb-2">
+                            {navItems.map((item) => {
+                                const Icon = item.icon;
+                                const targetPath = item.path;
+                                const isActive = pathname === item.path;
 
-                            if (item.name === 'Editor') {
-                                if (urlSessionId) {
-                                    targetPath = `/editor?sessionId=${urlSessionId}`;
-                                }
-                                if (pathname.startsWith('/editor')) {
-                                    isActive = true;
-                                }
-                            }
-
-                            return (
-                                <li key={item.name}>
-                                    <Link
-                                        href={targetPath}
-                                        onClick={(e) => {
-                                            if (item.path === '/chat') {
-                                                // DO NOT e.preventDefault() here! Native pre-fetched link transition for zero latency!
-                                                handleNewChat();
-                                            }
-                                        }}
-                                        className={`
-                                            group relative flex items-center gap-3 px-3 py-2.5 rounded-lg
-                                            transition-all duration-200
-                                            ${isActive
-                                                ? 'bg-accent-primary/10 text-accent-primary border border-accent-primary/10 shadow-sm'
-                                                : 'text-content-primary hover:bg-interactive-hover'
-                                            }
-                                        `}
-                                    >
-                                        <Icon className="w-5 h-5 flex-shrink-0" />
-
-                                        <span
+                                return (
+                                    <li key={item.name}>
+                                        <Link
+                                            href={targetPath}
+                                            onClick={() => {
+                                                if (item.path === '/chat') {
+                                                    // Native pre-fetched link transition for zero latency.
+                                                    handleNewChat();
+                                                }
+                                            }}
                                             className={`
-                                                font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out
-                                                ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
+                                                group relative flex items-center gap-3 px-3 py-2.5 rounded-lg
+                                                transition-all duration-200
+                                                ${isActive
+                                                    ? 'bg-accent-primary/10 text-accent-primary border border-accent-primary/10 shadow-sm'
+                                                    : 'text-content-primary hover:bg-interactive-hover'
+                                                }
                                             `}
                                         >
-                                            {item.name}
-                                        </span>
+                                            <Icon className="w-5 h-5 flex-shrink-0" />
 
-                                        {isActive && (
-                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-primary rounded-r-full shadow-[0_0_8px_rgb(var(--accent-primary)/0.6)]" />
-                                        )}
-
-                                        {!isExpanded && (
-                                            <div className="absolute left-full ml-2 px-3 py-1.5 bg-content-primary text-surface-primary text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-[100] shadow-lg">
+                                            <span
+                                                className={`
+                                                    font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out
+                                                    ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
+                                                `}
+                                            >
                                                 {item.name}
-                                            </div>
-                                        )}
-                                    </Link>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                </nav>
+                                            </span>
 
-                {sessions.length > 0 && (
-                    <div className={`
-                        flex-1 overflow-y-auto px-2 pb-2 min-h-0 border-t border-stroke-subtle/50 
-                        [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-content-tertiary/40 
-                        transition-all duration-300 ease-in-out origin-top
-                        ${isExpanded
-                            ? 'opacity-100 translate-x-0'
-                            : 'opacity-0 -translate-x-4 pointer-events-none'
-                        }
-                    `}>
-                        <div className="px-3 py-2 text-xs font-semibold text-content-tertiary uppercase tracking-wider whitespace-nowrap sticky top-0 bg-surface-primary z-10">
-                            History
-                        </div>
-                        <ul className="space-y-0.5">
-                            {sessions.map((session, index) => (
-                                <li
-                                    key={session.id}
-                                    style={{
-                                        transitionDelay: isExpanded
-                                            ? `${index * 30}ms`
-                                            : '0ms'
-                                    }}
-                                    className={`transition-all duration-200 ease-out origin-left ${isExpanded
-                                        ? 'opacity-100 translate-x-0'
-                                        : 'opacity-0 -translate-x-4'
-                                        }`}
-                                >
-                                    <SidebarSessionItem
-                                        session={session}
-                                        isActive={pathname === `/chat/${session.id}`}
-                                        isMobile={isMobile}
-                                        onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
-                                        onLongPress={() => { }} // No op on desktop
-                                    />
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-            </div>
+                                            {isActive && (
+                                                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-primary rounded-r-full" />
+                                            )}
 
-            {/* Logo at Bottom (Replaced by Profile for Authenticated Users) */}
-            <div className="border-t border-stroke-subtle bg-surface-secondary relative">
-                {user ? (
-                    <div className="p-2">
-                        <div className="relative">
-                            <button
-                                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                                className="flex items-center w-full hover:bg-interactive-hover p-1.5 rounded-lg transition-colors overflow-hidden"
-                            >
-                                {/* Avatar Container - Fixed width when collapsed to prevent jumps */}
-                                <div className={`flex-shrink-0 flex items-center justify-center transition-all duration-300 ${!isExpanded ? 'w-9' : 'w-10'}`}>
-                                    <UserAvatar
-                                        user={user}
-                                        className={`${isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'} flex-shrink-0 transition-all duration-300`}
-                                        showStatus={Object.keys(user).length > 0}
-                                    />
-                                </div>
-
-                                <div
-                                    className={`
-                                            flex-1 min-w-0 flex items-center justify-between overflow-hidden transition-all duration-300 ease-in-out whitespace-nowrap
-                                            ${isExpanded ? 'max-w-[200px] opacity-100 ml-3' : 'max-w-0 opacity-0 ml-0 pointer-events-none'}
-                                        `}
-                                >
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-semibold text-content-primary truncate whitespace-nowrap text-left">
-                                            {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
-                                        </p>
-                                        <p className="text-xs text-content-tertiary truncate whitespace-nowrap text-left">
-                                            {user.email}
-                                        </p>
-                                    </div>
-                                    <div className="text-content-tertiary hidden md:block">
-                                        <Settings className={`w-4 h-4 transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-90' : ''}`} />
-                                    </div>
-                                </div>
-                            </button>
-
-                            {/* Profile Context Menu */}
-                            <AnimatePresence>
-                                {isProfileMenuOpen && (
-                                    <motion.div
-                                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                        className={`
-                                            absolute bottom-full mb-2 left-0 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]
-                                            ${!isExpanded ? 'ml-2' : ''}
-                                        `}
-                                    >
-                                        <Link
-                                            href="/settings"
-                                            onClick={() => setIsProfileMenuOpen(false)}
-                                            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
-                                        >
-                                            <Settings className="w-4 h-4 text-content-tertiary" />
-                                            <span>Settings</span>
+                                            {!isExpanded && (
+                                                <div className="absolute left-full ml-2 px-3 py-1.5 bg-content-primary text-surface-primary text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-[100] shadow-lg">
+                                                    {item.name}
+                                                </div>
+                                            )}
                                         </Link>
-                                        {user?.is_admin && (
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </nav>
+
+                    {sessions.length > 0 && (
+                        <div className={`
+                            flex-1 overflow-y-auto px-2 pb-2 min-h-0 border-t border-stroke-subtle/50
+                            [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-content-tertiary/40
+                            transition-all duration-300 ease-in-out origin-top
+                            ${isExpanded
+                                ? 'opacity-100 translate-x-0'
+                                : 'opacity-0 -translate-x-4 pointer-events-none'
+                            }
+                        `}>
+                            <div className="px-3 py-2 text-xs font-semibold text-content-tertiary uppercase tracking-wider whitespace-nowrap sticky top-0 bg-surface-primary z-10">
+                                History
+                            </div>
+                            <ul className="space-y-0.5">
+                                {sessions.map((session, index) => (
+                                    <li
+                                        key={session.id}
+                                        style={{
+                                            transitionDelay: isExpanded
+                                                ? `${index * 30}ms`
+                                                : '0ms'
+                                        }}
+                                        className={`transition-all duration-200 ease-out origin-left ${isExpanded
+                                            ? 'opacity-100 translate-x-0'
+                                            : 'opacity-0 -translate-x-4'
+                                            }`}
+                                    >
+                                        <SidebarSessionItem
+                                            session={session}
+                                            isActive={pathname === `/chat/${session.id}`}
+                                            isMobile={isMobile}
+                                            onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
+                                            onLongPress={() => { }} // No op on desktop
+                                        />
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+
+                {/* Profile (authenticated) / skeleton */}
+                <div className="border-t border-stroke-subtle relative">
+                    {user ? (
+                        <div className="p-2">
+                            <div className="relative">
+                                <button
+                                    onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                                    className="flex items-center w-full hover:bg-interactive-hover p-1.5 rounded-lg transition-colors overflow-hidden"
+                                >
+                                    <div className={`flex-shrink-0 flex items-center justify-center transition-all duration-300 ${!isExpanded ? 'w-9' : 'w-10'}`}>
+                                        <UserAvatar
+                                            user={user}
+                                            className={`${isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'} flex-shrink-0 transition-all duration-300`}
+                                            showStatus={Object.keys(user).length > 0}
+                                        />
+                                    </div>
+
+                                    <div
+                                        className={`
+                                                flex-1 min-w-0 flex items-center justify-between overflow-hidden transition-all duration-300 ease-in-out whitespace-nowrap
+                                                ${isExpanded ? 'max-w-[200px] opacity-100 ml-3' : 'max-w-0 opacity-0 ml-0 pointer-events-none'}
+                                            `}
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-content-primary truncate whitespace-nowrap text-left">
+                                                {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
+                                            </p>
+                                            <p className="text-xs text-content-tertiary truncate whitespace-nowrap text-left">
+                                                {user.email}
+                                            </p>
+                                        </div>
+                                        <div className="text-content-tertiary hidden md:block">
+                                            <Settings className={`w-4 h-4 transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-90' : ''}`} />
+                                        </div>
+                                    </div>
+                                </button>
+
+                                <AnimatePresence>
+                                    {isProfileMenuOpen && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                            className={`
+                                                absolute bottom-full mb-2 left-0 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]
+                                                ${!isExpanded ? 'ml-2' : ''}
+                                            `}
+                                        >
                                             <Link
-                                                href="/admin"
+                                                href="/settings"
                                                 onClick={() => setIsProfileMenuOpen(false)}
                                                 className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
                                             >
-                                                <Boxes className="w-4 h-4 text-content-tertiary" />
-                                                <span>Admin Panel</span>
+                                                <Settings className="w-4 h-4 text-content-tertiary" />
+                                                <span>Settings</span>
                                             </Link>
-                                        )}
-                                        <div className="h-px bg-stroke-subtle my-1.5 mx-1" />
-                                        <button
-                                            onClick={handleLogout}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors"
-                                        >
-                                            <LogOut className="w-4 h-4" />
-                                            <span>Sign out</span>
-                                        </button>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="p-3">
-                        <div className={`flex items-center ${!isExpanded ? 'justify-center' : 'gap-3'} animate-pulse`}>
-                            {/* Avatar Skeleton */}
-                            <div className={`
-                                rounded-full bg-surface-tertiary flex-shrink-0 transition-all duration-300
-                                ${isExpanded ? 'w-10 h-10' : 'w-9 h-9'}
-                            `} />
-
-                            {/* Text Skeleton */}
-                            <div className={`
-                                flex-1 min-w-0 flex flex-col gap-1.5 overflow-hidden transition-all duration-300
-                                ${isExpanded ? 'max-w-[200px] ml-3 opacity-100' : 'max-w-0 opacity-0 ml-0'}
-                            `}>
-                                <div className="h-4 w-24 bg-surface-tertiary rounded" />
-                                <div className="h-3 w-32 bg-surface-tertiary rounded" />
+                                            {user?.is_admin && (
+                                                <Link
+                                                    href="/admin"
+                                                    onClick={() => setIsProfileMenuOpen(false)}
+                                                    className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
+                                                >
+                                                    <Boxes className="w-4 h-4 text-content-tertiary" />
+                                                    <span>Admin Panel</span>
+                                                </Link>
+                                            )}
+                                            <div className="h-px bg-stroke-subtle my-1.5 mx-1" />
+                                            <button
+                                                onClick={handleLogout}
+                                                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                                            >
+                                                <LogOut className="w-4 h-4" />
+                                                <span>Sign out</span>
+                                            </button>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </div>
                         </div>
-                    </div>
-                )}
-            </div>
+                    ) : (
+                        <div className="p-3">
+                            <div className={`flex items-center ${!isExpanded ? 'justify-center' : 'gap-3'} animate-pulse`}>
+                                <div className={`
+                                    rounded-full bg-surface-tertiary flex-shrink-0 transition-all duration-300
+                                    ${isExpanded ? 'w-10 h-10' : 'w-9 h-9'}
+                                `} />
+                                <div className={`
+                                    flex-1 min-w-0 flex flex-col gap-1.5 overflow-hidden transition-all duration-300
+                                    ${isExpanded ? 'max-w-[200px] ml-3 opacity-100' : 'max-w-0 opacity-0 ml-0'}
+                                `}>
+                                    <div className="h-4 w-24 bg-surface-tertiary rounded" />
+                                    <div className="h-3 w-32 bg-surface-tertiary rounded" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
 
-            <ConfirmationModal
-                isOpen={deleteConfirmation.isOpen}
-                onClose={() => setDeleteConfirmation({ isOpen: false, sessionId: null })}
-                onConfirm={confirmDelete}
-                title="Delete Chat?"
-                message="This will permanently delete this chat session and all its history. This action cannot be undone."
-                confirmText="Delete"
-                variant="danger"
-            />
-        </div>
+                <ConfirmationModal
+                    isOpen={deleteConfirmation.isOpen}
+                    onClose={() => setDeleteConfirmation({ isOpen: false, sessionId: null })}
+                    onConfirm={confirmDelete}
+                    title="Delete Chat?"
+                    message="This will permanently delete this chat session and all its history. This action cannot be undone."
+                    confirmText="Delete"
+                    variant="danger"
+                />
+            </div>
+        );
+    }
+
+    // Desktop · floating variant — a compact button pinned to the top-left
+    // corner that overlays the canvas; clicking it drops down a floating panel
+    // with New session, the session list (switch from anywhere), secondary nav,
+    // and profile. This reclaims the full canvas width while keeping every
+    // destination one click away from any canvas.
+    const secondaryNav = navItems.filter((item) => item.path !== '/chat');
+
+    return (
+        <>
+            {/* Click-outside catcher — sits below the dock but above the canvas. */}
+            {isExpanded && (
+                <div
+                    className="fixed inset-0 z-[60]"
+                    onClick={() => setIsExpanded(false)}
+                    aria-hidden="true"
+                />
+            )}
+
+            <div className="absolute top-3 left-3 z-[61] flex flex-col items-start gap-2">
+                {/* Collapsed trigger — transparent, icon-only. No background so
+                    it sits directly on the canvas; kept fixed-width and offset
+                    from the credits island. The current session title already
+                    shows in the canvas toolbar. */}
+                <button
+                    onClick={() => setIsExpanded((v) => !v)}
+                    className="group flex items-center gap-1.5 h-9 px-2 text-content-primary hover:text-content-primary transition-colors"
+                    aria-label="Open menu and sessions"
+                    aria-expanded={isExpanded}
+                    title="Menu & sessions"
+                >
+                    <Menu className="w-4 h-4 flex-shrink-0 text-content-secondary" />
+                    <ChevronDown
+                        className={`w-3.5 h-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                    />
+                </button>
+
+                {/* Expanded panel — floats over the canvas, never pushes it. */}
+                <AnimatePresence>
+                    {isExpanded && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                            transition={{ duration: 0.15, ease: 'easeOut' }}
+                            style={{ transformOrigin: 'top left' }}
+                            className="w-64 max-h-[calc(100dvh-72px)] flex flex-col bg-surface-primary border border-stroke-subtle rounded-2xl shadow-2xl shadow-black/40 overflow-hidden"
+                        >
+                            {/* New session */}
+                            <div className="p-2">
+                                <Link
+                                    href="/chat"
+                                    onClick={() => {
+                                        // Keep the native pre-fetched <Link> transition.
+                                        handleNewChat();
+                                        setIsExpanded(false);
+                                    }}
+                                    className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-content-primary hover:bg-interactive-hover transition-colors"
+                                >
+                                    <Plus className="w-4 h-4 flex-shrink-0 text-accent-primary" />
+                                    <span>New session</span>
+                                </Link>
+                            </div>
+
+                            {/* Session list — switch sessions from any canvas. */}
+                            {sessions.length > 0 && (
+                                <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 border-t border-stroke-subtle/60 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-content-tertiary/40">
+                                    <div className="px-3 pt-2 pb-1.5 text-xs font-semibold text-content-tertiary uppercase tracking-wider sticky top-0 bg-surface-primary z-10">
+                                        Sessions
+                                    </div>
+                                    <ul className="space-y-0.5">
+                                        {sessions.map((session) => (
+                                            <li key={session.id}>
+                                                <SidebarSessionItem
+                                                    session={session}
+                                                    isActive={pathname === `/chat/${session.id}`}
+                                                    isMobile={isMobile}
+                                                    onClose={() => setIsExpanded(false)}
+                                                    onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
+                                                    onLongPress={() => { }} // No op on desktop
+                                                />
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Secondary nav */}
+                            <nav className="p-2 border-t border-stroke-subtle/60">
+                                <ul className="space-y-0.5">
+                                    {secondaryNav.map((item) => {
+                                        const Icon = item.icon;
+                                        const isActive = pathname === item.path;
+                                        return (
+                                            <li key={item.name}>
+                                                <Link
+                                                    href={item.path}
+                                                    onClick={() => setIsExpanded(false)}
+                                                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isActive
+                                                        ? 'bg-accent-primary/10 text-accent-primary'
+                                                        : 'text-content-primary hover:bg-interactive-hover'
+                                                        }`}
+                                                >
+                                                    <Icon className="w-4 h-4 flex-shrink-0" />
+                                                    <span>{item.name}</span>
+                                                </Link>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </nav>
+
+                            {/* Profile / account */}
+                            {user && (
+                                <div className="p-2 border-t border-stroke-subtle/60 bg-surface-secondary/60">
+                                    <div className="flex items-center gap-3 px-1.5 py-1">
+                                        <UserAvatar
+                                            user={user}
+                                            className="w-9 h-9 text-xs flex-shrink-0"
+                                            showStatus={Object.keys(user).length > 0}
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-semibold text-content-primary truncate text-left">
+                                                {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
+                                            </p>
+                                            <p className="text-xs text-content-tertiary truncate text-left">
+                                                {user.email}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={handleLogout}
+                                            className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0"
+                                            title="Sign out"
+                                            aria-label="Sign out"
+                                        >
+                                            <LogOut className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    {user?.is_admin && (
+                                        <Link
+                                            href="/admin"
+                                            onClick={() => setIsExpanded(false)}
+                                            className="mt-1 flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
+                                        >
+                                            <Boxes className="w-4 h-4 text-content-tertiary" />
+                                            <span>Admin Panel</span>
+                                        </Link>
+                                    )}
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                <ConfirmationModal
+                    isOpen={deleteConfirmation.isOpen}
+                    onClose={() => setDeleteConfirmation({ isOpen: false, sessionId: null })}
+                    onConfirm={confirmDelete}
+                    title="Delete Chat?"
+                    message="This will permanently delete this chat session and all its history. This action cannot be undone."
+                    confirmText="Delete"
+                    variant="danger"
+                />
+            </div>
+        </>
     );
 }
 
@@ -742,6 +904,7 @@ function SidebarSessionItem({
     return (
         <Link
             href={`/chat/${session.id}`}
+            onClick={() => onClose?.()}
             className={`
                     group relative flex items-center gap-3 px-3 py-2 rounded-lg
                     transition-all duration-200

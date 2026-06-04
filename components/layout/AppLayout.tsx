@@ -131,11 +131,31 @@ export default function AppLayout({ children }: AppLayoutProps) {
         );
     }
 
-    // Desktop layout: Side navigation
+    // On the chat / canvas workspace, canvas space is precious — the nav becomes
+    // a compact app-menu pinned to the top-left corner that overlays the canvas,
+    // so the content reclaims the full width. Everywhere else (library, assets,
+    // nodes, settings) keeps the traditional docked sidebar column.
+    const isCanvasRoute = /^\/chat(\/|$)/.test(pathname);
+
+    if (isCanvasRoute) {
+        return (
+            <div className="w-full h-[100dvh] relative overflow-hidden bg-surface-secondary">
+                {/* Main Content (full-bleed) */}
+                <div className="w-full h-full overflow-hidden bg-surface-secondary">
+                    {children}
+                </div>
+
+                {/* Floating Navigation overlay */}
+                <Sidebar variant="floating" />
+            </div>
+        );
+    }
+
+    // Desktop layout: docked side navigation
     return (
-        <div className="w-full h-[100dvh] flex overflow-hidden">
+        <div className="w-full h-[100dvh] flex overflow-hidden bg-surface-secondary">
             {/* Sidebar Navigation */}
-            <Sidebar />
+            <Sidebar variant="docked" />
 
             {/* Main Content */}
             <div className="flex-1 overflow-hidden bg-surface-secondary">
