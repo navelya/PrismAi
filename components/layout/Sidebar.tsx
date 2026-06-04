@@ -428,7 +428,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                                 group relative flex items-center gap-3 px-3 py-2.5 rounded-lg
                                                 transition-all duration-200
                                                 ${isActive
-                                                    ? 'bg-accent-primary/10 text-accent-primary border border-accent-primary/10 shadow-sm'
+                                                    ? 'bg-interactive-hover text-accent-primary font-semibold'
                                                     : 'text-content-primary hover:bg-interactive-hover'
                                                 }
                                             `}
@@ -443,10 +443,6 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             >
                                                 {item.name}
                                             </span>
-
-                                            {isActive && (
-                                                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-primary rounded-r-full" />
-                                            )}
 
                                             {!isExpanded && (
                                                 <div className="absolute left-full ml-2 px-3 py-1.5 bg-content-primary text-surface-primary text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-[100] shadow-lg">
@@ -474,14 +470,9 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                 History
                             </div>
                             <ul className="space-y-0.5">
-                                {sessions.map((session, index) => (
+                                {sessions.map((session) => (
                                     <li
                                         key={session.id}
-                                        style={{
-                                            transitionDelay: isExpanded
-                                                ? `${index * 30}ms`
-                                                : '0ms'
-                                        }}
                                         className={`transition-all duration-200 ease-out origin-left ${isExpanded
                                             ? 'opacity-100 translate-x-0'
                                             : 'opacity-0 -translate-x-4'
