@@ -709,6 +709,46 @@ export default function CompositorEditorModal({
         updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, ...patch } : l));
     }, [updateLayers]);
 
+    // Lock aspect ratio for the Transformer's edge (middle) anchors. Corner
+    // anchors already keep ratio via Konva's default `keepRatio`, but the
+    // middle anchors normally resize a single axis. Here we drive the
+    // perpendicular dimension from the dragged one (using the box's current
+    // ratio) and re-center the box along that axis so it grows symmetrically
+    // about the fixed edge's midpoint. Box coords are post-rotation, so the
+    // recentering shift is applied along the box's rotated local axes
+    // (rotation is in radians). Returning `null`/`undefined` falls back to
+    // the unmodified box (corner anchors, no active anchor).
+    const keepRatioBoundBox = useCallback((oldBox: any, newBox: any) => {
+        const anchor = transformerRef.current?.getActiveAnchor?.();
+        const horizontal = anchor === 'middle-left' || anchor === 'middle-right';
+        const vertical = anchor === 'top-center' || anchor === 'bottom-center';
+        if (!horizontal && !vertical) return newBox;
+        if (oldBox.width === 0 || oldBox.height === 0) return newBox;
+
+        const ratio = oldBox.width / oldBox.height; // width / height
+        const rad = newBox.rotation || 0;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const box = { ...newBox };
+
+        if (horizontal) {
+            // Width was dragged → derive height, recenter along local Y axis.
+            const newHeight = Math.abs(box.width) / ratio;
+            const dh = newHeight - box.height;
+            box.height = newHeight;
+            box.x += (dh / 2) * sin;
+            box.y -= (dh / 2) * cos;
+        } else {
+            // Height was dragged → derive width, recenter along local X axis.
+            const newWidth = Math.abs(box.height) * ratio;
+            const dw = newWidth - box.width;
+            box.width = newWidth;
+            box.x -= (dw / 2) * cos;
+            box.y -= (dw / 2) * sin;
+        }
+        return box;
+    }, []);
+
     // Wire the Konva Transformer to every selected (unlocked) Konva node by
     // name, so one bounding box wraps the whole multi-selection.
     useEffect(() => {
@@ -1040,7 +1080,7 @@ export default function CompositorEditorModal({
                                     const l = layers.find((x) => x.id === lid);
                                     return l && !l.locked;
                                 }) && (
-                                    <Transformer ref={transformerRef} flipEnabled={false} borderStroke="#00F2EA" anchorStroke="#00F2EA" anchorFill="#00F2EA" anchorSize={8} borderDash={[3, 3]} />
+                                    <Transformer ref={transformerRef} flipEnabled={false} keepRatio boundBoxFunc={keepRatioBoundBox} borderStroke="#00F2EA" anchorStroke="#00F2EA" anchorFill="#00F2EA" anchorSize={8} borderDash={[3, 3]} />
                                 )}
                             </Layer>
                         </Stage>
