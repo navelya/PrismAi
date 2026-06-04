@@ -38,6 +38,12 @@ interface SidebarProps {
 export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: SidebarProps) {
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
+    // Open/closed state for the floating (canvas) app-menu panel. Kept separate
+    // from `isExpanded` (which is the docked bar's persistent width preference)
+    // because the Sidebar now stays mounted across routes — sharing one flag
+    // would carry an open panel into the next session. Reset on every route
+    // change so navigating to a session always lands with the panel closed.
+    const [menuOpen, setMenuOpen] = React.useState(false);
     const pathname = usePathname();
     const match = pathname?.match(/^\/chat\/([a-zA-Z0-9_-]+)/);
     const urlSessionId = match ? match[1] : null;
@@ -45,6 +51,12 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
     const [user, setUser] = React.useState<any>(null);
     const supabase = React.useMemo(() => createClient(), []);
     const router = useRouter();
+
+    // Close the floating app-menu whenever the route changes (e.g. navigating
+    // into a session) so it never lingers open over a freshly loaded workflow.
+    React.useEffect(() => {
+        setMenuOpen(false);
+    }, [pathname]);
 
     React.useEffect(() => {
         const getUser = async () => {
@@ -610,10 +622,10 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
     return (
         <>
             {/* Click-outside catcher — sits below the dock but above the canvas. */}
-            {isExpanded && (
+            {menuOpen && (
                 <div
                     className="fixed inset-0 z-[60]"
-                    onClick={() => setIsExpanded(false)}
+                    onClick={() => setMenuOpen(false)}
                     aria-hidden="true"
                 />
             )}
@@ -624,21 +636,21 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                     from the credits island. The current session title already
                     shows in the canvas toolbar. */}
                 <button
-                    onClick={() => setIsExpanded((v) => !v)}
+                    onClick={() => setMenuOpen((v) => !v)}
                     className="group flex items-center gap-1.5 h-9 px-2 text-content-primary hover:text-content-primary transition-colors"
                     aria-label="Open menu and sessions"
-                    aria-expanded={isExpanded}
+                    aria-expanded={menuOpen}
                     title="Menu & sessions"
                 >
                     <Menu className="w-4 h-4 flex-shrink-0 text-content-secondary" />
                     <ChevronDown
-                        className={`w-3.5 h-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                        className={`w-3.5 h-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${menuOpen ? 'rotate-180' : ''}`}
                     />
                 </button>
 
                 {/* Expanded panel — floats over the canvas, never pushes it. */}
                 <AnimatePresence>
-                    {isExpanded && (
+                    {menuOpen && (
                         <motion.div
                             initial={{ opacity: 0, y: -8, scale: 0.98 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -654,7 +666,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                     onClick={() => {
                                         // Keep the native pre-fetched <Link> transition.
                                         handleNewChat();
-                                        setIsExpanded(false);
+                                        setMenuOpen(false);
                                     }}
                                     className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-content-primary hover:bg-interactive-hover transition-colors"
                                 >
@@ -676,7 +688,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                                     session={session}
                                                     isActive={pathname === `/chat/${session.id}`}
                                                     isMobile={isMobile}
-                                                    onClose={() => setIsExpanded(false)}
+                                                    onClose={() => setMenuOpen(false)}
                                                     onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
                                                     onLongPress={() => { }} // No op on desktop
                                                 />
@@ -696,7 +708,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             <li key={item.name}>
                                                 <Link
                                                     href={item.path}
-                                                    onClick={() => setIsExpanded(false)}
+                                                    onClick={() => setMenuOpen(false)}
                                                     className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isActive
                                                         ? 'bg-accent-primary/10 text-accent-primary'
                                                         : 'text-content-primary hover:bg-interactive-hover'
@@ -740,7 +752,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                     {user?.is_admin && (
                                         <Link
                                             href="/admin"
-                                            onClick={() => setIsExpanded(false)}
+                                            onClick={() => setMenuOpen(false)}
                                             className="mt-1 flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
                                         >
                                             <Boxes className="w-4 h-4 text-content-tertiary" />
