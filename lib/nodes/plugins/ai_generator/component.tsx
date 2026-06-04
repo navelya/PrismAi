@@ -17,7 +17,7 @@ import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
 import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 import { computeAiNodeCost, formatCredits, clampIterations } from '@/lib/billing/cost';
-import { clampSelectedIndex, selectedValue, type GeneratedOutput } from './outputs';
+import { clampSelectedIndex, selectedValue, activeItemEnvelope, isActiveOnly, type GeneratedOutput } from './outputs';
 
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
@@ -33,6 +33,11 @@ const WIRE_TYPE_COLORS: Record<string, string> = {
     json: 'rgb(148, 163, 184)',
     any: 'rgb(var(--accent-primary))',
 };
+
+// Text/prompt preview box — kept byte-for-byte identical to the prompt node's
+// container (lib/nodes/plugins/prompt/component.tsx) so the AI node's prompt
+// preview reads as the same surface, not a brighter variant.
+const PROMPT_BOX = "bg-white/5 border border-white/10 rounded-xl shadow-inner transition-all duration-300 p-2.5";
 
 // =============================================================================
 // MAIN COMPONENT
@@ -69,6 +74,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 
     const triggerRunFromNode = useAppStore(state => state.triggerRunFromNode);
     const updateNodeConfig = useAppStore(state => state.updateNodeConfig);
+    const setNodeOutput = useAppStore(state => state.setNodeOutput);
     // View-only (collaboration viewer): the run button is grayed + disabled.
     const isViewer = useAppStore(state => state.collabRole) === 'viewer';
 
@@ -102,11 +108,33 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             selected_output_index: clamped,
             last_output: selectedValue(persistedOutputs, clamped),
         });
+        // nodeOutputs is republished as just this item by the effect below.
     };
 
     const openLightbox = (index: number) => {
         setLightboxIndex(index);
         setLightboxOpen(true);
+    };
+
+    // Commit an edited text/prompt output. When a persisted collection exists it
+    // is the source of truth the preview reads from (effectiveOutput prefers
+    // collectionUrls), so writing only to the live store via setNodeOutput would
+    // be immediately shadowed and the edit would never appear — the long-standing
+    // "can't edit the prompt preview" bug. Write back to the selected collection
+    // item (and keep last_output in sync) so the edit survives the re-derive.
+    const commitEditedText = (value: string) => {
+        if (persistedOutputs.length > 0) {
+            const idx = selectedIndex;
+            const next = persistedOutputs.map((o, i) => (i === idx ? { ...o, value } : o));
+            updateNodeConfig(id, {
+                ...(data.config || {}),
+                outputs: next,
+                selected_output_index: idx,
+                last_output: value,
+            });
+        } else {
+            setNodeOutput(id, { type: 'text', data: [value] });
+        }
     };
 
     const nodeTypeId = data.config?.node_type_id;
@@ -136,6 +164,25 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             setPreviewWidth(null);
         }
     }, [status]);
+
+    // Publish ONLY the active (carousel-front) output into nodeOutputs. Every
+    // downstream consumer reads nodeOutputs[sourceId] — the Compositor, Blur and
+    // Levels read it DIRECTLY, client executors via useNodeAutoCompute — so
+    // narrowing it here is the single place that makes the selected image (and
+    // only it) flow downstream, with no per-consumer logic. Reacting to both
+    // `activeOutputVal` (a manual carousel change) and `liveOutput` (a fresh run,
+    // or a reload that wrote the full/stale generation) keeps nodeOutputs in
+    // lock-step with the front image — fixing the case where the node showed one
+    // image but downstream nodes kept rendering a previous generation. The
+    // isActiveOnly guard makes the write converge: once narrowed, the effect
+    // re-runs and no-ops.
+    const activeOutputVal = persistedOutputs.length > 0 ? selectedValue(persistedOutputs, selectedIndex) : undefined;
+    const activeOutputType = persistedOutputs.length > 0 ? (persistedOutputs[selectedIndex]?.type ?? 'image') : 'image';
+    useEffect(() => {
+        if (activeOutputVal == null) return;
+        if (isActiveOnly(liveOutput, activeOutputVal)) return;
+        setNodeOutput(id, activeItemEnvelope(liveOutput, activeOutputVal, activeOutputType));
+    }, [id, liveOutput, activeOutputVal, activeOutputType, setNodeOutput]);
 
     // Derive the node's width from the loaded image's true aspect ratio so the
     // box hugs the image (no gray band beside portrait outputs). Only meaningful
@@ -238,8 +285,27 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         collectionType = (selType as any) || activeType;
     }
     const effectiveOutput = collectionUrls ?? previewOutput;
-    const effectiveType = collectionUrls ? collectionType : activeType;
+    const rawEffectiveType = collectionUrls ? collectionType : activeType;
     const effectiveIndex = collectionUrls ? selectedIndex : activeImageIndex;
+
+    // Single source of truth for "is this a text/prompt preview?", derived from
+    // the EFFECTIVE output actually being rendered — using the same content check
+    // OutputPreview uses internally (no displayable urls + extractable text). The
+    // card chrome (framed media wrapper vs. flat) and OutputPreview MUST agree:
+    // when they disagreed, the parent drew the framed media box + frosty gradient
+    // *behind* the text box, producing the bright "second background". We compute
+    // it once here and force the child's type to 'text' so they can't diverge.
+    const effectiveTextValues = effectiveOutput != null ? extractTextValues(effectiveOutput) : [];
+    const effectiveUrlCount = (Array.isArray(effectiveOutput) ? effectiveOutput : [effectiveOutput])
+        .map((o: any) => (typeof o === 'string' ? o : o?.url))
+        .filter((v: any) => typeof v === 'string' && (v.startsWith('http') || v.startsWith('data:')))
+        .length;
+    const isTextPreview =
+        rawEffectiveType === 'text' ||
+        rawEffectiveType === 'prompt' ||
+        inferredType === 'text' ||
+        (effectiveUrlCount === 0 && effectiveTextValues.length > 0);
+    const effectiveType = isTextPreview ? 'text' : rawEffectiveType;
 
     // Sizing model:
     //   text / audio → fixed width (no intrinsic-width content to drive layout)
@@ -253,7 +319,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     // whenever a value merely *exists* but hasn't rendered — a dead/expired URL
     // that never fires onLoad, or a result that hasn't arrived yet after a
     // refresh — leaving a skinny box instead of the default landscape footprint.
-    const isFixedWidth = activeType === 'text' || activeType === 'audio';
+    const isFixedWidth = isTextPreview || activeType === 'audio';
     const fixedWidth = activeType === 'audio' ? 280 : 320;
     const mediaStyle: React.CSSProperties = {
         // Once the image has loaded we know its real fitted width and pin the
@@ -289,13 +355,22 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         >
             <div
                 className={cn(
-                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node min-h-[200px]",
-                    activeType === 'text' ? "bg-transparent border-none" : "border border-white/10 bg-white/5",
+                    "relative w-full group/node",
+                    // Media keeps the framed, min-height card. Text drops the frame,
+                    // min-height and tinted bg entirely so the inner PROMPT_BOX is the
+                    // only surface — matching the standalone prompt node exactly.
+                    isTextPreview
+                        ? "bg-transparent border-none"
+                        : "rounded-xl overflow-hidden shadow-inner min-h-[200px] border border-white/10 bg-white/5",
                     !isDragging && "transition-all duration-500"
                 )}
             >
-                {/* Frosty Placeholder background */}
-                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
+                {/* Frosty Placeholder background — media only. Over a text preview
+                    its from-white/10 wash stacked on the PROMPT_BOX, making the box
+                    read brighter than the prompt node; suppress it for text. */}
+                {!isTextPreview && (
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
+                )}
 
                 {/* Empty State / Connection Placeholder */}
                 {!output && (
@@ -305,9 +380,9 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                         onPointerDown={(e) => e.stopPropagation()}
                     >
                         {(previewType === 'text' || previewType === 'prompt') && (
-                            <div className="w-full p-2.5">
+                            <div className={cn("w-full", PROMPT_BOX)}>
                                 <textarea
-                                    className="nodrag block w-full min-h-[120px] text-[11px] bg-transparent border-none focus:outline-none focus:ring-0 text-white/50 resize-none p-0 font-mono"
+                                    className="nodrag block w-full h-[160px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-white/50 resize-none p-0"
                                     readOnly
                                 />
                             </div>
@@ -352,6 +427,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                             }
                         }}
                         onInteraction={(e: React.MouseEvent | React.PointerEvent) => e.stopPropagation()}
+                        onEditText={commitEditedText}
                         isDragging={isDragging}
                     />
                 )}
@@ -457,14 +533,162 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 }
 
 // =============================================================================
-// OUTPUT PREVIEW (Parity with CustomNode)
+// EDITABLE TEXT PREVIEW
 // =============================================================================
+
+/**
+ * The text/prompt single-view preview. Mirrors the standalone prompt node:
+ *   - same PROMPT_BOX surface (so backgrounds match exactly),
+ *   - a local draft committed on a 350ms debounce + on blur, so the heavy
+ *     persisted-collection write doesn't fire per keystroke and the caret never
+ *     jumps when the committed value flows back in,
+ *   - a FIXED height with an internal scrollbar on overflow (no auto-grow), per
+ *     the requested behaviour.
+ * Editing is always enabled when an onCommit writer is provided.
+ */
+function EditableTextPreview({
+    value,
+    onCommit,
+    onInteraction,
+    children,
+}: {
+    value: string;
+    onCommit?: (value: string) => void;
+    onInteraction?: (e: any) => void;
+    children?: React.ReactNode;
+}) {
+    const ref = React.useRef<HTMLTextAreaElement>(null);
+    const focusedRef = React.useRef(false);
+    const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [draft, setDraft] = useState(value ?? '');
+
+    // Sync external value (new run, selection change) only while not focused, so
+    // an in-flight edit isn't clobbered by its own debounced commit echoing back.
+    useEffect(() => {
+        if (focusedRef.current) return;
+        if ((value ?? '') !== draft) setDraft(value ?? '');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value]);
+
+    // Debounced commit while editing.
+    useEffect(() => {
+        if (!focusedRef.current) return;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => onCommit?.(draft), 350);
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [draft]);
+
+    // Wheel capture so scrolling the text doesn't pan the canvas (parity with the
+    // prompt node and the prior auto-resize effect).
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const handleWheelNative = (e: WheelEvent) => {
+            if (!e.ctrlKey && !e.metaKey) e.stopPropagation();
+        };
+        el.addEventListener('wheel', handleWheelNative, { passive: false });
+        return () => el.removeEventListener('wheel', handleWheelNative);
+    }, []);
+
+    return (
+        <div
+            className={cn("relative group/preview", PROMPT_BOX)}
+            onMouseDown={onInteraction}
+            onPointerDown={onInteraction}
+            onClick={onInteraction}
+        >
+            <textarea
+                ref={ref}
+                className="nodrag custom-scrollbar block w-full h-[160px] overflow-y-auto text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
+                value={draft}
+                readOnly={!onCommit}
+                placeholder="Empty output"
+                onFocus={() => { focusedRef.current = true; }}
+                onBlur={() => { focusedRef.current = false; onCommit?.(draft); }}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Backspace' || e.key === 'Delete') e.stopPropagation();
+                }}
+            />
+            {children}
+        </div>
+    );
+}
+
+// =============================================================================
+// TEXT GRID VIEW
+// =============================================================================
+
+/**
+ * Multi-view stacked list of every text output. Two behaviours that the inline
+ * version lacked:
+ *   - `nowheel` lets the mouse wheel scroll the list itself instead of panning
+ *     the React Flow canvas (RF skips its wheel handler for `nowheel` elements).
+ *   - on open it scrolls the currently-selected prompt into view rather than
+ *     always starting at the top. Done by adjusting the container's own
+ *     scrollTop (not scrollIntoView, which would also nudge the canvas).
+ */
+function TextGridView({
+    items,
+    activeIndex,
+    onSelectIndex,
+    onInteraction,
+}: {
+    items: string[];
+    activeIndex: number;
+    onSelectIndex?: (i: number) => void;
+    onInteraction?: (e: any) => void;
+}) {
+    const containerRef = React.useRef<HTMLDivElement>(null);
+    const activeRef = React.useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        const c = containerRef.current;
+        const a = activeRef.current;
+        if (!c || !a) return;
+        const cRect = c.getBoundingClientRect();
+        const aRect = a.getBoundingClientRect();
+        // Bring the selected item to the top of the viewport (with a little
+        // breathing room), clamped by the container's own scroll range.
+        c.scrollTop += (aRect.top - cRect.top) - 8;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    return (
+        <div
+            ref={containerRef}
+            className="nowheel w-full p-2 space-y-1.5 max-h-[320px] overflow-y-auto custom-scrollbar"
+            onMouseDown={onInteraction}
+            onPointerDown={onInteraction}
+        >
+            {items.map((t, i) => (
+                <button
+                    key={i}
+                    ref={i === activeIndex ? activeRef : undefined}
+                    onMouseDown={onInteraction}
+                    onClick={(e) => { e.stopPropagation(); onSelectIndex?.(i); }}
+                    className={cn(
+                        "block w-full text-left rounded-lg border p-2 text-xs whitespace-pre-wrap transition-all",
+                        activeIndex === i
+                            ? "border-accent-primary ring-2 ring-accent-primary/20 bg-accent-primary/5 text-content-primary"
+                            : "border-white/10 bg-white/5 text-content-secondary hover:border-white/20"
+                    )}
+                >
+                    {t.length > 240 ? `${t.slice(0, 240)}…` : (t || 'Empty output')}
+                </button>
+            ))}
+        </div>
+    );
+}
 
 // =============================================================================
 // OUTPUT PREVIEW
 // =============================================================================
 
-function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, itemCount, onImageLoad, onSelectIndex, onImageClick, onPreviewClick, onInteraction, isDragging }: any) {
+function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, itemCount, onImageLoad, onSelectIndex, onImageClick, onPreviewClick, onInteraction, onEditText, isDragging }: any) {
     const items = Array.isArray(output) ? output : [output];
     const urls = items
         .map((o: any) => (typeof o === 'string' ? o : o?.url))
@@ -516,8 +740,6 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
     ) : null;
 
     const videoRefs = React.useRef<(HTMLVideoElement | null)[]>([]);
-    const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-    const setNodeOutput = useAppStore((state) => state.setNodeOutput);
     const dataTypes = useAppStore((state) => state.dataTypes);
     const inferredType = output !== undefined && output !== null ? inferResultTypeFromValue(output) : null;
     const isTextType =
@@ -526,25 +748,6 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
         dataTypes.some(dt => dt.id === 'text' && dt.id === type) ||
         inferredType === 'text' ||
         (urls.length === 0 && textContent !== null);
-
-    // Auto-resize for text area and wheel event capture
-    useEffect(() => {
-        if (isTextType && textareaRef.current) {
-            const el = textareaRef.current;
-            el.style.height = 'auto';
-            el.style.height = `${el.scrollHeight}px`;
-
-            // Wheel event capture to override React Flow's native behavior selectively
-            const handleWheelNative = (e: WheelEvent) => {
-                if (!e.ctrlKey && !e.metaKey) {
-                    e.stopPropagation();
-                }
-            };
-
-            el.addEventListener('wheel', handleWheelNative, { passive: false });
-            return () => el.removeEventListener('wheel', handleWheelNative);
-        }
-    }, [textContent, isTextType, activeImageIndex]);
 
     if (isTextType) {
         const textItems: string[] = Array.isArray(output)
@@ -556,54 +759,27 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
         if (previewMode === 'grid') {
             // Stacked-list multi-view: every text output, click to select.
             return (
-                <div className="w-full p-2 space-y-1.5 max-h-[320px] overflow-y-auto custom-scrollbar" onMouseDown={onInteraction} onPointerDown={onInteraction}>
-                    {textItems.map((t, i) => (
-                        <button
-                            key={i}
-                            onMouseDown={onInteraction}
-                            onClick={(e) => { e.stopPropagation(); onSelectIndex?.(i); }}
-                            className={cn(
-                                "block w-full text-left rounded-lg border p-2 text-xs whitespace-pre-wrap transition-all",
-                                (activeImageIndex ?? 0) === i
-                                    ? "border-accent-primary ring-2 ring-accent-primary/20 bg-accent-primary/5 text-content-primary"
-                                    : "border-white/10 bg-white/5 text-content-secondary hover:border-white/20"
-                            )}
-                        >
-                            {t.length > 240 ? `${t.slice(0, 240)}…` : (t || 'Empty output')}
-                        </button>
-                    ))}
-                </div>
+                <TextGridView
+                    items={textItems}
+                    activeIndex={idx}
+                    onSelectIndex={onSelectIndex}
+                    onInteraction={onInteraction}
+                />
             );
         }
 
         return (
-            <div
-                className="relative w-full p-2.5 transition-all duration-300 bg-transparent group/preview"
-                onMouseDown={onInteraction}
-                onPointerDown={onInteraction}
-                onClick={onInteraction}
+            // No remount key: switching outputs in a multi-item collection must NOT
+            // unmount/remount this (that caused a visible blink on every arrow). The
+            // new value flows in via props and EditableTextPreview's value-sync
+            // effect updates its draft in place while unfocused.
+            <EditableTextPreview
+                value={single}
+                onCommit={onEditText}
+                onInteraction={onInteraction}
             >
-                <textarea
-                    ref={textareaRef}
-                    className="nodrag custom-scrollbar block w-full min-h-[140px] max-h-[300px] text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
-                    value={single}
-                    readOnly={textItems.length > 1}
-                    placeholder="Empty output"
-                    onChange={(e) => {
-                        // Editing a single text output writes back to the live store only
-                        // (parity with prior behavior). Persisted-collection editing is
-                        // out of scope here.
-                        setNodeOutput(nodeId, { type: 'text', data: [e.target.value] });
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Backspace' || e.key === 'Delete') e.stopPropagation();
-                    }}
-                    onWheel={(e) => {
-                        if (!e.ctrlKey && !e.metaKey) e.stopPropagation();
-                    }}
-                />
                 {NavArrows}
-            </div>
+            </EditableTextPreview>
         );
     }
 
@@ -749,7 +925,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
 
     // Grid View
     return (
-        <div className="w-full h-full p-2 overflow-y-auto custom-scrollbar">
+        <div className="nowheel w-full h-full p-2 overflow-y-auto custom-scrollbar">
             <div className="grid grid-cols-3 gap-2">
                 {urls.map((url: string, i: number) => {
                     const isActive = activeImageIndex === i;
@@ -853,7 +1029,17 @@ function MediaCarousel({
     }
 
     const go = (delta: number) => {
-        const newStep = step + delta;
+        // Settle any pending clone overshoot before advancing. The wrap relies on
+        // onRest (onAnimationComplete) to snap a clone position back to its real
+        // twin, but framer-motion does NOT fire that callback when an animation is
+        // interrupted by a new target. When clicks outrun the 0.35s slide, those
+        // intermediate snaps never run and `step` marches past the rendered
+        // [0, count+1] track onto empty space — the preview goes blank until a
+        // refresh rebuilds `step` from activeIndex. Clamping the clone extremes to
+        // their real twin here keeps `step` provably in range (base ∈ [1, count],
+        // delta ∈ ±1 ⇒ newStep ∈ [0, count+1]) regardless of click speed.
+        const base = step === count + 1 ? 1 : step === 0 ? count : step;
+        const newStep = base + delta;
         const real = ((newStep - 1) % count + count) % count;
         setAnimate(true);
         setStep(newStep);

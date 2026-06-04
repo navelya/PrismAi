@@ -116,7 +116,9 @@ export function useNodeAutoCompute(nodeId: string): void {
                 // `layer.sourceHandleId = edge.id` because every layer edge
                 // shares the same 'layers' target handle, so the per-edge id
                 // is the only way to disambiguate which layer received which
-                // upstream value).
+                // upstream value). Upstream ai_generator nodes already publish
+                // ONLY their active output into nodeOutputs, so no per-consumer
+                // narrowing is needed here.
                 out[handleKey] = upstream;
                 out[edge.id] = upstream;
             });

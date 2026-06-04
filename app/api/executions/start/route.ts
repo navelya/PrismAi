@@ -263,14 +263,17 @@ export async function POST(request: NextRequest) {
           let resultData = coerceResultDataArray(r.result_data || []);
           let primary = getPrimaryInputValue(resultType, resultData);
 
-          // Honor the user's selected output for this ancestor (Plan A).
+          // Honor the user's selected output for this ancestor: the active
+          // (carousel-front) image is the ONE value the node exposes downstream.
+          // Array-handle consumers therefore receive only `[selected]`, not the
+          // whole set — a downstream node fed by a single ai_generator gets that
+          // node's active image, never all of its variations. (Feeding a model
+          // several images is done by wiring several upstream nodes, each
+          // contributing its own active image; those concatenate per edge.)
           const selected = selectionByNode.get(r.node_id);
           if (selected !== undefined) {
             primary = selected.value;
-            // Lead resultData with the selection so array-handle consumers also
-            // lead with it, preserving the remaining items.
-            // values are URL/text primitives, so strict !== de-dupes correctly
-            resultData = [selected.value, ...resultData.filter((v) => v !== selected.value)];
+            resultData = [selected.value];
           }
 
           if ((primary !== undefined && primary !== null) || resultData.length > 0) {

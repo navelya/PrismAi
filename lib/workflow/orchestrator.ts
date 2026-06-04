@@ -389,7 +389,15 @@ async function buildInputsFromParents(
       resultData = resultData.slice(0, 1);
     }
     const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
-    const typedValue = arrayInputKeys.has(inputKey)
+    // An ai_generator exposes only its active (carousel-front) output
+    // downstream. A (re)run resets its selection to the newest item, which
+    // leads result_data, so the primary value IS the front image. Deliver just
+    // that one even to array handles — never the whole set of variations — so a
+    // downstream node fed by a single ai_generator gets its active image, not
+    // all of them. (Multi-image inputs are still possible by wiring several
+    // upstream nodes; each contributes its primary and they concatenate below.)
+    const isAiSource = nodeTypeById.get(edge.source) === 'ai_generator';
+    const typedValue = (arrayInputKeys.has(inputKey) && !isAiSource)
       ? resultData
       : getPrimaryInputValue(resultType, resultData);
 

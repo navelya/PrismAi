@@ -61,3 +61,47 @@ export function selectedValue(
     if (list.length === 0) return undefined;
     return list[clampSelectedIndex(index, list.length)]?.value;
 }
+
+/** The URL/string identity of one output item (envelope item, `{ url }`, or raw string). */
+export function itemValueOf(item: any): any {
+    return typeof item === 'string' ? item : item?.url ?? item?.value;
+}
+
+/** Flatten any live-output shape — `{ type, data:[…] }`, raw `[…]`, or a single item — to its item array. */
+function outputItems(value: any): any[] {
+    if (value == null) return [];
+    if (value && typeof value === 'object' && !Array.isArray(value) && Array.isArray(value.data)) return value.data;
+    if (Array.isArray(value)) return value;
+    return [value];
+}
+
+/**
+ * True when `value` already holds EXACTLY the single item identified by
+ * `active`. Used as the convergence guard so the node's republish-active effect
+ * stops re-writing once nodeOutputs has been narrowed.
+ */
+export function isActiveOnly(value: any, active: any): boolean {
+    if (value == null || active == null) return false;
+    const items = outputItems(value);
+    return items.length === 1 && itemValueOf(items[0]) === active;
+}
+
+/**
+ * Build the single-item output envelope a node publishes downstream: the one
+ * item identified by `active` (its selected/front value). Reuses the rich item
+ * (url + resolution + metadata) from the current live `value` when present;
+ * else synthesizes `{ url: active }`.
+ *
+ * Matching is by VALUE (URL/string), not index: across multiple runs the live
+ * envelope (latest run only) and `config.outputs` (accumulated, newest-first)
+ * can fall out of index alignment, but the active value is always exact — and
+ * when it isn't present in the live array at all (it came from an earlier run
+ * no longer in the envelope) we still surface the front image, not a stale one.
+ */
+export function activeItemEnvelope(value: any, active: any, fallbackType: string = 'image'): { type: string; data: any[] } {
+    const item = outputItems(value).find((d) => itemValueOf(d) === active) ?? { url: active };
+    const type = (value && typeof value === 'object' && !Array.isArray(value) && typeof value.type === 'string')
+        ? value.type
+        : fallbackType;
+    return { type, data: [item] };
+}
