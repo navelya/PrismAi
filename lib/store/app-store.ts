@@ -161,6 +161,8 @@ export const useAppStore = create<RootState>()(
                     // Ephemeral: the auto-run intro modal payload. Resurrecting it
                     // on refresh would reopen the modal against a stale run.
                     'autoRunIntro',
+                    // Ephemeral: the config-only auto-run modal trigger. Never persist.
+                    'autoRunConfigOpen',
                     // One-shot pan/select trigger from the Run-error popover. If it
                     // survives rehydration, the canvas would re-center on that node
                     // on every page load.
@@ -215,6 +217,7 @@ export const useAppStore = create<RootState>()(
                     state.runSelectionIds = null;
                     state.runPreconfirmed = false;
                     state.autoRunIntro = null;
+                    state.autoRunConfigOpen = false;
                     state.currentSelectedNodeIds = [];
                     state.selectionClearToken = 0;
                 }

@@ -71,6 +71,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
                     useAppStore.getState().setHasSeenAutoRunIntro(
                         (userData.profile?.preferences as any)?.seenAutoRunIntro === true
                     );
+                    // Absent → enabled (default on); only an explicit `false` disables it.
+                    useAppStore.getState().setAutoRunEnabled(
+                        (userData.profile?.preferences as any)?.autoRunEnabled !== false
+                    );
                 }
             } catch (err) {
                 // Not logged in or error

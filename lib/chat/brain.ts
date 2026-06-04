@@ -5,7 +5,7 @@ import { buildSystemPrompt } from './prompt/system';
 import type { RegistryContextInput } from './prompt/registry-context';
 import { TOOLS, type ToolName, type AnthropicTool } from './tools/definitions';
 import { dispatchTool, validateBlueprint, validateTaskList, type ToolHandlerState } from './tools/handlers';
-import type { PlanPayload } from './streaming/protocol';
+import type { PlanPayload, ClarificationQuestion } from './streaming/protocol';
 import { streamAnthropicTurn, toAnthropicMessages, type ChatTurn } from './provider/anthropic';
 import type { StreamEncoder } from './streaming/encoder';
 
@@ -16,7 +16,7 @@ export interface BrainResult {
   accumulatedPatch: WorkflowPatch | null;
   hadAnyOutput: boolean;
   usage: { inputTokens: number; outputTokens: number; thinkingTokens: number; costUsd: number } | null;
-  clarification: { options: string[] } | null;
+  clarification: { questions: ClarificationQuestion[] } | null;
   plan: PlanPayload | null;
   /** The model that actually ran this brain pass ('haiku' | 'sonnet'). */
   model: 'haiku' | 'sonnet';
@@ -271,23 +271,44 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
             if (name === 'ask_clarification') {
               calledTerminalTool = true;
-              // Validate options: must be an array of 2-4 strings (clip to 4 if more).
-              const raw = Array.isArray(event.args?.options) ? event.args.options : [];
-              const options = raw
-                .filter((o: unknown): o is string => typeof o === 'string' && o.trim().length > 0)
-                .slice(0, 4);
-              if (options.length < 2) {
+              // New shape: questions[] (each { question, options }). Accept the
+              // legacy flat `options` too, wrapping it as a single question.
+              const cleanOptions = (raw: unknown): string[] =>
+                (Array.isArray(raw) ? raw : [])
+                  .filter((o: unknown): o is string => typeof o === 'string' && o.trim().length > 0)
+                  .slice(0, 4);
+
+              const rawQuestions = Array.isArray(event.args?.questions) ? event.args.questions : null;
+              let questions: ClarificationQuestion[] = [];
+              if (rawQuestions) {
+                questions = rawQuestions
+                  .map((q: any): ClarificationQuestion | null => {
+                    const options = cleanOptions(q?.options);
+                    if (options.length < 2) return null;
+                    return {
+                      question: typeof q?.question === 'string' ? q.question.trim() : '',
+                      options,
+                    };
+                  })
+                  .filter((q: ClarificationQuestion | null): q is ClarificationQuestion => q !== null)
+                  .slice(0, 4);
+              } else {
+                const options = cleanOptions(event.args?.options);
+                if (options.length >= 2) questions = [{ question: '', options }];
+              }
+
+              if (questions.length === 0) {
                 input.encoder.send({
                   type: 'error',
-                  message: 'ask_clarification needs 2-4 string options.',
+                  message: 'ask_clarification needs at least one question with 2-4 string options.',
                   recoverable: true
                 });
                 break;
               }
               // First valid clarification wins; ignore any additional ones in this turn.
               if (!clarification) {
-                clarification = { options };
-                input.encoder.send({ type: 'clarification', options });
+                clarification = { questions };
+                input.encoder.send({ type: 'clarification', questions });
               }
               break;
             }

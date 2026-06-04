@@ -8,7 +8,7 @@ import remarkBreaks from 'remark-breaks';
 import { TableModal } from '@/components/ui/TableModal';
 import MessageRenderer from './MessageRenderer';
 import { ActivityTimeline } from './ActivityTimeline';
-import { ChipCard } from './ChipCard';
+import { ClarificationCard } from './ClarificationCard';
 import { PlanCard } from './PlanCard';
 import { PlanCardSkeleton } from './PlanCardSkeleton';
 import { TaskProgressCard } from './TaskProgressCard';
@@ -36,8 +36,15 @@ interface Message {
     isThinking?: boolean;
     thinkingDurationMs?: number;
     model?: 'haiku' | 'sonnet';
-    clarification?: { options: string[] };
-    clarificationAnswer?: { chosenIndex: number | null; text: string };
+    clarification?: {
+        questions?: import('@/lib/chat/streaming/protocol').ClarificationQuestion[];
+        options?: string[];
+    };
+    clarificationAnswer?: {
+        chosenIndex?: number | null;
+        text: string;
+        answers?: { chosenIndex: number | null; text: string }[];
+    };
     plan?: {
         title: string;
         summary: string;
@@ -233,8 +240,8 @@ export const Message = React.memo(function Message({
     onRetry?: () => void;
     onClarificationAnswer?: (payload: {
         questionMessageId: string;
-        chosenIndex: number | null;
         text: string;
+        answers: { chosenIndex: number | null; text: string }[];
     }) => void;
     onPlanApprove?: (planMessageId: string) => void;
     onPlanFeedback?: (planMessageId: string, feedbackText: string) => void;
@@ -378,19 +385,28 @@ export const Message = React.memo(function Message({
                         </div>
                     )}
 
-                    {message.type === 'assistant' && message.clarification && (
-                        <ChipCard
-                            options={message.clarification.options}
-                            answer={message.clarificationAnswer}
-                            onAnswer={(payload) =>
-                                onClarificationAnswer?.({
-                                    questionMessageId: message.id,
-                                    chosenIndex: payload.chosenIndex,
-                                    text: payload.text,
-                                })
-                            }
-                        />
-                    )}
+                    {message.type === 'assistant' && message.clarification && (() => {
+                        const clar = message.clarification;
+                        const questions = clar.questions && clar.questions.length > 0
+                            ? clar.questions
+                            : clar.options && clar.options.length > 0
+                                ? [{ question: '', options: clar.options }]
+                                : [];
+                        if (questions.length === 0) return null;
+                        return (
+                            <ClarificationCard
+                                questions={questions}
+                                answer={message.clarificationAnswer}
+                                onComplete={(payload) =>
+                                    onClarificationAnswer?.({
+                                        questionMessageId: message.id,
+                                        text: payload.text,
+                                        answers: payload.answers,
+                                    })
+                                }
+                            />
+                        );
+                    })()}
 
                     {message.type === 'assistant' && message.planLoading && !message.plan && (
                         <PlanCardSkeleton />

@@ -212,6 +212,23 @@
     }
   }
 
+  /* Clarification slider: each question slides in as the previous is answered
+     (or the user navigates with the arrows). Direction-aware via a data attr. */
+  .clar-slide-next {
+    animation: clar-slide-next 220ms ease-out;
+  }
+  .clar-slide-prev {
+    animation: clar-slide-prev 220ms ease-out;
+  }
+  @keyframes clar-slide-next {
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes clar-slide-prev {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
   /* Slim inline caret at the end of the last paragraph while a chat message
      is still streaming. Pseudo-element lives inside the <p>, so it stays on
      the same line as the trailing text. */

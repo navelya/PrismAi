@@ -202,7 +202,7 @@ export function useChatMessages({
         attachedImages: string[],
         clearAttachments: () => void,
         setInput: (val: string) => void,
-        clarificationAnswerOverride?: { questionMessageId: string; chosenIndex: number | null },
+        clarificationAnswerOverride?: { questionMessageId: string; answers: { chosenIndex: number | null; text: string }[] },
         planAnswerOverride?: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string },
         mentionedCharacterIds?: string[],
     ) => {
@@ -214,14 +214,20 @@ export function useChatMessages({
         // session-filtered `messages` slice (top of hook) so we never pair an
         // outgoing message with an unanswered clarification from a different
         // session that happens to coexist in the store.
-        let resolvedClarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =
+        let resolvedClarificationAnswer: { questionMessageId: string; answers: { chosenIndex: number | null; text: string }[] } | undefined =
             clarificationAnswerOverride;
         if (!resolvedClarificationAnswer) {
             for (let i = messages.length - 1; i >= 0; i--) {
                 const m = messages[i];
                 if (m.type === 'assistant') {
-                    if (m.clarification?.options && !m.clarificationAnswer) {
-                        resolvedClarificationAnswer = { questionMessageId: m.id, chosenIndex: null };
+                    const hasPending = (m.clarification?.options?.length || m.clarification?.questions?.length);
+                    if (hasPending && !m.clarificationAnswer) {
+                        // Implicit answer typed into the main input — treat as one
+                        // free-text answer (the card is the structured path).
+                        resolvedClarificationAnswer = {
+                            questionMessageId: m.id,
+                            answers: [{ chosenIndex: null, text: trimmedInput }],
+                        };
                     }
                     break; // only inspect the most recent assistant in this session
                 }
@@ -344,8 +350,8 @@ export function useChatMessages({
         if (resolvedClarificationAnswer) {
             useAppStore.getState().updateMessage(resolvedClarificationAnswer.questionMessageId, {
                 clarificationAnswer: {
-                    chosenIndex: resolvedClarificationAnswer.chosenIndex,
                     text: trimmedInput,
+                    answers: resolvedClarificationAnswer.answers,
                 },
             });
         }
@@ -514,8 +520,14 @@ export function useChatMessages({
                     setStatusMessage('Thinking deeper…');
                 }
                 else if (parsed.type === 'clarification') {
+                    // New shape: questions[]. Tolerate the legacy flat options[] too.
+                    const questions = Array.isArray(parsed.questions)
+                        ? parsed.questions
+                        : Array.isArray(parsed.options)
+                            ? [{ question: '', options: parsed.options }]
+                            : [];
                     useAppStore.getState().updateMessage(assistantMsgId, {
-                        clarification: { options: Array.isArray(parsed.options) ? parsed.options : [] },
+                        clarification: { questions },
                     });
                 }
                 else if (parsed.type === 'tool_start' && parsed.name === 'propose_plan') {
@@ -633,9 +645,16 @@ export function useChatMessages({
                     }
                 }
                 else if (parsed.type === 'done') {
-                    // Mark message as completed when the stream signals done
+                    // Mark message as completed when the stream signals done.
+                    // Also clear planLoading: it's set on `tool_start: propose_plan`
+                    // but only ever cleared implicitly by a `plan` event. If the
+                    // plan never materialized (validation failed, the model took a
+                    // different route, etc.) the PlanCardSkeleton + "Creating plan"
+                    // step would otherwise spin forever. The turn is over now.
                     useAppStore.getState().updateMessage(assistantMsgId, {
                         status: 'completed',
+                        planLoading: false,
+                        isThinking: false,
                     });
                 }
             };
@@ -694,7 +713,7 @@ export function useChatMessages({
                         // card as a holding state and hand the run to the modal, which
                         // saves the chosen limit and runs (or not) on approve.
                         const isPaidKnown = plan.cost > 0 && plan.missingModels.length === 0;
-                        if (isPaidKnown && !store.hasSeenAutoRunIntro) {
+                        if (isPaidKnown && store.autoRunEnabled && !store.hasSeenAutoRunIntro) {
                             useAppStore.getState().updateMessage(assistantMsgId, {
                                 inlineResultIds: plan.terminalIds,
                                 runProposal: {
@@ -715,7 +734,7 @@ export function useChatMessages({
                             // STAGE 2: auto-run when cost is at/under the user's limit AND
                             // all models are known. A missing model means the real cost is
                             // unknown — never auto-run it.
-                            const shouldAutoRun = plan.cost <= store.maxAutoRunCredits && plan.missingModels.length === 0;
+                            const shouldAutoRun = store.autoRunEnabled && plan.cost <= store.maxAutoRunCredits && plan.missingModels.length === 0;
 
                             // Pre-flight validation: if commitExecution would abort
                             // (e.g. a node's mandatory input isn't wired yet), don't
@@ -765,7 +784,11 @@ export function useChatMessages({
         } catch (error) {
             console.error("Stream failed:", error);
             useAppStore.getState().updateMessage(assistantMsgId, {
-                content: "Sorry, I encountered a network error while streaming."
+                content: "Sorry, I encountered a network error while streaming.",
+                // Don't strand the plan skeleton / "Creating plan" step if the
+                // stream broke mid-plan (network error, abort, refresh).
+                planLoading: false,
+                isThinking: false,
             });
             // End the turn even on failure so the tracker doesn't strand the
             // active flag and block the next turn's begin/end transition.

@@ -358,14 +358,18 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           ...(r.isGroup === true ? { isGroup: true } : {}),
         }))
     : [];
-  const clarificationAnswer: { questionMessageId: string; chosenIndex: number | null } | undefined =
+  const clarificationAnswer:
+    | { questionMessageId: string; answers: { chosenIndex: number | null; text: string }[] }
+    | undefined =
     body?.clarificationAnswer && typeof body.clarificationAnswer === 'object'
       ? {
           questionMessageId: String(body.clarificationAnswer.questionMessageId ?? ''),
-          chosenIndex:
-            typeof body.clarificationAnswer.chosenIndex === 'number'
-              ? body.clarificationAnswer.chosenIndex
-              : null,
+          answers: Array.isArray(body.clarificationAnswer.answers)
+            ? body.clarificationAnswer.answers.map((a: any) => ({
+                chosenIndex: typeof a?.chosenIndex === 'number' ? a.chosenIndex : null,
+                text: typeof a?.text === 'string' ? a.text : '',
+              }))
+            : [],
         }
       : undefined;
   const planAnswer: { planMessageId: string; action: 'approve' | 'feedback'; feedbackText?: string } | undefined =

@@ -14,52 +14,16 @@ import {
     Mic,
     MicOff,
     Square,
-    Plus,
     X,
-    ImagePlus,
-    Sparkles,
 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
-import { Select, type SelectOption } from '@/components/ui/Select';
+import { ChatPlusMenu } from './ChatPlusMenu';
 import { SelectionPillRow } from './SelectionPillRow';
 import { useCharacters } from '@/lib/hooks/use-characters';
 import CharacterMentionPicker, { buildMentionResults, extractMentionedCharacters } from './CharacterMentionPicker';
 import CharacterModal from '@/components/assets/CharacterModal';
 import type { Character, CharacterInput } from '@/lib/api/client';
-
-const PLUS_MENU_OPTIONS: SelectOption[] = [
-    {
-        id: 'add-images',
-        display_name: 'Add images',
-        icon: <ImagePlus className="w-3.5 h-3.5 text-accent-primary" />,
-    },
-    {
-        id: 'templates',
-        display_name: 'Templates',
-        subtitle: 'Coming soon',
-        icon: <Sparkles className="w-3.5 h-3.5 text-content-tertiary" />,
-        disabled: true,
-    },
-];
-
-const PlusTriggerButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
-    function PlusTriggerButton(props, ref) {
-        const { className, children, ...rest } = props;
-        return (
-            <button
-                ref={ref}
-                type="button"
-                aria-label="Add attachment"
-                {...rest}
-                className={`p-2 rounded-lg transition-colors bg-surface-secondary hover:bg-surface-tertiary text-content-tertiary hover:text-content-secondary data-[state=open]:bg-surface-tertiary data-[state=open]:text-content-primary outline-none [&[data-state=open]>svg]:rotate-45 ${className ?? ''}`}
-            >
-                <Plus className="w-5 h-5 transition-transform" />
-                {children}
-            </button>
-        );
-    }
-);
 
 interface ChatInputProps {
     value: string;
@@ -108,10 +72,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
 
         const [isExpanded, setIsExpanded] = useState(false);
         const [isMultiLine, setIsMultiLine] = useState(false);
-        // Single source of truth for which footer dropdown is open. Opening one
-        // automatically closes the other so they can't both be visible.
-        const [openMenu, setOpenMenu] = useState<'none' | 'plus'>('none');
-        const plusTriggerRef = useRef<HTMLButtonElement>(null);
 
         const { characters, sharedCharacters, createCharacter, createDraft } = useCharacters({ includeShared: true });
         const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = picker closed
@@ -130,14 +90,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             if (/\s/.test(frag)) return null;
             return frag;
         }, []);
-
-        // Functional setState ensures we don't fight with Radix's own
-        // onOpenChange(false) firing right after — we only collapse to 'none'
-        // if the menu is still showing the dropdown that just dismissed.
-        const handlePlusOpenChange = (o: boolean) => {
-            if (o) setOpenMenu('plus');
-            else setOpenMenu(prev => (prev === 'plus' ? 'none' : prev));
-        };
 
         // Internal refs for the ghost element (single-line width probe) and the
         // forwarded textarea.  We need a local ref for effects; if the parent
@@ -466,22 +418,9 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                                     ${isMultiLine || attachedImages.length > 0 || isCanvasMode ? '' : 'pt-2'}
                                     ${isViewer ? 'opacity-40 pointer-events-none' : ''}`}
                     >
-                        {/* Left: attachment button */}
-                        <div className="flex items-center gap-1">
-                            {/* Attachment (+) menu — shared Select dropdown */}
-                            <div className="relative z-10">
-                                <Select
-                                    variant="minimal"
-                                    options={PLUS_MENU_OPTIONS}
-                                    value=""
-                                    onChange={(e) => {
-                                        if (e.target.value === 'add-images') onOpenImagePicker();
-                                    }}
-                                    open={openMenu === 'plus'}
-                                    onOpenChange={handlePlusOpenChange}
-                                    triggerNode={<PlusTriggerButton ref={plusTriggerRef} />}
-                                />
-                            </div>
+                        {/* Left: attachment (+) menu — Files action + auto-run slider */}
+                        <div className="flex items-center gap-1 z-10">
+                            <ChatPlusMenu onOpenImagePicker={onOpenImagePicker} />
                         </div>
 
                         {/* Right: voice + send/stop */}

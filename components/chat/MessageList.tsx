@@ -18,8 +18,15 @@ interface Message {
     thinking?: string;
     isThinking?: boolean;
     thinkingDurationMs?: number;
-    clarification?: { options: string[] };
-    clarificationAnswer?: { chosenIndex: number | null; text: string };
+    clarification?: {
+        questions?: import('@/lib/chat/streaming/protocol').ClarificationQuestion[];
+        options?: string[];
+    };
+    clarificationAnswer?: {
+        chosenIndex?: number | null;
+        text: string;
+        answers?: { chosenIndex: number | null; text: string }[];
+    };
     plan?: {
         title: string;
         summary: string;
@@ -43,8 +50,8 @@ interface MessageListProps {
     onRetry: () => void;
     onClarificationAnswer?: (payload: {
         questionMessageId: string;
-        chosenIndex: number | null;
         text: string;
+        answers: { chosenIndex: number | null; text: string }[];
     }) => void;
     onPlanApprove?: (planMessageId: string) => void;
     onPlanFeedback?: (planMessageId: string, feedbackText: string) => void;

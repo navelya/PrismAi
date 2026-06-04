@@ -299,14 +299,18 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const stablePlanFeedback = useStableCallback(handlePlanFeedback);
     const stableRunProposal = useStableCallback(handleRunProposal);
     const stableClarificationAnswer = useStableCallback(
-        (payload: { questionMessageId: string; chosenIndex: number | null; text: string }) => {
+        (payload: {
+            questionMessageId: string;
+            text: string;
+            answers: { chosenIndex: number | null; text: string }[];
+        }) => {
             sendMessage(
                 payload.text,
                 [],
                 [],
                 () => {},
                 () => {},
-                { questionMessageId: payload.questionMessageId, chosenIndex: payload.chosenIndex }
+                { questionMessageId: payload.questionMessageId, answers: payload.answers }
             );
         }
     );

@@ -29,8 +29,10 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     runSelectionIds: null,
     runPreconfirmed: false,
     maxAutoRunCredits: 10,
+    autoRunEnabled: true,
     hasSeenAutoRunIntro: false,
     autoRunIntro: null,
+    autoRunConfigOpen: false,
     menuTree: [],
     menuFlat: [],
     isMenuLoading: false,
@@ -185,9 +187,12 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     },
     clearRunFromNode: () => set({ runFromNodeId: null, runMode: null, runSelectionIds: null, runPreconfirmed: false }),
     setMaxAutoRunCredits: (n) => set({ maxAutoRunCredits: Number.isFinite(n) && n >= 0 ? n : 0 }),
+    setAutoRunEnabled: (v) => set({ autoRunEnabled: !!v }),
     setHasSeenAutoRunIntro: (v) => set({ hasSeenAutoRunIntro: v }),
     openAutoRunIntro: (payload) => set({ autoRunIntro: payload }),
     closeAutoRunIntro: () => set({ autoRunIntro: null }),
+    openAutoRunConfig: () => set({ autoRunConfigOpen: true }),
+    closeAutoRunConfig: () => set({ autoRunConfigOpen: false }),
 
     setDragHoverGroupId: (id) => {
         // Drag handlers call this on every frame; skip the store write (and

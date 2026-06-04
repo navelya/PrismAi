@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { userApi } from '@/lib/api/client';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { NumberInput } from '@/components/ui/NumberInput';
+import { Slider } from '@/components/ui/Slider';
 import PlanBillingView from '@/components/billing/PlanBillingView';
 import { TokenLedgerSection } from '@/components/billing/TokenLedgerSection';
 import { CreditsBreakdownPanel } from '@/components/billing/CreditsBreakdownPanel';
@@ -701,17 +702,28 @@ function TokensCreditsUsageView({ user, onProfileUpdated }: { user: any, onProfi
                     description="Chat runs costing up to this many credits run automatically. Above it, a Run button appears."
                     layout="inline"
                 >
-                    <NumberInput
-                        min={0}
-                        step={1}
-                        value={localMaxAutoRunCredits}
-                        onChange={(e) =>
-                            setLocalMaxAutoRunCredits(
-                                Math.max(0, Math.min(10000, Math.trunc(Number(e.target.value) || 0)))
-                            )
-                        }
-                        className="w-32"
-                    />
+                    <div className="flex items-center gap-3 w-[16rem]">
+                        <Slider
+                            value={Math.min(localMaxAutoRunCredits, 100)}
+                            min={0}
+                            max={100}
+                            step={1}
+                            onChange={(n) => setLocalMaxAutoRunCredits(n)}
+                            ariaLabel="Max auto-run credits"
+                            className="flex-1"
+                        />
+                        <NumberInput
+                            min={0}
+                            step={1}
+                            value={localMaxAutoRunCredits}
+                            onChange={(e) =>
+                                setLocalMaxAutoRunCredits(
+                                    Math.max(0, Math.min(10000, Math.trunc(Number(e.target.value) || 0)))
+                                )
+                            }
+                            className="w-20"
+                        />
+                    </div>
                 </SettingCard>
             </section>
 

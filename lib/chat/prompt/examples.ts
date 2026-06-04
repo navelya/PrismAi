@@ -59,18 +59,19 @@ Assistant: Splitting this into four tasks so you can see each scene build.
   ]]
 (three distinct scenes → tasks-mode; each scene gets a Film-icon group. Final compositor task has no group — it assembles the full video.)
 
-[multi-turn clarification example]
+[multi-question clarification example — bundle what you need into ONE call]
 User: Make me a video.
-Assistant: A few quick things — what should it be about?
-(no tool call — free-text answer expected)
-User: A short product reel for my new sneakers.
-Assistant: Got it. How long should it be?
-[calls ask_clarification with options=["15 seconds", "30 seconds", "60 seconds"]]
-User: 30 seconds
-Assistant: And do you have product photos to use as reference, or should I generate the look from scratch?
-[calls ask_clarification with options=["I'll attach photos", "Generate from scratch"]]
-User: I'll attach photos
-[next turn — emits propose_plan with tasks for an upload + two angle groups; blueprint ready]
+Assistant: A few quick things before I plan this.
+[calls ask_clarification with questions=[
+  { question: "What should the video be about?", options: ["Product reel", "Brand story", "Tutorial", "Social teaser"] },
+  { question: "How long?", options: ["15 seconds", "30 seconds", "60 seconds"] },
+  { question: "Reference footage?", options: ["I'll attach photos", "Generate from scratch"] }
+]]
+(the UI shows these one at a time; the user answers each, then they come back together)
+User: What should the video be about? → Product reel
+How long? → 30 seconds
+Reference footage? → I'll attach photos
+[next turn — emits propose_plan with tasks for an upload + scene groups; blueprint ready]
 
 [smart label renaming example]
 User: Build me a workflow that generates a hero shot of a sports car and adds a subtle blur to the background.

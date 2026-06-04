@@ -33,12 +33,22 @@ export interface Message {
     /** Which model produced this assistant message ('haiku' = fast, 'sonnet' = deep). */
     model?: 'haiku' | 'sonnet';
     // Clarification chip card (assistant turn): set when the brain emits
-    // a `clarification` stream event for this message.
-    clarification?: { options: string[] };
-    // Set on the assistant message once the user has answered the clarification
-    // (either via chip click or by typing). chosenIndex is null for typed answers.
-    // text mirrors the user's reply text; used to render the answered chip card.
-    clarificationAnswer?: { chosenIndex: number | null; text: string };
+    // a `clarification` stream event for this message. `questions` is the
+    // multi-question shape (each question shown one at a time); `options` is
+    // the legacy single-question shape kept for old persisted rows.
+    clarification?: {
+        questions?: import('@/lib/chat/streaming/protocol').ClarificationQuestion[];
+        options?: string[];
+    };
+    // Set on the assistant message once the user has answered the clarification.
+    // `answers` holds one entry per question (chosenIndex null for typed answers);
+    // legacy single-answer rows carry `chosenIndex`. `text` is the combined reply
+    // text sent as the user message. Used to render the answered card.
+    clarificationAnswer?: {
+        chosenIndex?: number | null;
+        text: string;
+        answers?: { chosenIndex: number | null; text: string }[];
+    };
     // Transient client-only flag: true once the brain emits a
     // `tool_start: propose_plan` event for this turn but before the
     // full `plan` payload arrives. Drives the PlanCardSkeleton placeholder.
@@ -360,12 +370,27 @@ export interface UISlice {
     maxAutoRunCredits: number;
     setMaxAutoRunCredits: (n: number) => void;
     /**
+     * Master on/off for auto-run. When false, chat never auto-starts a run
+     * regardless of cost — the user always gets a Run button. When true, runs
+     * auto-start while their cost is within maxAutoRunCredits. Sourced from
+     * profiles.preferences.autoRunEnabled, loaded on startup. Default true.
+     */
+    autoRunEnabled: boolean;
+    setAutoRunEnabled: (v: boolean) => void;
+    /**
      * Whether the user has seen the one-time auto-run intro modal. Sourced from
      * profiles.preferences.seenAutoRunIntro (once-per-user across devices),
      * loaded into the store on startup.
      */
     hasSeenAutoRunIntro: boolean;
     setHasSeenAutoRunIntro: (v: boolean) => void;
+    /**
+     * When true, the AutoRunIntroModal is open in config-only mode (no pending
+     * run) — opened from the chat menu's "Configure" link. Ephemeral.
+     */
+    autoRunConfigOpen: boolean;
+    openAutoRunConfig: () => void;
+    closeAutoRunConfig: () => void;
     /**
      * When set, the AutoRunIntroModal is open for this pending run. Carries the
      * run plan that triggered it so the modal can run it on approve. Ephemeral —

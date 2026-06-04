@@ -1,5 +1,12 @@
 import type { WorkflowPatch } from '@/lib/workflow/workflow-patch';
 
+/** One clarifying question with its chip options. A clarification turn may
+ *  carry several of these; the UI presents them one at a time. */
+export interface ClarificationQuestion {
+  question: string;     // the question text, ≤140 chars
+  options: string[];    // 2-4 chip labels, ≤40 chars each
+}
+
 export interface TaskGroup {
   label: string;        // ≤40 chars
   icon: string;         // Lucide PascalCase name; falls back to 'Folder' if unknown
@@ -65,7 +72,7 @@ export type StreamEvent =
   | { type: 'text'; text: string }
   | { type: 'tool_start'; name: 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan' }
   | { type: 'tool'; name: 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node'; patch: WorkflowPatch }
-  | { type: 'clarification'; options: string[] }
+  | { type: 'clarification'; questions: ClarificationQuestion[] }
   | { type: 'plan'; plan: PlanPayload }
   | { type: 'task_start'; taskId: string; index: number; total: number }
   | { type: 'task_complete'; taskId: string; index: number; total: number }

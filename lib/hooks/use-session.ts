@@ -240,8 +240,15 @@ export function useSession() {
                         thinking?: string | null;
                         usage?: any;
                         model?: string | null;
-                        clarification?: { options: string[] } | null;
-                        clarification_answer?: { questionMessageId: string; chosenIndex: number | null } | null;
+                        clarification?: {
+                            questions?: import('@/lib/chat/streaming/protocol').ClarificationQuestion[];
+                            options?: string[];
+                        } | null;
+                        clarification_answer?: {
+                            questionMessageId: string;
+                            chosenIndex?: number | null;
+                            answers?: { chosenIndex: number | null; text: string }[];
+                        } | null;
                         plan?: {
                             title: string;
                             summary: string;
@@ -282,8 +289,13 @@ export function useSession() {
                             : undefined,
                     };
 
-                    if (msg.role === 'assistant' && metadata.clarification?.options) {
-                        formatted.clarification = { options: metadata.clarification.options };
+                    if (msg.role === 'assistant' && metadata.clarification) {
+                        const clar = metadata.clarification;
+                        if (clar.questions?.length) {
+                            formatted.clarification = { questions: clar.questions };
+                        } else if (clar.options?.length) {
+                            formatted.clarification = { options: clar.options };
+                        }
                     }
 
                     if (msg.role === 'assistant' && metadata.plan) {
@@ -355,8 +367,10 @@ export function useSession() {
                 const target = formattedMessages.find((m: any) => m.id === raw.questionMessageId);
                 if (target && target.type === 'assistant' && target.clarification) {
                     target.clarificationAnswer = {
-                        chosenIndex: typeof raw.chosenIndex === 'number' ? raw.chosenIndex : null,
                         text: msg.content || '',
+                        answers: Array.isArray(raw.answers) && raw.answers.length > 0
+                            ? raw.answers
+                            : [{ chosenIndex: typeof raw.chosenIndex === 'number' ? raw.chosenIndex : null, text: msg.content || '' }],
                     };
                 }
                 delete msg.__clarificationAnswerRaw;

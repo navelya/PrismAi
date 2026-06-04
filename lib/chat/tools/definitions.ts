@@ -273,27 +273,48 @@ Always batch every layer update for this request into ONE call's updates[] array
   {
     name: 'ask_clarification',
     description:
-      'Ask the user a clarifying question with 2-4 short option chips. ' +
-      'Use ONLY when the request is genuinely ambiguous and guessing wrong ' +
-      'would likely require redoing work. Do not use for trivial defaults — ' +
-      'pick a reasonable one and proceed. The question text goes in your ' +
-      'normal response body; this tool only carries the chip options. Do NOT ' +
-      'call this in the same turn as add_node / update_node / remove_node — ' +
-      'ask first, act on the answer next turn.',
+      'Ask the user 1-4 clarifying questions, each with 2-4 short option chips. ' +
+      'The UI shows the questions one at a time — the user answers one, the next ' +
+      'appears, until all are answered. Use ONLY when the request is genuinely ' +
+      'ambiguous and guessing wrong would likely require redoing work. Do not use ' +
+      'for trivial defaults — pick a reasonable one and proceed. Put the actual ' +
+      'question text in each question (NOT only in your prose), and NEVER list ' +
+      'example answers in prose — they belong in options. Do NOT call this in the ' +
+      'same turn as add_node / update_node / remove_node — ask first, act next turn.',
     input_schema: {
       type: 'object',
       properties: {
-        options: {
+        questions: {
           type: 'array',
-          items: { type: 'string', maxLength: 40 },
-          minItems: 2,
+          minItems: 1,
           maxItems: 4,
           description:
-            'Short chip labels (≤40 chars each). Each must be a fully-formed ' +
-            'answer the user could send as their next message. Mutually exclusive.'
+            'The clarifying questions, in the order to ask them. Each independent ' +
+            'thing you need to know is its own entry — do not cram two questions ' +
+            'into one. Ask only what you genuinely need to scope the work.',
+          items: {
+            type: 'object',
+            properties: {
+              question: {
+                type: 'string',
+                maxLength: 140,
+                description: 'The question text shown above its chips. One question only.'
+              },
+              options: {
+                type: 'array',
+                items: { type: 'string', maxLength: 40 },
+                minItems: 2,
+                maxItems: 4,
+                description:
+                  'Short chip labels (≤40 chars each). Each a fully-formed answer the ' +
+                  'user could send. Mutually exclusive.'
+              }
+            },
+            required: ['question', 'options']
+          }
         }
       },
-      required: ['options']
+      required: ['questions']
     }
   },
   {

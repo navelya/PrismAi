@@ -5,45 +5,37 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { NumberInput } from '@/components/ui/NumberInput';
+import { Slider } from '@/components/ui/Slider';
 import { formatCredits } from '@/lib/billing/cost';
-import { userApi } from '@/lib/api/client';
-import { createClient } from '@/lib/supabase/client';
+import { persistPrefs } from '@/lib/user/preferences';
 import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 
 /**
- * One-time onboarding modal for auto-run. Shown the first time a user reaches a
- * paid run proposal from chat. Explains auto-run, lets them set their limit
- * (default 10), and on approve saves the limit + runs the triggering workflow
- * if it's within that limit. Dismissing still counts as seen.
+ * Auto-run explainer + limit config. Opens in two ways:
+ *  - **Run mode** — the first time a user reaches a paid run proposal from chat
+ *    (`autoRunIntro` payload set). Explains auto-run, lets them set their limit,
+ *    and on approve runs the triggering workflow if it's within that limit.
+ *  - **Config mode** — from the chat menu's "Configure" link (`autoRunConfigOpen`).
+ *    Same explanation + limit input, but there's no pending run to start.
  *
- * Mounted once (in ChatInterface); renders nothing until `autoRunIntro` is set.
+ * Mounted once (in ChatInterface); renders nothing until one of those is set.
  */
 export function AutoRunIntroModal() {
     const intro = useAppStore((s) => s.autoRunIntro);
-    if (!intro) return null;
+    const configOpen = useAppStore((s) => s.autoRunConfigOpen);
+    if (!intro && !configOpen) return null;
     return <AutoRunIntroDialog />;
-}
-
-/** Persist a partial preferences patch, merged onto the user's existing prefs. */
-async function persistPrefs(patch: Record<string, any>) {
-    const { user } = await userApi.me();
-    if (!user) return;
-    const supabase = createClient();
-    const existing = (user as any).profile?.preferences || {};
-    await supabase.from('profiles').upsert({
-        id: user.id,
-        preferences: { ...existing, ...patch },
-        avatar_url: (user as any).profile?.avatar_url || null,
-    });
 }
 
 function AutoRunIntroDialog() {
     // Snapshot the payload once so a mid-flight store change can't swap it.
-    const [intro] = useState(() => useAppStore.getState().autoRunIntro!);
+    // Null in config-only mode (no pending run).
+    const [intro] = useState(() => useAppStore.getState().autoRunIntro);
+    const configOnly = !intro;
     const [limit, setLimit] = useState<number>(() => useAppStore.getState().maxAutoRunCredits ?? 10);
     const [saving, setSaving] = useState(false);
 
-    const willRun = intro.cost <= limit;
+    const willRun = !configOnly && intro!.cost <= limit;
 
     // Portal to <body> so the fixed-inset overlay centers on the viewport even
     // when a parent (the chat panel) has a CSS transform/backdrop that would
@@ -64,8 +56,9 @@ function AutoRunIntroDialog() {
         }
         store.setHasSeenAutoRunIntro(true);
         store.closeAutoRunIntro();
+        store.closeAutoRunConfig();
 
-        if (run) {
+        if (run && intro) {
             // Pre-flight validation (same gate commitExecution uses) so we don't
             // mark 'running' for a run that would silently abort.
             const runErr = firstChatRunError(store.currentWorkflow, intro.runTargetIds, store.models as any[]);
@@ -88,11 +81,11 @@ function AutoRunIntroDialog() {
 
     const handleApprove = () => {
         const chosen = Math.max(0, Math.min(10000, Math.trunc(Number(limit) || 0)));
-        void finish({ maxAutoRunCredits: chosen, seenAutoRunIntro: true }, intro.cost <= chosen);
+        void finish({ maxAutoRunCredits: chosen, seenAutoRunIntro: true }, !configOnly && intro!.cost <= chosen);
     };
 
-    // Dismiss: counts as seen, keeps the existing limit, does NOT run. The Run
-    // card stays on the message so the user can run it manually.
+    // Dismiss: counts as seen, keeps the existing limit, does NOT run. In run mode
+    // the Run card stays on the message so the user can run it manually.
     const handleDismiss = () => {
         if (saving) return;
         void finish({ seenAutoRunIntro: true }, false);
@@ -130,7 +123,7 @@ function AutoRunIntroDialog() {
                 </button>
 
                 <h2 className="text-lg font-bold text-content-primary pr-8">
-                    Auto-run is ready
+                    {configOnly ? 'Auto-run' : 'Auto-run is ready'}
                 </h2>
                 <p className="text-sm text-content-secondary leading-relaxed mt-2">
                     When the chat builds a workflow, it can run it for you automatically — as
@@ -142,38 +135,51 @@ function AutoRunIntroDialog() {
                 </p>
 
                 {/* Limit control */}
-                <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl border border-stroke-subtle bg-surface-primary/40 px-4 py-3.5">
-                    <div className="min-w-0">
-                        <div className="text-sm font-semibold text-content-primary">Auto-run limit</div>
-                        <div className="text-xs text-content-tertiary mt-0.5">Credits per run</div>
+                <div className="mt-5 rounded-2xl border border-stroke-subtle bg-surface-primary/40 px-4 py-3.5">
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                            <div className="text-sm font-semibold text-content-primary">Auto-run limit</div>
+                            <div className="text-xs text-content-tertiary mt-0.5">Credits per run</div>
+                        </div>
+                        <NumberInput
+                            min={0}
+                            step={1}
+                            value={limit}
+                            onChange={(e) =>
+                                setLimit(Math.max(0, Math.min(10000, Math.trunc(Number(e.target.value) || 0))))
+                            }
+                            className="w-24"
+                        />
                     </div>
-                    <NumberInput
+                    <Slider
+                        value={Math.min(limit, 100)}
                         min={0}
+                        max={100}
                         step={1}
-                        value={limit}
-                        onChange={(e) =>
-                            setLimit(Math.max(0, Math.min(10000, Math.trunc(Number(e.target.value) || 0))))
-                        }
-                        className="w-28"
+                        onChange={(n) => setLimit(n)}
+                        ariaLabel="Auto-run limit"
+                        className="mt-3"
                     />
                 </div>
 
-                {/* What happens to THIS run */}
-                <div className="mt-3 text-xs text-content-secondary">
-                    This workflow costs{' '}
-                    <span className="font-semibold text-content-primary tabular-nums">
-                        {formatCredits(intro.cost)}
-                    </span>{' '}
-                    credits.{' '}
-                    {willRun ? (
-                        <span className="text-accent-primary">It will run now.</span>
-                    ) : (
-                        <span className="text-content-tertiary">
-                            That&apos;s above your limit, so it won&apos;t run automatically — you&apos;ll
-                            get a Run button.
-                        </span>
-                    )}
-                </div>
+                {/* What happens to THIS run (run mode only) */}
+                {!configOnly && (
+                    <div className="mt-3 text-xs text-content-secondary">
+                        This workflow costs{' '}
+                        <span className="font-semibold text-content-primary tabular-nums">
+                            {formatCredits(intro!.cost)}
+                        </span>{' '}
+                        credits.{' '}
+                        {willRun ? (
+                            <span className="text-accent-primary">It will run now.</span>
+                        ) : (
+                            <span className="text-content-tertiary">
+                                That&apos;s above your limit, so it won&apos;t run automatically — you&apos;ll
+                                get a Run button.
+                            </span>
+                        )}
+                    </div>
+                )}
 
                 {/* Actions */}
                 <div className="mt-6 flex items-center justify-end gap-3">
@@ -183,7 +189,7 @@ function AutoRunIntroDialog() {
                         disabled={saving}
                         className="px-4 py-2 rounded-xl text-sm font-medium text-content-secondary hover:text-content-primary hover:bg-surface-tertiary transition-colors disabled:opacity-50"
                     >
-                        Not now
+                        {configOnly ? 'Cancel' : 'Not now'}
                     </button>
                     <button
                         type="button"
