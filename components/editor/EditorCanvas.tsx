@@ -189,6 +189,14 @@ const EditorCanvasInner = ({
 
     const isDraggingRef = useRef(false);
     const isSelectingRef = useRef(false);
+    // True while a node is being resized (NodeResizer). Like isDraggingRef, this
+    // gates the propNodes→localNodes sync below so the live resize (size AND
+    // position, both held only in localNodes mid-resize) isn't wiped by a store
+    // round-trip. Flipped by the resizing flag on dimension changes in
+    // handleNodesChange. Without it, RF's ResizeObserver emits measured
+    // dimension changes that leak to the store, re-fire the sync, and reset the
+    // node to its stale pre-resize position every tick.
+    const isResizingRef = useRef(false);
     // Reactive mirror of isSelectingRef used to gate selection-derived render
     // work (validation memos, pill mirror, multi-select toolbar) so it computes
     // once on selection-end rather than per node entering the marquee.
@@ -204,7 +212,7 @@ const EditorCanvasInner = ({
     // makes "Group selected" leave the new group highlighted without the store
     // driving selection.
     useEffect(() => {
-        if (isDraggingRef.current || isSelectingRef.current) return;
+        if (isDraggingRef.current || isSelectingRef.current || isResizingRef.current) return;
         setLocalNodes((prev) => {
             const prevSelected = new Set<string>();
             for (const n of prev) if ((n as any).selected) prevSelected.add(n.id);
@@ -1189,6 +1197,18 @@ const EditorCanvasInner = ({
             transformed.push({ type: 'select', id: groupId, selected: true } as NodeChange);
         }
 
+        // Track resize lifecycle. NodeResizer marks its dimension changes with
+        // resizing:true per tick and resizing:false on release; flip the ref so
+        // the sync effect (above) and the store filter (below) both know a
+        // resize is in flight. Persisted across calls because RF's ResizeObserver
+        // emits flagless measured-dimension changes mid-resize that must also be
+        // recognised as "still resizing".
+        for (const c of transformed as any[]) {
+            if (c.type === 'dimensions' && typeof c.resizing === 'boolean') {
+                isResizingRef.current = c.resizing;
+            }
+        }
+
         // Update local state immediately for zero-lag UI
         setLocalNodes((nds) => applyNodeChanges(transformed, nds));
 
@@ -1200,7 +1220,13 @@ const EditorCanvasInner = ({
         // subscriber.
         const structuralChanges = transformed.filter(c => {
             if (c.type === 'position') return false;
-            if (c.type === 'dimensions' && (c as any).resizing === true) return false;
+            // Keep ALL dimension changes out of the store while a resize is in
+            // flight — not just the resizing:true ticks. RF's ResizeObserver
+            // also emits flagless measured-dimension changes during the drag;
+            // letting those reach the store re-fires the propNodes sync and
+            // resets the node's live position. The final size is committed once
+            // by BaseNode's onResizeEnd.
+            if (c.type === 'dimensions' && (isResizingRef.current || (c as any).resizing === true)) return false;
             // Selection is view-only — it lives in localNodes (applied above for
             // an instant highlight) and is NEVER pushed to currentWorkflow.
             // Writing it to the store rebuilt currentWorkflow on every select,

@@ -1,8 +1,8 @@
 'use client';
 
 import React, { memo, useEffect, useMemo, useState } from 'react';
-import { Handle, Position, NodeToolbar, useReactFlow, useEdges, useStore, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
-import { Copy, X, Loader2, Check, Circle, Trash2, AlertCircle } from 'lucide-react';
+import { Handle, Position, NodeToolbar, NodeResizer, useReactFlow, useEdges, useStore, useStoreApi, ReactFlowState, useUpdateNodeInternals } from 'reactflow';
+import { Copy, Trash2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
@@ -57,6 +57,19 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     icon?: string;
     hideStatus?: boolean;
     isNew?: boolean;
+    /**
+     * Opt-in aspect-ratio-locked resizing. When true, BaseNode renders a
+     * ReactFlow <NodeResizer> (handles on all four sides + corners, visible
+     * only while the node is selected). `keepAspectRatio` snaps the ratio to
+     * the node's measured size at grab-start, so dragging any handle — side or
+     * diagonal — moves width and height together and the user can never change
+     * one axis alone. Off by default; the other plugins are untouched.
+     */
+    resizable?: boolean;
+    minWidth?: number;
+    minHeight?: number;
+    maxWidth?: number;
+    maxHeight?: number;
     // True when THIS node is being dragged. Forwarded from React Flow's NodeProps
     // by each per-type wrapper. Disables animations/transitions only on the node
     // actually moving — never the whole canvas.
@@ -89,6 +102,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     hideStatus = false,
     isNew,
     dragging = false,
+    resizable = false,
+    minWidth = 160,
+    minHeight = 120,
+    maxWidth,
+    maxHeight,
     nodeData,
     onDrag,
     onDragStart,
@@ -245,6 +263,102 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const touchInteraction = useAppStore((state) => state.touchInteraction);
     const { addNodes, getNode, getNodes, deleteElements } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
+    // Resize commit path. EditorCanvas.handleNodesChange intentionally drops
+    // NodeResizer's per-tick `resizing:true` dimension changes from the store
+    // (they only update the local-nodes copy for a lag-free preview) and
+    // NodeResizer's resize-end change carries no width/height — so without an
+    // explicit commit the final size is never written to currentWorkflow and
+    // the node snaps back on the next local↔store re-sync. We commit the final
+    // size (and position, for top/left handles) here on resize-end, and take a
+    // snapshot on resize-start so the resize is a single undoable step.
+    const commitNodesChange = useAppStore((state) => state.onNodesChange);
+    const takeSnapshot = useAppStore((state) => state.takeSnapshot);
+    const storeApi = useStoreApi();
+
+    // Custom edge (border) resize. NodeResizer's edge/line controls anchor a
+    // CORNER when aspect-locked — dragging the top edge grows the node up AND
+    // sideways from a fixed corner, which reads as "dragging toward a corner".
+    // For the border we want the dragged edge to expand with the OPPOSITE edge
+    // anchored and the perpendicular axis kept centered (drag top → top expands,
+    // bottom stays put, width grows symmetrically). NodeResizer can't reshape
+    // the position it emits, so we drive these four edges ourselves and push the
+    // same kind of live changes (position + resizing dimensions) through RF's
+    // change pipeline — they flow to the canvas local-nodes copy exactly like
+    // the corner handles, and stay out of the store until release.
+    const beginEdgeResize = (edge: 'top' | 'right' | 'bottom' | 'left') => (e: React.PointerEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const rf = storeApi.getState();
+        const node = rf.nodeInternals.get(id);
+        if (!node || !node.width || !node.height) return;
+        const startW = node.width;
+        const startH = node.height;
+        const startX = node.position.x;
+        const startY = node.position.y;
+        const ratio = startW / startH;
+        const startClientX = e.clientX;
+        const startClientY = e.clientY;
+        const zoomNow = rf.transform[2] || 1;
+        const last = { W: startW, H: startH, X: startX, Y: startY };
+
+        takeSnapshot();
+        setIsResizing(true);
+        // resizing:true flips EditorCanvas's isResizingRef so the live changes
+        // below are held in localNodes (not the store) and the sync effect
+        // doesn't reset our position mid-drag.
+        rf.triggerNodeChanges([{ id, type: 'dimensions', resizing: true, updateStyle: true, dimensions: { width: startW, height: startH } } as any]);
+
+        const clampWH = (w: number) => {
+            let W = Math.max(minWidth, w);
+            if (typeof maxWidth === 'number') W = Math.min(maxWidth, W);
+            let H = W / ratio;
+            if (H < minHeight) { H = minHeight; W = H * ratio; }
+            if (typeof maxHeight === 'number' && H > maxHeight) { H = maxHeight; W = H * ratio; }
+            return { W, H };
+        };
+
+        const onMove = (ev: PointerEvent) => {
+            const dx = (ev.clientX - startClientX) / zoomNow;
+            const dy = (ev.clientY - startClientY) / zoomNow;
+            let baseW = startW;
+            if (edge === 'right') baseW = startW + dx;
+            else if (edge === 'left') baseW = startW - dx;
+            else if (edge === 'bottom') baseW = (startH + dy) * ratio;
+            else baseW = (startH - dy) * ratio; // top
+            const { W, H } = clampWH(baseW);
+            let X = startX;
+            let Y = startY;
+            if (edge === 'right' || edge === 'left') {
+                Y = startY + (startH - H) / 2;           // vertical centered
+                if (edge === 'left') X = startX + (startW - W); // right edge anchored
+            } else {
+                X = startX + (startW - W) / 2;           // horizontal centered
+                if (edge === 'top') Y = startY + (startH - H);  // bottom edge anchored
+            }
+            last.W = W; last.H = H; last.X = X; last.Y = Y;
+            setLiveResize({ width: W, height: H });
+            rf.triggerNodeChanges([
+                { id, type: 'position', position: { x: X, y: Y } } as any,
+                { id, type: 'dimensions', resizing: true, updateStyle: true, dimensions: { width: W, height: H } } as any,
+            ]);
+        };
+
+        const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            setIsResizing(false);
+            // resizing:false clears isResizingRef; then commit the final size +
+            // position to the store once for persistence (mirrors the corner path).
+            rf.triggerNodeChanges([{ id, type: 'dimensions', resizing: false } as any]);
+            commitNodesChange([
+                { id, type: 'position', position: { x: last.X, y: last.Y } },
+                { id, type: 'dimensions', updateStyle: true, resizing: false, dimensions: { width: last.W, height: last.H } },
+            ] as any);
+        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+    };
 
     // Precompute the set of this node's connected target handles once per
     // render so the per-handle "missing mandatory" check is O(1) instead of
@@ -257,6 +371,32 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         }
         return set;
     }, [edges, id]);
+
+    // Once NodeResizer has run, RF stores an explicit width on node.style
+    // (the resize change carries updateStyle:true). Before that the wrapper
+    // auto-sizes to content. We read it to decide whether the card should
+    // fill the wrapper (post-resize) or keep its natural content size
+    // (pre-resize) — flipping to width:100% before the wrapper has a concrete
+    // size would collapse the card to zero. Only subscribed to when resizable,
+    // so non-resizable nodes pay nothing.
+    const explicitWidth = useStore((s: ReactFlowState) =>
+        resizable ? (s.nodeInternals.get(id)?.style?.width as number | string | undefined) : undefined
+    );
+    const hasExplicitSize = resizable && explicitWidth != null;
+
+    // Live drag size. NodeResizer's per-tick dimension changes only reach the
+    // canvas's local-nodes copy (the store is intentionally skipped mid-resize),
+    // and RF's internal node.style — which `hasExplicitSize` reads — doesn't
+    // reflect that live, so the visible card wouldn't grow until the resize-end
+    // store commit propagated (the "jumps to size on drop" symptom). We instead
+    // read the size straight from NodeResizer's onResize callback and apply it
+    // to the card inline, which is guaranteed live. Kept set after the drag (not
+    // cleared) so there's no flicker between releasing and the committed style
+    // landing in RF's store; resize-start clears it for the next interaction.
+    const [liveResize, setLiveResize] = useState<{ width: number; height: number } | null>(null);
+    // True only while a resize drag is in progress — used to hide the floating
+    // action toolbar above the node so it doesn't fight the resize handles.
+    const [isResizing, setIsResizing] = useState(false);
 
     // Get the current zoom level to compensate border-widths
     const zoom = useStore((s: ReactFlowState) => s.transform[2]);
@@ -383,7 +523,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // is allowed to indicate interaction state.
                 "hover:border-stroke-strong hover:bg-surface-elevated/20",
                 effectiveDragRole === 'incompatible' && "opacity-30 grayscale-[0.6] transition-[border-color,background-color,opacity,filter] duration-150",
-                typeof width === 'string' ? width : '',
+                // Resizable cards lay their content out as a flex column so the
+                // content area can flex-fill the resized frame. The natural
+                // Tailwind width class is dropped once an explicit size exists.
+                resizable && "flex flex-col",
+                !hasExplicitSize && !liveResize && typeof width === 'string' ? width : '',
                 className
             )}
             style={{
@@ -405,10 +549,82 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // .react-flow__node wrapper already has its own transform (and
                 // thus its own composited layer) for positioning, so drag
                 // performance doesn't regress.
-                ...propsStyle
+                ...propsStyle,
+                // Post-resize: fill the wrapper NodeResizer is now sizing. Last
+                // in the object so it wins over any width/height in propsStyle
+                // (e.g. media_input's initial max-content style).
+                ...(hasExplicitSize ? { width: '100%', height: '100%' } : {}),
+                // During (and after) a resize, the live size from onResize takes
+                // precedence so the card grows in real time, not just on drop.
+                ...(liveResize ? { width: liveResize.width, height: liveResize.height } : {}),
+                // Counter-zoom factor consumed by the .react-flow__resize-control
+                // CSS so the handles + connecting border keep a constant on-screen
+                // size regardless of canvas zoom.
+                ...(resizable ? { ['--rfz' as any]: 1 / zoom } : {}),
             }}
             {...props}
         >
+            {/* Aspect-ratio-locked resize handles (opt-in via `resizable`).
+                Visible only while selected. NodeResizer renders the four
+                corner handles plus the connecting border lines (the border
+                stays draggable, but only the corners show a grab square).
+                keepAspectRatio locks to the node's measured size at grab, so
+                every handle drives width and height together. */}
+            {resizable && (
+                <NodeResizer
+                    isVisible={!!selected}
+                    keepAspectRatio
+                    minWidth={minWidth}
+                    minHeight={minHeight}
+                    maxWidth={maxWidth}
+                    maxHeight={maxHeight}
+                    onResizeStart={() => {
+                        takeSnapshot();
+                        setLiveResize(null);
+                        setIsResizing(true);
+                    }}
+                    onResize={(_evt, params) => {
+                        setLiveResize({ width: params.width, height: params.height });
+                    }}
+                    onResizeEnd={(_evt, params) => {
+                        setIsResizing(false);
+                        commitNodesChange([
+                            { id, type: 'position', position: { x: params.x, y: params.y } },
+                            {
+                                id,
+                                type: 'dimensions',
+                                updateStyle: true,
+                                resizing: false,
+                                dimensions: { width: params.width, height: params.height },
+                            },
+                        ] as any);
+                    }}
+                />
+            )}
+
+            {/* Edge (border) drag strips — invisible hit areas over each edge,
+                inset from the corners so they don't cover the corner handles.
+                The visible border is the (now non-interactive) NodeResizer
+                lines; these strips own the drag and run the centered,
+                opposite-edge-anchored resize in beginEdgeResize. Sizes are in
+                screen px (divided by zoom) so the grab area is constant. */}
+            {resizable && selected && (() => {
+                const t = 14 / zoom;      // strip thickness
+                const inset = 20 / zoom;  // clearance from the corner handles
+                const base: React.CSSProperties = { position: 'absolute', zIndex: 21 };
+                return (
+                    <>
+                        <div className="nodrag nopan" onPointerDown={beginEdgeResize('top')}
+                            style={{ ...base, top: 0, left: inset, right: inset, height: t, transform: 'translateY(-50%)', cursor: 'ns-resize' }} />
+                        <div className="nodrag nopan" onPointerDown={beginEdgeResize('bottom')}
+                            style={{ ...base, bottom: 0, left: inset, right: inset, height: t, transform: 'translateY(50%)', cursor: 'ns-resize' }} />
+                        <div className="nodrag nopan" onPointerDown={beginEdgeResize('left')}
+                            style={{ ...base, left: 0, top: inset, bottom: inset, width: t, transform: 'translateX(-50%)', cursor: 'ew-resize' }} />
+                        <div className="nodrag nopan" onPointerDown={beginEdgeResize('right')}
+                            style={{ ...base, right: 0, top: inset, bottom: inset, width: t, transform: 'translateX(50%)', cursor: 'ew-resize' }} />
+                    </>
+                );
+            })()}
             {/* Cycle-rejection toast. Rendered via NodeToolbar so it sits
                 OUTSIDE this card's DOM tree and is unaffected by the
                 opacity-30 dim applied to incompatible targets. Only visible
@@ -434,7 +650,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 handles bulk actions. */}
             <NodeToolbar
                 nodeId={id}
-                isVisible={!isReadOnlyCanvas && !isMultiSelectActive && !toolbarDismissed && (isHovered || !!selected)}
+                isVisible={!isResizing && !isReadOnlyCanvas && !isMultiSelectActive && !toolbarDismissed && (isHovered || !!selected)}
                 position={Position.Top}
                 align="end"
             >
@@ -494,42 +710,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 </div>
             </NodeToolbar>
 
-            {/* Status Badge */}
-            {!hideStatus && status !== 'idle' && (
-                status === 'error' ? (
-                    // Error badge carries a hover tooltip with the server's failure
-                    // message (usually the Replicate error). Built on <Tooltip> so the
-                    // badge circle itself is the hover trigger; falls back to a generic
-                    // message when no detail was captured (e.g. older hydrated runs).
-                    <Tooltip
-                        position="left"
-                        content={nodeError || 'Generation failed'}
-                        className={cn(
-                            "absolute -top-2 -left-2 w-7 h-7 rounded-full z-20",
-                            "shadow-lg border-surface-primary bg-accent-error cursor-help"
-                        )}
-                        popupClassName="whitespace-normal max-w-xs leading-snug normal-case tracking-normal font-semibold"
-                        style={{ borderWidth: `${b2}px`, borderStyle: 'solid' }}
-                    >
-                        <X className="w-4 h-4 text-content-inverted" />
-                    </Tooltip>
-                ) : (
-                    <div
-                        className={cn(
-                            "absolute -top-2 -left-2 w-7 h-7 rounded-full flex items-center justify-center",
-                            "shadow-lg border-surface-primary transition-all duration-300",
-                            status === 'pending' && "bg-slate-500",
-                            status === 'running' && "bg-accent-primary animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.5)]",
-                            status === 'success' && "bg-accent-secondary shadow-[0_0_10px_rgba(20,184,166,0.5)]"
-                        )}
-                        style={{ borderWidth: `${b2}px` }}
-                    >
-                        {status === 'running' && <Loader2 className="w-4 h-4 animate-spin text-content-inverted" />}
-                        {status === 'success' && <Check className="w-4 h-4 text-content-inverted" />}
-                        {status === 'pending' && <Circle className="w-2 h-2 text-content-inverted fill-current" />}
-                    </div>
-                )
-            )}
+            {/* Run-status indicator now lives in the floating header's icon box
+                (see NodeHeader) — the old top-left corner badge was removed when
+                the header moved outside the frame, to avoid the collision. */}
 
             {/* Validation Badge — pre-flight wiring errors */}
             {validationErrors.length > 0 && (
@@ -641,11 +824,17 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 it above the border but below the status badge (z-20) and
                 handles (z-50), so a running/error badge still wins the corner. */}
             <NodeHeader
-                className="absolute bottom-full left-0 mb-1 z-10"
+                className="absolute bottom-full left-0 mb-2 z-10"
                 icon={icon || metadata?.icon || 'Box'}
                 label={displayLabel}
                 color={nodeColor}
                 badgeCount={badgeCount}
+                // The header icon box now doubles as the run-status indicator
+                // (replaces the old top-left corner badge), so it must know the
+                // resolved status + any server error message + the hide flag.
+                status={status}
+                statusError={nodeError}
+                hideStatus={hideStatus}
                 onLabelChange={(nextLabel) => {
                     touchInteraction();
                     updateNodeLabel(id, nextLabel);
@@ -655,8 +844,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 }}
             />
 
-            {/* Content Area */}
-            <div className={contentClassName}>
+            {/* Content Area. When resizable, flex-fill the column so the
+                node's content stretches into the resized frame. */}
+            <div className={cn(contentClassName, resizable && "flex-1 min-h-0")}>
                 {children}
             </div>
 

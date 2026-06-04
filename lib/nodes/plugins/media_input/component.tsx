@@ -188,12 +188,14 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             onDrop={handleDrop}
             renderInputs={false}
             hideStatus={true}
+            resizable
+            minWidth={240}
             width=""
-            style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
+            style={{ width: 360 }}
         >
             <div
                 className={cn(
-                    "relative w-full min-h-[160px] rounded-xl overflow-hidden border-2 border-dashed bg-white/5",
+                    "relative w-full h-full min-h-[160px] rounded-xl overflow-hidden border-2 border-dashed bg-white/5",
                     isDragOver ? "border-accent-primary bg-accent-primary/10" : "border-white/10 hover:border-white/20",
                     "transition-all duration-500"
                 )}

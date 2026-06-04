@@ -258,6 +258,42 @@
   cursor: grabbing;
 }
 
+/* ── Node resize controls (NodeResizer) ───────────────────────────────
+   Aspect-ratio-locked resize UI for resizable nodes (see BaseNode). Four
+   corner square handles + four draggable edge lines that together form the
+   connecting border. Every dimension is multiplied by `--rfz` (= 1 / canvas
+   zoom, set inline on the resizable node) so the handles and border stay a
+   constant on-screen size at any zoom level — they don't grow/shrink as the
+   user zooms the canvas. Color follows the app accent. */
+.react-flow__resize-control {
+  /* Lift handles + border above the node content (e.g. image previews),
+     which otherwise paint over them since they're earlier DOM siblings. */
+  z-index: 20 !important;
+}
+
+.react-flow__resize-control.handle {
+  width: calc(18px * var(--rfz, 1)) !important;
+  height: calc(18px * var(--rfz, 1)) !important;
+  /* Solid accent squares, thin dark border for definition against bright
+     images, no glow. */
+  border: calc(2px * var(--rfz, 1)) solid rgb(var(--bg-primary)) !important;
+  border-radius: calc(5px * var(--rfz, 1)) !important;
+  background-color: rgb(var(--accent-primary)) !important;
+  box-shadow: none !important;
+}
+
+.react-flow__resize-control.line {
+  border-color: rgb(var(--accent-primary) / 0.55) !important;
+  /* Visual border only — BaseNode's own edge strips own the drag so the
+     border can resize each edge centered/opposite-anchored instead of toward
+     a corner the way NodeResizer's line controls do when aspect-locked. */
+  pointer-events: none !important;
+}
+.react-flow__resize-control.line.left  { border-left-width:  calc(2px * var(--rfz, 1)) !important; }
+.react-flow__resize-control.line.right { border-right-width: calc(2px * var(--rfz, 1)) !important; }
+.react-flow__resize-control.line.top   { border-top-width:   calc(2px * var(--rfz, 1)) !important; }
+.react-flow__resize-control.line.bottom{ border-bottom-width:calc(2px * var(--rfz, 1)) !important; }
+
 /* Marquee/drag-selecting nodes on the canvas must not also trigger the
    browser's native text selection (prompt textareas, group titles, node
    labels). Node toolbars (group title bubble, action pills) render in a
