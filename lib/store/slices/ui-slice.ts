@@ -97,24 +97,35 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     setNodeLabelDraft: (draft) => set({ nodeLabelDraft: draft }),
 
     fetchModelCatalog: async () => {
-        if (get().models.length > 0) return;
-        set({ isModelsLoading: true });
+        // Stale-while-revalidate: the persisted catalog (if any) is already
+        // rendering, so we revalidate in the background instead of early-
+        // returning. The early-return left clients pinned to the localStorage
+        // snapshot, so an admin edit to a model's inputs_schema/handles never
+        // showed on the canvas — even after a hard refresh, which clears the
+        // HTTP cache but NOT localStorage. Only show the loader on a cold start
+        // (no cache) and only overwrite `models` once fresh data lands, so a
+        // warm canvas never flashes an empty handle list.
+        const hasCache = get().models.length > 0;
+        if (!hasCache) set({ isModelsLoading: true });
         try {
             const response = await fetch('/api/models/list');
             const data = await response.json();
-            set({ models: data.models || [], isModelsLoading: false });
+            if (data.models) set({ models: data.models });
         } catch (error) {
             console.error('Failed to fetch model catalog:', error);
-            set({ isModelsLoading: false });
+        } finally {
+            if (!hasCache) set({ isModelsLoading: false });
         }
     },
 
     fetchModels: async () => {
-        if (get().models.length > 0) return;
+        // Stale-while-revalidate — see fetchModelCatalog. Always refetch so
+        // model edits surface after one normal reload; keep the cached `models`
+        // until fresh data arrives so the handle list never blanks.
         try {
             const response = await fetch('/api/models/list');
             const data = await response.json();
-            set({ models: data.models || [] });
+            if (data.models) set({ models: data.models });
         } catch (error) {
             console.error('Failed to fetch models:', error);
         }
