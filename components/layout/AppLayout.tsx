@@ -137,28 +137,18 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // nodes, settings) keeps the traditional docked sidebar column.
     const isCanvasRoute = /^\/chat(\/|$)/.test(pathname);
 
-    if (isCanvasRoute) {
-        return (
-            <div className="w-full h-[100dvh] relative overflow-hidden bg-surface-secondary">
-                {/* Main Content (full-bleed) */}
-                <div className="w-full h-full overflow-hidden bg-surface-secondary">
-                    {children}
-                </div>
-
-                {/* Floating Navigation overlay */}
-                <Sidebar variant="floating" />
-            </div>
-        );
-    }
-
-    // Desktop layout: docked side navigation
+    // Single, stable layout tree across both route types: the Sidebar always
+    // renders at the same position and we only swap its `variant`. This keeps it
+    // mounted when navigating between a session and another page, so the session
+    // list + its realtime subscription persist instead of refetching/reloading.
+    //   - docked   → in-flow left column
+    //   - floating → absolute top-left overlay (out of flow → content fills full width)
     return (
-        <div className="w-full h-[100dvh] flex overflow-hidden bg-surface-secondary">
-            {/* Sidebar Navigation */}
-            <Sidebar variant="docked" />
+        <div className="w-full h-[100dvh] flex relative overflow-hidden bg-surface-secondary">
+            <Sidebar variant={isCanvasRoute ? 'floating' : 'docked'} />
 
             {/* Main Content */}
-            <div className="flex-1 overflow-hidden bg-surface-secondary">
+            <div className="flex-1 min-w-0 overflow-hidden bg-surface-secondary">
                 {children}
             </div>
         </div>
