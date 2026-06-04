@@ -581,12 +581,15 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
 
         let result;
         if (!canEscalate) {
-          // Free tier: unchanged behavior — Haiku, full tools, legacy heuristic.
+          // Free tier: Haiku, full tools, NO thinking. The cheap lane is the
+          // "Fast" lane for everyone — simple turns must answer with 0 thoughts.
+          // Free can't escalate to the thinking heavy lane (yet), so it trades
+          // deep reasoning for speed; that's the intended cheap-tier behavior.
           result = await runBrain({
             ...commonInput,
             model: 'haiku',
             allowEscalate: false,
-            thinkingMode: 'heuristic',
+            thinkingMode: 'off',
           });
         } else if (planAnswer?.action === 'feedback') {
           // Plan refinement needs propose_plan + reasoning → straight to heavy lane.

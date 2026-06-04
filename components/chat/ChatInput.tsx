@@ -447,7 +447,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     />
 
                     {/* ── Action row ─────────────────────────────────────────────────
-                         Full-screen (!isCanvasMode):  [ + ] [ Auto ]  ···  [ mic ] [ send ]
+                         Full-screen (!isCanvasMode):  [ + ]  ···  [ mic ] [ send ]
                          Canvas / minimized (isCanvasMode): textarea goes full width,
                            then this row appears beneath it.
                     ──────────────────────────────────────────────────────────────── */}
@@ -456,7 +456,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                                     ${isMultiLine || attachedImages.length > 0 || isCanvasMode ? '' : 'pt-2'}
                                     ${isViewer ? 'opacity-40 pointer-events-none' : ''}`}
                     >
-                        {/* Left: attachment button + model picker */}
+                        {/* Left: attachment button */}
                         <div className="flex items-center gap-1">
                             {/* Attachment (+) menu — shared Select dropdown */}
                             <div className="relative z-10">
@@ -472,17 +472,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                                     triggerNode={<PlusTriggerButton ref={plusTriggerRef} />}
                                 />
                             </div>
-
-                            {/* Model is chosen automatically server-side. */}
-                            <Tooltip content="Model is selected automatically" position="top">
-                                <span
-                                    className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-secondary text-content-tertiary text-xs select-none"
-                                    aria-label="Automatic model selection"
-                                >
-                                    <Sparkles className="w-3.5 h-3.5 text-accent-primary" />
-                                    Auto
-                                </span>
-                            </Tooltip>
                         </div>
 
                         {/* Right: voice + send/stop */}
