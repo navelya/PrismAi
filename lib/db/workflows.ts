@@ -134,30 +134,6 @@ export async function getExecutionHistory(sessionId: string): Promise<ExecutionR
     }
 }
 
-/**
- * Get recent active sessions
- */
-export async function getRecentWorkflows(userId: string = 'anonymous', limit: number = 10) {
-    try {
-        const { data, error } = await supabase
-            .from('sessions')
-            .select('id, title, canvas_state, created_at, updated_at')
-            .eq('user_id', userId)
-            .eq('is_deleted', false)
-            .order('updated_at', { ascending: false })
-            .limit(limit);
-
-        if (error) {
-            throw new Error(error.message);
-        }
-
-        return data || [];
-    } catch (error) {
-        console.error('Error fetching recent sessions:', error);
-        return [];
-    }
-}
-
 // ✅ PHASE 3 FIX: Node Execution Functions (Table-Based)
 // Separate table for execution state - complete isolation from canvas_state
 // These should ONLY be called by the execution engine, never by client auto-save

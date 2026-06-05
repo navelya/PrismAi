@@ -3,7 +3,7 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, BookOpen, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown } from 'lucide-react';
+import { MessageSquare, Pen, LayoutTemplate, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
@@ -18,7 +18,7 @@ import { Logo } from '@/components/ui/Logo';
 
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
-    { name: 'Library', path: '/library', icon: BookOpen, desktopOnly: false },
+    { name: 'Templates', path: '/templates', icon: LayoutTemplate, desktopOnly: false },
     { name: 'Assets', path: '/assets', icon: Image, desktopOnly: false },
     { name: 'Nodes', path: '/nodes', icon: Boxes, desktopOnly: false },
     { name: 'Settings', path: '/settings', icon: Settings, desktopOnly: false },
@@ -29,7 +29,7 @@ interface SidebarProps {
     onClose?: () => void;
     /** Desktop presentation:
      *  - 'docked'   → traditional collapsible left column (used on full pages
-     *                 like /library, /assets, /nodes, /settings).
+     *                 like /templates, /assets, /nodes, /settings).
      *  - 'floating' → compact top-left app-menu overlay (used on the canvas /
      *                 chat session pages where canvas space is precious). */
     variant?: 'docked' | 'floating';
@@ -381,7 +381,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
     }
 
     // Desktop · docked variant — the traditional collapsible left column, used
-    // on full pages (library / assets / nodes / settings). Flush full-height
+    // on full pages (templates / assets / nodes / settings). Flush full-height
     // bar, no inset, no rounded corners.
     if (variant === 'docked') {
         return (
