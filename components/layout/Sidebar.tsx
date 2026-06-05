@@ -410,20 +410,23 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                             aria-label="Expand sidebar"
                             title="Expand"
                         >
-                            {/* Mark is intentionally larger than the toggle/nav icons;
-                                both are absolutely positioned + flex-centered in the
-                                fixed w-10 h-9 slot, so its size never shifts anything.
-                                Scale-only animation so the CSS hover crossfade (opacity)
-                                is left untouched. */}
+                            {/* Mark is intentionally larger than the toggle/nav icons.
+                                Both are absolutely positioned with EXPLICIT integer
+                                offsets (not flex `justify-center`) so their position is a
+                                fixed value, not a per-frame side-effect of the flex
+                                relayout while the rail width animates — that dependency
+                                is what made the mark flick horizontally at the end of the
+                                collapse. Offsets centre each icon in the 40×36 slot.
+                                Scale-only animation leaves the CSS hover crossfade intact. */}
                             <motion.span
                                 initial={{ scale: 0.5 }}
                                 animate={{ scale: 1 }}
                                 transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                                className="absolute transition-opacity duration-200 group-hover:opacity-0"
+                                className="absolute left-1.5 top-1 transition-opacity duration-200 group-hover:opacity-0"
                             >
                                 <Logo variant="mark" className="w-7 h-7" />
                             </motion.span>
-                            <PanelLeft className="absolute w-5 h-5 text-content-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+                            <PanelLeft className="absolute left-2.5 top-2 w-5 h-5 text-content-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
                         </button>
                     ) : (
                         // Expanded: the wordmark zooms in from the exact spot the
