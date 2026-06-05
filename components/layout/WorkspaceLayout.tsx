@@ -16,6 +16,7 @@ import { HistoryPanel } from '@/components/editor/HistoryPanel';
 import { TemplatesModal } from '@/components/editor/TemplatesModal';
 import NodeLibraryPanel from '@/components/editor/NodeLibraryPanel';
 import { onVersionsChanged } from '@/lib/versions-bus';
+import { prepareTemplateForCanvas } from '@/lib/templates/merge-into-canvas';
 
 interface WorkspaceLayoutProps {
     chatPanel: React.ReactNode;
@@ -145,9 +146,26 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
             : 16;
 
     // ── Template load handler ─────────────────────────────────────────────────
+    // ADD the template into the current workflow (never replace) with fresh ids +
+    // an offset so existing nodes are untouched, then fit the camera to the new
+    // nodes — the same path AI-generated additions use.
     const handleLoadTemplate = (partial: { nodes: any[]; edges: any[] }) => {
-        const newWorkflow: Workflow = { id: '', name: 'Untitled Workflow', nodes: partial.nodes, edges: partial.edges };
-        useAppStore.getState().setCurrentWorkflow(newWorkflow, false);
+        const store = useAppStore.getState();
+        const current: Workflow = store.currentWorkflow ?? { id: '', name: 'Untitled Workflow', nodes: [], edges: [] };
+        const existing = current.nodes ?? [];
+        const { nodes, edges } = prepareTemplateForCanvas(partial, existing, Date.now());
+        const merged: Workflow = {
+            ...current,
+            name: current.name || 'Untitled Workflow',
+            nodes: [...existing, ...nodes],
+            edges: [...(current.edges ?? []), ...edges],
+        };
+        store.beginAiTurn();
+        store.setCurrentWorkflow(merged, true);
+        store.recordAiPatch({ addedNodes: nodes, addedEdges: edges } as any);
+        // End the turn shortly after so AiAddedZoom renders with active=true first,
+        // then settles a fit onto the newly added nodes.
+        setTimeout(() => useAppStore.getState().endAiTurn(), 500);
         setActivePanel(null);
     };
 

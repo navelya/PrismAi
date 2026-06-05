@@ -8,6 +8,7 @@ import { templatesApi } from '@/lib/api/client';
 import { nodeChipsFor, workflowNodeChips } from '@/lib/templates/node-chips';
 import { useAppStore } from '@/lib/store/app-store';
 import { Logo } from '@/components/ui/Logo';
+import { MarkdownView } from '@/components/ui/MarkdownView';
 import { TemplateCanvasPreview } from './TemplateCanvasPreview';
 
 export function TemplatePreviewModal({ id, onClose }: { id: string | null; onClose: () => void }) {
@@ -137,20 +138,13 @@ export function TemplatePreviewModal({ id, onClose }: { id: string | null; onClo
                       ) : tpl.thumbnail_url ? (
                         <img src={tpl.thumbnail_url} alt={tpl.name} className="w-full h-full object-contain" />
                       ) : null}
-                      {(tpl.workflow?.nodes?.length) ? (
-                        <div className="absolute bottom-3 right-3 text-[10px] text-content-tertiary/80 bg-surface-elevated/80 backdrop-blur px-2 py-1 rounded-full border border-stroke-subtle/50 pointer-events-none">
-                          Drag to pan · scroll to zoom
-                        </div>
-                      ) : null}
                     </div>
 
                     <div className="shrink-0 max-h-[34%] overflow-y-auto pr-1 space-y-3">
                       {tpl.description && (
                         <p className="text-[15px] font-semibold text-content-primary leading-snug">{tpl.description}</p>
                       )}
-                      {tpl.how_it_works && (
-                        <p className="text-sm text-content-secondary leading-relaxed whitespace-pre-wrap">{tpl.how_it_works}</p>
-                      )}
+                      {tpl.how_it_works && <MarkdownView content={tpl.how_it_works} />}
                     </div>
                   </div>
                 </>

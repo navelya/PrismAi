@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { MarkdownEditor } from '@/components/ui/MarkdownEditor';
 
 interface Props {
   isOpen: boolean;
@@ -148,7 +149,8 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
                   onChange={(e) => setCategory(e.target.value)}
                 />
                 <Textarea label="Description" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
-                <Textarea label="How it works" rows={3} value={howItWorks} onChange={(e) => setHowItWorks(e.target.value)} />
+                <MarkdownEditor label="How it works" value={howItWorks} onChange={setHowItWorks} rows={6}
+                  placeholder="Explain what this template does, step by step. Use the toolbar for headings, bold, and lists." />
                 <Input label="Tags (comma-separated)" placeholder="ecommerce, lighting" value={tagsText} onChange={(e) => setTagsText(e.target.value)} />
                 <Textarea label="Use cases (one per line)" rows={3} value={useCasesText} onChange={(e) => setUseCasesText(e.target.value)} />
 
