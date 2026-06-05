@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
+import { invalidateRegistryCache } from '@/lib/chat/registry-cache';
 
 export async function GET() {
     try {
@@ -44,6 +45,10 @@ export async function POST(req: Request) {
             .single();
 
         if (error) throw error;
+
+        // node_types is part of the chat registry cache — invalidate so new
+        // node types reach the chat brain faster than the 5-min TTL.
+        invalidateRegistryCache();
 
         return NextResponse.json({ success: true, nodeType: data });
     } catch (err: any) {

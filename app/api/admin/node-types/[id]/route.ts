@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
+import { invalidateRegistryCache } from '@/lib/chat/registry-cache';
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
     try {
@@ -22,6 +23,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             .single();
 
         if (error) throw error;
+
+        invalidateRegistryCache();
 
         return NextResponse.json({ success: true, nodeType: data });
     } catch (err: any) {
@@ -46,6 +49,8 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
             .eq('id', id);
 
         if (error) throw error;
+
+        invalidateRegistryCache();
 
         return NextResponse.json({ success: true });
     } catch (err: any) {

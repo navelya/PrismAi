@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
+import { invalidateRegistryCache } from '@/lib/chat/registry-cache';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -67,6 +68,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
         if (error) throw error;
 
+        // Provider name change flows into the registry's joined model display.
+        invalidateRegistryCache();
+
         return NextResponse.json({ provider: data });
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -100,6 +104,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
             .eq('id', id);
 
         if (error) throw error;
+
+        invalidateRegistryCache();
 
         return NextResponse.json({ success: true });
     } catch (err: any) {

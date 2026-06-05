@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
+import { invalidateRegistryCache } from '@/lib/chat/registry-cache';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -67,6 +68,10 @@ export async function POST(req: NextRequest) {
             .single();
 
         if (error) throw error;
+
+        // The registry cache joins providers(name) into each model, so a new
+        // provider must invalidate it too.
+        invalidateRegistryCache();
 
         return NextResponse.json({ provider: data });
     } catch (err: any) {
