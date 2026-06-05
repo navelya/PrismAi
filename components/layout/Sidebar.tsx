@@ -413,12 +413,22 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                             <PanelLeft className="absolute w-5 h-5 text-content-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
                         </button>
                     ) : (
-                        // Expanded: wordmark left, collapse toggle pinned right.
+                        // Expanded: the wordmark zooms in from the exact spot the
+                        // collapsed mark occupied (left origin + small x offset ≈ the
+                        // mark's left edge), then the collapse toggle is pinned right.
                         <div className="flex items-center w-full gap-2">
-                            <Logo
-                                variant="wordmark"
-                                className="h-5 w-auto text-content-primary flex-shrink-0"
-                            />
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.55, x: 10 }}
+                                animate={{ opacity: 1, scale: 1, x: 0 }}
+                                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                                style={{ transformOrigin: 'left center' }}
+                                className="flex-shrink-0"
+                            >
+                                <Logo
+                                    variant="wordmark"
+                                    className="h-5 w-auto text-content-primary"
+                                />
+                            </motion.div>
                             <button
                                 onClick={() => setSidebarExpanded(false)}
                                 className="flex-shrink-0 w-9 h-9 ml-auto flex items-center justify-center rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
@@ -499,7 +509,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                 : 'opacity-0 -translate-x-4 pointer-events-none'
                             }
                         `}>
-                            <div className="px-3 py-2 text-xs font-semibold text-content-tertiary uppercase tracking-wider whitespace-nowrap sticky top-0 bg-surface-primary z-10">
+                            <div className="pl-10 pr-3 py-1.5 text-xs font-semibold text-content-tertiary uppercase tracking-wider whitespace-nowrap sticky top-0 bg-surface-primary z-10">
                                 History
                             </div>
                             <ul className="space-y-0.5">
@@ -515,6 +525,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             session={session}
                                             isActive={pathname === `/chat/${session.id}`}
                                             isMobile={isMobile}
+                                            compact
                                             onDeleteClick={(id) => setDeleteConfirmation({ isOpen: true, sessionId: id })}
                                             onLongPress={() => { }} // No op on desktop
                                         />
@@ -814,7 +825,8 @@ function SidebarSessionItem({
     isMobile,
     onClose,
     onDeleteClick,
-    onLongPress
+    onLongPress,
+    compact = false
 }: {
     session: any;
     isActive: boolean;
@@ -822,6 +834,9 @@ function SidebarSessionItem({
     onClose?: () => void;
     onDeleteClick: (id: string) => void;
     onLongPress: (id: string) => void;
+    // Docked rail: render the slimmer button style that matches the page nav
+    // items (h-9, text-[13px], title aligned to the nav-label column at 48px).
+    compact?: boolean;
 }) {
     const router = useRouter();
     const [isExecuting, setIsExecuting] = React.useState(false);
@@ -946,8 +961,9 @@ function SidebarSessionItem({
             href={`/chat/${session.id}`}
             onClick={() => onClose?.()}
             className={`
-                    group relative flex items-center gap-3 px-3 py-2 rounded-lg
+                    group relative flex items-center rounded-lg
                     transition-all duration-200
+                    ${compact ? 'h-9 gap-2 pl-10 pr-2' : 'gap-3 px-3 py-2'}
                     ${isActive
                     ? 'bg-accent-primary/10 text-accent-primary font-bold border border-accent-primary/10 shadow-sm'
                     : 'text-content-secondary hover:bg-interactive-hover hover:text-content-primary'
@@ -962,7 +978,7 @@ function SidebarSessionItem({
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -10 }}
                         transition={{ duration: 0.2 }}
-                        className={`absolute left-0 w-full truncate text-sm text-left ${isGeneratingName ? 'opacity-0' : ''}`}
+                        className={`absolute left-0 w-full truncate text-left ${compact ? 'text-[13px]' : 'text-sm'} ${isGeneratingName ? 'opacity-0' : ''}`}
                     >
                         {sessionTitle}
                     </motion.span>
