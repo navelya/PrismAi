@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 const tabs = [
     { name: 'Chat', path: '/chat', icon: MessageSquare },
     { name: 'Editor', path: '/editor', icon: Edit3 },
-    { name: 'Library', path: '/library', icon: Library },
+    { name: 'Templates', path: '/templates', icon: Library },
     { name: 'Nodes', path: '/nodes', icon: Box },
     { name: 'Settings', path: '/settings', icon: Settings },
 ];

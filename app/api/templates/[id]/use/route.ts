@@ -11,11 +11,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (auth.error) return auth.error;
   const { user, supabase } = auth;
 
-  // RLS guarantees we only read published templates.
+  // RLS limits non-admins to published rows; the explicit filter also stops an
+  // admin from cloning a draft/archived template (and keeps the usage bump consistent).
   const { data: tpl, error: tErr } = await supabase
     .from('workflow_templates')
     .select('name, workflow, status')
     .eq('id', params.id)
+    .eq('status', 'published')
     .single();
   if (tErr || !tpl) return NextResponse.json({ error: 'Template not found' }, { status: 404 });
 

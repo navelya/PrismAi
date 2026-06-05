@@ -95,7 +95,7 @@ export default function DemoPage() {
                     </div>
                     <div className="flex gap-12">
                         <Link href="/chat" className="hover:text-accent-primary transition-colors">Start Engine</Link>
-                        <Link href="/library" className="hover:text-accent-primary transition-colors">Nodes Catalog</Link>
+                        <Link href="/nodes" className="hover:text-accent-primary transition-colors">Nodes Catalog</Link>
                     </div>
                 </footer>
             </div>

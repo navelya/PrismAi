@@ -116,7 +116,7 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
                 <Field label="Description">
                   <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={inputCls} />
                 </Field>
-                <Field label="How it works (markdown)">
+                <Field label="How it works">
                   <textarea value={howItWorks} onChange={(e) => setHowItWorks(e.target.value)} rows={3} className={inputCls} />
                 </Field>
                 <Field label="Tags (comma-separated)">

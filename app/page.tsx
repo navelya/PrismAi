@@ -1291,7 +1291,7 @@ function TemplateCarousel() {
             {/* CTA */}
             <div className="flex justify-center mt-12">
                 <Link
-                    href="/library"
+                    href="/templates"
                     className="group flex items-center gap-3 px-7 py-3 rounded-xl border border-white/15 text-[8px] font-black uppercase tracking-[0.4em] text-white hover:bg-white hover:text-slate-900 transition-all"
                 >
                     Browse all templates
@@ -1842,10 +1842,10 @@ export default function Home() {
 
                         <div className="flex justify-center mt-12">
                             <Link
-                                href="/library"
+                                href="/templates"
                                 className="group flex items-center gap-3 px-7 py-3 rounded-xl border border-white/15 text-[8px] font-black uppercase tracking-[0.4em] text-white hover:bg-white hover:text-slate-900 transition-all"
                             >
-                                Explore the library
+                                Explore templates
                                 <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
                             </Link>
                         </div>
@@ -1885,7 +1885,7 @@ export default function Home() {
                                         </div>
                                     </MagneticButton>
                                     <Link
-                                        href="/library"
+                                        href="/templates"
                                         className="flex items-center justify-center gap-3 px-10 py-5 rounded-2xl border border-white/15 text-white font-black text-base hover:bg-white/10 transition-all"
                                     >
                                         <Sparkles className="w-5 h-5" />
@@ -1925,7 +1925,7 @@ export default function Home() {
                                     <ul className="space-y-2 text-[7px] font-black text-white/40 uppercase tracking-[0.2em]">
                                         <li><a href="#" className="hover:text-white transition-colors">Nodes</a></li>
                                         <li><a href="#" className="hover:text-white transition-colors">Models</a></li>
-                                        <li><Link href="/library" className="hover:text-white transition-colors">Library</Link></li>
+                                        <li><Link href="/templates" className="hover:text-white transition-colors">Templates</Link></li>
                                     </ul>
                                 </div>
                                 <div className="space-y-4">

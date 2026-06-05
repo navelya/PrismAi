@@ -62,7 +62,7 @@ export async function uploadTemplateThumbnail(
   const path = `templates/${templateId}/${uuidv4()}.${ext}`;
   const { error } = await supabase.storage
     .from('template-thumbnails')
-    .upload(path, file, { upsert: true });
+    .upload(path, file, { upsert: true, contentType: file.type || undefined });
   if (error) throw error;
   const { data } = supabase.storage.from('template-thumbnails').getPublicUrl(path);
   return data.publicUrl;
