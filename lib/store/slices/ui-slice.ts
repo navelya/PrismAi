@@ -31,6 +31,8 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     templateWorkflowLoading: {},
     creditBreakdown: null,
     isCreditBreakdownLoading: false,
+    sidebarExpanded: false,
+    userName: null,
     versions: [],
     versionsLoading: false,
     versionsCanvasId: null,
@@ -227,6 +229,23 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
             // Soft-fail: keep any prior data.
         } finally {
             set({ isCreditBreakdownLoading: false });
+        }
+    },
+
+    setSidebarExpanded: (expanded: boolean) => set({ sidebarExpanded: expanded }),
+
+    // Display name: load once on app open. `userApi.me()` is itself promise-cached,
+    // so this never refetches; the early-return just skips the redundant work once
+    // the name is in the store.
+    fetchUserName: async () => {
+        if (get().userName) return;
+        try {
+            const { userApi } = await import('@/lib/api/client');
+            const { user } = await userApi.me();
+            const name = user?.user_metadata?.display_name || user?.user_metadata?.full_name;
+            if (name) set({ userName: name });
+        } catch {
+            // Soft-fail: welcome falls back to the generic greeting.
         }
     },
 

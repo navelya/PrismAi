@@ -370,6 +370,17 @@ export interface UISlice {
     creditBreakdown: { balance: number; monthly: number; topup: number } | null;
     isCreditBreakdownLoading: boolean;
     fetchCreditBreakdown: () => Promise<void>;
+    // Docked side-rail open/collapsed preference. Persisted (survives reloads,
+    // consistent across pages) via the store's blacklist partialize. Defaults
+    // to collapsed. Only the docked variant uses it; the floating menu and the
+    // mobile drawer manage their own open state.
+    sidebarExpanded: boolean;
+    setSidebarExpanded: (expanded: boolean) => void;
+    // The signed-in user's display name — loaded once on app open and shared so the
+    // chat welcome (and anything else) reads it from the store instead of fetching
+    // userApi.me() per mount. null until the first load resolves.
+    userName: string | null;
+    fetchUserName: () => Promise<void>;
     // Workflow versions/history — loaded once when a canvas opens and kept in sync
     // via the versions bus, so opening the History panel never refetches.
     versions: any[];
