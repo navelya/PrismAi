@@ -110,3 +110,4 @@ full_models_list.json
 rate-limit-tracker.json
 debug_routes.txt
 lib/ai/rate-limit-tracker.json
+.superpowers/

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
+import AccountModal from '@/components/account/AccountModal';
 import { useIsMobile, useHasMounted } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
@@ -136,6 +137,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     isOpen={sidebarOpen}
                     onClose={() => setSidebarOpen(false)}
                 />
+
+                {/* Global "Your account" modal — opened from the sidebar profile menu. */}
+                <AccountModal />
             </div>
         );
     }
@@ -160,6 +164,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
             <div className="flex-1 min-w-0 overflow-hidden bg-surface-secondary">
                 {children}
             </div>
+
+            {/* Global "Your account" modal — opened from the sidebar profile menu. */}
+            <AccountModal />
         </div>
     );
 }

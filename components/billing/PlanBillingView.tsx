@@ -26,7 +26,14 @@ function formatDate(iso: string): string {
 // events for an orphaned subscription overwrote the active row.
 const SYNC_SESSION_FLAG = 'prisfol_billing_synced';
 
-export default function PlanBillingView() {
+/**
+ * The current-plan summary: plan name, monthly floor, next refill, live balance,
+ * the upgrade/change CTA, the past-due banner, and the subscription actions
+ * (update payment / cancel / resume). Self-contained — owns the once-per-tab
+ * DB↔Paddle resync. Rendered standalone on the account modal's "Plan & pricing"
+ * tab (no page header, no invoices — those live elsewhere).
+ */
+export function CurrentPlanCard() {
     const { plans } = usePricing();
     const { balance } = useTokenBalance();
     const { subscription, loading: subLoading } = useSubscription();
@@ -75,19 +82,7 @@ export default function PlanBillingView() {
 
     return (
         <>
-            <div className="max-w-4xl mx-auto p-6 sm:p-8 space-y-6">
-                {/* Header */}
-                <header className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-black font-display text-content-primary tracking-tight">
-                            Plan & Billing
-                        </h1>
-                        <p className="text-sm text-content-secondary mt-1">
-                            Manage your plan and balance.
-                        </p>
-                    </div>
-                </header>
-
+            <div className="space-y-6">
                 {/* Past-due banner — surfaces a failed renewal so the user can
                     fix their card before the sub gets canceled by Paddle. */}
                 {!subLoading && syncCompleted && subscription?.status === 'past_due' && (
@@ -165,14 +160,21 @@ export default function PlanBillingView() {
                         </>
                     )}
                 </section>
-
-                {/* Invoices */}
-                <InvoicesSection hasPaidSub={!!subscription && subscription.planId !== 'free'} />
             </div>
 
             <PlansModal isOpen={showPlans} onClose={() => setShowPlans(false)} />
         </>
     );
+}
+
+/**
+ * Whether the signed-in user has a paid (non-free) subscription. Drives the
+ * account modal's "Credits & billing" tab, which only shows invoices for paid
+ * plans. Kept here so the invoices logic stays colocated with InvoicesSection.
+ */
+export function useHasPaidSub(): boolean {
+    const { subscription } = useSubscription();
+    return !!subscription && subscription.planId !== 'free';
 }
 
 interface SubscriptionActionsProps {
@@ -318,7 +320,7 @@ function SubscriptionActions({
                     theme: 'dark',
                     // Paddle reloads this URL on completion, refreshing the
                     // page so the new payment method shows up.
-                    successUrl: `${window.location.origin}/settings?tab=plan-billing`,
+                    successUrl: `${window.location.origin}/settings?tab=plan-pricing`,
                 },
             });
         } catch (e: any) {
@@ -464,7 +466,7 @@ function formatMinor(amountMinor: string | null, currency: string): string {
     }).format(n / 100);
 }
 
-function InvoicesSection({ hasPaidSub }: { hasPaidSub: boolean }) {
+export function InvoicesSection({ hasPaidSub }: { hasPaidSub: boolean }) {
     const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -600,7 +602,7 @@ function PastDueBanner() {
                 settings: {
                     displayMode: 'overlay',
                     theme: 'dark',
-                    successUrl: `${window.location.origin}/settings?tab=plan-billing`,
+                    successUrl: `${window.location.origin}/settings?tab=plan-pricing`,
                 },
             });
         } catch (e: any) {

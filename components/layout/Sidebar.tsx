@@ -21,7 +21,6 @@ const navItems = [
     { name: 'Templates', path: '/templates', icon: LayoutTemplate, desktopOnly: false },
     { name: 'Assets', path: '/assets', icon: Image, desktopOnly: false },
     { name: 'Nodes', path: '/nodes', icon: Boxes, desktopOnly: false },
-    { name: 'Settings', path: '/settings', icon: Settings, desktopOnly: false },
 ];
 
 interface SidebarProps {
@@ -38,6 +37,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: SidebarProps) {
     const isExpanded = useAppStore((s) => s.sidebarExpanded);
     const setSidebarExpanded = useAppStore((s) => s.setSidebarExpanded);
+    const openAccountModal = useAppStore((s) => s.openAccountModal);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
     // Wraps the docked profile button + its flyout, so a click anywhere outside
     // (or Escape) closes the menu without covering the button itself.
@@ -354,7 +354,14 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                     <div className="p-4 border-t border-stroke-subtle bg-surface-primary safe-area-bottom">
                         {user ? (
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => {
+                                        openAccountModal('profile');
+                                        onClose?.();
+                                    }}
+                                    className="flex items-center gap-3 min-w-0 flex-1 -m-1 p-1 rounded-lg hover:bg-interactive-hover transition-colors"
+                                    title="Account"
+                                >
                                     <div className="relative group">
                                         <UserAvatar
                                             user={user}
@@ -362,7 +369,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             showStatus={Object.keys(user).length > 0}
                                         />
                                     </div>
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 text-left">
                                         <p className="text-sm font-semibold text-content-primary truncate max-w-[120px]">
                                             {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
                                         </p>
@@ -370,10 +377,10 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             {user.email}
                                         </p>
                                     </div>
-                                </div>
+                                </button>
                                 <button
                                     onClick={handleLogout}
-                                    className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                                    className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0"
                                     title="Sign out"
                                 >
                                     <LogOut className="w-5 h-5" />
@@ -625,14 +632,16 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             // the profile row — opens beside the avatar, not above it.
                                             className="absolute bottom-0 left-full ml-3 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]"
                                         >
-                                            <Link
-                                                href="/settings"
-                                                onClick={() => setIsProfileMenuOpen(false)}
-                                                className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
+                                            <button
+                                                onClick={() => {
+                                                    setIsProfileMenuOpen(false);
+                                                    openAccountModal('profile');
+                                                }}
+                                                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
                                             >
-                                                <Settings className="w-4 h-4 text-content-tertiary" />
-                                                <span>Settings</span>
-                                            </Link>
+                                                <UserIcon className="w-4 h-4 text-content-tertiary" />
+                                                <span>Account</span>
+                                            </button>
                                             {user?.is_admin && (
                                                 <Link
                                                     href="/admin"
@@ -827,6 +836,16 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             <LogOut className="w-4 h-4" />
                                         </button>
                                     </div>
+                                    <button
+                                        onClick={() => {
+                                            setMenuOpen(false);
+                                            openAccountModal('profile');
+                                        }}
+                                        className="mt-1 w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-content-primary hover:bg-interactive-hover transition-colors"
+                                    >
+                                        <UserIcon className="w-4 h-4 text-content-tertiary" />
+                                        <span>Account</span>
+                                    </button>
                                     {user?.is_admin && (
                                         <Link
                                             href="/admin"

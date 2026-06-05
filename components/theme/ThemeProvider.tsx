@@ -6,8 +6,8 @@ import { userApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
 
-export type Theme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'system' | 'light' | 'dark';
-export type ResolvedTheme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate';
+export type Theme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'emerald-aurora' | 'sunset-vibe' | 'system' | 'light' | 'dark';
+export type ResolvedTheme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'emerald-aurora' | 'sunset-vibe';
 
 interface ThemeContextType {
     /** User's selected theme preference */
@@ -123,8 +123,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         if (user?.id) {
             try {
                 const supabase = createClient();
+                // Re-read the freshest preferences before merging so we don't
+                // clobber keys (e.g. maxAutoRunCredits) written elsewhere — the
+                // account modal's Preferences tab persists those independently.
+                const { data: row } = await supabase
+                    .from('profiles')
+                    .select('preferences')
+                    .eq('id', user.id)
+                    .maybeSingle();
                 const newPrefs = {
-                    ...(user.profile?.preferences || {}),
+                    ...(row?.preferences || user.profile?.preferences || {}),
                     theme: newTheme
                 };
 

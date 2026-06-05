@@ -12,7 +12,7 @@ interface LedgerRow {
     created_at: string;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 const REASON_LABELS: Record<string, string> = {
     signup_bonus: 'Signup bonus',

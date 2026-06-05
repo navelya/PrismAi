@@ -32,6 +32,8 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     creditBreakdown: null,
     isCreditBreakdownLoading: false,
     sidebarExpanded: false,
+    accountModalOpen: false,
+    accountModalTab: 'profile',
     userName: null,
     versions: [],
     versionsLoading: false,
@@ -241,6 +243,10 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     },
 
     setSidebarExpanded: (expanded: boolean) => set({ sidebarExpanded: expanded }),
+
+    openAccountModal: (tab) =>
+        set(tab ? { accountModalOpen: true, accountModalTab: tab } : { accountModalOpen: true }),
+    closeAccountModal: () => set({ accountModalOpen: false }),
 
     // Display name: load once on app open. `userApi.me()` is itself promise-cached,
     // so this never refetches; the early-return just skips the redundant work once

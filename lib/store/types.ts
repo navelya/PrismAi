@@ -319,6 +319,18 @@ export interface ExecutionSlice {
     resetOptimisticDelta: () => void;
 }
 
+/**
+ * Tabs of the global "Your account" modal (the former /settings page). Used by
+ * the sidebar profile menu and the /settings deep-link redirector.
+ */
+export type AccountTab =
+    | 'profile'
+    | 'preferences'
+    | 'plan-pricing'
+    | 'credits-billing'
+    | 'api-keys'
+    | 'members';
+
 export interface UISlice {
     editorState: EditorState;
     setEditorState: (state: Partial<EditorState>) => void;
@@ -377,6 +389,14 @@ export interface UISlice {
     // mobile drawer manage their own open state.
     sidebarExpanded: boolean;
     setSidebarExpanded: (expanded: boolean) => void;
+    // Global "Your account" modal — the former /settings page, now an overlay
+    // reachable from anywhere via the sidebar profile menu. Ephemeral UI state:
+    // both fields are blacklisted from persistence so a reload never reopens it.
+    accountModalOpen: boolean;
+    accountModalTab: AccountTab;
+    /** Open the account modal, optionally jumping straight to a tab. */
+    openAccountModal: (tab?: AccountTab) => void;
+    closeAccountModal: () => void;
     // The signed-in user's display name — loaded once on app open and shared so the
     // chat welcome (and anything else) reads it from the store instead of fetching
     // userApi.me() per mount. null until the first load resolves.

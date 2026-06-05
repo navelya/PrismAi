@@ -130,6 +130,10 @@ export const useAppStore = create<RootState>()(
                     'isLoadingSession',
                     'statusMessage',
                     'isCopilotMinimized',
+                    // Account ("Your account") modal — transient overlay state. A
+                    // reload must never reopen it, so neither field is persisted.
+                    'accountModalOpen',
+                    'accountModalTab',
                     // Mobile read-only canvas view toggle — transient UI, never persist.
                     'isMobileCanvasOpen',
                     // Canvas mode is the default starting position for every
