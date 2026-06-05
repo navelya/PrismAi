@@ -394,13 +394,15 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                 `}
             >
                 {/* Header: logo + collapse toggle */}
-                <div className="h-12 flex items-center px-2.5">
+                <div className="h-12 flex items-center px-2">
                     {!isExpanded ? (
                         // Collapsed: logo mark that crossfades to a PanelLeft toggle
                         // on hover (stacked, same slot → no layout shift). Click expands.
+                        // Full-width centered so the mark lands on the same centerline
+                        // (28px) as the nav icons + avatar below.
                         <button
                             onClick={() => setSidebarExpanded(true)}
-                            className="group relative w-9 h-9 mx-auto flex items-center justify-center rounded-lg hover:bg-interactive-hover transition-colors"
+                            className="group relative flex w-10 h-9 items-center justify-center rounded-lg hover:bg-interactive-hover transition-colors"
                             aria-label="Expand sidebar"
                             title="Expand"
                         >
@@ -451,21 +453,25 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                                 }
                                             }}
                                             className={`
-                                                group relative flex items-center gap-2.5 px-2 py-1.5 rounded-lg
-                                                transition-all duration-200
-                                                ${!isExpanded ? 'justify-center' : ''}
+                                                group relative flex items-center h-9 rounded-lg
+                                                transition-colors duration-200
                                                 ${isActive
                                                     ? 'bg-interactive-hover text-accent-primary font-semibold'
                                                     : 'text-content-primary hover:bg-interactive-hover'
                                                 }
                                             `}
                                         >
-                                            <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+                                            {/* Fixed leading slot: keeps the icon on the shared
+                                                28px centerline and unchanged between states, so
+                                                collapsing never shifts it horizontally. */}
+                                            <span className="w-10 flex items-center justify-center flex-shrink-0">
+                                                <Icon className="w-[18px] h-[18px]" />
+                                            </span>
 
                                             <span
                                                 className={`
                                                     font-medium text-[13px] whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out
-                                                    ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
+                                                    ${isExpanded ? 'max-w-[170px] opacity-100 pr-3' : 'max-w-0 opacity-0'}
                                                 `}
                                             >
                                                 {item.name}
@@ -522,16 +528,18 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                 {/* Profile (authenticated) / skeleton */}
                 <div className="border-t border-stroke-subtle relative">
                     {user ? (
-                        <div className="p-1.5">
+                        <div className="px-2 py-1.5">
                             <div className="relative">
                                 <button
                                     onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                                    className="flex items-center w-full hover:bg-interactive-hover p-1.5 rounded-lg transition-colors overflow-hidden"
+                                    className="flex items-center w-full hover:bg-interactive-hover rounded-lg transition-colors overflow-hidden"
                                 >
-                                    <div className={`flex-shrink-0 flex items-center justify-center transition-all duration-300 ${!isExpanded ? 'w-9' : 'w-10'}`}>
+                                    {/* Avatar shares the w-10 leading slot so it lands on the
+                                        same 28px centerline as the logo + nav icons. */}
+                                    <div className="w-10 flex items-center justify-center flex-shrink-0 py-1">
                                         <UserAvatar
                                             user={user}
-                                            className={`${isExpanded ? 'w-10 h-10 text-sm' : 'w-9 h-9 text-xs'} flex-shrink-0 transition-all duration-300`}
+                                            className={`${isExpanded ? 'w-9 h-9 text-sm' : 'w-8 h-8 text-xs'} flex-shrink-0 transition-all duration-300`}
                                             showStatus={Object.keys(user).length > 0}
                                         />
                                     </div>
@@ -539,7 +547,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                     <div
                                         className={`
                                                 flex-1 min-w-0 flex items-center justify-between overflow-hidden transition-all duration-300 ease-in-out whitespace-nowrap
-                                                ${isExpanded ? 'max-w-[200px] opacity-100 ml-3' : 'max-w-0 opacity-0 ml-0 pointer-events-none'}
+                                                ${isExpanded ? 'max-w-[200px] opacity-100 ml-2' : 'max-w-0 opacity-0 ml-0 pointer-events-none'}
                                             `}
                                     >
                                         <div className="min-w-0">
@@ -599,15 +607,17 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                             </div>
                         </div>
                     ) : (
-                        <div className="p-2">
-                            <div className={`flex items-center ${!isExpanded ? 'justify-center' : 'gap-3'} animate-pulse`}>
-                                <div className={`
-                                    rounded-full bg-surface-tertiary flex-shrink-0 transition-all duration-300
-                                    ${isExpanded ? 'w-10 h-10' : 'w-9 h-9'}
-                                `} />
+                        <div className="px-2 py-1.5">
+                            <div className="flex items-center animate-pulse">
+                                <div className="w-10 flex items-center justify-center flex-shrink-0 py-1">
+                                    <div className={`
+                                        rounded-full bg-surface-tertiary flex-shrink-0 transition-all duration-300
+                                        ${isExpanded ? 'w-9 h-9' : 'w-8 h-8'}
+                                    `} />
+                                </div>
                                 <div className={`
                                     flex-1 min-w-0 flex flex-col gap-1.5 overflow-hidden transition-all duration-300
-                                    ${isExpanded ? 'max-w-[200px] ml-3 opacity-100' : 'max-w-0 opacity-0 ml-0'}
+                                    ${isExpanded ? 'max-w-[200px] ml-2 opacity-100' : 'max-w-0 opacity-0 ml-0'}
                                 `}>
                                     <div className="h-4 w-24 bg-surface-tertiary rounded" />
                                     <div className="h-3 w-32 bg-surface-tertiary rounded" />
