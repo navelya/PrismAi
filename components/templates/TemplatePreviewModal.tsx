@@ -1,16 +1,19 @@
 // components/templates/TemplatePreviewModal.tsx
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Loader2, User } from 'lucide-react';
 import { templatesApi } from '@/lib/api/client';
-import { nodeChipsFor } from '@/lib/templates/node-chips';
+import { nodeChipsFor, workflowNodeChips } from '@/lib/templates/node-chips';
+import { useAppStore } from '@/lib/store/app-store';
 import { Logo } from '@/components/ui/Logo';
 import { TemplateCanvasPreview } from './TemplateCanvasPreview';
 
 export function TemplatePreviewModal({ id, onClose }: { id: string | null; onClose: () => void }) {
   const router = useRouter();
+  const models = useAppStore((s) => s.models);
+  const categories = useAppStore((s) => s.categories);
   const [tpl, setTpl] = useState<any | null>(null);
   const [using, setUsing] = useState(false);
 
@@ -34,7 +37,13 @@ export function TemplatePreviewModal({ id, onClose }: { id: string | null; onClo
     catch { setUsing(false); }
   };
 
-  const chips = tpl ? nodeChipsFor(tpl.nodes_used || []) : [];
+  // AI-model nodes show their category (+ icon); other nodes keep their own.
+  // Older templates without a stored graph fall back to the saved node-type list.
+  const chips = useMemo(() => {
+    if (!tpl) return [];
+    const nodes = tpl.workflow?.nodes ?? [];
+    return nodes.length ? workflowNodeChips(nodes, models, categories) : nodeChipsFor(tpl.nodes_used || []);
+  }, [tpl, models, categories]);
   const isOfficial = tpl?.source === 'official';
 
   return (

@@ -5,8 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2, ImagePlus, LayoutTemplate } from 'lucide-react';
 import { adminTemplatesApi } from '@/lib/api/admin';
 import { useAppStore } from '@/lib/store/app-store';
-import { deriveNodesUsed } from '@/lib/templates/snapshot';
-import { nodeChipsFor } from '@/lib/templates/node-chips';
+import { workflowNodeChips } from '@/lib/templates/node-chips';
 import { extractMediaUrls, detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
@@ -26,6 +25,8 @@ const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({ id: c, display_name: c }));
 export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName }: Props) {
   const currentWorkflow = useAppStore((s) => s.currentWorkflow);
   const refreshTemplates = useAppStore((s) => s.fetchTemplates);
+  const models = useAppStore((s) => s.models);
+  const categories = useAppStore((s) => s.categories);
   const [name, setName] = useState(defaultName);
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [description, setDescription] = useState('');
@@ -39,8 +40,8 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
   const [done, setDone] = useState(false);
 
   const chips = useMemo(
-    () => nodeChipsFor(deriveNodesUsed(currentWorkflow as any)),
-    [currentWorkflow],
+    () => workflowNodeChips((currentWorkflow as any)?.nodes ?? [], models, categories),
+    [currentWorkflow, models, categories],
   );
 
   // Auto-thumbnail: the last image produced anywhere on the current canvas.
@@ -159,7 +160,7 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
                       ? <span className="text-xs text-content-tertiary">No nodes detected</span>
                       : chips.map((c) => (
                         <span key={c.type} className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-full bg-surface-secondary text-content-secondary">
-                          <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />{c.label}
+                          <c.Icon className="w-3 h-3" />{c.label}
                         </span>
                       ))}
                   </div>
