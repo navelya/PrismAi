@@ -52,12 +52,10 @@ export function ClarificationCard({ questions, answer, onComplete }: Props) {
     if (!q) return null;
     const currentAns = answers[current];
 
-    const buildCombinedText = (all: Ans[]): string => {
-        if (total <= 1) return all[0]?.text ?? '';
-        return questions
+    const buildCombinedText = (all: Ans[]): string =>
+        questions
             .map((qq, i) => (qq.question ? `${qq.question} → ${all[i]?.text ?? ''}` : all[i]?.text ?? ''))
             .join('\n');
-    };
 
     const recordAnswer = (ans: Ans) => {
         if (completedRef.current) return;

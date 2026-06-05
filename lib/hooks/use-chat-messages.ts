@@ -110,6 +110,45 @@ export function useChatMessages({
         }
     }, [nodeStatusesForRun]);
 
+    // Durable-URL convergence. When a chat run's terminal node is ephemeral
+    // (compositor, blur, …) its output is first frozen with a
+    // `workflow-ephemeral-tmp` URL — which the orchestrator then promotes to the
+    // durable `chat-assets` bucket and rewrites the node_results row. That
+    // rewrite arrives via realtime as a fresh nodeOutputs URL; swap the frozen
+    // result over to it so the result doesn't 404 once the ephemeral original is
+    // cleaned up. The live inline preview keeps showing the video throughout, so
+    // this swap is invisible to the user.
+    const nodeOutputsForRun = useAppStore((s) => s.nodeOutputs);
+    useEffect(() => {
+        const msgs = useAppStore.getState().chatMessages;
+        for (const m of msgs) {
+            const rp = m.runProposal;
+            if (!rp || rp.status !== 'done') continue;
+            const result = m.result as ReturnType<typeof extractRenderableMedia> | null;
+            if (!Array.isArray(result) || result.length === 0) continue;
+            // Only act while something is still pinned to the ephemeral bucket.
+            if (!result.some((it) => typeof it?.url === 'string' && it.url.includes('workflow-ephemeral-tmp'))) continue;
+
+            const ids = rp.terminalIds.length ? rp.terminalIds : rp.runTargetIds;
+            const fresh: ReturnType<typeof extractRenderableMedia> = [];
+            for (const id of ids) {
+                for (const item of extractRenderableMedia(nodeOutputsForRun?.[id])) {
+                    if (item.type === 'image' || item.type === 'video') fresh.push(item);
+                }
+            }
+            if (fresh.length === 0) continue;
+            // Durable URL hasn't landed yet — wait for the next realtime tick.
+            if (fresh.some((it) => it.url.includes('workflow-ephemeral-tmp'))) continue;
+
+            const sameUrls =
+                fresh.length === result.length && fresh.every((it, i) => it.url === result[i]?.url);
+            if (sameUrls) continue;
+
+            useAppStore.getState().updateMessage(m.id, { result: fresh });
+            void persistFrozenResult(m.id, fresh);
+        }
+    }, [nodeOutputsForRun]);
+
     // Helper to save messages via BFF API
     const saveMessageToDb = async (msg: Message, imagePaths?: string[]) => {
         const activeSessionId = sessionId;

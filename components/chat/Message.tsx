@@ -338,6 +338,7 @@ export const Message = React.memo(function Message({
                             thinkingDurationMs={message.thinkingDurationMs}
                             planLoading={message.planLoading}
                             hasPlan={!!message.plan}
+                            built={!!message.runProposal || !!message.taskProgress}
                         />
                     )}
 

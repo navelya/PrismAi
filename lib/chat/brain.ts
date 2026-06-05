@@ -321,7 +321,11 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               // the user. failPlan re-routes the validation error back to the
               // model as a tool_result so it retries with a complete plan.
               const failPlan = (message: string) => {
-                pendingTools.push({ id: event.id, success: false, error: message });
+                pendingTools.push({
+                  id: event.id,
+                  success: false,
+                  error: `${message} Re-call propose_plan with a COMPLETE blueprint (or non-empty tasks[]) this time — do NOT build directly with add_node; the user is waiting on a plan to approve.`,
+                });
                 calledTerminalTool = false;
                 planNeedsRetry = true;
               };
@@ -333,48 +337,58 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
                 : null;
               const rawModels = args.models;
 
-              // Compute the first validation failure (if any), then act once.
-              let planError: string | null = null;
+              // STRUCTURAL guards only — the card literally can't render, or
+              // there's nothing to build. ONLY these self-correct via a silent
+              // retry. (A missing display string or no blueprint+tasks at all.)
+              let structuralError: string | null = null;
               for (const key of ['title', 'summary', 'arrows', 'detail']) {
                 const v = args[key];
                 if (typeof v !== 'string' || v.trim().length === 0) {
-                  planError = `propose_plan requires non-empty string field "${key}".`;
+                  structuralError = `propose_plan requires non-empty string field "${key}".`;
                   break;
                 }
               }
-              if (!planError && (!Array.isArray(rawModels) || !rawModels.every(m => typeof m === 'string'))) {
-                planError = 'propose_plan.models must be an array of strings (may be empty).';
+              if (!structuralError && hasTasks && hasBlueprint) {
+                structuralError = 'propose_plan must use EITHER blueprint OR tasks — never both.';
               }
-              if (!planError && hasTasks && hasBlueprint) {
-                planError = 'propose_plan must use EITHER blueprint OR tasks — never both.';
+              if (!structuralError && !hasTasks && !hasBlueprint) {
+                structuralError = 'propose_plan requires either a blueprint or a non-empty tasks[] array.';
               }
-              if (!planError && !hasTasks && !hasBlueprint) {
-                planError = 'propose_plan requires either a blueprint or a non-empty tasks[] array.';
-              }
-              if (!planError && hasTasks) {
-                const validation = validateTaskList(state, args.tasks as any[]);
-                if (!validation.ok) {
-                  planError = `propose_plan tasks invalid (task ${validation.taskIndex}): ${validation.error}`;
-                }
-              }
-              if (!planError && !hasTasks) {
-                const validation = validateBlueprint(state, blueprintObj);
-                if (!validation.ok) {
-                  planError = `propose_plan blueprint invalid: ${validation.error}`;
-                }
-              }
-
-              if (planError) {
-                failPlan(planError);
+              if (structuralError) {
+                failPlan(structuralError);
                 break;
               }
+
+              // CONTENT validation (per-node config / edge handles) is ADVISORY
+              // at propose time. A single bad node config must NOT swallow the
+              // whole plan — the user asked to SEE a plan, so we always show it.
+              // The identical checks run again at Approve via dispatchTool, which
+              // surfaces any real problem in context. (Previously a content
+              // failure dropped the plan entirely → "I asked for a plan and got
+              // nothing".)
+              const contentIssue = hasTasks
+                ? (() => {
+                    const v = validateTaskList(state, args.tasks as any[]);
+                    return v.ok ? null : `tasks (task ${v.taskIndex}): ${v.error}`;
+                  })()
+                : (() => {
+                    const v = validateBlueprint(state, blueprintObj);
+                    return v.ok ? null : v.error;
+                  })();
+              if (contentIssue) {
+                console.warn('[chat] propose_plan content issue (showing plan anyway, re-checked at approve):', contentIssue);
+              }
+
+              const models = Array.isArray(rawModels)
+                ? rawModels.filter((m): m is string => typeof m === 'string')
+                : [];
 
               if (!plan) {
                 plan = {
                   title: String(args.title).trim(),
                   summary: String(args.summary).trim(),
                   arrows: String(args.arrows).trim(),
-                  models: rawModels as string[],
+                  models,
                   detail: String(args.detail).trim(),
                   blueprint: hasBlueprint
                     ? {

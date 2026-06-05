@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ScanSearch, Brain, Route, ChevronRight } from 'lucide-react';
+import { ScanSearch, Brain, Route, Workflow, ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 /**
@@ -25,6 +25,9 @@ export interface ActivityTimelineProps {
   thinkingDurationMs?: number;
   planLoading?: boolean;
   hasPlan?: boolean;
+  /** True once this turn built/modified the workflow (derived from runProposal /
+   *  taskProgress — both persist, so this step survives reload). */
+  built?: boolean;
 }
 
 type StepStatus = 'done' | 'active';
@@ -51,6 +54,7 @@ export function ActivityTimeline({
   thinkingDurationMs,
   planLoading,
   hasPlan,
+  built,
 }: ActivityTimelineProps) {
   const [open, setOpen] = useState(false);
 
@@ -88,8 +92,18 @@ export function ActivityTimeline({
       });
     }
 
+    // Built/modified the workflow this turn (runProposal / taskProgress present).
+    if (built) {
+      out.push({
+        key: 'build',
+        Icon: Workflow,
+        label: 'Built the workflow',
+        status: 'done',
+      });
+    }
+
     return out;
-  }, [thinking, isThinking, thinkingDurationMs, planLoading, hasPlan]);
+  }, [thinking, isThinking, thinkingDurationMs, planLoading, hasPlan, built]);
 
   // A lone "Analyzed your request" on a finished plain answer is just noise.
   if (steps.length <= 1) return null;
@@ -152,7 +166,7 @@ export function ActivityTimeline({
               {canExpand && open && (
                 // -ml-5 pulls the border back under the icon (continuous line from
                 // the badge); pl-5 puts the text back under the label.
-                <div className="mt-1.5 -ml-5 border-l border-stroke/60 pl-5 text-[11px] italic leading-relaxed whitespace-pre-wrap text-content-tertiary">
+                <div className="mt-1.5 -ml-5 pl-5 text-[11px] italic leading-relaxed whitespace-pre-wrap text-content-tertiary">
                   {step.reasoning}
                 </div>
               )}

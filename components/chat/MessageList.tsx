@@ -92,7 +92,15 @@ export function MessageList({
             ref={scrollContainerRef}
             onScroll={onScroll}
             className={`flex-1 overflow-y-auto overflow-x-hidden flex flex-col ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
-            style={{ overflowAnchor: 'auto' }}
+            // overflow-anchor MUST be none: this hook is the sole authority on
+            // scrollTop (bottom-pin ResizeObserver, scrollIntoView, the dynamic
+            // spacer, mount-restore). Browser scroll anchoring (the CSS default,
+            // 'auto') competes with that manual management — while a result is
+            // running the content reflows many times per second (skeleton mount,
+            // progress rows, image aspect-ratio settle, opacity transition), and
+            // the browser re-anchors in the same frames the JS sets scrollTop,
+            // so the conversation oscillates up/down. 'none' stops the fight.
+            style={{ overflowAnchor: 'none' }}
         >
             {!isLoadingSession && messages.length === 0 && !isLoading && emptyState}
 

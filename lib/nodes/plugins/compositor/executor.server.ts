@@ -195,11 +195,47 @@ async function runStillComposite(
     inputs: Record<string, any>,
     context: ExecutionContext,
 ): Promise<NodeExecutionResult> {
-    const width = Math.round(config?.canvasWidth || 1080);
-    const height = Math.round(config?.canvasHeight || 1080);
+    let width = Math.round(config?.canvasWidth || 1080);
+    let height = Math.round(config?.canvasHeight || 1080);
     const layers = (config?.layers || []) as CompositorLayer[];
     const outputFormat = (config?.outputFormat || 'png') as string;
     const outputQuality = config?.outputQuality ?? 1.0;
+
+    // Server-side auto-fit parity (see renderCompositorVideo). When the SINGLE
+    // visible media layer was never client-fitted (the LLM guessed its transform
+    // before the image existed), resize the canvas to the source and composite it
+    // full-bleed — otherwise `fit:'fill'` stretches it into the guessed box and a
+    // larger canvas adds bars. Gated on `isAutoCentered`, so editor-built
+    // composites (which set it true) stay byte-identical. The probed buffer is
+    // reused below to avoid a second fetch.
+    let fitLayerId: string | null = null;
+    const prefetched = new Map<string, Buffer>();
+    {
+        const visibleMedia = layers.filter(
+            (l) => l.visible && typeof inputs[l.sourceHandleId] === 'string' && isMediaUrl(inputs[l.sourceHandleId]),
+        );
+        if (visibleMedia.length === 1 && visibleMedia[0].transform?.isAutoCentered !== true) {
+            const only = visibleMedia[0];
+            try {
+                const resp = await fetch(inputs[only.sourceHandleId]);
+                if (resp.ok) {
+                    const buf = Buffer.from(await resp.arrayBuffer());
+                    const meta = await sharp(buf).metadata();
+                    if (meta.width && meta.height) {
+                        width = meta.width;
+                        height = meta.height;
+                        fitLayerId = only.id;
+                        prefetched.set(only.id, buf);
+                        console.log(
+                            `[CompositorExecutor:still] auto-fit: canvas → source ${width}x${height} for un-fitted single layer "${only.name}"`,
+                        );
+                    }
+                }
+            } catch (err) {
+                console.error('[CompositorExecutor:still] auto-fit probe failed:', err);
+            }
+        }
+    }
 
     console.log(
         `[CompositorExecutor:still] Canvas ${width}x${height}, ${layers.length} layers`,
@@ -216,8 +252,11 @@ async function runStillComposite(
             if (!source || typeof source !== 'string') return null;
 
             const tf = layer.transform || ({} as any);
-            const targetW = Math.max(1, Math.round(tf.width || width));
-            const targetH = Math.max(1, Math.round(tf.height || height));
+            // The auto-fitted layer fills the (now source-sized) canvas; everyone
+            // else keeps its configured transform.
+            const isFit = layer.id === fitLayerId;
+            const targetW = isFit ? width : Math.max(1, Math.round(tf.width || width));
+            const targetH = isFit ? height : Math.max(1, Math.round(tf.height || height));
             const rotation = tf.rotation || 0;
 
             try {
@@ -228,9 +267,12 @@ async function runStillComposite(
                 // was silently dropped, so it never reached the AI node.
                 let layerSharp: sharp.Sharp;
                 if (isMediaUrl(source)) {
-                    const response = await fetch(source);
-                    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-                    const inputBuffer = Buffer.from(await response.arrayBuffer());
+                    let inputBuffer = prefetched.get(layer.id);
+                    if (!inputBuffer) {
+                        const response = await fetch(source);
+                        if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+                        inputBuffer = Buffer.from(await response.arrayBuffer());
+                    }
                     layerSharp = sharp(inputBuffer).resize(targetW, targetH, { fit: 'fill' });
                 } else {
                     const textBox = await renderTextLayerToBuffer(layer, source, width, height);
@@ -246,8 +288,8 @@ async function runStillComposite(
                 const processedBuffer = await layerSharp.toBuffer();
                 return {
                     input: processedBuffer,
-                    left: Math.round(tf.x || 0),
-                    top: Math.round(tf.y || 0),
+                    left: isFit ? 0 : Math.round(tf.x || 0),
+                    top: isFit ? 0 : Math.round(tf.y || 0),
                 };
             } catch (err) {
                 console.error(`[CompositorExecutor:still] Layer ${layer.name} failed:`, err);
@@ -314,6 +356,8 @@ interface ProcessedLayer {
     effectiveDuration: number; // seconds; what we actually render
     startTime: number;         // seconds
     hasAudio: boolean;         // video has at least one audio stream
+    intrinsicWidth: number;    // source pixel width; 0 if unknown
+    intrinsicHeight: number;   // source pixel height; 0 if unknown
 }
 
 export interface RenderCompositorVideoOptions {
@@ -336,8 +380,12 @@ export async function renderCompositorVideo(
     inputs: Record<string, any>,
     options: RenderCompositorVideoOptions,
 ): Promise<Buffer> {
-    const width = Math.round(config?.canvasWidth || 1080);
-    const height = Math.round(config?.canvasHeight || 1080);
+    // Canvas size is mutable: a single un-fitted layer (typical of a chat-built
+    // compositor whose layer transform the LLM guessed before the media existed)
+    // resizes the canvas to the source's true dimensions below — see the
+    // server-side auto-fit after probing.
+    let width = Math.round(config?.canvasWidth || 1080);
+    let height = Math.round(config?.canvasHeight || 1080);
     const fps = Math.max(1, Math.min(60, Math.round(config?.fps || 30)));
     const allLayers = (config?.layers || []) as CompositorLayer[];
 
@@ -406,6 +454,8 @@ export async function renderCompositorVideo(
                     effectiveDuration: 0, // filled below once we know the timeline total
                     startTime: Math.max(0, layer.startTime || 0),
                     hasAudio: false,
+                    intrinsicWidth: 0, // text has no intrinsic size — never drives canvas fit
+                    intrinsicHeight: 0,
                 });
                 continue;
             }
@@ -469,10 +519,20 @@ export async function renderCompositorVideo(
 
             let intrinsicDuration = 0;
             let hasAudio = false;
+            let intrinsicWidth = 0;
+            let intrinsicHeight = 0;
             if (kind === 'video') {
-                const probe = await probeVideoStreams(ffmpeg, inputPath).catch(() => ({ duration: 0, hasAudio: false }));
+                const probe = await probeVideoStreams(ffmpeg, inputPath).catch(() => ({ duration: 0, hasAudio: false, width: 0, height: 0 }));
                 intrinsicDuration = probe.duration;
                 hasAudio = probe.hasAudio;
+                intrinsicWidth = probe.width;
+                intrinsicHeight = probe.height;
+            } else {
+                // Image: read intrinsic pixel size so a single un-fitted image
+                // layer can drive the canvas auto-fit below, same as video.
+                const meta = await sharp(inputPath).metadata().catch(() => null);
+                intrinsicWidth = meta?.width || 0;
+                intrinsicHeight = meta?.height || 0;
             }
 
             layerDiagnostics.push({
@@ -491,6 +551,8 @@ export async function renderCompositorVideo(
                 effectiveDuration: 0, // filled below once we know the timeline total
                 startTime: Math.max(0, layer.startTime || 0),
                 hasAudio,
+                intrinsicWidth,
+                intrinsicHeight,
             });
         }
 
@@ -525,6 +587,53 @@ export async function renderCompositorVideo(
             }
         }
 
+        // ── Server-side auto-fit (parity with the client's
+        // calculateFirstLayerFitToCanvas) ──
+        // A chat-built compositor dispatches with the LLM's GUESSED canvas +
+        // layer transform — it sized them before the generated media existed, so
+        // the box aspect rarely matches the real source. The client corrects this
+        // once the media's metadata loads (handleLayerIntrinsicLoad sets
+        // transform.isAutoCentered=true), but a chat auto-run renders BEFORE that,
+        // baking the guess in: a layer scaled to a mismatched box stretches, and a
+        // canvas larger than the layer adds black bars. When the SINGLE visible
+        // media layer was never client-fitted, resize the canvas to the source and
+        // make the layer full-bleed — exactly what the editor (and the Download
+        // button, which shares this function) would have produced.
+        // `isAutoCentered === true` means the client/user already positioned it, so
+        // the config is respected as-is and the Download path is unaffected.
+        const fitTransform = new Map<string, { x: number; y: number; width: number; height: number }>();
+        if (processed.length === 1) {
+            const p = processed[0];
+            const tf = p.layer.transform || ({} as any);
+            if (
+                (p.sourceKind === 'video' || p.sourceKind === 'image') &&
+                tf.isAutoCentered !== true &&
+                p.intrinsicWidth > 0 &&
+                p.intrinsicHeight > 0
+            ) {
+                width = p.intrinsicWidth;
+                height = p.intrinsicHeight;
+                fitTransform.set(p.layer.id, { x: 0, y: 0, width, height });
+                console.log(
+                    `[renderCompositorVideo] auto-fit: canvas → source ${width}x${height} for un-fitted single layer "${p.layer.name}"`,
+                );
+            }
+        }
+
+        // Effective transform per layer: the auto-fit override when present,
+        // otherwise the (rounded, defaulted) configured transform.
+        const effTransform = (p: ProcessedLayer) => {
+            const ov = fitTransform.get(p.layer.id);
+            if (ov) return ov;
+            const tf = p.layer.transform || ({} as any);
+            return {
+                x: Math.round(tf.x || 0),
+                y: Math.round(tf.y || 0),
+                width: Math.max(2, Math.round(tf.width || width)),
+                height: Math.max(2, Math.round(tf.height || height)),
+            };
+        };
+
         // ── Build the video filter graph ──
         // [bg]                           color=black, size=WxH, duration=total
         // For each input i:
@@ -545,9 +654,7 @@ export async function renderCompositorVideo(
         filters.push(`color=c=black:s=${width}x${height}:r=${fps}:d=${total}[bg]`);
 
         processed.forEach((p, idx) => {
-            const tf = p.layer.transform || ({} as any);
-            const w = Math.max(2, Math.round(tf.width || width));
-            const h = Math.max(2, Math.round(tf.height || height));
+            const { width: w, height: h } = effTransform(p);
             const eff = p.effectiveDuration;
             const startT = p.startTime;
             const setpts = `setpts=PTS-STARTPTS+${startT.toFixed(3)}/TB`;
@@ -562,9 +669,7 @@ export async function renderCompositorVideo(
         const reversedOverlay = [...processed].reverse();
         reversedOverlay.forEach((p, reverseIdx) => {
             const idx = processed.indexOf(p);
-            const tf = p.layer.transform || ({} as any);
-            const x = Math.round(tf.x || 0);
-            const y = Math.round(tf.y || 0);
+            const { x, y } = effTransform(p);
             const eff = p.effectiveDuration;
             const startT = p.startTime;
             const endT = startT + eff;
@@ -709,7 +814,10 @@ async function runTemporalRender(
  * @ffprobe-installer). fluent-ffmpeg's .ffprobe() returns a promise-friendly
  * callback API.
  */
-function probeVideoStreams(ffmpeg: any, filePath: string): Promise<{ duration: number; hasAudio: boolean }> {
+function probeVideoStreams(
+    ffmpeg: any,
+    filePath: string,
+): Promise<{ duration: number; hasAudio: boolean; width: number; height: number }> {
     return new Promise((resolve, reject) => {
         ffmpeg.ffprobe(filePath, (err: Error | null, data: any) => {
             if (err) {
@@ -717,10 +825,14 @@ function probeVideoStreams(ffmpeg: any, filePath: string): Promise<{ duration: n
                 return;
             }
             const duration = data?.format?.duration;
-            const hasAudio = Array.isArray(data?.streams) && data.streams.some((s: any) => s.codec_type === 'audio');
+            const streams = Array.isArray(data?.streams) ? data.streams : [];
+            const hasAudio = streams.some((s: any) => s.codec_type === 'audio');
+            const videoStream = streams.find((s: any) => s.codec_type === 'video');
             resolve({
                 duration: typeof duration === 'number' ? duration : 0,
                 hasAudio,
+                width: Number(videoStream?.width) || 0,
+                height: Number(videoStream?.height) || 0,
             });
         });
     });

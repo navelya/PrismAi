@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Maximize2 } from 'lucide-react';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import type { RenderableMediaItem } from '@/lib/workflow/result-format';
 
@@ -19,6 +20,10 @@ interface RunMediaGalleryProps {
  * media swaps in. Used for both the live (in-flight) state and the frozen
  * result so loading and final views are identical. The loaded media fills the
  * tile width (object-cover at the true ratio = no letterbox, no crop).
+ *
+ * Inline videos play as a clean, muted, controls-less preview; clicking any tile
+ * (image or video) opens the shared lightbox — full controls, navigation across
+ * all results, and a download button.
  */
 export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 1 }: RunMediaGalleryProps) {
     const list = (Array.isArray(items) ? items : []).filter(
@@ -27,10 +32,11 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 1 }: RunM
     const showSkeleton = list.length === 0;
     const count = showSkeleton ? Math.max(1, skeletonCount) : list.length;
 
-    // Lightbox over the image items only (videos play inline).
+    // One lightbox over ALL media (images + videos). ImageLightbox auto-detects
+    // each item's type from its URL, so 'any' lets the user page across the whole
+    // result set with full controls + download.
     const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-    const imageItems = list.filter((i) => i.type === 'image');
-    const lightboxMedia = imageItems.map((i) => ({ url: i.url }));
+    const lightboxMedia = list.map((i) => ({ url: i.url }));
 
     const maxW = isCanvasMode ? 300 : 460;
 
@@ -49,18 +55,14 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 1 }: RunM
                         key={`${item.url}-${i}`}
                         item={item}
                         maxW={maxW}
-                        onOpen={
-                            item.type === 'image'
-                                ? () => setLightboxIndex(imageItems.findIndex((m) => m.url === item.url))
-                                : undefined
-                        }
+                        onOpen={() => setLightboxIndex(i)}
                     />
                 ))}
 
             {lightboxIndex !== null && lightboxIndex >= 0 && (
                 <ImageLightbox
                     media={lightboxMedia}
-                    type="image"
+                    type="any"
                     initialIndex={lightboxIndex}
                     onClose={() => setLightboxIndex(null)}
                 />
@@ -93,11 +95,13 @@ function MediaTile({
             ? metaW / metaH
             : 3 / 2; // sensible default before we know the real ratio
 
+    const clickable = !!onOpen && loaded;
+
     return (
         <div
-            className={`relative w-full overflow-hidden rounded-xl border border-stroke-subtle/60 bg-surface-tertiary/40 ${onOpen && loaded ? 'cursor-pointer' : ''}`}
+            className={`group relative w-full overflow-hidden rounded-xl border border-stroke-subtle/60 bg-surface-tertiary/40 ${clickable ? 'cursor-pointer' : ''}`}
             style={{ maxWidth: maxW, aspectRatio: String(aspect) }}
-            onClick={onOpen && loaded ? onOpen : undefined}
+            onClick={clickable ? onOpen : undefined}
         >
             {/* Skeleton fills the reserved footprint until the media's own load
                 event fires. Stays if the media errors, so no broken tag shows. */}
@@ -119,7 +123,6 @@ function MediaTile({
                     loop
                     autoPlay
                     playsInline
-                    controls
                 />
             ) : (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -135,6 +138,13 @@ function MediaTile({
                     className={`h-full w-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
                 />
             ))}
+
+            {/* Expand affordance — signals the tile opens the full lightbox. */}
+            {clickable && (
+                <div className="pointer-events-none absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-lg bg-black/45 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+                    <Maximize2 className="h-3.5 w-3.5" />
+                </div>
+            )}
         </div>
     );
 }

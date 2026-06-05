@@ -8,6 +8,7 @@ import { GraphJson, NodeConfig } from './types-v2';
 import { dispatchNode, withRetry } from './dispatch-v2';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from './result-format';
 import { serverRegistry, isEphemeralNode } from '@/lib/nodes/core/server-registry';
+import { promoteEphemeralUrl, isEphemeralUrl } from '@/lib/storage/promote-ephemeral';
 
 const EPHEMERAL_BUCKET = 'workflow-ephemeral-tmp';
 
@@ -468,7 +469,7 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
     // 1. Fetch graph snapshot to see all nodes that were supposed to run
     const { data: execution } = await supabase
       .from('executions')
-      .select('graph_json, status')
+      .select('graph_json, status, session_id')
       .eq('id', executionId)
       .single();
 
@@ -501,10 +502,27 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
     const finalStatus = wasCancelled ? 'cancelled' : (anyFailed ? 'failed' : 'completed');
     
     // Find the "Final Result" (result from a node with no children in this target set)
-    const leafNodeIds = targetNodeIds.filter(id => 
+    const leafNodeIds = targetNodeIds.filter(id =>
         !graph.edges.some(e => e.source === id)
     );
-    
+
+    // A chat run freezes the LEAF node's output onto the message as the result.
+    // When that leaf is an ephemeral node (compositor, blur, …), its media lives
+    // in `workflow-ephemeral-tmp` and is about to be deleted by
+    // cleanupEphemeralResults below — so the frozen URL would 404 shortly after.
+    // Promote those leaf outputs into the durable `chat-assets` bucket FIRST and
+    // rewrite their node_results rows (the realtime UPDATE carries the durable
+    // URL to the client, which swaps its frozen result over). Runs before the
+    // executions.result_data write so that reflects the durable URL too. The set
+    // of successfully-promoted leaves is excluded from row deletion in cleanup.
+    const promotedLeafIds = await promoteLeafEphemeralResults(
+      supabase,
+      executionId,
+      graph,
+      leafNodeIds,
+      (execution as any).session_id,
+    );
+
     // Get the result of the most recently updated leaf node
     const { data: finalNodeResult } = await supabase
         .from('node_results')
@@ -547,11 +565,114 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
       }
     }
 
-    await cleanupEphemeralResults(executionId, graph);
+    await cleanupEphemeralResults(executionId, graph, promotedLeafIds);
 
   } catch (error) {
     console.error(`[Orchestrator] Error updating final status:`, error);
   }
+}
+
+/**
+ * Promote chat-run terminal (leaf) ephemeral outputs from the ephemeral bucket
+ * into durable `chat-assets` storage so they survive cleanupEphemeralResults.
+ *
+ * For each leaf node that is ephemeral and produced media, every
+ * `workflow-ephemeral-tmp` URL in its `node_results.result_data` is copied to
+ * `chat-assets` and the row is rewritten to the durable URLs. A node is only
+ * added to the returned "promoted" set when ALL of its ephemeral URLs copied
+ * successfully — its row is then kept (not deleted) by cleanup. On any failure
+ * the original tmp object is left in place (cleanup will skip its row too only
+ * if promoted), so a failed promotion degrades to "result lives in tmp" rather
+ * than "result disappears".
+ *
+ * Best-effort: never throws — promotion failure must not mask the run's status.
+ */
+async function promoteLeafEphemeralResults(
+  supabase: ReturnType<typeof createServiceClient>,
+  executionId: string,
+  graph: GraphJson,
+  leafNodeIds: string[],
+  sessionId: string | null | undefined,
+): Promise<Set<string>> {
+  const promoted = new Set<string>();
+  try {
+    if (!sessionId) return promoted;
+
+    const typeById = new Map(graph.nodes.map((n) => [n.id, n.type]));
+    const ephemeralLeafIds = leafNodeIds.filter(
+      (id) => serverRegistry[typeById.get(id) || '']?.meta?.ephemeral === true,
+    );
+    if (ephemeralLeafIds.length === 0) return promoted;
+
+    // Destination path needs the owner's user id (node_results.user_id is null
+    // until session-cleanup stamps it, so resolve via the session).
+    const { data: session } = await supabase
+      .from('sessions')
+      .select('user_id')
+      .eq('id', sessionId)
+      .single();
+    const userId = (session as any)?.user_id as string | undefined;
+    if (!userId) {
+      console.error(`[Orchestrator] promote: no user_id for session ${sessionId}; skipping`);
+      return promoted;
+    }
+
+    const { data: rows } = await supabase
+      .from('node_results')
+      .select('node_id, result_data')
+      .eq('execution_id', executionId)
+      .in('node_id', ephemeralLeafIds)
+      .eq('status', 'completed');
+
+    for (const row of rows || []) {
+      const items = Array.isArray((row as any).result_data) ? (row as any).result_data : [];
+      if (items.length === 0) continue;
+
+      let allOk = true;
+      let changed = false;
+      const durable = await Promise.all(
+        items.map(async (item: any) => {
+          const url = typeof item === 'string' ? item : item?.url;
+          if (!isEphemeralUrl(url)) return item; // already durable / external
+          const newUrl = await promoteEphemeralUrl(supabase, url, {
+            userId,
+            sessionId,
+            nodeId: (row as any).node_id,
+          });
+          if (!newUrl) {
+            allOk = false;
+            return item;
+          }
+          changed = true;
+          return typeof item === 'string' ? newUrl : { ...item, url: newUrl };
+        }),
+      );
+
+      // Only rewrite when every ephemeral URL promoted — never leave a row
+      // pointing at a half-copied set.
+      if (!allOk || !changed) continue;
+
+      const { error } = await supabase
+        .from('node_results')
+        .update({ result_data: durable, updated_at: new Date().toISOString() })
+        .eq('execution_id', executionId)
+        .eq('node_id', (row as any).node_id);
+      if (error) {
+        console.error(`[Orchestrator] promote: row rewrite failed for ${(row as any).node_id}:`, error);
+        continue;
+      }
+      promoted.add((row as any).node_id);
+    }
+
+    if (promoted.size > 0) {
+      console.log(
+        `[Orchestrator] Promoted ${promoted.size} leaf ephemeral output(s) to chat-assets for execution ${executionId}`,
+      );
+    }
+  } catch (err) {
+    console.error(`[Orchestrator] promoteLeafEphemeralResults threw for execution ${executionId}:`, err);
+  }
+  return promoted;
 }
 
 /**
@@ -567,6 +688,7 @@ export async function updateExecutionFinalStatus(executionId: string): Promise<v
 async function cleanupEphemeralResults(
   executionId: string,
   graph: GraphJson,
+  promotedLeafIds: Set<string> = new Set(),
 ): Promise<void> {
   try {
     const ephemeralNodeIds = (graph?.nodes || [])
@@ -633,11 +755,19 @@ async function cleanupEphemeralResults(
       }
     }
 
+    // Promoted leaf nodes now hold durable chat-assets URLs (their tmp originals
+    // were removed above) — KEEP their rows so the chat result stays resolvable
+    // and the row survives as a session-cleanup "keeper". Delete the rest.
+    const rowsToDelete = ephemeralNodeIds.filter((id) => !promotedLeafIds.has(id));
+    if (rowsToDelete.length === 0) {
+      return;
+    }
+
     const { error: deleteErr, count } = await supabase
       .from('node_results')
       .delete({ count: 'exact' })
       .eq('execution_id', executionId)
-      .in('node_id', ephemeralNodeIds);
+      .in('node_id', rowsToDelete);
 
     if (deleteErr) {
       console.error(
