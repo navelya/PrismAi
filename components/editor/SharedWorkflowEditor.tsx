@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import EditorToolbar from './EditorToolbar';
 import EditorCanvas from './EditorCanvas';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
+import { ConvertToTemplateModal } from './ConvertToTemplateModal';
 import CanvasLoader from './CanvasLoader';
 import PropertyPanel from './PropertyPanel';
 import ResultsPanel from './ResultsPanel';
@@ -158,6 +160,8 @@ export default function SharedWorkflowEditor({
 
     const isViewer = collabRole === 'viewer';
     const effectiveReadOnly = readOnly || isViewer;
+    const isAdmin = useIsAdmin();
+    const [convertOpen, setConvertOpen] = useState(false);
 
     // Mirror the workflow name onto the session title so the sidebar / "My Files"
     // entry tracks renames (and a duplicate inherits the name). Debounced and
@@ -753,6 +757,8 @@ export default function SharedWorkflowEditor({
                         canvasId={activeCanvasId}
                         isOwner={collabRole === 'owner'}
                         isViewer={isViewer}
+                        isAdmin={isAdmin}
+                        onConvertToTemplate={() => setConvertOpen(true)}
                     />
                 )}
 
@@ -866,6 +872,13 @@ export default function SharedWorkflowEditor({
                     }}
                 />
             </div>
+
+            <ConvertToTemplateModal
+                isOpen={convertOpen}
+                onClose={() => setConvertOpen(false)}
+                sessionId={activeCanvasId}
+                defaultName={workflowName}
+            />
         </div>
     );
 }

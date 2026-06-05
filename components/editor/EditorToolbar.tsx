@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square, Coins, Loader2, AlertCircle, Eye } from 'lucide-react';
+import { Play, Save, Trash2, FilePlus, MoreVertical, MousePointer, Square, Coins, Loader2, AlertCircle, Eye, LayoutTemplate } from 'lucide-react';
 import { useExecutionValidation } from '@/lib/hooks/use-execution-validation';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -32,6 +32,8 @@ interface EditorToolbarProps {
     canvasId?: string | null;
     isOwner?: boolean;
     isViewer?: boolean;
+    isAdmin?: boolean;
+    onConvertToTemplate?: () => void;
 }
 
 export default function EditorToolbar({
@@ -46,6 +48,8 @@ export default function EditorToolbar({
     canvasId,
     isOwner = false,
     isViewer = false,
+    isAdmin = false,
+    onConvertToTemplate,
 }: EditorToolbarProps) {
     const [showMenu, setShowMenu] = useState(false);
     const [shareOpen, setShareOpen] = React.useState(false);
@@ -327,6 +331,17 @@ export default function EditorToolbar({
                                     className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
                                 >
                                     <Save className="w-3.5 h-3.5" />
+                                </button>
+                            </Tooltip>
+                        )}
+
+                        {isAdmin && isOwner && onConvertToTemplate && (
+                            <Tooltip content="Convert to template" position="bottom">
+                                <button
+                                    onClick={onConvertToTemplate}
+                                    className="p-1.5 text-content-tertiary hover:text-content-primary hover:bg-white/10 rounded-md transition-colors"
+                                >
+                                    <LayoutTemplate className="w-3.5 h-3.5" />
                                 </button>
                             </Tooltip>
                         )}
