@@ -406,9 +406,12 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                             aria-label="Expand sidebar"
                             title="Expand"
                         >
+                            {/* Mark is intentionally larger than the toggle/nav icons;
+                                both are absolutely positioned + flex-centered in the
+                                fixed w-10 h-9 slot, so its size never shifts anything. */}
                             <Logo
                                 variant="mark"
-                                className="absolute w-5 h-5 transition-opacity duration-200 group-hover:opacity-0"
+                                className="absolute w-7 h-7 transition-opacity duration-200 group-hover:opacity-0"
                             />
                             <PanelLeft className="absolute w-5 h-5 text-content-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
                         </button>
@@ -426,7 +429,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                             >
                                 <Logo
                                     variant="wordmark"
-                                    className="h-5 w-auto text-content-primary"
+                                    className="h-7 w-auto text-content-primary"
                                 />
                             </motion.div>
                             <button
