@@ -1,12 +1,19 @@
 // components/templates/TemplatesGallery.tsx
 'use client';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Loader2, LayoutGrid, X } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Search, Loader2, LayoutGrid, X, LayoutTemplate, Flame, Sparkles } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
-import { TemplateCard, TemplateListItem } from './TemplateCard';
+import { TemplateCard, TemplateListItem, isNewTemplate } from './TemplateCard';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
 
-type SortMode = 'popular' | 'new';
+type TabMode = 'templates' | 'popular' | 'new';
+
+const TABS: { key: TabMode; label: string; Icon: typeof LayoutTemplate }[] = [
+  { key: 'templates', label: 'Templates', Icon: LayoutTemplate },
+  { key: 'popular', label: 'Popular', Icon: Flame },
+  { key: 'new', label: 'New', Icon: Sparkles },
+];
 
 export function TemplatesGallery() {
   // Templates are preloaded on app open and shared via the store, so navigating
@@ -17,7 +24,7 @@ export function TemplatesGallery() {
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortMode>('popular');
+  const [tab, setTab] = useState<TabMode>('templates');
   const [previewId, setPreviewId] = useState<string | null>(null);
 
   // No-op if already loaded; covers a cold deep-link straight to /templates.
@@ -33,25 +40,21 @@ export function TemplatesGallery() {
     return Array.from(map.entries()).map(([name, thumb]) => ({ name, thumb }));
   }, [items]);
 
-  // "Popular" = the most-cloned third of templates that have at least one use.
-  const popularIds = useMemo(() => {
-    const used = items.filter((t) => (t.usage_count ?? 0) > 0).sort((a, b) => b.usage_count - a.usage_count);
-    const take = Math.max(3, Math.ceil(used.length * 0.3));
-    return new Set(used.slice(0, take).map((t) => t.id));
-  }, [items]);
-
   const visible = useMemo(() => {
     const list = items.filter((t) =>
       (!category || t.category === category) &&
+      // The Popular / New tabs filter to the same sets that drive the card badges.
+      (tab !== 'popular' || t.is_popular) &&
+      (tab !== 'new' || isNewTemplate(t.created_at)) &&
       (!search || t.name.toLowerCase().includes(search.toLowerCase()) ||
         (t.tags || []).some((g) => g.toLowerCase().includes(search.toLowerCase())))
     );
     return [...list].sort((a, b) =>
-      sort === 'popular'
-        ? (b.usage_count - a.usage_count) || a.name.localeCompare(b.name)
-        : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      tab === 'new'
+        ? new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        : (b.usage_count - a.usage_count) || a.name.localeCompare(b.name)
     );
-  }, [items, category, search, sort]);
+  }, [items, category, search, tab]);
 
   return (
     <div className="h-full overflow-y-auto bg-surface-primary mesh-gradient">
@@ -98,14 +101,25 @@ export function TemplatesGallery() {
             </div>
 
             <div className="flex items-center gap-2.5">
-              {/* New / Popular segmented toggle */}
-              <div className="flex items-center p-1 rounded-xl bg-white/5 border border-white/10">
-                {(['popular', 'new'] as SortMode[]).map((m) => (
-                  <button key={m} onClick={() => setSort(m)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${sort === m ? 'bg-surface-elevated text-content-primary shadow-sm' : 'text-content-tertiary hover:text-content-secondary'}`}>
-                    {m}
-                  </button>
-                ))}
+              {/* Templates / Popular / New segmented control (sliding pill) */}
+              <div role="tablist" aria-orientation="horizontal"
+                className="inline-flex items-center gap-1 p-1 rounded-xl bg-surface-secondary border border-stroke-subtle/60">
+                {TABS.map(({ key, label, Icon }) => {
+                  const active = tab === key;
+                  return (
+                    <button key={key} role="tab" aria-selected={active} onClick={() => setTab(key)}
+                      className="relative inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition-[color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100">
+                      {active && (
+                        <motion.span layoutId="tplTabPill" aria-hidden
+                          className="absolute inset-0 rounded-lg bg-surface-elevated border border-stroke-subtle/60 shadow-sm"
+                          transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
+                      )}
+                      <span className={`relative z-10 inline-flex items-center gap-1.5 ${active ? 'text-content-primary' : 'text-content-tertiary hover:text-content-secondary'}`}>
+                        <Icon className="w-3.5 h-3.5" /> {label}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Search */}
@@ -122,12 +136,12 @@ export function TemplatesGallery() {
           ) : visible.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center gap-3 text-content-tertiary/70">
               <LayoutGrid className="w-7 h-7 opacity-40" />
-              <p className="text-sm">{search || category ? 'No templates match your filters' : 'No templates yet'}</p>
+              <p className="text-sm">{search || category || tab !== 'templates' ? 'No templates match your filters' : 'No templates yet'}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {visible.map((t) => (
-                <TemplateCard key={t.id} tpl={t} popular={popularIds.has(t.id)} onOpen={() => setPreviewId(t.id)} />
+                <TemplateCard key={t.id} tpl={t} onOpen={() => setPreviewId(t.id)} />
               ))}
             </div>
           )}

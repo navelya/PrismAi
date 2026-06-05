@@ -1,22 +1,41 @@
 // components/templates/TemplateCard.tsx
 'use client';
 import React from 'react';
-import { ImageIcon } from 'lucide-react';
+import { ImageIcon, Flame, Sparkles } from 'lucide-react';
 
 export interface TemplateListItem {
   id: string; name: string; description: string | null; thumbnail_url: string | null;
   category: string | null; tags: string[]; source: 'official' | 'community';
   created_by_name: string | null; usage_count: number; created_at: string;
+  /** Top-10 most-cloned in the last two weeks (server-computed). */
+  is_popular?: boolean;
 }
 
-export function TemplateCard({ tpl, onOpen, popular }: { tpl: TemplateListItem; onOpen: () => void; popular?: boolean }) {
+/** Created within the last month. */
+export function isNewTemplate(createdAt: string): boolean {
+  return Date.now() - new Date(createdAt).getTime() < 30 * 24 * 60 * 60 * 1000;
+}
+
+export function TemplateCard({ tpl, onOpen }: { tpl: TemplateListItem; onOpen: () => void }) {
+  const popular = !!tpl.is_popular;
+  const isNew = isNewTemplate(tpl.created_at);
+
   return (
     <button onClick={onOpen}
       className="group relative text-left bg-surface-secondary/70 border border-stroke-subtle/70 rounded-2xl overflow-hidden hover:border-accent-primary/40 hover:shadow-xl hover:shadow-black/5 transition-all duration-200">
-      {popular && (
-        <span className="absolute top-3 right-3 z-10 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-full bg-accent-primary text-white shadow-sm">
-          Popular
-        </span>
+      {(popular || isNew) && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+          {popular && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-full bg-accent-primary text-white shadow-sm">
+              <Flame className="w-2.5 h-2.5" /> Popular
+            </span>
+          )}
+          {isNew && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-full bg-surface-elevated/90 backdrop-blur-sm border border-stroke-subtle/60 text-content-primary shadow-sm">
+              <Sparkles className="w-2.5 h-2.5" /> New
+            </span>
+          )}
+        </div>
       )}
       <div className="aspect-[4/3] bg-surface-tertiary overflow-hidden">
         {tpl.thumbnail_url

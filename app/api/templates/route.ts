@@ -28,5 +28,14 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ templates: data });
+
+  // "Popular" = top-10 most-cloned in the last 2 weeks (time-windowed, not the
+  // all-time usage_count). Computed via SECURITY DEFINER RPC and flagged per row
+  // so the cached store list can render the badge / power the Popular tab without
+  // a second round-trip. Best-effort: a failure just means no popular badges.
+  const { data: pop } = await supabase.rpc('popular_template_ids', { p_days: 14, p_limit: 10 });
+  const popular = new Set<string>((pop ?? []).map((r: { template_id: string }) => r.template_id));
+  const templates = (data ?? []).map((t) => ({ ...t, is_popular: popular.has(t.id) }));
+
+  return NextResponse.json({ templates });
 }
