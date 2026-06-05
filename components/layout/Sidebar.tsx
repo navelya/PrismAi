@@ -589,13 +589,14 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                 <AnimatePresence>
                                     {isProfileMenuOpen && (
                                         <motion.div
-                                            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                                            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                            className={`
-                                                absolute bottom-full mb-2 left-0 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]
-                                                ${!isExpanded ? 'ml-2' : ''}
-                                            `}
+                                            initial={{ opacity: 0, scale: 0.95, x: -8 }}
+                                            animate={{ opacity: 1, scale: 1, x: 0 }}
+                                            exit={{ opacity: 0, scale: 0.95, x: -8 }}
+                                            transition={{ duration: 0.15, ease: 'easeOut' }}
+                                            style={{ transformOrigin: 'bottom left' }}
+                                            // Flyout pinned to the rail's right edge, rising from
+                                            // the profile row — opens beside the avatar, not above it.
+                                            className="absolute bottom-0 left-full ml-2 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]"
                                         >
                                             <Link
                                                 href="/settings"
