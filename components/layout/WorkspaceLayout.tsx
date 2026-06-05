@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useLayoutEffect, useCallback } from 'react';
+import React, { useRef, useState, useLayoutEffect, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     MessageSquare, Minimize2, Plus,
@@ -15,6 +15,7 @@ import { CharactersPanel } from '@/components/editor/CharactersPanel';
 import { HistoryPanel } from '@/components/editor/HistoryPanel';
 import { TemplatesModal } from '@/components/editor/TemplatesModal';
 import NodeLibraryPanel from '@/components/editor/NodeLibraryPanel';
+import { onVersionsChanged } from '@/lib/versions-bus';
 
 interface WorkspaceLayoutProps {
     chatPanel: React.ReactNode;
@@ -53,6 +54,21 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     // (see sessionRoles), so they never see this gating.
     const collabRole = useAppStore(s => s.collabRole);
     const canEdit = collabRole === 'owner' || collabRole === 'editor';
+
+    // ── Version history: preload once when the canvas opens, then keep the store
+    // in sync via the versions bus. Doing it here (always mounted on the canvas)
+    // means the History panel reads ready data and never refetches on open, and
+    // a checkpoint saved from the toolbar updates the list even if the panel is
+    // closed. ──────────────────────────────────────────────────────────────────
+    const activeCanvasId = useAppStore(s => s.activeCanvasId);
+    const fetchVersions = useAppStore(s => s.fetchVersions);
+    useEffect(() => {
+        if (activeCanvasId) fetchVersions(activeCanvasId);
+    }, [activeCanvasId, fetchVersions]);
+    useEffect(() => onVersionsChanged(() => {
+        const id = useAppStore.getState().activeCanvasId;
+        if (id) useAppStore.getState().fetchVersions(id, true);
+    }), []);
 
     // ── Unified panel state ───────────────────────────────────────────────────
     const [activePanel, setActivePanel] = useState<ActivePanel>(null);

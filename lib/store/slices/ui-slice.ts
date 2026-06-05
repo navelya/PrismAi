@@ -24,6 +24,14 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     providers: [],
     dataTypes: [],
     isModelsLoading: false,
+    templates: [],
+    isTemplatesLoading: false,
+    templatesLoaded: false,
+    creditBreakdown: null,
+    isCreditBreakdownLoading: false,
+    versions: [],
+    versionsLoading: false,
+    versionsCanvasId: null,
     runFromNodeId: null,
     runMode: null,
     runSelectionIds: null,
@@ -171,6 +179,54 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
             set({ dataTypes: data || [] });
         } catch (error) {
             console.error('Failed to fetch data types:', error);
+        }
+    },
+
+    // Templates: load once per app session (early-return when already loaded).
+    // `force` refetches after an admin mutation so the gallery/modal stay current.
+    fetchTemplates: async (force = false) => {
+        if (!force && get().templatesLoaded) return;
+        if (!get().templatesLoaded) set({ isTemplatesLoading: true });
+        try {
+            const res = await fetch('/api/templates');
+            const data = await res.json();
+            if (res.ok) set({ templates: data.templates || [], templatesLoaded: true });
+        } catch (error) {
+            console.error('Failed to fetch templates:', error);
+        } finally {
+            set({ isTemplatesLoading: false });
+        }
+    },
+
+    // Credit breakdown: preloaded on app open; show the loader only on a cold
+    // fetch so a silent refresh (e.g. hover) never blanks the popover.
+    fetchCreditBreakdown: async () => {
+        if (!get().creditBreakdown) set({ isCreditBreakdownLoading: true });
+        try {
+            const res = await fetch('/api/billing/credit-breakdown');
+            if (res.ok) set({ creditBreakdown: await res.json() });
+        } catch {
+            // Soft-fail: keep any prior data.
+        } finally {
+            set({ isCreditBreakdownLoading: false });
+        }
+    },
+
+    // Versions: load once per canvas. Switching canvases clears + reloads; a
+    // forced refresh (bus event) updates in place without blanking the list.
+    fetchVersions: async (canvasId: string, force = false) => {
+        if (!canvasId) return;
+        if (!force && get().versionsCanvasId === canvasId) return;
+        const switching = get().versionsCanvasId !== canvasId;
+        if (switching) set({ versionsLoading: true, versions: [] });
+        try {
+            const res = await fetch(`/api/versions?canvasId=${encodeURIComponent(canvasId)}`, { cache: 'no-store' });
+            const data = await res.json();
+            if (res.ok) set({ versions: data.versions || [], versionsCanvasId: canvasId });
+        } catch (error) {
+            console.error('Failed to fetch versions:', error);
+        } finally {
+            set({ versionsLoading: false });
         }
     },
 

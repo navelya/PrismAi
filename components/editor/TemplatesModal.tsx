@@ -6,6 +6,7 @@ import {
     X, Search, BookOpen, Loader2, ChevronRight, CheckCircle2, Sparkles,
 } from 'lucide-react';
 import { templatesApi } from '@/lib/api/client';
+import { useAppStore } from '@/lib/store/app-store';
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -16,26 +17,17 @@ interface TemplatesModalProps {
 }
 
 export function TemplatesModal({ isOpen, onClose, onLoad }: TemplatesModalProps) {
+    // Shared, preloaded template list (same source as the /templates gallery) —
+    // opening this modal reads it from the store instead of refetching.
+    const templates = useAppStore((s) => s.templates);
+    const loading = useAppStore((s) => s.isTemplatesLoading);
+    const fetchTemplates = useAppStore((s) => s.fetchTemplates);
     const [search, setSearch] = useState('');
-    const [templates, setTemplates] = useState<any[]>([]);
-    const [loading, setLoading] = useState(false);
     const [confirmId, setConfirmId] = useState<string | null>(null);
     const [loadingId, setLoadingId] = useState<string | null>(null);
 
-    const fetchTemplates = useCallback(async () => {
-        setLoading(true);
-        try {
-            const { templates } = await templatesApi.list();
-            setTemplates(templates || []);
-        } catch {
-            setTemplates([]);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
     useEffect(() => {
-        if (isOpen) fetchTemplates();
+        if (isOpen) fetchTemplates(); // no-op when already loaded
     }, [isOpen, fetchTemplates]);
 
     // Close on Escape

@@ -4,12 +4,16 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, Trash2, Eye, EyeOff, Archive, ArrowLeft } from 'lucide-react';
 import { adminTemplatesApi } from '@/lib/api/admin';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
+import { useAppStore } from '@/lib/store/app-store';
 
 export function TemplatesAdminContent({ onMobileBack }: { onMobileBack?: () => void }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  // Admin mutations here also refresh the shared public cache so the gallery /
+  // in-canvas modal reflect publish/unpublish/delete without a reload.
+  const refreshPublic = useAppStore((s) => s.fetchTemplates);
 
   const load = () => {
     setLoading(true);
@@ -20,11 +24,11 @@ export function TemplatesAdminContent({ onMobileBack }: { onMobileBack?: () => v
   const setStatus = async (id: string, status: string) => {
     setBusyId(id);
     const fd = new FormData(); fd.set('status', status);
-    try { await adminTemplatesApi.update(id, fd); load(); } finally { setBusyId(null); }
+    try { await adminTemplatesApi.update(id, fd); load(); refreshPublic(true); } finally { setBusyId(null); }
   };
   const remove = async (id: string) => {
     setBusyId(id);
-    try { await adminTemplatesApi.remove(id); setConfirmId(null); load(); } finally { setBusyId(null); }
+    try { await adminTemplatesApi.remove(id); setConfirmId(null); load(); refreshPublic(true); } finally { setBusyId(null); }
   };
 
   return (

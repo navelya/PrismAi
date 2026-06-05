@@ -2,25 +2,22 @@
 'use client';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Loader2, Sparkles } from 'lucide-react';
-import { templatesApi } from '@/lib/api/client';
+import { useAppStore } from '@/lib/store/app-store';
 import { TemplateCard, TemplateListItem } from './TemplateCard';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
 
 export function TemplatesGallery() {
-  const [items, setItems] = useState<TemplateListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Templates are preloaded on app open and shared via the store, so navigating
+  // to this page shows them instantly (no per-visit refetch).
+  const items = useAppStore((s) => s.templates) as TemplateListItem[];
+  const loading = useAppStore((s) => s.isTemplatesLoading);
+  const fetchTemplates = useAppStore((s) => s.fetchTemplates);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    templatesApi.list()
-      .then(({ templates }) => { if (alive) setItems(templates as TemplateListItem[]); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, []);
+  // No-op if already loaded; covers a cold deep-link straight to /templates.
+  useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((t) => t.category).filter(Boolean))) as string[],

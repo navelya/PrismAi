@@ -25,6 +25,7 @@ const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({ id: c, display_name: c }));
 
 export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName }: Props) {
   const currentWorkflow = useAppStore((s) => s.currentWorkflow);
+  const refreshTemplates = useAppStore((s) => s.fetchTemplates);
   const [name, setName] = useState(defaultName);
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [description, setDescription] = useState('');
@@ -80,6 +81,7 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
       if (file) fd.set('thumbnail', file);
       else if (autoThumbUrl) fd.set('thumbnail_url_hint', autoThumbUrl);
       await adminTemplatesApi.create(fd);
+      refreshTemplates(true); // refresh the shared cache so the new template appears everywhere
       setDone(true);
       setTimeout(() => { setDone(false); onClose(); }, 900);
     } catch (e: any) {

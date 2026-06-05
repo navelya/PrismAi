@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useAppStore } from '@/lib/store/app-store';
 
 export interface CreditBreakdown {
     /** Authoritative DB balance (no optimistic overlay). */
@@ -12,28 +12,13 @@ export interface CreditBreakdown {
 }
 
 /**
- * Lazily fetches the monthly-vs-top-up split of the user's credit balance from
- * /api/billing/credit-breakdown. Call `fetchBreakdown()` when the breakdown UI
- * opens (e.g. on hover) so the numbers are fresh.
+ * Reads the monthly-vs-top-up credit split from the shared store. It is preloaded
+ * on app open (see AppLayout), so the popover renders instantly; `fetchBreakdown()`
+ * triggers a silent refresh (e.g. on hover) without blanking the existing data.
  */
 export function useCreditBreakdown() {
-    const [data, setData] = useState<CreditBreakdown | null>(null);
-    const [loading, setLoading] = useState(false);
-
-    const fetchBreakdown = useCallback(async () => {
-        setLoading(true);
-        try {
-            const res = await fetch('/api/billing/credit-breakdown');
-            if (res.ok) {
-                setData((await res.json()) as CreditBreakdown);
-            }
-        } catch {
-            // Soft-fail: leave any prior data in place; the popover shows a
-            // graceful empty state when data is null.
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
+    const data = useAppStore((s) => s.creditBreakdown) as CreditBreakdown | null;
+    const loading = useAppStore((s) => s.isCreditBreakdownLoading);
+    const fetchBreakdown = useAppStore((s) => s.fetchCreditBreakdown);
     return { data, loading, fetchBreakdown };
 }

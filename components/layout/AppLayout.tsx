@@ -19,13 +19,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     // ✅ GLOBAL CATALOG FETCH: Ensure models and node types are loaded for labels
-    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes } = useAppStore(
+    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown } = useAppStore(
         useShallow((state) => ({
             fetchModels: state.fetchModels,
             fetchCategories: state.fetchCategories,
             fetchNodeTypes: state.fetchNodeTypes,
             fetchProviders: state.fetchProviders,
             fetchDataTypes: state.fetchDataTypes,
+            fetchTemplates: state.fetchTemplates,
+            fetchCreditBreakdown: state.fetchCreditBreakdown,
         }))
     );
 
@@ -36,7 +38,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
         fetchNodeTypes();
         fetchProviders();
         fetchDataTypes();
-    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes]);
+        // Preload shared, app-wide data so it's ready on any page without a
+        // per-page (or hover) fetch: the templates gallery + the credits popover.
+        fetchTemplates();
+        fetchCreditBreakdown();
+    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown]);
 
     // Get workflow name from store
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);

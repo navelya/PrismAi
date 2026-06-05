@@ -178,6 +178,17 @@ export const useAppStore = create<RootState>()(
                     'menuTree',
                     'menuFlat',
                     'isMenuLoading',
+                    // Session caches — reloaded once on app open / canvas open, never
+                    // persisted (a stale snapshot could show deleted templates or
+                    // another canvas's version history).
+                    'templates',
+                    'isTemplatesLoading',
+                    'templatesLoaded',
+                    'creditBreakdown',
+                    'isCreditBreakdownLoading',
+                    'versions',
+                    'versionsLoading',
+                    'versionsCanvasId',
                     // Ephemeral typing draft for the node label — must not persist.
                     'nodeLabelDraft',
                     // Ephemeral hover signal during drag-into-group — must not persist.

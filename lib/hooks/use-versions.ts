@@ -1,39 +1,28 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useAppStore } from '@/lib/store/app-store';
-import { versionsApi, type WorkflowVersion } from '@/lib/api/client';
-import { onVersionsChanged, emitVersionsChanged } from '@/lib/versions-bus';
+import { versionsApi } from '@/lib/api/client';
+import { emitVersionsChanged } from '@/lib/versions-bus';
 
+/**
+ * Versions are preloaded into the store when the canvas opens and kept in sync
+ * via the versions bus (see WorkspaceLayout), so this hook is a thin reader —
+ * opening the History panel never refetches. Mutations emit the bus; the store
+ * refresh is handled centrally.
+ */
 export function useVersions() {
     const canvasId = useAppStore((s) => s.activeCanvasId);
     const setCurrentWorkflow = useAppStore((s) => s.setCurrentWorkflow);
     const clearHistory = useAppStore((s) => s.clearHistory);
 
-    const [versions, setVersions] = useState<WorkflowVersion[]>([]);
-    const [loading, setLoading] = useState(false);
+    const versions = useAppStore((s) => s.versions);
+    const loading = useAppStore((s) => s.versionsLoading);
+    const fetchVersions = useAppStore((s) => s.fetchVersions);
 
     const refresh = useCallback(async () => {
-        if (!canvasId) return;
-        setLoading(true);
-        try {
-            const { versions } = await versionsApi.list(canvasId);
-            setVersions(versions);
-        } catch (err) {
-            console.error('[useVersions] list failed:', err);
-        } finally {
-            setLoading(false);
-        }
-    }, [canvasId]);
-
-    // Initial load + reload when the canvas changes.
-    useEffect(() => {
-        void refresh();
-    }, [refresh]);
-
-    // Stay in sync when a version is created/restored/deleted elsewhere
-    // (e.g. the toolbar "Save checkpoint" button while this panel is open).
-    useEffect(() => onVersionsChanged(() => { void refresh(); }), [refresh]);
+        if (canvasId) await fetchVersions(canvasId, true);
+    }, [canvasId, fetchVersions]);
 
     const createCheckpoint = useCallback(async (label: string) => {
         if (!canvasId) return;

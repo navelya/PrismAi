@@ -352,6 +352,24 @@ export interface UISlice {
     fetchProviders: () => Promise<void>;
     fetchDataTypes: () => Promise<void>;
     fetchModels: () => Promise<void>;
+    // Templates catalog — loaded once on app open, shared across the /templates
+    // gallery and the in-canvas Templates modal. Refreshed (force) after an admin
+    // creates/edits/deletes a template.
+    templates: any[];
+    isTemplatesLoading: boolean;
+    templatesLoaded: boolean;
+    fetchTemplates: (force?: boolean) => Promise<void>;
+    // Credit (monthly vs top-up) breakdown — preloaded on app open so the credits
+    // popover shows instantly instead of fetching on hover. Refreshed silently.
+    creditBreakdown: { balance: number; monthly: number; topup: number } | null;
+    isCreditBreakdownLoading: boolean;
+    fetchCreditBreakdown: () => Promise<void>;
+    // Workflow versions/history — loaded once when a canvas opens and kept in sync
+    // via the versions bus, so opening the History panel never refetches.
+    versions: any[];
+    versionsLoading: boolean;
+    versionsCanvasId: string | null;
+    fetchVersions: (canvasId: string, force?: boolean) => Promise<void>;
     runFromNodeId: string | null;
     runMode: 'solo' | 'chain' | 'ab_test' | 'selection' | null;
     /** Targets for 'selection' mode — the set of nodes from the multi-select toolbar's Run button. */
