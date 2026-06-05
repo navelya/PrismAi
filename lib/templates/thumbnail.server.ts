@@ -21,7 +21,19 @@ export async function resolveThumbnailFromSession(
 
   const url = firstImageUrl(rows ?? []);
   if (!url) return null;
+  return copyImageUrlToBucket(supabase, templateId, url);
+}
 
+/**
+ * Fetch an image at `url` and copy it into the template-thumbnails bucket so it
+ * survives output GC. Returns the public URL, or null on any failure.
+ */
+export async function copyImageUrlToBucket(
+  supabase: any,
+  templateId: string,
+  url: string,
+): Promise<string | null> {
+  if (!url || !/^https?:\/\//.test(url)) return null;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;

@@ -7,6 +7,11 @@ import { adminTemplatesApi } from '@/lib/api/admin';
 import { useAppStore } from '@/lib/store/app-store';
 import { deriveNodesUsed } from '@/lib/templates/snapshot';
 import { nodeChipsFor } from '@/lib/templates/node-chips';
+import { extractMediaUrls, detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 interface Props {
   isOpen: boolean;
@@ -16,6 +21,7 @@ interface Props {
 }
 
 const CATEGORIES = ['Product Photography', 'Branding', 'Video', 'Image Editing', 'Characters', 'Other'];
+const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({ id: c, display_name: c }));
 
 export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName }: Props) {
   const currentWorkflow = useAppStore((s) => s.currentWorkflow);
@@ -35,7 +41,28 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
     () => nodeChipsFor(deriveNodesUsed(currentWorkflow as any)),
     [currentWorkflow],
   );
+
+  // Auto-thumbnail: the last image produced anywhere on the current canvas.
+  // Reliable (reads exactly what's on screen) and lets us preview it here.
+  const autoThumbUrl = useMemo(() => {
+    const nodes = (currentWorkflow as any)?.nodes ?? [];
+    let last: string | null = null;
+    for (const n of nodes) {
+      const data = n?.data ?? {};
+      const candidates = [
+        ...extractMediaUrls(data.output),
+        ...(Array.isArray(data.outputMetadata?.preview_urls) ? data.outputMetadata.preview_urls : []),
+        ...(Array.isArray(data.outputMetadata?.resultUrls) ? data.outputMetadata.resultUrls : []),
+      ];
+      for (const u of candidates) {
+        if (typeof u === 'string' && u.startsWith('http') && detectMediaTypeFromUrl(u) === 'image') last = u;
+      }
+    }
+    return last;
+  }, [currentWorkflow]);
+
   const filePreview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  const previewUrl = filePreview || autoThumbUrl;
 
   const submit = async () => {
     if (!sessionId || !name.trim()) { setError('A name is required.'); return; }
@@ -51,6 +78,7 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
       fd.set('use_cases', JSON.stringify(useCasesText.split('\n').map((t) => t.trim()).filter(Boolean)));
       fd.set('publish', String(publish));
       if (file) fd.set('thumbnail', file);
+      else if (autoThumbUrl) fd.set('thumbnail_url_hint', autoThumbUrl);
       await adminTemplatesApi.create(fd);
       setDone(true);
       setTimeout(() => { setDone(false); onClose(); }, 900);
@@ -92,43 +120,38 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
               <div className="p-5 space-y-4">
                 {/* Thumbnail */}
                 <div>
-                  <label className="block text-xs font-semibold text-content-secondary mb-1.5">Thumbnail</label>
-                  <label className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-stroke-subtle hover:border-accent-primary/50 cursor-pointer transition-colors">
-                    {filePreview
-                      ? <img src={filePreview} alt="" className="w-16 h-16 object-cover rounded-lg" />
-                      : <div className="w-16 h-16 rounded-lg bg-surface-secondary flex items-center justify-center"><ImagePlus className="w-5 h-5 text-content-tertiary" /></div>}
+                  <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 opacity-80 block mb-1.5">Thumbnail</label>
+                  <label className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-white/10 hover:border-accent-primary/50 cursor-pointer transition-colors">
+                    {previewUrl
+                      ? <img src={previewUrl} alt="" className="w-16 h-16 object-cover rounded-lg shrink-0" />
+                      : <div className="w-16 h-16 rounded-lg bg-white/5 flex items-center justify-center shrink-0"><ImagePlus className="w-5 h-5 text-content-tertiary" /></div>}
                     <span className="text-xs text-content-tertiary">
-                      {file ? file.name : 'Optional — defaults to the last generated image. Click to upload an override.'}
+                      {file
+                        ? file.name
+                        : autoThumbUrl
+                          ? 'Using the last generated image. Click to upload an override.'
+                          : 'No generated image found — click to upload a thumbnail.'}
                     </span>
                     <input type="file" accept="image/*" className="hidden"
                       onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
                   </label>
                 </div>
 
-                <Field label="Name">
-                  <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
-                </Field>
-                <Field label="Category">
-                  <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
-                    {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </Field>
-                <Field label="Description">
-                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={inputCls} />
-                </Field>
-                <Field label="How it works">
-                  <textarea value={howItWorks} onChange={(e) => setHowItWorks(e.target.value)} rows={3} className={inputCls} />
-                </Field>
-                <Field label="Tags (comma-separated)">
-                  <input value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="ecommerce, lighting" className={inputCls} />
-                </Field>
-                <Field label="Use cases (one per line)">
-                  <textarea value={useCasesText} onChange={(e) => setUseCasesText(e.target.value)} rows={3} className={inputCls} />
-                </Field>
+                <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+                <Select
+                  label="Category"
+                  options={CATEGORY_OPTIONS}
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                />
+                <Textarea label="Description" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+                <Textarea label="How it works" rows={3} value={howItWorks} onChange={(e) => setHowItWorks(e.target.value)} />
+                <Input label="Tags (comma-separated)" placeholder="ecommerce, lighting" value={tagsText} onChange={(e) => setTagsText(e.target.value)} />
+                <Textarea label="Use cases (one per line)" rows={3} value={useCasesText} onChange={(e) => setUseCasesText(e.target.value)} />
 
                 {/* Nodes used (read-only) */}
                 <div>
-                  <label className="block text-xs font-semibold text-content-secondary mb-1.5">Nodes used</label>
+                  <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 opacity-80 block mb-1.5">Nodes used</label>
                   <div className="flex flex-wrap gap-1.5">
                     {chips.length === 0
                       ? <span className="text-xs text-content-tertiary">No nodes detected</span>
@@ -140,10 +163,7 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-xs text-content-secondary">
-                  <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
-                  Publish immediately
-                </label>
+                <Checkbox label="Publish immediately" checked={publish} onCheckedChange={setPublish} />
 
                 {error && <p className="text-xs text-accent-error">{error}</p>}
               </div>
@@ -162,16 +182,5 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
         </>
       )}
     </AnimatePresence>
-  );
-}
-
-const inputCls = 'w-full bg-surface-primary border border-stroke-subtle rounded-lg px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-accent-primary/50 transition-colors';
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-content-secondary mb-1.5">{label}</label>
-      {children}
-    </div>
   );
 }

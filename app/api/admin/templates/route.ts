@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
 import { sanitizeTemplateWorkflow, deriveNodesUsed } from '@/lib/templates/snapshot';
-import { resolveThumbnailFromSession, uploadTemplateThumbnail } from '@/lib/templates/thumbnail.server';
+import { resolveThumbnailFromSession, uploadTemplateThumbnail, copyImageUrlToBucket } from '@/lib/templates/thumbnail.server';
 import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = 'force-dynamic';
@@ -64,11 +64,14 @@ export async function POST(req: NextRequest) {
   const publish = (form.get('publish') as string) !== 'false';
   const id = uuidv4();
 
-  // Thumbnail: uploaded file wins; else copy last image output; else null (UI requires upload).
+  // Thumbnail: uploaded file wins; else the client-provided last-canvas-image hint;
+  // else a server-side lookup of the session's last image output; else null.
   const file = form.get('thumbnail') as File | null;
+  const hint = (form.get('thumbnail_url_hint') as string | null) || null;
   let thumbnailUrl: string | null = null;
   if (file && file.size > 0) thumbnailUrl = await uploadTemplateThumbnail(supabase, id, file);
-  else thumbnailUrl = await resolveThumbnailFromSession(supabase, id, sessionId);
+  else if (hint) thumbnailUrl = await copyImageUrlToBucket(supabase, id, hint);
+  if (!thumbnailUrl) thumbnailUrl = await resolveThumbnailFromSession(supabase, id, sessionId);
 
   const { data, error } = await supabase
     .from('workflow_templates')
