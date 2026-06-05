@@ -12,7 +12,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const { data, error } = await supabase
     .from('workflow_templates')
-    .select('id,name,description,how_it_works,thumbnail_url,category,tags,use_cases,nodes_used,source,created_by_name,usage_count,created_at')
+    .select('id,name,description,how_it_works,thumbnail_url,category,tags,use_cases,nodes_used,source,created_by_name,usage_count,created_at,workflow')
     .eq('id', params.id)
     .eq('status', 'published')
     .single();
