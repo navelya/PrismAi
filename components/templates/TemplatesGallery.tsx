@@ -74,7 +74,7 @@ export function TemplatesGallery() {
                 const active = category === c.name;
                 return (
                   <button key={c.name} onClick={() => setCategory(active ? null : c.name)}
-                    className={`group relative shrink-0 w-44 h-28 rounded-2xl overflow-hidden border transition-all ${active ? 'border-accent-primary ring-2 ring-accent-primary/30' : 'border-stroke-subtle/70 hover:border-accent-primary/40'}`}>
+                    className={`group relative shrink-0 w-44 h-28 rounded-lg overflow-hidden border transition-all ${active ? 'border-accent-primary ring-2 ring-accent-primary/30' : 'border-stroke-subtle/70 hover:border-accent-primary/40'}`}>
                     {c.thumb
                       ? <img src={c.thumb} alt={c.name} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       : <div className="absolute inset-0 bg-surface-tertiary" />}
@@ -94,7 +94,7 @@ export function TemplatesGallery() {
               <h2 className="text-lg font-bold text-content-primary">Browse templates</h2>
               {category && (
                 <button onClick={() => setCategory(null)}
-                  className="flex items-center gap-1 text-xs font-medium text-content-secondary bg-surface-secondary border border-stroke-subtle/60 rounded-full pl-2.5 pr-2 py-1 hover:text-content-primary transition-colors">
+                  className="flex items-center gap-1 text-xs font-medium text-content-secondary bg-surface-secondary border border-stroke-subtle/60 rounded-lg pl-2.5 pr-2 py-1 hover:text-content-primary transition-colors">
                   {category} <X className="w-3 h-3" />
                 </button>
               )}
@@ -103,7 +103,7 @@ export function TemplatesGallery() {
             <div className="flex items-center gap-2.5">
               {/* Templates / Popular / New segmented control (sliding pill) */}
               <div role="tablist" aria-orientation="horizontal"
-                className="inline-flex items-center gap-1 p-1 rounded-xl bg-surface-secondary border border-stroke-subtle/60">
+                className="inline-flex items-center gap-1 p-1 rounded-lg bg-surface-secondary border border-stroke-subtle/60">
                 {TABS.map(({ key, label, Icon }) => {
                   const active = tab === key;
                   return (
@@ -126,7 +126,7 @@ export function TemplatesGallery() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-content-tertiary pointer-events-none" />
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
-                  className="w-44 sm:w-52 h-9 bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 text-sm text-content-primary placeholder:text-content-tertiary/40 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all" />
+                  className="w-44 sm:w-52 h-9 bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 text-sm text-content-primary placeholder:text-content-tertiary/40 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all" />
               </div>
             </div>
           </div>
