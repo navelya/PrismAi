@@ -81,13 +81,13 @@ export default function AssetsPage() {
                     <>
                         <div className="flex items-center gap-3">
                             <div className="relative group flex-1">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-tertiary group-focus-within:text-accent-primary transition-colors" />
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-tertiary" />
                                 <input
                                     type="text"
                                     placeholder="Search characters..."
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
-                                    className="w-full pl-12 pr-4 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all"
+                                    className="w-full pl-12 pr-4 py-3 bg-surface-tertiary border border-stroke-subtle rounded-xl text-content-primary placeholder:text-content-tertiary outline-none focus:outline-none"
                                 />
                             </div>
                             <button
