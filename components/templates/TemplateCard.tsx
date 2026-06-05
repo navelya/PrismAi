@@ -27,12 +27,12 @@ export function TemplateCard({ tpl, onOpen }: { tpl: TemplateListItem; onOpen: (
       {(popular || isNew) && (
         <div className="absolute -top-2.5 left-4 z-20 flex items-center gap-1.5">
           {popular && (
-            <span className="text-[10px] font-bold tracking-wide px-2.5 py-1 rounded-lg bg-accent-primary text-white shadow-sm">
+            <span className="shrink-0 whitespace-nowrap text-[10px] font-bold tracking-wide px-2.5 py-1 rounded-lg bg-accent-primary text-white shadow-sm">
               Popular
             </span>
           )}
           {isNew && (
-            <span className="text-[10px] font-bold tracking-wide px-2.5 py-1 rounded-lg bg-accent-secondary text-white shadow-sm">
+            <span className="shrink-0 whitespace-nowrap text-[10px] font-bold tracking-wide px-2.5 py-1 rounded-lg bg-accent-secondary text-white shadow-sm">
               New
             </span>
           )}
