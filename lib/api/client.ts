@@ -408,3 +408,18 @@ export async function generateCharacterVariantStream(
     await consumeCharacterStream(res, handlers);
 }
 
+// ─── Templates APIs ────────────────────────────────────────────────────
+export const templatesApi = {
+  list: (qs?: { category?: string; tag?: string; q?: string }) => {
+    const p = new URLSearchParams();
+    if (qs?.category) p.set('category', qs.category);
+    if (qs?.tag) p.set('tag', qs.tag);
+    if (qs?.q) p.set('q', qs.q);
+    const s = p.toString();
+    return apiFetch<{ templates: any[] }>(`/api/templates${s ? `?${s}` : ''}`);
+  },
+  get: (id: string) => apiFetch<{ template: any }>(`/api/templates/${id}`),
+  use: (id: string) =>
+    apiFetch<{ session_id: string }>(`/api/templates/${id}/use`, { method: 'POST' }),
+};
+

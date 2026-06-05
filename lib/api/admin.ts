@@ -234,3 +234,30 @@ export const modelsAdminApi = {
         return data.success;
     }
 };
+
+export const adminTemplatesApi = {
+  list: async () => {
+    const res = await fetch('/api/admin/templates');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load templates');
+    return data.templates as any[];
+  },
+  create: async (formData: FormData) => {
+    const res = await fetch('/api/admin/templates', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to create template');
+    return data.template;
+  },
+  update: async (id: string, formData: FormData) => {
+    const res = await fetch(`/api/admin/templates/${id}`, { method: 'PATCH', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to update template');
+    return data.template;
+  },
+  remove: async (id: string) => {
+    const res = await fetch(`/api/admin/templates/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to delete template');
+    return data;
+  },
+};
