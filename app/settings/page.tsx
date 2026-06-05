@@ -775,7 +775,6 @@ function SettingsContent() {
     const activeTab: TabId = tabParam && validTabs.includes(tabParam) ? tabParam : 'profile';
 
     const [mobileShowContent, setMobileShowContent] = useState(false);
-    const [sidebarHovered, setSidebarHovered] = useState(false);
     const [user, setUser] = useState<any>(null);
 
     const fetchUser = async () => {
@@ -835,22 +834,19 @@ function SettingsContent() {
 
     return (
         <div className="w-full h-full flex bg-surface-primary mesh-gradient overflow-hidden relative">
-            {/* Spacer reserves the collapsed-rail width on desktop so main content doesn't shift on hover */}
-            <div className="hidden md:block md:w-14 md:shrink-0" aria-hidden="true" />
+            {/* Spacer reserves the static rail width on desktop so main content doesn't shift */}
+            <div className="hidden md:block md:w-52 md:shrink-0" aria-hidden="true" />
 
             {/* Sidebar Navigation — full width on mobile, hover-expanding overlay rail on desktop */}
             <aside
-                onMouseEnter={() => setSidebarHovered(true)}
-                onMouseLeave={() => setSidebarHovered(false)}
                 className={`
                     md:absolute md:left-0 md:top-0 md:bottom-0 md:z-30
                     md:border-r md:border-stroke-subtle/60 bg-surface-primary/70 backdrop-blur-3xl md:overflow-hidden md:block shadow-xl
-                    transition-[width] duration-150 ease-out
-                    ${sidebarHovered ? 'md:w-60' : 'md:w-14'}
+                    md:w-52
                     ${mobileShowContent ? 'hidden' : 'w-full bg-surface-primary overflow-y-auto z-20'}
                 `}
             >
-                <div className={`md:h-full md:flex md:flex-col ${sidebarHovered ? 'md:overflow-y-auto' : 'md:overflow-hidden'}`}>
+                <div className="md:h-full md:flex md:flex-col md:overflow-y-auto">
                     <div className="py-3 px-4 md:py-3 md:px-2">
                         <nav className="space-y-0.5">
                             {navSections.flatMap((section) => section.items).map((item) => (
@@ -859,7 +855,7 @@ function SettingsContent() {
                                     onClick={() => handleTabSelect(item.id)}
                                     title={item.label}
                                     className={`
-                                        w-full flex items-center gap-2.5 py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-colors duration-150
+                                        w-full flex items-center gap-2.5 py-2 px-2 rounded-lg text-[13px] font-semibold transition-colors duration-150
                                         ${activeTab === item.id
                                             ? 'bg-white/8 text-content-primary'
                                             : 'text-content-tertiary hover:bg-white/5 hover:text-content-secondary'
@@ -869,23 +865,16 @@ function SettingsContent() {
                                     <span className={`w-5 h-5 flex items-center justify-center shrink-0 transition-colors ${activeTab === item.id ? 'text-accent-primary' : ''}`}>
                                         {item.icon}
                                     </span>
-                                    <span className={`
-                                        flex-1 text-left truncate whitespace-nowrap transition-opacity duration-100
-                                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
-                                    `}>
+                                    <span className="flex-1 text-left truncate whitespace-nowrap">
                                         {item.label}
                                     </span>
                                     {item.comingSoon && (
-                                        <span className={`
-                                            px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider bg-white/5 text-content-tertiary rounded-md shrink-0 border border-white/10 transition-opacity duration-100
-                                            ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
-                                        `}>
+                                        <span className="px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider bg-white/5 text-content-tertiary rounded-md shrink-0 border border-white/10">
                                             Soon
                                         </span>
                                     )}
                                     <ChevronRight className={`
                                         w-3 h-3 shrink-0 transition-opacity duration-100
-                                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0'}
                                         ${activeTab === item.id ? 'opacity-100 text-accent-primary' : 'opacity-0'}
                                     `} />
                                 </button>
@@ -894,11 +883,7 @@ function SettingsContent() {
                     </div>
 
                     {/* Footer */}
-                    <div className={`
-                        px-3 py-2 border-t border-stroke-subtle/60 mt-auto
-                        transition-opacity duration-100
-                        ${sidebarHovered ? 'md:opacity-100' : 'md:opacity-0 md:pointer-events-none'}
-                    `}>
+                    <div className="px-3 py-2 border-t border-stroke-subtle/60 mt-auto">
                         <div className="flex items-center gap-1.5 opacity-50">
                             <div className="w-1 h-1 rounded-full bg-green-500" />
                             <p className="text-[9px] font-bold text-content-tertiary uppercase tracking-widest">
