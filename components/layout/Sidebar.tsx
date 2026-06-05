@@ -596,7 +596,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             style={{ transformOrigin: 'bottom left' }}
                                             // Flyout pinned to the rail's right edge, rising from
                                             // the profile row — opens beside the avatar, not above it.
-                                            className="absolute bottom-0 left-full ml-2 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]"
+                                            className="absolute bottom-0 left-full ml-3 z-[100] bg-surface-primary border border-stroke-subtle shadow-2xl rounded-xl p-1.5 min-w-[200px]"
                                         >
                                             <Link
                                                 href="/settings"
