@@ -3,7 +3,7 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, LayoutTemplate, Boxes, Settings, Menu, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown } from 'lucide-react';
+import { MessageSquare, Pen, LayoutTemplate, Boxes, Settings, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown, PanelLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
@@ -36,7 +36,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: SidebarProps) {
-    const [isExpanded, setIsExpanded] = React.useState(false);
+    const isExpanded = useAppStore((s) => s.sidebarExpanded);
+    const setSidebarExpanded = useAppStore((s) => s.setSidebarExpanded);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
     // Open/closed state for the floating (canvas) app-menu panel. Kept separate
     // from `isExpanded` (which is the docked bar's persistent width preference)
@@ -389,18 +390,43 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                 className={`
                     flex flex-col bg-surface-primary border-r border-stroke-subtle h-full
                     transition-all duration-300 ease-in-out
-                    ${isExpanded ? 'w-60' : 'w-16'}
+                    ${isExpanded ? 'w-60' : 'w-14'}
                 `}
             >
-                {/* Burger Menu */}
-                <div className="h-14 flex items-center px-3">
-                    <button
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        className="p-2 rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
-                        aria-label="Toggle menu"
-                    >
-                        <Menu className="w-5 h-5" />
-                    </button>
+                {/* Header: logo + collapse toggle */}
+                <div className="h-12 flex items-center px-2.5">
+                    {!isExpanded ? (
+                        // Collapsed: logo mark that crossfades to a PanelLeft toggle
+                        // on hover (stacked, same slot → no layout shift). Click expands.
+                        <button
+                            onClick={() => setSidebarExpanded(true)}
+                            className="group relative w-9 h-9 mx-auto flex items-center justify-center rounded-lg hover:bg-interactive-hover transition-colors"
+                            aria-label="Expand sidebar"
+                            title="Expand"
+                        >
+                            <Logo
+                                variant="mark"
+                                className="absolute w-5 h-5 transition-opacity duration-200 group-hover:opacity-0"
+                            />
+                            <PanelLeft className="absolute w-5 h-5 text-content-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+                        </button>
+                    ) : (
+                        // Expanded: wordmark left, collapse toggle pinned right.
+                        <div className="flex items-center w-full gap-2">
+                            <Logo
+                                variant="wordmark"
+                                className="h-5 w-auto text-content-primary flex-shrink-0"
+                            />
+                            <button
+                                onClick={() => setSidebarExpanded(false)}
+                                className="flex-shrink-0 w-9 h-9 ml-auto flex items-center justify-center rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
+                                aria-label="Collapse sidebar"
+                                title="Collapse"
+                            >
+                                <PanelLeft className="w-5 h-5" />
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Navigation Section */}
