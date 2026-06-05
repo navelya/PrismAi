@@ -729,7 +729,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                     aria-expanded={menuOpen}
                     title="Menu & sessions"
                 >
-                    <Logo variant="mark" className="w-4 h-4 flex-shrink-0" />
+                    <Logo variant="mark" className="w-5 h-5 flex-shrink-0" />
                     <ChevronDown
                         className={`w-3.5 h-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${menuOpen ? 'rotate-180' : ''}`}
                     />

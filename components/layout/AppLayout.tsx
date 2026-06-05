@@ -20,7 +20,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     // ✅ GLOBAL CATALOG FETCH: Ensure models and node types are loaded for labels
-    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown, fetchUserName } = useAppStore(
+    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown, fetchUserName, fetchCurrentUser } = useAppStore(
         useShallow((state) => ({
             fetchModels: state.fetchModels,
             fetchCategories: state.fetchCategories,
@@ -30,6 +30,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             fetchTemplates: state.fetchTemplates,
             fetchCreditBreakdown: state.fetchCreditBreakdown,
             fetchUserName: state.fetchUserName,
+            fetchCurrentUser: state.fetchCurrentUser,
         }))
     );
 
@@ -46,7 +47,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
         fetchTemplates();
         fetchCreditBreakdown();
         fetchUserName();
-    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown, fetchUserName]);
+        // Preload the full user so the account modal opens instantly from the store.
+        fetchCurrentUser();
+    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown, fetchUserName, fetchCurrentUser]);
 
     // Get workflow name from store
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);

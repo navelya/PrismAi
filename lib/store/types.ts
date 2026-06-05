@@ -402,6 +402,13 @@ export interface UISlice {
     // userApi.me() per mount. null until the first load resolves.
     userName: string | null;
     fetchUserName: () => Promise<void>;
+    // The full signed-in user (auth metadata + profile row), preloaded once on
+    // app open and shared via the store so the account modal renders instantly
+    // instead of refetching userApi.me() on every open. Refreshed in place after
+    // profile edits (force) or lazily if it was never loaded.
+    currentUser: any | null;
+    setCurrentUser: (user: any | null) => void;
+    fetchCurrentUser: (force?: boolean) => Promise<void>;
     // Workflow versions/history — loaded once when a canvas opens and kept in sync
     // via the versions bus, so opening the History panel never refetches.
     versions: any[];

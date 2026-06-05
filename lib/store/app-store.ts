@@ -134,6 +134,11 @@ export const useAppStore = create<RootState>()(
                     // reload must never reopen it, so neither field is persisted.
                     'accountModalOpen',
                     'accountModalTab',
+                    // Full user object — refetched fresh on each app load (then read
+                    // instantly from the store on modal open). Never persist account
+                    // data (email/metadata) to localStorage, and never serve a stale
+                    // snapshot across sessions.
+                    'currentUser',
                     // Mobile read-only canvas view toggle — transient UI, never persist.
                     'isMobileCanvasOpen',
                     // Canvas mode is the default starting position for every

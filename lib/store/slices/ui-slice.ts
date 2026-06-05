@@ -35,6 +35,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     accountModalOpen: false,
     accountModalTab: 'profile',
     userName: null,
+    currentUser: null,
     versions: [],
     versionsLoading: false,
     versionsCanvasId: null,
@@ -145,44 +146,50 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         }
     },
 
+    // Catalog fetchers below are stale-while-revalidate, NOT early-return.
+    // These lists are persisted to localStorage (see app-store persist), which
+    // survives a hard refresh (only the HTTP cache is cleared). A `length > 0`
+    // early-return therefore pinned clients to the localStorage snapshot
+    // forever: a newly added provider/category/node-type/data-type never
+    // surfaced — the add-node panel browses models *through* their provider
+    // row, so a model on a brand-new (and thus missing) provider was also
+    // unreachable. Always refetch and overwrite once fresh data lands; keep the
+    // cached list until then so a warm panel never flashes empty. This mirrors
+    // the same fix already applied to fetchModelCatalog/fetchModels above.
     fetchCategories: async () => {
-        if (get().categories.length > 0) return;
         try {
             const { modelsAdminApi } = await import('@/lib/api/admin');
             const data = await modelsAdminApi.listCategories();
-            set({ categories: data || [] });
+            if (data) set({ categories: data });
         } catch (error) {
             console.error('Failed to fetch categories:', error);
         }
     },
 
     fetchNodeTypes: async () => {
-        if (get().nodeTypes.length > 0) return;
         try {
             const { modelsAdminApi } = await import('@/lib/api/admin');
             const data = await modelsAdminApi.listNodeTypes();
-            set({ nodeTypes: data || [] });
+            if (data) set({ nodeTypes: data });
         } catch (error) {
             console.error('Failed to fetch node types:', error);
         }
     },
 
     fetchProviders: async () => {
-        if (get().providers.length > 0) return;
         try {
             const { modelsAdminApi } = await import('@/lib/api/admin');
             const data = await modelsAdminApi.listProviders();
-            set({ providers: data || [] });
+            if (data) set({ providers: data });
         } catch (error) {
             console.error('Failed to fetch providers:', error);
         }
     },
     fetchDataTypes: async () => {
-        if (get().dataTypes.length > 0) return;
         try {
             const { modelsAdminApi } = await import('@/lib/api/admin');
             const data = await modelsAdminApi.listDataTypes();
-            set({ dataTypes: data || [] });
+            if (data) set({ dataTypes: data });
         } catch (error) {
             console.error('Failed to fetch data types:', error);
         }
@@ -260,6 +267,32 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
             if (name) set({ userName: name });
         } catch {
             // Soft-fail: welcome falls back to the generic greeting.
+        }
+    },
+
+    // Full user object — keep `userName` in sync from the same source so the two
+    // never diverge.
+    setCurrentUser: (user) =>
+        set({
+            currentUser: user,
+            userName:
+                user?.user_metadata?.display_name ||
+                user?.user_metadata?.full_name ||
+                get().userName,
+        }),
+
+    // Preloaded once on app open (shares the cached `me()` call with fetchUserName).
+    // Skips the network when we already have the user unless `force` is passed —
+    // the account modal forces a refresh after profile edits so the store stays
+    // current, but a plain open just reads what's already here (no reload).
+    fetchCurrentUser: async (force = false) => {
+        if (!force && get().currentUser) return;
+        try {
+            const { userApi } = await import('@/lib/api/client');
+            const { user } = await userApi.me();
+            if (user) get().setCurrentUser(user);
+        } catch {
+            // Soft-fail: the modal shows whatever it last had.
         }
     },
 

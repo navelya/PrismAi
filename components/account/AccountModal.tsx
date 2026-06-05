@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import * as RadixDialog from '@radix-ui/react-dialog';
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import {
@@ -13,7 +13,6 @@ import {
     Users,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
-import { userApi } from '@/lib/api/client';
 import { Logo } from '@/components/ui/Logo';
 import type { AccountTab } from '@/lib/store/types';
 import { ProfileTab } from './ProfileTab';
@@ -60,26 +59,22 @@ export default function AccountModal() {
     const activeTab = useAppStore((s) => s.accountModalTab);
     const setTab = useAppStore((s) => s.openAccountModal);
     const close = useAppStore((s) => s.closeAccountModal);
+    // The user is preloaded into the store on app open, so the modal renders
+    // instantly from it — no fetch-on-open. We only refresh on demand.
+    const user = useAppStore((s) => s.currentUser);
+    const fetchCurrentUser = useAppStore((s) => s.fetchCurrentUser);
 
-    const [user, setUser] = useState<any>(null);
+    // Force a store refresh after profile edits (avatar/name/preferences).
+    const refreshUser = useCallback(() => fetchCurrentUser(true), [fetchCurrentUser]);
 
-    const fetchUser = useCallback(async () => {
-        try {
-            const { user: u } = await userApi.me();
-            if (u) setUser(u);
-        } catch {
-            // Not authenticated — leave the modal's loading state up.
-        }
-    }, []);
-
-    // Lazy-load the user only once the modal is actually opened, and keep it in
-    // sync with avatar/name edits made elsewhere.
+    // No reload on every open: only fetch if it was never preloaded, and keep
+    // the store in sync with edits made elsewhere (e.g. the sidebar).
     useEffect(() => {
         if (!open) return;
-        if (!user) fetchUser();
-        window.addEventListener('profile-updated', fetchUser);
-        return () => window.removeEventListener('profile-updated', fetchUser);
-    }, [open, user, fetchUser]);
+        if (!user) fetchCurrentUser();
+        window.addEventListener('profile-updated', refreshUser);
+        return () => window.removeEventListener('profile-updated', refreshUser);
+    }, [open, user, fetchCurrentUser, refreshUser]);
 
     const activeItem = ALL_ITEMS.find((i) => i.id === activeTab) ?? ALL_ITEMS[0];
 
@@ -93,9 +88,9 @@ export default function AccountModal() {
         }
         switch (activeTab) {
             case 'profile':
-                return <ProfileTab user={user} onProfileUpdated={fetchUser} />;
+                return <ProfileTab user={user} onProfileUpdated={refreshUser} />;
             case 'preferences':
-                return <PreferencesTab user={user} onProfileUpdated={fetchUser} />;
+                return <PreferencesTab user={user} onProfileUpdated={refreshUser} />;
             case 'plan-pricing':
                 return <PlanPricingTab />;
             case 'credits-billing':
