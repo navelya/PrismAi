@@ -19,7 +19,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     // ✅ GLOBAL CATALOG FETCH: Ensure models and node types are loaded for labels
-    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown } = useAppStore(
+    const { fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown, fetchUserName } = useAppStore(
         useShallow((state) => ({
             fetchModels: state.fetchModels,
             fetchCategories: state.fetchCategories,
@@ -28,6 +28,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
             fetchDataTypes: state.fetchDataTypes,
             fetchTemplates: state.fetchTemplates,
             fetchCreditBreakdown: state.fetchCreditBreakdown,
+            fetchUserName: state.fetchUserName,
         }))
     );
 
@@ -39,10 +40,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
         fetchProviders();
         fetchDataTypes();
         // Preload shared, app-wide data so it's ready on any page without a
-        // per-page (or hover) fetch: the templates gallery + the credits popover.
+        // per-page (or hover) fetch: the templates gallery + the credits popover
+        // + the display name used by the chat welcome.
         fetchTemplates();
         fetchCreditBreakdown();
-    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown]);
+        fetchUserName();
+    }, [fetchModels, fetchCategories, fetchNodeTypes, fetchProviders, fetchDataTypes, fetchTemplates, fetchCreditBreakdown, fetchUserName]);
 
     // Get workflow name from store
     const currentWorkflow = useAppStore((state) => state.currentWorkflow);

@@ -23,7 +23,7 @@ import { useChatMessages } from '@/lib/hooks/use-chat-messages';
 import { useStableCallback } from '@/lib/hooks/use-stable-callback';
 import { useSession } from '@/lib/hooks/use-session';
 import { useChatRealtime } from '@/lib/hooks/use-chat-realtime';
-import { sessionsApi, uploadApi, userApi } from '@/lib/api/client';
+import { sessionsApi, uploadApi } from '@/lib/api/client';
 import { convertImageToWebP } from '@/lib/utils/image-processing';
 
 interface Message {
@@ -411,22 +411,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         onMentionedCharactersChange: setMentionedCharacters,
     };
 
-    const [userName, setUserName] = useState<string>(initialUserName || '');
-
-    useEffect(() => {
-        const getUserName = async () => {
-            try {
-                const { user } = await userApi.me();
-                const name = user?.user_metadata?.display_name || user?.user_metadata?.full_name;
-                if (name) {
-                    setUserName(name);
-                }
-            } catch {
-            }
-        };
-
-        getUserName();
-    }, []);
+    // Display name is preloaded into the store once on app open (AppLayout), so the
+    // welcome message reads it from there instead of re-fetching on every mount.
+    const storeUserName = useAppStore((s) => s.userName);
+    const userName = storeUserName || initialUserName || '';
 
     if (isEmptyState) {
         return (
