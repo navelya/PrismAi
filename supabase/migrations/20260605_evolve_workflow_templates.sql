@@ -29,6 +29,13 @@ BEGIN
   END IF;
 END $$;
 
+-- 2b. DROP LEGACY POLICIES FIRST — the old read policy references template_type
+--     and is_public, so it must be removed before those columns can be dropped.
+DROP POLICY IF EXISTS "Users can read their own and public templates" ON public.workflow_templates;
+DROP POLICY IF EXISTS "Users can create their own templates"          ON public.workflow_templates;
+DROP POLICY IF EXISTS "Users can update their own templates"          ON public.workflow_templates;
+DROP POLICY IF EXISTS "Users can delete their own templates"          ON public.workflow_templates;
+
 -- 3. source column (replaces template_type)
 ALTER TABLE public.workflow_templates
   ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'official';
