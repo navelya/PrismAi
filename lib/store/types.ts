@@ -365,6 +365,7 @@ export interface UISlice {
     templateWorkflows: Record<string, { nodes: any[]; edges: any[] }>;
     templateWorkflowLoading: Record<string, boolean>;
     fetchTemplateWorkflow: (id: string) => Promise<void>;
+    invalidateTemplateWorkflow: (id: string) => void;
     // Credit (monthly vs top-up) breakdown — preloaded on app open so the credits
     // popover shows instantly instead of fetching on hover. Refreshed silently.
     creditBreakdown: { balance: number; monthly: number; topup: number } | null;

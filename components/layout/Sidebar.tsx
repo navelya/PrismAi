@@ -138,6 +138,8 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                         { event: 'INSERT', schema: 'public', table: 'sessions', filter: `user_id=eq.${user.id}` },
                         (payload: any) => {
                             const newSession = payload.new;
+                            // Hidden admin template-edit sessions never appear in the list.
+                            if (newSession.template_edit_id) return;
                             setSessions(prev => {
                                 // Don't add duplicates (optimistic UI may have already added it)
                                 if (prev.some(s => s.id === newSession.id)) return prev;

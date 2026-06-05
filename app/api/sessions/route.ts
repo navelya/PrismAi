@@ -11,12 +11,14 @@ export async function GET() {
     if (auth.error) return auth.error;
     const { user, supabase } = auth;
 
-    // Owned canvases (exclude companion threads: canvas_session_id IS NOT NULL).
+    // Owned canvases (exclude companion threads: canvas_session_id IS NOT NULL,
+    // and hidden admin template-edit sessions: template_edit_id IS NOT NULL).
     const ownedQ = supabase
         .from('sessions')
         .select('id, title, updated_at, user_id')
         .eq('user_id', user.id)
         .is('canvas_session_id', null)
+        .is('template_edit_id', null)
         .eq('is_deleted', false);
 
     // Canvases shared with me.

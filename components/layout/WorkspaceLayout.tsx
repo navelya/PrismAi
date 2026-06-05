@@ -17,6 +17,7 @@ import { TemplatesModal } from '@/components/editor/TemplatesModal';
 import NodeLibraryPanel from '@/components/editor/NodeLibraryPanel';
 import { onVersionsChanged } from '@/lib/versions-bus';
 import { prepareTemplateForCanvas } from '@/lib/templates/merge-into-canvas';
+import { TemplateEditBar } from '@/components/editor/TemplateEditBar';
 
 interface WorkspaceLayoutProps {
     chatPanel: React.ReactNode;
@@ -229,6 +230,9 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     // ── Desktop ───────────────────────────────────────────────────────────────
     return (
         <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-surface-primary">
+
+            {/* Admin template-edit bar (only renders for ?editTemplate=<id>). */}
+            <TemplateEditBar />
 
             {/* ── LAYER 1 · Canvas ──────────────────────────────────────────── */}
             <motion.div

@@ -242,6 +242,19 @@ export const adminTemplatesApi = {
     if (!res.ok) throw new Error(data.error || 'Failed to load templates');
     return data.templates as any[];
   },
+  get: async (id: string) => {
+    const res = await fetch(`/api/admin/templates/${id}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load template');
+    return data.template as any;
+  },
+  /** Open (find-or-create) the admin's reusable Studio edit session for a template. */
+  editSession: async (id: string) => {
+    const res = await fetch(`/api/admin/templates/${id}/edit-session`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to open edit session');
+    return data.session_id as string;
+  },
   create: async (formData: FormData) => {
     const res = await fetch('/api/admin/templates', { method: 'POST', body: formData });
     const data = await res.json();

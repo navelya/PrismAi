@@ -218,6 +218,14 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         }
     },
 
+    // Drop a cached template graph so the next detail-open refetches it (used
+    // after an admin edits a template's workflow).
+    invalidateTemplateWorkflow: (id: string) => set((s) => {
+        const next = { ...s.templateWorkflows };
+        delete next[id];
+        return { templateWorkflows: next };
+    }),
+
     // Credit breakdown: preloaded on app open; show the loader only on a cold
     // fetch so a silent refresh (e.g. hover) never blanks the popover.
     fetchCreditBreakdown: async () => {

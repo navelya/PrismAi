@@ -1,12 +1,14 @@
 // components/admin/TemplatesAdminContent.tsx
 'use client';
 import React, { useEffect, useState } from 'react';
-import { Loader2, Trash2, Eye, EyeOff, Archive, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Loader2, Trash2, Eye, EyeOff, Archive, ArrowLeft, Pencil } from 'lucide-react';
 import { adminTemplatesApi } from '@/lib/api/admin';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { useAppStore } from '@/lib/store/app-store';
 
 export function TemplatesAdminContent({ onMobileBack }: { onMobileBack?: () => void }) {
+  const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -29,6 +31,12 @@ export function TemplatesAdminContent({ onMobileBack }: { onMobileBack?: () => v
   const remove = async (id: string) => {
     setBusyId(id);
     try { await adminTemplatesApi.remove(id); setConfirmId(null); load(); refreshPublic(true); } finally { setBusyId(null); }
+  };
+  // Open the template on a real Studio canvas (metadata + graph edit) — see TemplateEditBar.
+  const edit = async (id: string) => {
+    setBusyId(id);
+    try { const sid = await adminTemplatesApi.editSession(id); router.push(`/chat/${sid}?editTemplate=${id}`); }
+    catch { setBusyId(null); }
   };
 
   return (
@@ -59,6 +67,7 @@ export function TemplatesAdminContent({ onMobileBack }: { onMobileBack?: () => v
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                <IconBtn title="Edit" busy={busyId === t.id} onClick={() => edit(t.id)}><Pencil className="w-4 h-4" /></IconBtn>
                 {t.status !== 'published' && (
                   <IconBtn title="Publish" busy={busyId === t.id} onClick={() => setStatus(t.id, 'published')}><Eye className="w-4 h-4" /></IconBtn>
                 )}

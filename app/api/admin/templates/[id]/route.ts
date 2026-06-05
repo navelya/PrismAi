@@ -2,12 +2,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
 import { uploadTemplateThumbnail } from '@/lib/templates/thumbnail.server';
+import { deriveNodesUsed } from '@/lib/templates/snapshot';
 
 export const dynamic = 'force-dynamic';
 
+/** GET /api/admin/templates/[id] — full row (any status) for the edit form prefill. */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireAdmin();
+  if (auth.error) return auth.error;
+  const { data, error } = await auth.supabase
+    .from('workflow_templates').select('*').eq('id', params.id).single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  return NextResponse.json({ template: data });
+}
+
 /**
- * PATCH /api/admin/templates/[id] — update metadata/status/source/thumbnail.
- * Accepts FormData (so a new thumbnail File can ride along). Recipe (workflow) is NOT editable here.
+ * PATCH /api/admin/templates/[id] — update metadata/status/source/thumbnail and,
+ * optionally, the workflow graph itself (sent as a `workflow` JSON field by the
+ * admin edit-on-canvas flow). When the workflow changes, nodes_used is re-derived.
+ * Accepts FormData (so a new thumbnail File can ride along).
  */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requireAdmin();
@@ -31,6 +44,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   const source = form.get('source') as string | null;
   if (source && ['official','community'].includes(source)) patch.source = source;
+
+  // Optional workflow graph update (admin edit-on-canvas). Keep outputs as-is so
+  // the gallery preview stays faithful; re-derive the nodes_used chip list.
+  const wfRaw = form.get('workflow');
+  if (typeof wfRaw === 'string' && wfRaw) {
+    try {
+      const wf = JSON.parse(wfRaw);
+      if (wf && Array.isArray(wf.nodes)) {
+        const workflow = { nodes: wf.nodes, edges: Array.isArray(wf.edges) ? wf.edges : [] };
+        patch.workflow = workflow;
+        patch.nodes_used = deriveNodesUsed(workflow);
+      }
+    } catch { /* ignore malformed workflow; leave the stored graph untouched */ }
+  }
 
   const file = form.get('thumbnail') as File | null;
   if (file && file.size > 0) patch.thumbnail_url = await uploadTemplateThumbnail(supabase, params.id, file);
