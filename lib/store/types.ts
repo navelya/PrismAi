@@ -359,6 +359,12 @@ export interface UISlice {
     isTemplatesLoading: boolean;
     templatesLoaded: boolean;
     fetchTemplates: (force?: boolean) => Promise<void>;
+    // Per-template workflow graphs, fetched lazily the first time a template
+    // detail opens and cached so re-opening never reloads. (List metadata above
+    // already covers everything else, so the popup only ever fetches the graph.)
+    templateWorkflows: Record<string, { nodes: any[]; edges: any[] }>;
+    templateWorkflowLoading: Record<string, boolean>;
+    fetchTemplateWorkflow: (id: string) => Promise<void>;
     // Credit (monthly vs top-up) breakdown — preloaded on app open so the credits
     // popover shows instantly instead of fetching on hover. Refreshed silently.
     creditBreakdown: { balance: number; monthly: number; topup: number } | null;

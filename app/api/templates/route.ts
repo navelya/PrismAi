@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
   let q = supabase
     .from('workflow_templates')
-    .select('id,name,description,thumbnail_url,category,tags,use_cases,nodes_used,source,created_by_name,usage_count,created_at')
+    .select('id,name,description,how_it_works,thumbnail_url,category,tags,use_cases,nodes_used,source,created_by_name,usage_count,created_at')
     .eq('status', 'published')
     .eq('source', sp.get('source') || 'official')
     .order('usage_count', { ascending: false })

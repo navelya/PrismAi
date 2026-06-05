@@ -184,6 +184,8 @@ export const useAppStore = create<RootState>()(
                     'templates',
                     'isTemplatesLoading',
                     'templatesLoaded',
+                    'templateWorkflows',
+                    'templateWorkflowLoading',
                     'creditBreakdown',
                     'isCreditBreakdownLoading',
                     'versions',

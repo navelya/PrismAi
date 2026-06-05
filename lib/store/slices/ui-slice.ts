@@ -27,6 +27,8 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     templates: [],
     isTemplatesLoading: false,
     templatesLoaded: false,
+    templateWorkflows: {},
+    templateWorkflowLoading: {},
     creditBreakdown: null,
     isCreditBreakdownLoading: false,
     versions: [],
@@ -195,6 +197,22 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
             console.error('Failed to fetch templates:', error);
         } finally {
             set({ isTemplatesLoading: false });
+        }
+    },
+
+    // A template's workflow graph: fetched once on first detail-open, cached by id.
+    fetchTemplateWorkflow: async (id: string) => {
+        if (!id || get().templateWorkflows[id] || get().templateWorkflowLoading[id]) return;
+        set((s) => ({ templateWorkflowLoading: { ...s.templateWorkflowLoading, [id]: true } }));
+        try {
+            const res = await fetch(`/api/templates/${id}`);
+            const data = await res.json();
+            const wf = data?.template?.workflow ?? { nodes: [], edges: [] };
+            set((s) => ({ templateWorkflows: { ...s.templateWorkflows, [id]: wf } }));
+        } catch (error) {
+            console.error('Failed to fetch template workflow:', error);
+        } finally {
+            set((s) => ({ templateWorkflowLoading: { ...s.templateWorkflowLoading, [id]: false } }));
         }
     },
 
