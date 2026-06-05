@@ -434,7 +434,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
 
                     {/* Fixed Nav Items */}
                     <nav className="flex-shrink-0 px-2 py-2">
-                        <ul className="space-y-1 mb-2">
+                        <ul className="space-y-0.5 mb-2">
                             {navItems.map((item) => {
                                 const Icon = item.icon;
                                 const targetPath = item.path;
@@ -451,19 +451,20 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                                 }
                                             }}
                                             className={`
-                                                group relative flex items-center gap-3 px-3 py-2.5 rounded-lg
+                                                group relative flex items-center gap-2.5 px-2 py-1.5 rounded-lg
                                                 transition-all duration-200
+                                                ${!isExpanded ? 'justify-center' : ''}
                                                 ${isActive
                                                     ? 'bg-interactive-hover text-accent-primary font-semibold'
                                                     : 'text-content-primary hover:bg-interactive-hover'
                                                 }
                                             `}
                                         >
-                                            <Icon className="w-5 h-5 flex-shrink-0" />
+                                            <Icon className="w-[18px] h-[18px] flex-shrink-0" />
 
                                             <span
                                                 className={`
-                                                    font-medium text-sm whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out
+                                                    font-medium text-[13px] whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out
                                                     ${isExpanded ? 'max-w-[200px]' : 'max-w-0'}
                                                 `}
                                             >
@@ -471,7 +472,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             </span>
 
                                             {!isExpanded && (
-                                                <div className="absolute left-full ml-2 px-3 py-1.5 bg-content-primary text-surface-primary text-sm rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-[100] shadow-lg">
+                                                <div className="absolute left-full ml-2 px-2 py-1 bg-content-primary text-surface-primary text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-[100] shadow-lg">
                                                     {item.name}
                                                 </div>
                                             )}
@@ -521,7 +522,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                 {/* Profile (authenticated) / skeleton */}
                 <div className="border-t border-stroke-subtle relative">
                     {user ? (
-                        <div className="p-2">
+                        <div className="p-1.5">
                             <div className="relative">
                                 <button
                                     onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
@@ -598,7 +599,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                             </div>
                         </div>
                     ) : (
-                        <div className="p-3">
+                        <div className="p-2">
                             <div className={`flex items-center ${!isExpanded ? 'justify-center' : 'gap-3'} animate-pulse`}>
                                 <div className={`
                                     rounded-full bg-surface-tertiary flex-shrink-0 transition-all duration-300
