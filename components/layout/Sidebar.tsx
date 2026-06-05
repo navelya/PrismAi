@@ -393,13 +393,15 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                     ${isExpanded ? 'w-60' : 'w-14'}
                 `}
             >
-                {/* Header: logo + collapse toggle */}
-                <div className="h-12 flex items-center px-2">
+                {/* Header: logo + collapse toggle. Extra top padding + a small gap to
+                    the nav below give the logo roughly equal breathing room on the
+                    top/left/bottom. */}
+                <div className="flex items-center px-2 pt-3 pb-1">
                     {!isExpanded ? (
                         // Collapsed: logo mark that crossfades to a PanelLeft toggle
                         // on hover (stacked, same slot → no layout shift). Click expands.
-                        // Full-width centered so the mark lands on the same centerline
-                        // (28px) as the nav icons + avatar below.
+                        // The mark lands on the same centerline (28px) as the nav icons
+                        // + avatar below, and zooms in when the rail collapses to here.
                         <button
                             onClick={() => setSidebarExpanded(true)}
                             className="group relative flex w-10 h-9 items-center justify-center rounded-lg hover:bg-interactive-hover transition-colors"
@@ -408,11 +410,17 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                         >
                             {/* Mark is intentionally larger than the toggle/nav icons;
                                 both are absolutely positioned + flex-centered in the
-                                fixed w-10 h-9 slot, so its size never shifts anything. */}
-                            <Logo
-                                variant="mark"
-                                className="absolute w-7 h-7 transition-opacity duration-200 group-hover:opacity-0"
-                            />
+                                fixed w-10 h-9 slot, so its size never shifts anything.
+                                Scale-only animation so the CSS hover crossfade (opacity)
+                                is left untouched. */}
+                            <motion.span
+                                initial={{ scale: 0.5 }}
+                                animate={{ scale: 1 }}
+                                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                                className="absolute transition-opacity duration-200 group-hover:opacity-0"
+                            >
+                                <Logo variant="mark" className="w-7 h-7" />
+                            </motion.span>
                             <PanelLeft className="absolute w-5 h-5 text-content-primary opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
                         </button>
                     ) : (
@@ -421,11 +429,11 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                         // mark's left edge), then the collapse toggle is pinned right.
                         <div className="flex items-center w-full gap-2">
                             <motion.div
-                                initial={{ opacity: 0, scale: 0.55, x: 10 }}
-                                animate={{ opacity: 1, scale: 1, x: 0 }}
+                                initial={{ opacity: 0, scale: 0.5 }}
+                                animate={{ opacity: 1, scale: 1 }}
                                 transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
                                 style={{ transformOrigin: 'left center' }}
-                                className="flex-shrink-0"
+                                className="flex-shrink-0 ml-1.5"
                             >
                                 <Logo
                                     variant="wordmark"
@@ -448,7 +456,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                 <div className={`flex flex-col flex-1 min-h-0 ${isExpanded ? 'overflow-hidden' : ''}`}>
 
                     {/* Fixed Nav Items */}
-                    <nav className="flex-shrink-0 px-2 py-2">
+                    <nav className="flex-shrink-0 px-2 pt-1 pb-2">
                         <ul className="space-y-0.5 mb-2">
                             {navItems.map((item) => {
                                 const Icon = item.icon;
