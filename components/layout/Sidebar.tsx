@@ -39,6 +39,9 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
     const isExpanded = useAppStore((s) => s.sidebarExpanded);
     const setSidebarExpanded = useAppStore((s) => s.setSidebarExpanded);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
+    // Wraps the docked profile button + its flyout, so a click anywhere outside
+    // (or Escape) closes the menu without covering the button itself.
+    const profileMenuRef = React.useRef<HTMLDivElement>(null);
     // Open/closed state for the floating (canvas) app-menu panel. Kept separate
     // from `isExpanded` (which is the docked bar's persistent width preference)
     // because the Sidebar now stays mounted across routes — sharing one flag
@@ -58,6 +61,25 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
     React.useEffect(() => {
         setMenuOpen(false);
     }, [pathname]);
+
+    // Close the docked profile flyout on any outside click or Escape.
+    React.useEffect(() => {
+        if (!isProfileMenuOpen) return;
+        const onPointerDown = (e: MouseEvent) => {
+            if (!profileMenuRef.current?.contains(e.target as Node)) {
+                setIsProfileMenuOpen(false);
+            }
+        };
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setIsProfileMenuOpen(false);
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [isProfileMenuOpen]);
 
     React.useEffect(() => {
         const getUser = async () => {
@@ -556,7 +578,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                 <div className="border-t border-stroke-subtle relative">
                     {user ? (
                         <div className="px-2 py-1.5">
-                            <div className="relative">
+                            <div className="relative" ref={profileMenuRef}>
                                 <button
                                     onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
                                     className="flex items-center w-full hover:bg-interactive-hover rounded-lg transition-colors overflow-hidden"
