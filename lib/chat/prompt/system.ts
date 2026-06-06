@@ -301,7 +301,7 @@ function formatPreferencesBlock(
   const hints: string[] = [];
   if (prefs.style) {
     hints.push(
-      `- Visual style: ${prefs.style}. Bias prompt craft toward this look when nothing in the user's request dictates otherwise.`,
+      `- Visual style: ${prefs.style}. This is creative DIRECTION for how the result should look — NOT a model setting. Do NOT add it as a config key or control_value on any node, do NOT treat it as a field to fill on the ai_generator, and do NOT pick a model just because it exposes a "style" parameter. Instead, express the style in the PROMPT TEXT you write (describe the look in concrete words the generator understands — lighting, medium, mood, etc.) and, when it matters, lean toward a model well-suited to that look. Apply only when the user's request doesn't already dictate a different look.`,
     );
   }
 

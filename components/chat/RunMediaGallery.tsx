@@ -127,7 +127,9 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0 }: RunM
     return (
         <div
             ref={scrollerRef}
-            className={`overflow-x-auto select-none ${canScroll ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            // Scrollbar hidden — the strip is drag-to-scroll (grab the photos and
+            // pull); the thin native bar was fiddly and not needed.
+            className={`overflow-x-auto select-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${canScroll ? 'cursor-grab active:cursor-grabbing' : ''}`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
