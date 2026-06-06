@@ -1,11 +1,14 @@
 'use client';
 
-import React from 'react';
-import Link from 'next/link';
-import { motion } from 'framer-motion';
-import { ImagePlus, Pen, ArrowRight, LayoutTemplate } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ImagePlus, Pen, ArrowRight, LayoutTemplate, ImageIcon } from 'lucide-react';
 import ChatInput from './ChatInput';
 import { Toast } from '@/components/ui/Toast';
+import { useAppStore } from '@/lib/store/app-store';
+import { TemplatePreviewModal } from '@/components/templates/TemplatePreviewModal';
+import type { TemplateListItem } from '@/components/templates/TemplateCard';
 import type { Character } from '@/lib/api/client';
 
 /**
@@ -96,41 +99,111 @@ function WelcomeCard({
     );
 }
 
+/** Fisher–Yates shuffle, returning the first `n` of a fresh copy. */
+function sample<T>(arr: T[], n: number): T[] {
+    const pool = [...arr];
+    for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, n);
+}
+
 /**
- * Entry point to the template gallery. A pill that links to /templates, with a
- * hover popover teasing a few popular templates so the option is discoverable
- * without leaving the welcome screen. The popover is a pure-CSS group-hover
- * teaser (pointer-events-none) — the whole control navigates on click.
+ * Entry point to the template gallery. The "Browse templates" pill opens
+ * /templates on click; hovering it reveals a popover of 4 RANDOM templates
+ * (re-rolled each time it opens) with thumbnail + description, each selectable
+ * — clicking one opens the same preview modal the gallery uses.
+ *
+ * Hover stays alive across the button→popover trip via (a) a `pb-2` bridge so
+ * there's no dead gap between them and (b) a short close delay on mouse-leave,
+ * so the popover no longer vanishes the instant the cursor leaves the button.
  */
 function TemplatesAffordance() {
-    const teasers = ['Product shots', 'Ad creatives', 'Background removal', 'Batch upscaling'];
+    const router = useRouter();
+    const templates = useAppStore((s) => s.templates) as TemplateListItem[];
+    const fetchTemplates = useAppStore((s) => s.fetchTemplates);
+
+    // No-op if already preloaded on app open; covers a cold welcome screen.
+    useEffect(() => { fetchTemplates?.(); }, [fetchTemplates]);
+
+    const [open, setOpen] = useState(false);
+    const [picks, setPicks] = useState<TemplateListItem[]>([]);
+    const [previewId, setPreviewId] = useState<string | null>(null);
+    const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const openMenu = () => {
+        if (closeTimer.current) clearTimeout(closeTimer.current);
+        if (templates.length === 0) return; // nothing to preview; the pill still navigates
+        if (!open) setPicks(sample(templates, 4)); // fresh 4 every time it opens
+        setOpen(true);
+    };
+    const scheduleClose = () => {
+        if (closeTimer.current) clearTimeout(closeTimer.current);
+        closeTimer.current = setTimeout(() => setOpen(false), 160);
+    };
+
     return (
-        <div className="group relative inline-flex">
-            <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 z-20
-                            opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0
-                            transition-all duration-200">
-                <div className="rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 p-3 text-left">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary mb-2">
-                        Popular templates
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                        {teasers.map((t) => (
-                            <span
-                                key={t}
-                                className="px-2 py-1 rounded-lg bg-surface-secondary border border-stroke-subtle text-xs text-content-secondary"
+        <div className="relative inline-flex" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+            <AnimatePresence>
+                {open && picks.length > 0 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 6 }}
+                        transition={{ duration: 0.15, ease: 'easeOut' }}
+                        // pb-2 is the hover bridge: it makes the popover wrapper
+                        // touch the button's top edge, so there is no gap to "fall
+                        // through" on the way up.
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 pb-2 w-80 z-30"
+                    >
+                        <div className="rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 p-2">
+                            <div className="flex items-center justify-between px-1.5 pt-1 pb-1.5">
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+                                    Templates
+                                </span>
+                                <span className="text-[10px] text-content-tertiary/70">Click to preview</span>
+                            </div>
+                            <div className="space-y-0.5">
+                                {picks.map((t) => (
+                                    <button
+                                        key={t.id}
+                                        type="button"
+                                        onClick={() => { setPreviewId(t.id); setOpen(false); }}
+                                        className="group/t w-full flex items-center gap-2.5 p-1.5 rounded-xl text-left hover:bg-white/5 transition-colors"
+                                    >
+                                        <span className="shrink-0 w-14 h-11 rounded-lg overflow-hidden bg-surface-tertiary border border-white/10 flex items-center justify-center">
+                                            {t.thumbnail_url
+                                                ? <img src={t.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                                                : <ImageIcon className="w-4 h-4 text-content-tertiary/50" />}
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block text-xs font-medium text-content-primary truncate">{t.name}</span>
+                                            {t.description && (
+                                                <span className="block text-[11px] text-content-secondary leading-snug line-clamp-2">
+                                                    {t.description}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => router.push('/templates')}
+                                className="mt-1 w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs font-medium text-accent-primary hover:bg-accent-primary/10 transition-colors"
                             >
-                                {t}
-                            </span>
-                        ))}
-                    </div>
-                    <div className="mt-2.5 flex items-center gap-1 text-xs font-medium text-accent-primary">
-                        Open the full gallery
-                        <ArrowRight className="w-3 h-3" />
-                    </div>
-                </div>
-            </div>
-            <Link
-                href="/templates"
+                                Open the full gallery
+                                <ArrowRight className="w-3 h-3" />
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <button
+                type="button"
+                onClick={() => router.push('/templates')}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm
                            bg-surface-secondary hover:bg-surface-tertiary
                            border border-stroke-subtle hover:border-accent-primary/40
@@ -138,7 +211,9 @@ function TemplatesAffordance() {
             >
                 <LayoutTemplate className="w-4 h-4" />
                 Browse templates
-            </Link>
+            </button>
+
+            <TemplatePreviewModal id={previewId} onClose={() => setPreviewId(null)} />
         </div>
     );
 }

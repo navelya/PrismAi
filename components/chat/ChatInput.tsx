@@ -389,9 +389,9 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         rows={1}
                         disabled={disabled}
                         className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
-                                     relative w-full py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`}
+                                     relative w-full ${isCanvasMode ? 'px-3 py-2' : 'px-4 py-3'}`}
                         style={{
-                            minHeight: '40px',
+                            minHeight: isCanvasMode ? '40px' : '52px',
                             maxHeight: isMobile
                                 ? isExpanded
                                     ? '200px'
@@ -417,6 +417,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     ──────────────────────────────────────────────────────────────── */}
                     <div
                         className={`flex w-full items-center justify-between px-2 pb-2
+                                    ${isCanvasMode ? '' : 'pt-2'}
                                     ${isViewer ? 'opacity-40 pointer-events-none' : ''}`}
                     >
                         {/* Left: attachment (+) menu + generation preferences */}
