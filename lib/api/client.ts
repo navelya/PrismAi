@@ -62,13 +62,14 @@ export const sessionsApi = {
             body: JSON.stringify(data),
         }),
 
+
     /** Delete a session */
     delete: (id: string) =>
         apiFetch<{ success: boolean }>(`/api/sessions/${id}`, {
             method: 'DELETE',
         }),
     /** Update session title (Auto-Generate) */
-    generateTitle: (data: { sessionId: string; message: string; assistantResponse?: string; workflowName?: string }) =>
+    generateTitle: (data: { sessionId: string; message: string; chatId?: string; assistantResponse?: string; workflowName?: string }) =>
         apiFetch<{ success: boolean; title: string }>('/api/session/generate-title', {
             method: 'POST',
             body: JSON.stringify(data),
@@ -84,6 +85,32 @@ export const sessionsApi = {
     open: (canvasId: string) =>
         apiFetch<{ threadId: string; canvasId: string; role: 'owner' | 'editor' | 'viewer' }>(
             `/api/sessions/${canvasId}/open`, { method: 'POST' }
+        ),
+};
+
+// ─── Chats (multiple conversations per session) ────────────────────────────
+export interface ChatRow {
+    id: string;
+    title: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export const chatsApi = {
+    /** List a session's chats (history), newest activity first. */
+    list: (sessionId: string) =>
+        apiFetch<{ chats: ChatRow[]; activeChatId: string | null }>(
+            `/api/sessions/${sessionId}/chats`, { cache: 'no-store' }
+        ),
+
+    /** Start a new chat in the session and make it active (old chat archived). */
+    create: (sessionId: string) =>
+        apiFetch<{ chat: ChatRow }>(`/api/sessions/${sessionId}/chats`, { method: 'POST' }),
+
+    /** Make an existing chat the session's active chat. */
+    open: (sessionId: string, chatId: string) =>
+        apiFetch<{ success: boolean }>(
+            `/api/sessions/${sessionId}/chats/${chatId}/open`, { method: 'POST' }
         ),
 };
 

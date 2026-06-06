@@ -5,6 +5,7 @@ export const createChatSlice: StateCreator<RootState, [], [], ChatSlice> = (set)
     chatMessages: [],
     chatScrollTop: 9999999,
     selectedChatModel: undefined,
+    activeChatId: null,
 
     addMessage: (message) =>
         set((state) => ({
@@ -24,4 +25,5 @@ export const createChatSlice: StateCreator<RootState, [], [], ChatSlice> = (set)
     clearMessages: () => set({ chatMessages: [] }),
     setChatScrollTop: (pos) => set({ chatScrollTop: pos }),
     setSelectedChatModel: (m) => set({ selectedChatModel: m }),
+    setActiveChatId: (id) => set({ activeChatId: id }),
 });

@@ -58,5 +58,14 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: insErr.message || 'Create failed' }, { status: 500 });
     }
     if (!created) return NextResponse.json({ error: 'Create failed' }, { status: 500 });
+    // Seed the companion thread with one active chat (parity with own sessions),
+    // so the message-insert trigger has a target and history works.
+    try {
+        const { data: chat } = await supabase
+            .from('chats').insert({ session_id: created.id }).select('id').single();
+        if (chat?.id) await supabase.from('sessions').update({ active_chat_id: chat.id }).eq('id', created.id);
+    } catch (chatErr) {
+        console.error('[sessions/open] failed to seed companion thread chat', chatErr);
+    }
     return NextResponse.json({ threadId: created.id, canvasId, role: 'editor' });
 }

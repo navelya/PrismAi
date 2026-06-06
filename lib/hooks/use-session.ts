@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store/app-store';
 import { Workflow } from '@/lib/nodes/types';
-import { sessionsApi } from '@/lib/api/client';
+import { sessionsApi, chatsApi } from '@/lib/api/client';
 import { setServerWorkflowHash } from '@/lib/hooks/use-chat-realtime';
 import { getSessionExecutions } from '@/lib/db/workflows';
 
@@ -416,6 +416,9 @@ export function useSession() {
 
             formattedMessages.forEach((msg: any) => store.addMessage(msg));
 
+            // Track which chat is active so a first message titles the right one.
+            store.setActiveChatId((threadSession as any)?.active_chat_id ?? null);
+
             // Hydrate node statuses + outputs from node_results (DB is the
             // source of truth; the persisted store cache gets overwritten with
             // fresh values here).
@@ -551,6 +554,46 @@ export function useSession() {
         // destination page's own loader takes over.
     }, [router]);
 
+    // ── Chats within a session ──────────────────────────────────────────────
+    // A session (workflow) holds multiple chats against its one canvas. These
+    // operate on the per-user THREAD id (store.activeSessionId) — for a
+    // collaborator that's their companion thread, where their messages live.
+
+    // "New chat": archive the current conversation and open a fresh one in the
+    // SAME session. The canvas is untouched; only the message thread resets.
+    const createNewChat = useCallback(async () => {
+        const store = useAppStore.getState();
+        const threadId = store.activeSessionId;
+        if (!threadId) return;
+        // Optimistic: empty the conversation immediately (this also shrinks the
+        // AI context, which is built from the in-memory messages).
+        store.clearMessages();
+        try {
+            const { chat } = await chatsApi.create(threadId);
+            // Track the new active chat so the first message titles THIS chat.
+            if (chat?.id) store.setActiveChatId(chat.id);
+        } catch (err) {
+            console.error('[useSession] createNewChat failed:', err);
+        }
+    }, []);
+
+    // Switch to a past chat: flip the active chat server-side, then re-hydrate
+    // the conversation via loadSession (reuses all message formatting). The
+    // canvas reloads from its saved state — unchanged, since chats share it.
+    const switchChat = useCallback(async (chatId: string) => {
+        const store = useAppStore.getState();
+        const threadId = store.activeSessionId;
+        const canvasId = store.activeCanvasId || threadId;
+        if (!threadId || !canvasId) return;
+        try {
+            await chatsApi.open(threadId, chatId);
+            store.setActiveChatId(chatId);
+            await loadSession(canvasId);
+        } catch (err) {
+            console.error('[useSession] switchChat failed:', err);
+        }
+    }, [loadSession]);
+
     // Delete a session — OPTIMISTIC: navigate + clear state immediately, DB delete async
     const deleteSession = useCallback(async (sessionId: string) => {
         // Immediately update UI (don't wait for DB)
@@ -569,6 +612,8 @@ export function useSession() {
 
     return {
         createNewSession,
+        createNewChat,
+        switchChat,
         loadSession,
         deleteSession,
         duplicateToMyFiles,

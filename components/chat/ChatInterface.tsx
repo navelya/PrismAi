@@ -9,6 +9,7 @@ import { AutoRunIntroModal } from './AutoRunIntroModal';
 import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 import ChatInput from './ChatInput';
 import { ChatEmptyState } from './ChatEmptyState';
+import { ChatPanelHeader } from './ChatPanelHeader';
 import { WorkflowEmptyState, ChatSkeletons } from './ChatHelpers';
 
 // Re-export helpers that may be consumed by other modules
@@ -459,6 +460,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             onDragLeave={handleChatDragLeave}
             onDrop={handleChatDrop}
         >
+            {/* Side-window-style header (desktop canvas chat only). The mobile
+                full-screen chat keeps the global sidebar drawer for nav. */}
+            {isCanvasMode && !isMobile && <ChatPanelHeader />}
+
             <input
                 ref={imageInputRef}
                 type="file"

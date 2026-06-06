@@ -81,5 +81,28 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // Every session starts with one active chat, so the message-insert trigger
+    // (which copies sessions.active_chat_id onto new messages) always has a
+    // target. Best-effort: if the chats table predates this code the session
+    // still works via the active_chat_id-null fallback in GET.
+    try {
+        const { data: chat } = await supabase
+            .from('chats')
+            .insert({ session_id: data.id, title: nullableTitle(title) })
+            .select('id')
+            .single();
+        if (chat?.id) {
+            await supabase.from('sessions').update({ active_chat_id: chat.id }).eq('id', data.id);
+            (data as any).active_chat_id = chat.id;
+        }
+    } catch (chatErr) {
+        console.error('[sessions] failed to create initial chat', chatErr);
+    }
+
     return NextResponse.json({ session: data }, { status: 201 });
+}
+
+function nullableTitle(t?: string): string | null {
+    const v = (t || '').trim();
+    return v && v !== 'New Workflow' ? v : null;
 }

@@ -91,7 +91,7 @@ export function MessageList({
         <div
             ref={scrollContainerRef}
             onScroll={onScroll}
-            className={`flex-1 overflow-y-auto overflow-x-hidden flex flex-col ${isCanvasMode ? 'p-4 pt-16' : 'p-6'}`}
+            className={`flex-1 overflow-y-auto overflow-x-hidden flex flex-col ${isCanvasMode ? 'p-4' : 'p-6'}`}
             // overflow-anchor MUST be none: this hook is the sole authority on
             // scrollTop (bottom-pin ResizeObserver, scrollIntoView, the dynamic
             // spacer, mount-restore). Browser scroll anchoring (the CSS default,

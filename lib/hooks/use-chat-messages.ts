@@ -356,7 +356,16 @@ export function useChatMessages({
             useAppStore.getState().setActiveCanvasId(activeSessionId);
 
             // Background initialization
-            sessionCreationPromise = sessionsApi.create('', activeSessionId).catch(err => console.error("[Session Create] Error:", err));
+            sessionCreationPromise = sessionsApi.create('', activeSessionId)
+                .then((res) => {
+                    // Track the session's initial active chat so this + later
+                    // messages title the correct chat.
+                    if ((res as any)?.session?.active_chat_id) {
+                        useAppStore.getState().setActiveChatId((res as any).session.active_chat_id);
+                    }
+                    return res;
+                })
+                .catch(err => console.error("[Session Create] Error:", err));
             sessionsApi.generateTitle({
                 sessionId: activeSessionId,
                 message: trimmedInput
@@ -366,6 +375,18 @@ export function useChatMessages({
             startTransition(() => {
                 router.replace(`/chat/${activeSessionId}`, { scroll: false });
             });
+        } else if (historySnapshot.length === 0) {
+            // First message of a FRESH chat inside an existing session (e.g. after
+            // "New chat"): the session already exists, so just title the active
+            // chat from this message. The snapshot was captured before optimistic
+            // adds, so length 0 means the active chat is empty. Pass the chat id
+            // explicitly so the title lands on THIS chat even if the user starts
+            // another chat before the async title call returns.
+            sessionsApi.generateTitle({
+                sessionId: activeSessionId,
+                message: trimmedInput,
+                chatId: useAppStore.getState().activeChatId || undefined,
+            }).catch(err => console.error('[TitleGen] Error:', err));
         }
 
         // 👑 Immediate UI update with guaranteed activeSessionId in store.

@@ -315,6 +315,11 @@ export interface ChatSlice {
     setChatScrollTop: (pos: number) => void;
     selectedChatModel?: 'haiku' | 'sonnet';
     setSelectedChatModel: (m: 'haiku' | 'sonnet') => void;
+    // The session's currently-active chat (multi-chat-per-session). Tracked so
+    // title generation targets the chat the message was sent to, not whatever is
+    // active when the async title call returns (avoids a misfiled-title race).
+    activeChatId: string | null;
+    setActiveChatId: (id: string | null) => void;
 }
 
 export interface ExecutionSlice {
@@ -380,6 +385,11 @@ export interface UISlice {
     setIsCanvasMode: (v: boolean) => void;
     isCopilotMinimized: boolean;
     setIsCopilotMinimized: (v: boolean) => void;
+    // Desktop-only: when true, the canvas-mode chat expands to fill the
+    // workspace ("full screen view") instead of the compact sidebar. Ephemeral
+    // UI flag — never persisted, and reset whenever the session changes.
+    isChatFullscreen: boolean;
+    setIsChatFullscreen: (v: boolean) => void;
     // Mobile-only: when true, the read-only canvas is shown and the chat is
     // collapsed into a floating bubble. Ephemeral UI flag — never persisted.
     isMobileCanvasOpen: boolean;

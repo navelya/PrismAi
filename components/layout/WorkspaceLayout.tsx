@@ -3,7 +3,7 @@
 import React, { useRef, useState, useLayoutEffect, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    MessageSquare, Minimize2, Plus,
+    MessageSquare, Plus,
     Image as ImageIcon, BookOpen, Users, History
 } from 'lucide-react';
 import SharedWorkflowEditor from '@/components/editor/SharedWorkflowEditor';
@@ -45,6 +45,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const isCanvasMode = !!sessionId;
     const isCopilotMinimized = useAppStore(s => s.isCopilotMinimized);
     const setIsCopilotMinimized = useAppStore(s => s.setIsCopilotMinimized);
+    const isChatFullscreen = useAppStore(s => s.isChatFullscreen);
     const isMobileCanvasOpen = useAppStore(s => s.isMobileCanvasOpen);
     const setIsMobileCanvasOpen = useAppStore(s => s.setIsMobileCanvasOpen);
 
@@ -88,6 +89,11 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     useLayoutEffect(() => {
         if (useAppStore.getState().isCopilotMinimized) {
             useAppStore.getState().setIsCopilotMinimized(false);
+        }
+        // A stale full-screen chat toggle must not carry into the next session —
+        // every session opens in the compact sidebar view.
+        if (useAppStore.getState().isChatFullscreen) {
+            useAppStore.getState().setIsChatFullscreen(false);
         }
         // A stale "canvas open" toggle from a previous session must not carry
         // over — always land on the chat view when a session changes.
@@ -135,6 +141,22 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const TOP_BAR_OFFSET = 64; // clears the credits/upgrade pill at top-left of the canvas
     const canvasLeft = 16;  // matches left-4 = 16px (same as other panels)
     const canvasTop = TOP_BAR_OFFSET;
+
+    // Track the workspace width so the full-screen chat can animate its `width`
+    // (left/top/bottom stay fixed, so only the width tweens — a clean horizontal
+    // expand from the sidebar to a full-width panel).
+    const [containerWidth, setContainerWidth] = useState(0);
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const update = () => setContainerWidth(el.clientWidth);
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+    const fullscreenWidth = Math.max(SIDEBAR_WIDTH, containerWidth - PAD * 2);
+    const chatOpenWidth = isChatFullscreen ? fullscreenWidth : SIDEBAR_WIDTH;
 
     // Rail left position:
     //   chat open  → right edge of chat panel (PAD + SIDEBAR_WIDTH + gap)
@@ -358,23 +380,12 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                         ? { left: 0, top: 0, right: 0, bottom: 0, width: '100%' as any, height: '100%' as any, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                         : isCopilotMinimized
                             ? { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, opacity: 0, x: -24, pointerEvents: 'none' as any }
-                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, opacity: 1, x: 0, pointerEvents: 'auto' as any }
+                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: chatOpenWidth, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                 }
-                transition={isCanvasMode ? { duration: 0.18, ease: 'easeOut' } : RESIZE_TRANSITION}
+                transition={isCanvasMode ? { duration: 0.22, ease: 'easeOut' } : RESIZE_TRANSITION}
                 style={isCanvasMode ? { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', background: 'rgba(12, 12, 16, 0.88)' } : { background: undefined }}
             >
-                {/* Copilot minimize control — only on session pages */}
-                <AnimatePresence>
-                    {isCanvasMode && !isCopilotMinimized && (
-                        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute top-3 right-3 z-30 flex items-center gap-0.5 p-0.5 bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-full">
-                            <button onClick={() => setIsCopilotMinimized(true)} className="p-1.5 rounded-full text-content-tertiary hover:text-content-primary hover:bg-white/10 transition-colors" title="Minimize copilot">
-                                <Minimize2 className="w-3.5 h-3.5" />
-                            </button>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {/* Chat content */}
+                {/* Chat content (header + body live inside ChatInterface) */}
                 <div className="flex-1 min-h-0 overflow-hidden">
                     {chatPanel}
                 </div>

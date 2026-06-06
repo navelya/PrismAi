@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
 
-        const { sessionId, message } = body;
+        const { sessionId, message, chatId } = body;
 
         // Only sessionId is strictly required — message and workflowName are optional inputs
         if (!sessionId) {
@@ -53,13 +53,35 @@ export async function POST(req: NextRequest) {
         title = title.replace(/^["']|["']$/g, '');
         if (title.length > 50) title = title.substring(0, 47) + '...';
 
-        // Update session in DB (safe — won't crash even if session doesn't exist yet)
+        // Title the ACTIVE chat (each chat gets its own title from its first
+        // message). Also seed the SESSION title once — it names the workflow in
+        // the sidebar, so only the first chat should set it; later chats must
+        // not rename the workflow. Safe — never crashes if rows don't exist yet.
         try {
-            await supabase
+            const { data: session } = await supabase
                 .from('sessions')
-                .update({ title })
+                .select('title, active_chat_id')
                 .eq('id', sessionId)
-                .eq('user_id', user.id);
+                .eq('user_id', user.id)
+                .single();
+
+            // Prefer the explicit chatId captured at send time — the active chat
+            // may have moved on (user started another chat) by the time Gemini
+            // returned, so reading active_chat_id here could title the wrong chat.
+            const targetChatId = chatId || session?.active_chat_id;
+            if (targetChatId) {
+                await supabase.from('chats').update({ title }).eq('id', targetChatId);
+            }
+
+            const sessionTitle = (session?.title || '').trim();
+            const sessionTitleUnset = !sessionTitle || sessionTitle === 'New Workflow' || sessionTitle === 'New Session';
+            if (!session || sessionTitleUnset) {
+                await supabase
+                    .from('sessions')
+                    .update({ title })
+                    .eq('id', sessionId)
+                    .eq('user_id', user.id);
+            }
         } catch (dbError) {
             console.error('[TitleGen] DB update failed:', dbError);
         }

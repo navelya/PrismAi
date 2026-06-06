@@ -145,6 +145,11 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
             collabRole: null,
             presence: {},
             peerSelections: {},
+            // The active chat is scoped to one session too — clear it so a prior
+            // session's chat id can't leak forward and misfile a title. loadSession
+            // (and the optimistic-create paths) set the real one right after; until
+            // then, title generation falls back to the session's active_chat_id.
+            activeChatId: null,
         });
     },
 
