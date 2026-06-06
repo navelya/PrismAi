@@ -34,7 +34,7 @@ export function ChatPreferenceChips() {
     };
 
     return (
-        <div className="flex flex-wrap items-center gap-1.5 px-2 pt-1.5 pb-0.5">
+        <div className="flex flex-wrap items-center gap-1.5 px-2 pt-1 pb-1.5">
             {chips.map((chip) => (
                 <span
                     key={chip.key}

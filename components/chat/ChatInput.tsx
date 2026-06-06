@@ -342,24 +342,21 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         </div>
                     )}
 
-                    {/* Ghost div for single-line wrap probe. It is inset with the
-                        SAME left-24/right-24 + px-2 padding + leading-6 as the
-                        single-line textarea (which is absolutely positioned in
-                        this same `relative` container), so its width tracks the
-                        real single-line text width in BOTH layouts — no magic
-                        offset, no clientWidth read. Keep these insets in sync with
-                        the single-line textarea classes below. */}
+                    {/* Ghost div for the wrap probe. The textarea is now always a
+                        full-width row above the action buttons, so the ghost mirrors
+                        that box (full width, px-4 padding, leading-6) and gives a
+                        STABLE multi-line decision independent of the live textarea's
+                        own (feedback-prone) height. Keep its insets/padding in sync
+                        with the textarea classes below. */}
                     <div
                         ref={ghostRef}
-                        className="absolute top-0 -z-50 invisible whitespace-pre-wrap break-words pointer-events-none"
+                        className="absolute top-0 left-0 right-0 -z-50 invisible whitespace-pre-wrap break-words pointer-events-none"
                         style={{
-                            left: '6rem',   // matches textarea left-24
-                            right: '6rem',  // matches textarea right-24
                             boxSizing: 'border-box',
                             fontFamily: 'inherit',
                             fontSize: 'inherit',
                             lineHeight: '1.5rem',
-                            padding: '8px 8px',
+                            padding: '8px 16px', // matches textarea py-2 px-4
                             minHeight: '0px',
                         }}
                         aria-hidden="true"
@@ -392,13 +389,9 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         rows={1}
                         disabled={disabled}
                         className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
-                                     ${isMultiLine || attachedImages.length > 0 || isCanvasMode
-                                ? `relative w-full px-4 py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`
-                                : `absolute left-24 right-24 bottom-0 px-2 py-3`
-                            }`}
+                                     relative w-full py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`}
                         style={{
-                            minHeight:
-                                isMultiLine || attachedImages.length > 0 || isCanvasMode ? '40px' : '24px',
+                            minHeight: '40px',
                             maxHeight: isMobile
                                 ? isExpanded
                                     ? '200px'
@@ -415,18 +408,15 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         self-subscribing leaf — a preference change re-renders only
                         this row. Hidden on the welcome composer (!isCanvasMode):
                         a brand-new chat shouldn't lead with standing generation
-                        prefs, and the welcome composer uses the inset single-line
-                        layout where a chip row has nowhere clean to go. */}
+                        prefs — those belong once you're working in a canvas. */}
                     {isCanvasMode && <ChatPreferenceChips />}
 
                     {/* ── Action row ─────────────────────────────────────────────────
-                         Full-screen (!isCanvasMode):  [ + ]  ···  [ mic ] [ send ]
-                         Canvas / minimized (isCanvasMode): textarea goes full width,
-                           then this row appears beneath it.
+                         The textarea is always a full-width row above; this button
+                         row sits beneath it: [ + ][ prefs ]  ···  [ mic ][ send ].
                     ──────────────────────────────────────────────────────────────── */}
                     <div
                         className={`flex w-full items-center justify-between px-2 pb-2
-                                    ${isMultiLine || attachedImages.length > 0 || isCanvasMode ? '' : 'pt-2'}
                                     ${isViewer ? 'opacity-40 pointer-events-none' : ''}`}
                     >
                         {/* Left: attachment (+) menu + generation preferences */}
@@ -477,7 +467,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                                         disabled={!value.trim() && attachedImages.length === 0}
                                         className={`p-2 rounded-lg transition-all duration-300
                                             ${value.trim() || attachedImages.length > 0
-                                                ? 'bg-accent-primary hover:bg-accent-hover text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                                                ? 'bg-accent-primary hover:bg-accent-hover text-white'
                                                 : 'bg-surface-tertiary text-content-tertiary cursor-not-allowed'
                                             }`}
                                     >
