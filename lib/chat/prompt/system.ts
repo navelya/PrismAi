@@ -287,13 +287,13 @@ function formatPreferencesBlock(
       `- Resolution / quality: ${prefs.quality}. Set the chosen model's resolution/size/quality config key to the closest value its allowed options support (e.g. if the model only offers "2K"/"4K" and the preference is 480p, use the smallest available — "2K").`,
     );
   }
-
-  const hints: string[] = [];
   if (prefs.outputs) {
-    hints.push(
-      `- Outputs per generation: ${prefs.outputs}. The user wants ${prefs.outputs} output(s) of whatever they asked for. If the chosen model exposes an output-count key (e.g. num_outputs, num_images, iterations), set it to ${prefs.outputs} (clamped to that key's allowed range). If the model has NO such key, achieve the count another way that fits the request rather than forcing an unsupported key. Match the user's intended count, not just whatever key happens to exist.`,
+    directives.push(
+      `- Number of outputs: ${prefs.outputs}. The user wants ${prefs.outputs} variations of what they asked for. On the ai_generator that produces the result, set \`data.config.iterations\` = ${prefs.outputs} — this is a TOP-LEVEL config field (integer 1–10), NOT a key inside control_values. It runs the model ${prefs.outputs} times in one execution and reliably yields ${prefs.outputs} output variations regardless of which model is chosen. Always set iterations for this rather than hunting for a model-specific count key. (Only skip it when producing multiples genuinely makes no sense for the request — e.g. a single deterministic edit of one specific image.)`,
     );
   }
+
+  const hints: string[] = [];
   if (prefs.style) {
     hints.push(
       `- Visual style: ${prefs.style}. Bias prompt craft toward this look when nothing in the user's request dictates otherwise.`,
@@ -303,7 +303,7 @@ function formatPreferencesBlock(
   if (directives.length === 0 && hints.length === 0) return '';
 
   let block = `USER GENERATION PREFERENCES (standing defaults the user set; anything not listed here has no preference — behave normally for it):`;
-  block += `\n\nCRITICAL — RESPECT EACH MODEL'S ALLOWED VALUES: a preference is a target, not a literal value to force. Before setting ANY config key from a preference, read the chosen model's "config keys" line in the AI GENERATOR MODELS section. Only set a key the model actually exposes, and only to a value inside that key's allowed options / min–max. If the preferred value is not supported by the model, KEEP the user's preferred model and use the NEAREST supported value (or the model's default) — NEVER emit a value outside the allowed set or invent a key the model doesn't have. An out-of-range value fails the run (e.g. a 422 from the provider). This applies to every property below — size/resolution, aspect ratio, duration, output count — not just one.`;
+  block += `\n\nCRITICAL — RESPECT EACH MODEL'S ALLOWED VALUES: a preference is a target, not a literal value to force. Before setting ANY config key from a preference, read the chosen model's "config keys" line in the AI GENERATOR MODELS section. Only set a key the model actually exposes, and only to a value inside that key's allowed options / min–max. If the preferred value is not supported by the model, KEEP the user's preferred model and use the NEAREST supported value (or the model's default) — NEVER emit a value outside the allowed set or invent a key the model doesn't have. An out-of-range value fails the run (e.g. a 422 from the provider). This applies to every model config key a preference touches — size/resolution, aspect ratio, duration — not just one. (Number of outputs is the exception: it uses the generic top-level \`iterations\` field, described below, not a model-specific key.)`;
   if (directives.length > 0) {
     block += `\n\nApply these unless the user's current message overrides them:\n${directives.join('\n')}`;
   }
