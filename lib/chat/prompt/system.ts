@@ -274,24 +274,24 @@ function formatPreferencesBlock(
   }
   if (prefs.aspectRatio) {
     directives.push(
-      `- Aspect ratio: ${prefs.aspectRatio}. Set the chosen model's aspect-ratio config key (e.g. aspect_ratio) to this when the model exposes one.`,
+      `- Aspect ratio: ${prefs.aspectRatio}. Set the chosen model's aspect-ratio config key (e.g. aspect_ratio) to the closest value its allowed options support.`,
     );
   }
   if (prefs.videoDuration) {
     directives.push(
-      `- Video duration: ${prefs.videoDuration}. Set the chosen video model's duration/length config key to this when it exposes one.`,
+      `- Video duration: ${prefs.videoDuration}. Set the chosen video model's duration/length config key to the closest value within its allowed options/range.`,
     );
   }
   if (prefs.quality) {
     directives.push(
-      `- Resolution / quality: ${prefs.quality}. Set the chosen model's resolution/quality config key to this when it exposes one.`,
+      `- Resolution / quality: ${prefs.quality}. Set the chosen model's resolution/size/quality config key to the closest value its allowed options support (e.g. if the model only offers "2K"/"4K" and the preference is 480p, use the smallest available — "2K").`,
     );
   }
 
   const hints: string[] = [];
   if (prefs.outputs) {
     hints.push(
-      `- Outputs per generation: ${prefs.outputs}. Lean toward producing this many outputs — set the model's output-count config key when it exposes one.`,
+      `- Outputs per generation: ${prefs.outputs}. The user wants ${prefs.outputs} output(s) of whatever they asked for. If the chosen model exposes an output-count key (e.g. num_outputs, num_images, iterations), set it to ${prefs.outputs} (clamped to that key's allowed range). If the model has NO such key, achieve the count another way that fits the request rather than forcing an unsupported key. Match the user's intended count, not just whatever key happens to exist.`,
     );
   }
   if (prefs.style) {
@@ -303,6 +303,7 @@ function formatPreferencesBlock(
   if (directives.length === 0 && hints.length === 0) return '';
 
   let block = `USER GENERATION PREFERENCES (standing defaults the user set; anything not listed here has no preference — behave normally for it):`;
+  block += `\n\nCRITICAL — RESPECT EACH MODEL'S ALLOWED VALUES: a preference is a target, not a literal value to force. Before setting ANY config key from a preference, read the chosen model's "config keys" line in the AI GENERATOR MODELS section. Only set a key the model actually exposes, and only to a value inside that key's allowed options / min–max. If the preferred value is not supported by the model, KEEP the user's preferred model and use the NEAREST supported value (or the model's default) — NEVER emit a value outside the allowed set or invent a key the model doesn't have. An out-of-range value fails the run (e.g. a 422 from the provider). This applies to every property below — size/resolution, aspect ratio, duration, output count — not just one.`;
   if (directives.length > 0) {
     block += `\n\nApply these unless the user's current message overrides them:\n${directives.join('\n')}`;
   }
