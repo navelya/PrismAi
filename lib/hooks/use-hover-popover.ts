@@ -9,10 +9,21 @@ interface HoverPopover {
     /** Imperative setter (e.g. close after an item is chosen). */
     setOpen: (open: boolean) => void;
     /**
-     * Spread onto the root element that wraps BOTH the trigger and the popover,
-     * so moving the cursor from the trigger into the popover keeps it open.
+     * Spread onto the element that wraps the trigger. Opens on enter, closes on
+     * leave after a grace window.
      */
     rootProps: {
+        ref: React.RefObject<HTMLDivElement>;
+        onMouseEnter: () => void;
+        onMouseLeave: () => void;
+    };
+    /**
+     * Spread onto the popover surface itself. Needed when the popover is
+     * PORTALED out of the root (so it's no longer a DOM descendant): keeps it
+     * open while hovered and counts as "inside" for outside-click. Harmless on
+     * an in-tree popover too.
+     */
+    popoverProps: {
         ref: React.RefObject<HTMLDivElement>;
         onMouseEnter: () => void;
         onMouseLeave: () => void;
@@ -23,15 +34,18 @@ interface HoverPopover {
 
 /**
  * Hover-to-open popover behavior shared by the chat composer's `+` and
- * Preferences menus. Opens on pointer enter of the root; closes on leave after a
- * short grace window so the cursor can travel from the trigger into the popover
- * without dismissing it. Click still toggles (the primary path on touch, where
- * mouseenter fires but the grace-close on leave is harmless). Also closes on
+ * Preferences menus. Opens on pointer enter; closes on leave after a short grace
+ * window so the cursor can travel from the trigger into the popover without
+ * dismissing it. Click still toggles (the primary path on touch). Closes on
  * outside pointer-down and Escape while open.
+ *
+ * Works whether the popover is rendered in-tree or portaled to the body — spread
+ * popoverProps on the surface so hover/outside-click account for it either way.
  */
 export function useHoverPopover(graceMs = 150): HoverPopover {
     const [open, setOpenState] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    const popoverRef = useRef<HTMLDivElement>(null);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const clearTimer = () => {
@@ -61,13 +75,14 @@ export function useHoverPopover(graceMs = 150): HoverPopover {
         setOpenState((o) => !o);
     }, []);
 
-    // Outside pointer-down + Escape close (matches the prior ChatPlusMenu logic).
+    // Outside pointer-down + Escape close. Treat BOTH the root and the (possibly
+    // portaled) popover as "inside".
     useEffect(() => {
         if (!open) return;
         const onPointer = (e: PointerEvent) => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-                setOpen(false);
-            }
+            const t = e.target as Node;
+            if (rootRef.current?.contains(t) || popoverRef.current?.contains(t)) return;
+            setOpen(false);
         };
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setOpen(false);
@@ -87,6 +102,7 @@ export function useHoverPopover(graceMs = 150): HoverPopover {
         open,
         setOpen,
         rootProps: { ref: rootRef, onMouseEnter, onMouseLeave },
+        popoverProps: { ref: popoverRef, onMouseEnter, onMouseLeave },
         toggle,
     };
 }

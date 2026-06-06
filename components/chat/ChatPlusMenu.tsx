@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Plus, Paperclip, Coins } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { Switch } from '@/components/ui/Switch';
@@ -36,7 +37,7 @@ function MenuIcon({ children }: { children: React.ReactNode }) {
  * explainer + limit config.
  */
 export function ChatPlusMenu({ onOpenImagePicker }: ChatPlusMenuProps) {
-    const { open, setOpen, rootProps, toggle } = useHoverPopover();
+    const { open, setOpen, rootProps, popoverProps, toggle } = useHoverPopover();
 
     const autoRunEnabled = useAppStore((s) => s.autoRunEnabled);
     const setAutoRunEnabled = useAppStore((s) => s.setAutoRunEnabled);
@@ -59,8 +60,16 @@ export function ChatPlusMenu({ onOpenImagePicker }: ChatPlusMenuProps) {
                 <Plus className="w-4 h-4 transition-transform" />
             </button>
 
+            <AnimatePresence>
             {open && (
-                <div className="popover-animate absolute bottom-full left-0 mb-2 w-60 p-1.5 rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 z-[100001]">
+                <motion.div
+                    {...popoverProps}
+                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    style={{ transformOrigin: 'bottom left' }}
+                    className="absolute bottom-full left-0 mb-2 w-60 p-1.5 rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 z-[100001]">
                     {/* Attach files — styled to match a Select option row. */}
                     <button
                         type="button"
@@ -100,8 +109,9 @@ export function ChatPlusMenu({ onOpenImagePicker }: ChatPlusMenuProps) {
                             onCheckedChange={handleToggle}
                         />
                     </div>
-                </div>
+                </motion.div>
             )}
+            </AnimatePresence>
         </div>
     );
 }
