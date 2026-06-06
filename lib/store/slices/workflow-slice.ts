@@ -46,6 +46,30 @@ function buildAutoLayerForEdge(
     };
 }
 
+/**
+ * The display title a compositor layer should adopt from its source node.
+ *
+ * A node's `data.label` is the factory default for AI generators ("AI
+ * Generator" / "AI Model") — the title the user actually SEES on the card is
+ * derived from the node type's `display_name` (e.g. "Generate speech"). The
+ * old layer naming used `data.label` directly, so audio/AI layers showed the
+ * generic factory label instead of the node's real title. Mirror the AI node
+ * component's `nodeTitle` logic here so a freshly-connected layer is named
+ * after what the user sees. Other node types keep using their label.
+ */
+function resolveSourceLayerTitle(sourceNode: any, nodeTypes: any[]): string {
+    const label = typeof sourceNode?.data?.label === 'string' ? sourceNode.data.label.trim() : '';
+    if (sourceNode?.type === 'ai_generator') {
+        const isDefaultFactoryLabel = label === '' || /^ai (generator|model)$/i.test(label);
+        if (isDefaultFactoryLabel) {
+            const nodeTypeId = sourceNode?.data?.config?.node_type_id;
+            const nt = nodeTypes.find((n) => n.id === nodeTypeId);
+            if (nt?.display_name) return nt.display_name;
+        }
+    }
+    return label || 'Layer';
+}
+
 const HISTORY_LIMIT = 50;
 
 export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice> = (set, get) => {
@@ -410,7 +434,7 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                 const sourceNode = currentWorkflow.nodes.find((n) => n.id === connection.source);
                 const newLayer = buildAutoLayerForEdge(
                     id,
-                    sourceNode?.data?.label || 'Layer',
+                    resolveSourceLayerTitle(sourceNode, get().nodeTypes || []),
                     cfg.canvasWidth || 1080,
                     cfg.canvasHeight || 1080
                 );

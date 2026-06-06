@@ -12,14 +12,17 @@ import { CompositorConfig, CompositorLayer, calculateInitialTransform, calculate
 import CompositorEditorModal from './ui/EditorModal';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './ui/Renderer';
+import CompositorAudio from './ui/CompositorAudio';
 import MiniTransport from './ui/MiniTransport';
 import { acquireVideo, releaseVideo } from './video-pool';
 import {
+    detectSourceKind,
     detectSourceKindFromUrl,
     computeTimelineDuration,
     GraphDescription,
     GraphLayer,
     GraphLayerSource,
+    LayerSourceKind,
     resolveCompositeBaseFill,
 } from './shared';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
@@ -270,6 +273,7 @@ function LivePreview({
     stageRef,
     onLayerImageLoad,
     onLayerVideoLoad,
+    onLayerAudioLoad,
     intrinsicDurations,
     playhead,
     isPlaying,
@@ -284,6 +288,7 @@ function LivePreview({
     stageRef: React.RefObject<any>;
     onLayerImageLoad?: (layerId: string, img: HTMLImageElement) => void;
     onLayerVideoLoad?: (layerId: string, meta: { duration: number; width: number; height: number }) => void;
+    onLayerAudioLoad?: (layerId: string, duration: number) => void;
     intrinsicDurations: Record<string, number | null>;
     /** External playhead control. Owner (the parent card) drives this; preview just renders. */
     playhead: number;
@@ -545,6 +550,17 @@ function LivePreview({
                     </Layer>
                 </Stage>
             )}
+            {/* Headless audio playback — audio layers have no Konva visual, so
+                they're driven imperatively here alongside (not inside) the
+                Stage. */}
+            <CompositorAudio
+                layers={renderable}
+                playhead={playhead}
+                isPlaying={isPlaying}
+                muted={muted}
+                intrinsicDurations={intrinsicDurations}
+                onAudioLoad={onLayerAudioLoad}
+            />
         </div>
     );
 }
@@ -688,6 +704,19 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         updateNodeConfig(id, { ...config, ...newConfig });
     }, [id, updateNodeConfig, config]);
 
+    // Per-layer source kind, kept in a ref so the auto-fit callback (which
+    // reads live store state, not `renderable`) can tell audio layers apart
+    // without taking them as a dep. Audio is excluded from the "first layer"
+    // canvas-fit decision because it has no dimensions.
+    const sourceKindByLayerIdRef = useRef<Record<string, LayerSourceKind>>({});
+    useEffect(() => {
+        const map: Record<string, LayerSourceKind> = {};
+        renderable.forEach(({ layer, resolved }) => {
+            map[layer.id] = detectSourceKind(resolved);
+        });
+        sourceKindByLayerIdRef.current = map;
+    }, [renderable]);
+
     /**
      * One-shot auto-fit when an image or video layer first reveals its
      * intrinsic dimensions. Two regimes:
@@ -718,7 +747,12 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         if (!layer || layer.transform.isAutoCentered) return;
         if (!intrinsicW || !intrinsicH) return;
 
-        const isFirstLayer = (liveConfig.layers?.length ?? 0) === 1;
+        // "First layer" = first VISUAL layer. Audio layers carry no dimensions
+        // and must not count, so a real image/video connected after an audio
+        // clip still fits the canvas as if it were the first.
+        const kinds = sourceKindByLayerIdRef.current;
+        const visualCount = (liveConfig.layers || []).filter((l) => kinds[l.id] !== 'audio').length;
+        const isFirstLayer = visualCount === 1;
         if (isFirstLayer) {
             const fit = calculateFirstLayerFitToCanvas(intrinsicW, intrinsicH);
             updateNodeConfig(id, {
@@ -793,6 +827,16 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         [handleLayerIntrinsicLoad],
     );
 
+    // Audio reports only a duration (no dimensions) — record it for timeline
+    // sizing but never run the canvas auto-fit (a 0×0 source would break it).
+    const handleLayerAudioLoad = useCallback((layerId: string, duration: number) => {
+        setIntrinsicDurations((prev) => {
+            const dur = duration || null;
+            if (prev[layerId] === dur) return prev;
+            return { ...prev, [layerId]: dur };
+        });
+    }, []);
+
     const setNodeOutput = useAppStore((state) => state.setNodeOutput);
 
     // Card-level playback state. The card preview is paused by default —
@@ -851,6 +895,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     // nothing) → null (broad polymorphic, "Media").
     const outputKind = useMemo<'image' | 'video' | null>(() => {
         let sawImage = false;
+        let sawAudio = false;
         for (const { resolved } of renderable) {
             if (resolved && typeof resolved === 'object' && (resolved as any).graph) {
                 return 'video';
@@ -863,13 +908,33 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
             const kind = detectSourceKindFromUrl(url);
             if (kind === 'video') return 'video';
             if (kind === 'image') sawImage = true;
+            if (kind === 'audio') sawAudio = true;
         }
+        // Any audio forces a video output — an mp4 is the only container that
+        // can carry the audio track (image+audio → video, audio-only → video).
+        if (sawAudio) return 'video';
         return sawImage ? 'image' : null;
     }, [renderable]);
 
     // Kept as a named alias for downstream readers (lightbox branch, live
     // canvas publish) that only care about the binary video/not question.
     const hasVideoLayer = outputKind === 'video';
+
+    // Audio is invisible (no outputKind) but still temporal: surface the
+    // transport when there's video OR audio so an audio-only / image+audio
+    // compositor is playable. Audio deliberately does NOT flip outputKind,
+    // publish a graph, or enable the (video-only) download button.
+    const hasAudioLayer = useMemo(() => {
+        for (const { resolved } of renderable) {
+            const url =
+                resolved && typeof resolved === 'object' && typeof (resolved as any).url === 'string'
+                    ? ((resolved as any).url as string)
+                    : null;
+            if (url && detectSourceKindFromUrl(url) === 'audio') return true;
+        }
+        return false;
+    }, [renderable]);
+    const hasTransport = hasVideoLayer || hasAudioLayer;
 
     const compositeBaseFill = useMemo(
         () => resolveCompositeBaseFill(config.backgroundColor, hasVideoLayer),
@@ -1389,6 +1454,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                 stageRef={stageRef}
                                 onLayerImageLoad={handleLayerImageLoad}
                                 onLayerVideoLoad={handleLayerVideoLoad}
+                                onLayerAudioLoad={handleLayerAudioLoad}
                                 intrinsicDurations={intrinsicDurations}
                                 playhead={cardPlayhead}
                                 isPlaying={cardIsPlaying}
@@ -1398,7 +1464,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                 muted={cardMuted}
                                 baseFill={compositeBaseFill}
                             />
-                            {hasVideoLayer && (
+                            {hasTransport && (
                                 <MiniTransport
                                     playhead={cardPlayhead}
                                     totalDuration={cardTotalDuration}

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, memo } from 'react';
 import { useUpdateNodeInternals } from 'reactflow';
-import { Zap, Check, Square, LayoutGrid, MoreHorizontal, Play, Coins, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Check, Square, LayoutGrid, MoreHorizontal, Play, Coins, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,7 @@ import GlassyLoader from '@/components/ui/GlassyLoader';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
 import BlurryVideo from '@/components/ui/BlurryVideo';
+import AudioPlayer from '@/components/ui/AudioPlayer';
 import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
 import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
@@ -785,22 +786,16 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
 
     if (type === 'audio' && (urls[0] || output?.url)) {
         const audioUrl = urls[0] || output?.url;
+        // Custom dark player that blends into the node's default framed card —
+        // no native white audio chrome, no extra tinted box, icon, or label
+        // (per request). The parent already draws the min-h-[200px] frosty card.
         return (
             <div
-                className="w-full p-6 bg-accent-primary/5 flex flex-col items-center justify-center gap-4"
+                className="w-full px-4 py-6 flex items-center justify-center min-h-[200px]"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
             >
-                <div className="w-16 h-16 rounded-full bg-accent-primary/20 flex items-center justify-center border border-accent-primary/30">
-                    <Zap className="w-8 h-8 text-accent-primary animate-pulse" />
-                </div>
-                <audio
-                    src={audioUrl}
-                    controls
-                    className="w-full h-8 accent-accent-primary"
-                    onMouseDown={(e) => e.stopPropagation()}
-                />
-                <span className="text-[9px] font-black uppercase tracking-widest text-accent-primary opacity-60">Audio Output</span>
+                <AudioPlayer src={audioUrl} />
             </div>
         );
     }

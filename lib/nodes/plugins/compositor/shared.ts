@@ -6,7 +6,7 @@
 
 import { CompositorLayer } from './definition';
 
-export type LayerSourceKind = 'image' | 'video' | 'text' | 'unknown';
+export type LayerSourceKind = 'image' | 'video' | 'audio' | 'text' | 'unknown';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Pull-model graph description
@@ -115,8 +115,10 @@ export function detectSourceKindFromUrl(url: string): LayerSourceKind {
     const normalized = url.toLowerCase();
     if (/\.(mp4|webm|mov|avi|mkv|m4v)(\?|$)/.test(normalized)) return 'video';
     if (/\.(png|jpe?g|webp|gif|bmp|svg|avif)(\?|$)/.test(normalized)) return 'image';
+    if (/\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba)(\?|$)/.test(normalized)) return 'audio';
     if (/^data:video/.test(normalized)) return 'video';
     if (/^data:image/.test(normalized)) return 'image';
+    if (/^data:audio/.test(normalized)) return 'audio';
     return 'unknown';
 }
 
@@ -141,7 +143,10 @@ export function getEffectiveDuration(
     if (typeof layer.duration === 'number' && layer.duration > 0) {
         return layer.duration;
     }
-    if (sourceKind === 'video' && intrinsicDuration && intrinsicDuration > 0) {
+    // Video AND audio know their own intrinsic length; an audio clip should
+    // span its real running time on the timeline rather than the image/text
+    // "full timeline" fallback.
+    if ((sourceKind === 'video' || sourceKind === 'audio') && intrinsicDuration && intrinsicDuration > 0) {
         return intrinsicDuration;
     }
     return Math.max(0.1, fallbackTimeline);
@@ -210,8 +215,8 @@ export function isLayerActiveAt(
     if (typeof layer.duration === 'number' && layer.duration > 0) {
         return t < start + layer.duration;
     }
-    // Video with known intrinsic length and no overridden duration
-    if (sourceKind === 'video' && intrinsicDuration && intrinsicDuration > 0) {
+    // Video/audio with known intrinsic length and no overridden duration
+    if ((sourceKind === 'video' || sourceKind === 'audio') && intrinsicDuration && intrinsicDuration > 0) {
         return t < start + intrinsicDuration;
     }
     // Image/text with null duration → always on after startTime
@@ -230,7 +235,10 @@ export function hasTemporalContent(
 ): boolean {
     for (const l of layers) {
         const kind = sourceKindByLayerId[l.id] ?? 'unknown';
-        if (kind === 'video') return true;
+        // Audio is temporal too — its presence forces the video render path so
+        // the output mp4 can carry an audio track (an image-only "still" output
+        // has no container for sound).
+        if (kind === 'video' || kind === 'audio') return true;
         if ((l.startTime || 0) > 0) return true;
         if (typeof l.duration === 'number' && l.duration > 0) return true;
     }

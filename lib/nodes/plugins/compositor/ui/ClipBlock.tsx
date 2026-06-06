@@ -210,6 +210,7 @@ const ClipBlock = memo(function ClipBlock({
 
     const colorClass =
         sourceKind === 'video' ? 'bg-rose-400/70 border-rose-300/40' :
+        sourceKind === 'audio' ? 'bg-violet-400/70 border-violet-300/40' :
         sourceKind === 'text' ? 'bg-emerald-400/60 border-emerald-300/40' :
         sourceKind === 'image' ? 'bg-sky-400/60 border-sky-300/40' :
         'bg-white/20 border-white/10';

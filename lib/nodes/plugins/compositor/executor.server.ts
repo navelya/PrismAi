@@ -155,11 +155,14 @@ async function renderTextLayerToBuffer(
  *   consumers accept it. This executor's emitted envelope (`image` vs
  *   `video`) matches that narrowing.
  *
+ *   Audio: the audio tracks of video layers AND dedicated audio layers are
+ *   mixed into the output (both the Run/workflow path and the Download route
+ *   pass includeAudio). Per-layer `muted` is honored; audio layers carry no
+ *   visual and are never overlaid.
+ *
  *   Known Stage 1 limitations on the temporal path:
  *     - Layer rotation, opacity, flip, blendMode, and crop are ignored on
  *       video output (these are still respected on still-composite output).
- *     - Audio is omitted from Stage 1 video output. amix scaffolding is
- *       planned for Stage 2 alongside per-layer muted/transition handling.
  *     - Server may exceed Vercel's 60s function budget for long timelines.
  */
 export const compositorExecutor = async (
@@ -361,7 +364,7 @@ interface ProcessedLayer {
 }
 
 export interface RenderCompositorVideoOptions {
-    /** Mix per-layer audio into the output. Workflow executor leaves this off; download route turns it on. */
+    /** Mix per-layer audio (video audio tracks + dedicated audio layers) into the output. Both the workflow Run path and the download route enable this. */
     includeAudio: boolean;
     /** libx264 CRF. Lower = higher quality + bigger file. Default 23 keeps parity with the workflow executor. */
     crf?: number;
@@ -421,7 +424,7 @@ export async function renderCompositorVideo(
             url: string | undefined;
             urlKind: LayerSourceKind;
             contentType?: string;
-            finalKind?: 'video' | 'image';
+            finalKind?: 'video' | 'image' | 'audio';
             skipped?: string;
         }> = [];
 
@@ -460,7 +463,7 @@ export async function renderCompositorVideo(
                 continue;
             }
 
-            let kind: 'video' | 'image' | 'text' | 'unknown' = detectSourceKindFromUrl(url);
+            let kind: LayerSourceKind = detectSourceKindFromUrl(url);
 
             // Content-Type fallback: when the URL doesn't carry a recognizable
             // extension (e.g. signed Supabase URLs, AI model proxy paths), do
@@ -468,15 +471,55 @@ export async function renderCompositorVideo(
             // image-but-no-extension URL was silently dropped here and never
             // overlaid into the final mp4.
             let contentType: string | undefined;
-            if (kind !== 'video' && kind !== 'image') {
+            if (kind !== 'video' && kind !== 'image' && kind !== 'audio') {
                 try {
                     const head = await fetch(url, { method: 'HEAD' });
                     contentType = head.headers.get('content-type') || undefined;
                     if (contentType?.startsWith('video/')) kind = 'video';
                     else if (contentType?.startsWith('image/')) kind = 'image';
+                    else if (contentType?.startsWith('audio/')) kind = 'audio';
                 } catch {
                     // HEAD failed — fall through; the GET below will still try.
                 }
+            }
+
+            // Audio layer: staged + probed like video, but it has no video
+            // stream — it's mixed into the output's audio track only, never
+            // overlaid into the visual graph.
+            if (kind === 'audio') {
+                const aext = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba)(\?|$)/i.exec(url)?.[1] || 'mp3';
+                const inputPath = path.join(tmpDir, `in_${i}.${aext}`);
+                try {
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const buf = Buffer.from(await resp.arrayBuffer());
+                    await fs.writeFile(inputPath, buf);
+                } catch (err) {
+                    layerDiagnostics.push({
+                        layerName: layer.name,
+                        url,
+                        urlKind: 'audio',
+                        contentType,
+                        skipped: `fetch-failed:${err instanceof Error ? err.message : 'unknown'}`,
+                    });
+                    continue;
+                }
+                const probe = await probeVideoStreams(ffmpeg, inputPath).catch(
+                    () => ({ duration: 0, hasAudio: false, width: 0, height: 0 }),
+                );
+                layerDiagnostics.push({ layerName: layer.name, url, urlKind: 'audio', contentType, finalKind: 'audio' });
+                processed.push({
+                    layer,
+                    inputPath,
+                    sourceKind: 'audio',
+                    intrinsicDuration: probe.duration,
+                    effectiveDuration: 0, // filled below once we know the timeline total
+                    startTime: Math.max(0, layer.startTime || 0),
+                    hasAudio: probe.hasAudio,
+                    intrinsicWidth: 0, // audio has no visual — never drives canvas fit
+                    intrinsicHeight: 0,
+                });
+                continue;
             }
 
             if (kind !== 'video' && kind !== 'image') {
@@ -580,12 +623,16 @@ export async function renderCompositorVideo(
         for (const p of processed) {
             if (typeof p.layer.duration === 'number' && p.layer.duration > 0) {
                 p.effectiveDuration = p.layer.duration;
-            } else if (p.sourceKind === 'video' && p.intrinsicDuration > 0) {
+            } else if ((p.sourceKind === 'video' || p.sourceKind === 'audio') && p.intrinsicDuration > 0) {
                 p.effectiveDuration = p.intrinsicDuration;
             } else {
                 p.effectiveDuration = Math.max(0.1, total - p.startTime);
             }
         }
+
+        // Visual layers (everything except audio) drive the canvas + overlay
+        // graph; audio layers are inputs for the audio mix only.
+        const visual = processed.filter((p) => p.sourceKind !== 'audio');
 
         // ── Server-side auto-fit (parity with the client's
         // calculateFirstLayerFitToCanvas) ──
@@ -602,8 +649,8 @@ export async function renderCompositorVideo(
         // `isAutoCentered === true` means the client/user already positioned it, so
         // the config is respected as-is and the Download path is unaffected.
         const fitTransform = new Map<string, { x: number; y: number; width: number; height: number }>();
-        if (processed.length === 1) {
-            const p = processed[0];
+        if (visual.length === 1) {
+            const p = visual[0];
             const tf = p.layer.transform || ({} as any);
             if (
                 (p.sourceKind === 'video' || p.sourceKind === 'image') &&
@@ -653,7 +700,12 @@ export async function renderCompositorVideo(
         const filters: string[] = [];
         filters.push(`color=c=black:s=${width}x${height}:r=${fps}:d=${total}[bg]`);
 
-        processed.forEach((p, idx) => {
+        // Only visual layers get a `[idx:v]` scale chain + overlay. The input
+        // index stays the GLOBAL `processed.indexOf(p)` so `[idx:v]` / `[idx:a]`
+        // line up with ffmpeg's input order (audio layers are still added as
+        // inputs below).
+        visual.forEach((p) => {
+            const idx = processed.indexOf(p);
             const { width: w, height: h } = effTransform(p);
             const eff = p.effectiveDuration;
             const startT = p.startTime;
@@ -666,7 +718,7 @@ export async function renderCompositorVideo(
         });
 
         let currentChain = 'bg';
-        const reversedOverlay = [...processed].reverse();
+        const reversedOverlay = [...visual].reverse();
         reversedOverlay.forEach((p, reverseIdx) => {
             const idx = processed.indexOf(p);
             const { x, y } = effTransform(p);
@@ -688,6 +740,10 @@ export async function renderCompositorVideo(
             currentChain = nextChain;
         });
 
+        // Audio-only timeline (no visual layers): the black [bg] canvas IS the
+        // video output, so map it directly.
+        const videoOut = reversedOverlay.length > 0 ? 'vout' : 'bg';
+
         // ── Build the audio mix (when requested + at least one audible video) ──
         // For each unmuted video layer with audio:
         //   [i:a]atrim=duration=eff,asetpts=PTS-STARTPTS,adelay=ms|ms|...|ms[A_i]
@@ -696,12 +752,12 @@ export async function renderCompositorVideo(
         // `:all=1` option because the static ffmpeg builds shipped by
         // @ffmpeg-installer don't all carry it ("Option not found").
         // Then amix together (or use the single chain directly when there's only one).
-        const outputMaps: string[] = ['vout'];
+        const outputMaps: string[] = [videoOut];
         let useAudio = false;
         if (options.includeAudio) {
             const audible = processed
                 .map((p, idx) => ({ p, idx }))
-                .filter(({ p }) => p.sourceKind === 'video' && p.hasAudio && !p.layer.muted);
+                .filter(({ p }) => (p.sourceKind === 'video' || p.sourceKind === 'audio') && p.hasAudio && !p.layer.muted);
 
             if (audible.length > 0) {
                 const audioLabels: string[] = [];
@@ -787,7 +843,9 @@ async function runTemporalRender(
 
     let outputBuffer: Buffer;
     try {
-        outputBuffer = await renderCompositorVideo(config, inputs, { includeAudio: false });
+        // Run/Workflow output now carries audio too (audio layers + the audio
+        // tracks of video layers), matching the Download path.
+        outputBuffer = await renderCompositorVideo(config, inputs, { includeAudio: true });
     } catch (err) {
         return {
             success: false,

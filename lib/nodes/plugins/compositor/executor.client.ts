@@ -143,16 +143,20 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
     // the server runs. Producing a still-frame composite per config change
     // means N parallel video downloads + seeks per drag commit. Skip and let
     // the server-side render populate nodeOutputs when the workflow executes.
-    const hasVideoLayer = layers.some((layer) => {
+    const hasTemporalLayer = layers.some((layer) => {
         const upstream = inputs[layer.sourceHandleId];
         if (!upstream) return false;
         const normalized = toLegacyRenderableOutput(upstream);
         const arr: ImageObject[] = Array.isArray(normalized) ? normalized : [normalized];
         const item = arr[layer.selectedIndex ?? 0] || arr[0];
         if (item && typeof item === 'object' && (item as any).graph) return true;
-        return !!(item?.url && detectSourceKindFromUrl(item.url) === 'video');
+        // Video AND audio are temporal: the server produces the real mp4 (with
+        // the audio track), and the component publishes a live graph envelope.
+        // Producing a still WebP here would shadow that, so bail.
+        const kind = item?.url ? detectSourceKindFromUrl(item.url) : 'unknown';
+        return kind === 'video' || kind === 'audio';
     });
-    if (hasVideoLayer) return null;
+    if (hasTemporalLayer) return null;
 
     const canvas = document.createElement('canvas');
     canvas.width = canvasWidth;
@@ -199,6 +203,11 @@ export const compositorClientExecutor: ClientExecutor<CompositorConfig> = async 
         if (!imageData?.url) continue;
 
         const kind = detectSourceKindFromUrl(imageData.url);
+
+        // Audio has no visual; it's played by CompositorAudio, never drawn into
+        // the still composite. Skip it (otherwise loadImage on an audio URL
+        // throws and spams the console every recompute).
+        if (kind === 'audio') continue;
 
         // Client preview is a still composite at timeline t=0. Skip videos
         // whose startTime > 0 — they aren't on screen yet at t=0. Images and

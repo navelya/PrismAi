@@ -254,7 +254,7 @@ const Timeline = memo(function Timeline({
                                     <span className="text-[11px] text-white/70 truncate flex-1 cursor-default select-none">
                                         {layer.name}
                                     </span>
-                                    {kind === 'video' && (
+                                    {(kind === 'video' || kind === 'audio') && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { muted: !layer.muted }); }}
                                             className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
@@ -321,9 +321,9 @@ const Timeline = memo(function Timeline({
                                 const eff = getEffectiveDuration(layer, kind, intrinsic, total);
                                 const isSelected = selectedLayerId === layer.id;
                                 // Cap right-edge resize at the source's available material.
-                                // Video: intrinsic length minus any trim-in. Image/text:
+                                // Video/audio: intrinsic length minus any trim-in. Image/text:
                                 // unbounded (null) — they can display for arbitrary durations.
-                                const maxDuration = kind === 'video' && intrinsic !== null
+                                const maxDuration = (kind === 'video' || kind === 'audio') && intrinsic !== null
                                     ? Math.max(0.1, intrinsic - (layer.trimIn || 0))
                                     : null;
                                 return (

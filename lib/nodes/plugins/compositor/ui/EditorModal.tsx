@@ -20,6 +20,7 @@ import { ToolbarButton } from '@/components/editor/canvas/CanvasToolbar';
 import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform, calculateFirstLayerFitToCanvas } from '../definition';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
+import CompositorAudio from './CompositorAudio';
 import Timeline from './Timeline';
 import { detectSourceKind, LayerSourceKind, computeTimelineDuration, layerAABB, rectsIntersect, resolveCompositeBaseFill } from '../shared';
 import { useInertBackground } from '@/lib/hooks/use-inert-background';
@@ -455,7 +456,12 @@ export default function CompositorEditorModal({
         const isPlaceholder = (t.width === 400 && t.height === 300) || (t.width === 600 && t.height === 200);
         if (!isPlaceholder) return;
 
-        const isFirstLayer = (cfg.layers?.length ?? 0) === 1;
+        // "First layer" = first VISUAL layer. Audio carries no dimensions and
+        // must not count, so an image/video connected after an audio clip still
+        // fits the canvas as if it were the first.
+        const kinds = sourceKindByLayerIdRef.current;
+        const visualCount = (cfg.layers || []).filter((l) => kinds[l.id] !== 'audio').length;
+        const isFirstLayer = visualCount === 1;
         if (isFirstLayer) {
             const fit = calculateFirstLayerFitToCanvas(intrinsicW, intrinsicH);
             updateNodeConfig(nodeId, {
@@ -592,6 +598,14 @@ export default function CompositorEditorModal({
         [applyIntrinsicFit],
     );
 
+    // Audio reports only a duration (no dimensions). Record it for timeline
+    // sizing but never auto-fit the canvas to it.
+    const handleLayerAudioLoad = useCallback((layerId: string, duration: number) => {
+        setIntrinsicDurations((prev) =>
+            prev[layerId] === duration ? prev : { ...prev, [layerId]: duration || null }
+        );
+    }, []);
+
     // Per-layer source kind derived from renderable.resolved; the timeline
     // and renderer both want this so we compute once.
     const sourceKindByLayerId = useMemo(() => {
@@ -601,6 +615,10 @@ export default function CompositorEditorModal({
         });
         return out;
     }, [renderable]);
+    // Ref mirror so applyIntrinsicFit (reads live store state, not renderable)
+    // can exclude audio layers from the first-visual-layer count.
+    const sourceKindByLayerIdRef = useRef(sourceKindByLayerId);
+    sourceKindByLayerIdRef.current = sourceKindByLayerId;
 
     const totalDuration = useMemo(
         () => computeTimelineDuration(layers, config.timelineDuration ?? null, intrinsicDurations),
@@ -614,6 +632,14 @@ export default function CompositorEditorModal({
         () => layers.some((l) => sourceKindByLayerId[l.id] === 'video'),
         [layers, sourceKindByLayerId],
     );
+
+    // Audio is temporal too — surface the timeline/transport when there's
+    // video OR audio so an audio-only composition is still playable/scrubbable.
+    const hasAudioLayer = useMemo(
+        () => layers.some((l) => sourceKindByLayerId[l.id] === 'audio'),
+        [layers, sourceKindByLayerId],
+    );
+    const hasTransport = hasVideoLayer || hasAudioLayer;
 
     const compositeBaseFill = resolveCompositeBaseFill(config.backgroundColor, hasVideoLayer);
 
@@ -1085,6 +1111,18 @@ export default function CompositorEditorModal({
                             </Layer>
                         </Stage>
 
+                        {/* Headless audio playback for audio layers (no Konva
+                            visual). Mounted beside the Stage; follows the
+                            editor's playhead/transport. */}
+                        <CompositorAudio
+                            layers={renderable}
+                            playhead={playhead}
+                            isPlaying={isPlaying}
+                            muted={audioMuted}
+                            intrinsicDurations={intrinsicDurations}
+                            onAudioLoad={handleLayerAudioLoad}
+                        />
+
                         {/* TOOLBOX */}
                         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl z-50">
                             <ToolbarButton icon={Undo2} onClick={localUndo} disabled={!canLocalUndo} title="Undo" />
@@ -1243,9 +1281,10 @@ export default function CompositorEditorModal({
                     </div>
                 </div>
 
-                {/* Timeline panel — only mounted when a video is on the canvas.
-                    Image/text-only compositions don't need a transport bar. */}
-                {hasVideoLayer && (
+                {/* Timeline panel — mounted when temporal content (video OR
+                    audio) is on the canvas. Image/text-only compositions don't
+                    need a transport bar. */}
+                {hasTransport && (
                     <div className="h-[260px] flex-shrink-0 border-t border-white/10">
                         <Timeline
                             layers={layers}

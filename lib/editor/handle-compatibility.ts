@@ -124,7 +124,9 @@ function resolveCompositorOutputKind(nodeId: string): 'image' | 'video' | null {
         // but have no URL until the server renders.
         if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
             const t = (candidate as any).type;
-            if (t === 'video') return 'video';
+            // Audio forces a video output — the compositor renders an mp4 so it
+            // can carry the audio track (there's no still container for sound).
+            if (t === 'video' || t === 'audio') return 'video';
             if (t === 'image') { sawImage = true; continue; }
         }
 
@@ -132,9 +134,10 @@ function resolveCompositorOutputKind(nodeId: string): 'image' | 'video' | null {
         if (!url) continue;
 
         if (url.startsWith('data:video/')) return 'video';
+        if (url.startsWith('data:audio/')) return 'video';
         if (url.startsWith('data:image/')) { sawImage = true; continue; }
         const detected = detectMediaTypeFromUrl(url);
-        if (detected === 'video') return 'video';
+        if (detected === 'video' || detected === 'audio') return 'video';
         if (detected === 'image') sawImage = true;
     }
     return sawImage ? 'image' : null;
