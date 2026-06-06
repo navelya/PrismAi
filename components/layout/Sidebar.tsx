@@ -3,7 +3,7 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, LayoutTemplate, Boxes, Settings, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown, PanelLeft } from 'lucide-react';
+import { MessageSquare, Pen, LayoutTemplate, Boxes, Settings, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown, PanelLeft, Coins, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
@@ -15,6 +15,11 @@ import { useLongPress } from '@/lib/hooks/use-long-press';
 import { MobileActionSheet, ActionItem } from '@/components/ui/MobileActionSheet';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { Logo } from '@/components/ui/Logo';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { useTokenBalance } from '@/lib/billing/use-balance';
+import { formatCredits } from '@/lib/billing/cost';
+import PlansModal from '@/components/billing/PlansModal';
 
 const navItems = [
     { name: 'New Chat', path: '/chat', icon: MessageSquare, desktopOnly: false },
@@ -39,6 +44,11 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
     const setSidebarExpanded = useAppStore((s) => s.setSidebarExpanded);
     const openAccountModal = useAppStore((s) => s.openAccountModal);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false);
+    // Credits readout + Upgrade entry point shown above the profile (docked rail
+    // and mobile drawer). Hidden in the floating/canvas variant — the editor
+    // toolbar already surfaces credits + Upgrade there.
+    const [showPlans, setShowPlans] = React.useState(false);
+    const { balance, loading: balanceLoading } = useTokenBalance();
     // Wraps the docked profile button + its flyout, so a click anywhere outside
     // (or Escape) closes the menu without covering the button itself.
     const profileMenuRef = React.useRef<HTMLDivElement>(null);
@@ -353,38 +363,59 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                     {/* Bottom Section - Fixed in Flex column */}
                     <div className="p-4 border-t border-stroke-subtle bg-surface-primary safe-area-bottom">
                         {user ? (
-                            <div className="flex items-center justify-between">
-                                <button
-                                    onClick={() => {
-                                        openAccountModal('profile');
-                                        onClose?.();
-                                    }}
-                                    className="flex items-center gap-3 min-w-0 flex-1 -m-1 p-1 rounded-lg hover:bg-interactive-hover transition-colors"
-                                    title="Account"
-                                >
-                                    <div className="relative group">
-                                        <UserAvatar
-                                            user={user}
-                                            className="w-10 h-10"
-                                            showStatus={Object.keys(user).length > 0}
-                                        />
-                                    </div>
-                                    <div className="min-w-0 text-left">
-                                        <p className="text-sm font-semibold text-content-primary truncate max-w-[120px]">
-                                            {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
-                                        </p>
-                                        <p className="text-xs text-content-tertiary truncate max-w-[120px]">
-                                            {user.email}
-                                        </p>
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={handleLogout}
-                                    className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0"
-                                    title="Sign out"
-                                >
-                                    <LogOut className="w-5 h-5" />
-                                </button>
+                            <div className="space-y-3">
+                                {/* Credits + Upgrade, above the profile row. */}
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setShowPlans(true)}
+                                        className="flex items-center gap-2 flex-1 min-w-0 px-3 py-2 rounded-xl bg-surface-tertiary hover:bg-interactive-hover transition-colors text-content-primary"
+                                    >
+                                        <Coins className="w-5 h-5 text-accent-primary flex-shrink-0" />
+                                        {balanceLoading
+                                            ? <Skeleton className="h-4 w-12" />
+                                            : <span className="text-sm font-semibold tabular-nums truncate">{formatCredits(balance)}</span>}
+                                    </button>
+                                    <button
+                                        onClick={() => setShowPlans(true)}
+                                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-accent-primary bg-accent-primary/10 hover:bg-accent-primary/20 transition-colors flex-shrink-0"
+                                    >
+                                        <Sparkles className="w-4 h-4" />
+                                        Upgrade
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <button
+                                        onClick={() => {
+                                            openAccountModal('profile');
+                                            onClose?.();
+                                        }}
+                                        className="flex items-center gap-3 min-w-0 flex-1 -m-1 p-1 rounded-lg hover:bg-interactive-hover transition-colors"
+                                        title="Account"
+                                    >
+                                        <div className="relative group">
+                                            <UserAvatar
+                                                user={user}
+                                                className="w-10 h-10"
+                                                showStatus={Object.keys(user).length > 0}
+                                            />
+                                        </div>
+                                        <div className="min-w-0 text-left">
+                                            <p className="text-sm font-semibold text-content-primary truncate max-w-[120px]">
+                                                {user.user_metadata?.display_name || user.user_metadata?.full_name || 'User'}
+                                            </p>
+                                            <p className="text-xs text-content-tertiary truncate max-w-[120px]">
+                                                {user.email}
+                                            </p>
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="p-2 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0"
+                                        title="Sign out"
+                                    >
+                                        <LogOut className="w-5 h-5" />
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <Link
@@ -407,6 +438,8 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                         confirmText="Delete"
                         variant="danger"
                     />
+
+                    <PlansModal isOpen={showPlans} onClose={() => setShowPlans(false)} />
                 </div>
             </>
         );
@@ -533,7 +566,10 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                             </span>
 
                                             {!isExpanded && (
-                                                <div className="absolute left-full ml-2 px-2 py-1 bg-content-primary text-surface-primary text-xs rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-[100] shadow-lg">
+                                                // Zooms + fades in on hover and reverses on leave
+                                                // (origin-left so it grows out of the rail edge),
+                                                // matching the Radix tooltip's zoom-95 feel.
+                                                <div className="absolute left-full ml-2 px-2 py-1 bg-content-primary text-surface-primary text-xs rounded-lg pointer-events-none whitespace-nowrap z-[100] shadow-lg origin-left scale-95 opacity-0 transition-all duration-150 ease-out group-hover:scale-100 group-hover:opacity-100">
                                                     {item.name}
                                                 </div>
                                             )}
@@ -580,6 +616,61 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                         </div>
                     )}
                 </div>
+
+                {/* Credits + Upgrade — sits directly above the profile. Collapsed:
+                    two icon buttons on the shared 28px centerline, each with a
+                    zoom tooltip (the count / "Upgrade"). Expanded: an inline
+                    count + an Upgrade pill. Both open the Plans modal. */}
+                {user && (
+                    <div className="border-t border-stroke-subtle/50 px-2 py-1.5">
+                        {isExpanded ? (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setShowPlans(true)}
+                                    className="flex items-center gap-1.5 min-w-0 flex-1 h-9 px-2 rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
+                                    title="Credits"
+                                >
+                                    <Coins className="w-[18px] h-[18px] text-accent-primary flex-shrink-0" />
+                                    {balanceLoading
+                                        ? <Skeleton className="h-4 w-10" />
+                                        : <span className="text-[13px] font-semibold tabular-nums truncate">{formatCredits(balance)}</span>}
+                                </button>
+                                <button
+                                    onClick={() => setShowPlans(true)}
+                                    className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-semibold text-accent-primary bg-accent-primary/10 hover:bg-accent-primary/20 transition-colors flex-shrink-0"
+                                >
+                                    <Sparkles className="w-4 h-4" />
+                                    Upgrade
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-0.5">
+                                <Tooltip content={balanceLoading ? 'Credits' : `${formatCredits(balance)} credits`} position="right">
+                                    <button
+                                        onClick={() => setShowPlans(true)}
+                                        className="flex items-center h-9 rounded-lg text-content-primary hover:bg-interactive-hover transition-colors"
+                                        aria-label="Credits"
+                                    >
+                                        <span className="w-10 flex items-center justify-center flex-shrink-0">
+                                            <Coins className="w-[18px] h-[18px] text-accent-primary" />
+                                        </span>
+                                    </button>
+                                </Tooltip>
+                                <Tooltip content="Upgrade" position="right">
+                                    <button
+                                        onClick={() => setShowPlans(true)}
+                                        className="flex items-center h-9 rounded-lg text-accent-primary hover:bg-interactive-hover transition-colors"
+                                        aria-label="Upgrade"
+                                    >
+                                        <span className="w-10 flex items-center justify-center flex-shrink-0">
+                                            <Sparkles className="w-[18px] h-[18px]" />
+                                        </span>
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Profile (authenticated) / skeleton */}
                 <div className="border-t border-stroke-subtle relative">
@@ -695,6 +786,8 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                     confirmText="Delete"
                     variant="danger"
                 />
+
+                <PlansModal isOpen={showPlans} onClose={() => setShowPlans(false)} />
             </div>
         );
     }
