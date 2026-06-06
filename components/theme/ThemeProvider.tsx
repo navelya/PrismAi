@@ -75,6 +75,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
                     useAppStore.getState().setAutoRunEnabled(
                         (userData.profile?.preferences as any)?.autoRunEnabled !== false
                     );
+                    // Standing chat-composer preferences. Merge the stored object
+                    // over the all-'auto' default so a missing/partial blob is safe
+                    // (legacy profiles have no chatPreferences key at all).
+                    const storedChatPrefs = (userData.profile?.preferences as any)?.chatPreferences;
+                    if (storedChatPrefs && typeof storedChatPrefs === 'object') {
+                        const { DEFAULT_CHAT_PREFERENCES } = await import('@/lib/store/types');
+                        useAppStore.setState({
+                            chatPreferences: { ...DEFAULT_CHAT_PREFERENCES, ...storedChatPrefs },
+                        });
+                    }
                 }
             } catch (err) {
                 // Not logged in or error

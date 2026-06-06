@@ -10,6 +10,7 @@ import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { expandSelectionForChat } from '@/lib/utils/selection-refs';
 import { extractRenderableMedia } from '@/lib/workflow/result-format';
 import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
+import { buildPreferencesPayload } from '@/lib/chat/preferences';
 
 
 async function persistRunProposal(messageId: string) {
@@ -454,6 +455,13 @@ export function useChatMessages({
                     assistantMessageId: assistantMsgId,
                     nodeRefs: nodeRefs.length > 0 ? nodeRefs : undefined,
                     mentionedCharacterIds: mentionedCharacterIds && mentionedCharacterIds.length > 0 ? mentionedCharacterIds : undefined,
+                    // Standing composer preferences (non-Auto only). The store
+                    // value is the source of truth; resolve model ids to
+                    // {id, display_name} here so the server need not re-look-up.
+                    preferences: buildPreferencesPayload(
+                        useAppStore.getState().chatPreferences,
+                        useAppStore.getState().models as any,
+                    ) ?? undefined,
                 }),
             });
 

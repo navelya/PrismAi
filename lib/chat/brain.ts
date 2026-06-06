@@ -39,6 +39,10 @@ export interface BrainInput {
    *  DB. Threaded to the tool layer for node hydration and to the system
    *  prompt for wiring instructions. */
   characterRefs?: import('@/lib/utils/character-refs').CharacterSnapshot[];
+  /** Standing composer preferences (non-Auto only) the user set in the chat
+   *  Preferences panel. Surfaced to the model as a dynamic system block; Auto
+   *  settings are absent so behavior is unchanged for them. */
+  preferences?: import('./preferences').ChatPreferencesPayload | null;
   /** Tool set for this pass. Defaults to TOOLS (full set). The fast lane
    *  passes FAST_LANE_TOOLS (no propose_plan, plus escalate). */
   tools?: AnthropicTool[];
@@ -95,6 +99,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     attachedImageUrls: input.attachedImageUrls ?? [],
     nodeRefs: input.nodeRefs ?? [],
     characterRefs: input.characterRefs ?? [],
+    preferences: input.preferences ?? null,
   });
 
   let finalText = '';

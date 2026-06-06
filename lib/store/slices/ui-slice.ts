@@ -1,5 +1,5 @@
 import { StateCreator } from 'zustand';
-import { RootState, UISlice } from '../types';
+import { RootState, UISlice, DEFAULT_CHAT_PREFERENCES } from '../types';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 
 export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get) => ({
@@ -45,6 +45,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     runPreconfirmed: false,
     maxAutoRunCredits: 10,
     autoRunEnabled: true,
+    chatPreferences: { ...DEFAULT_CHAT_PREFERENCES },
     hasSeenAutoRunIntro: false,
     autoRunIntro: null,
     autoRunConfigOpen: false,
@@ -339,6 +340,10 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
     clearRunFromNode: () => set({ runFromNodeId: null, runMode: null, runSelectionIds: null, runPreconfirmed: false }),
     setMaxAutoRunCredits: (n) => set({ maxAutoRunCredits: Number.isFinite(n) && n >= 0 ? n : 0 }),
     setAutoRunEnabled: (v) => set({ autoRunEnabled: !!v }),
+    setChatPreference: (key, value) =>
+        set((state) => ({
+            chatPreferences: { ...state.chatPreferences, [key]: value || 'auto' },
+        })),
     setHasSeenAutoRunIntro: (v) => set({ hasSeenAutoRunIntro: v }),
     openAutoRunIntro: (payload) => set({ autoRunIntro: payload }),
     closeAutoRunIntro: () => set({ autoRunIntro: null }),

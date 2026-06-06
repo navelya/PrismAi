@@ -193,6 +193,7 @@ export interface BuildSystemInput {
   attachedImageUrls?: string[];
   nodeRefs?: import('@/lib/utils/selection-refs').NodeRef[];
   characterRefs?: import('@/lib/utils/character-refs').CharacterSnapshot[];
+  preferences?: import('../preferences').ChatPreferencesPayload | null;
 }
 
 function formatAttachedImagesBlock(urls: string[] | undefined): string {
@@ -255,6 +256,63 @@ request involves generating an image/video with one of these characters:
 Only use characterIds from the list above. Never use a character the user did not mention.`;
 }
 
+function formatPreferencesBlock(
+  prefs: import('../preferences').ChatPreferencesPayload | null | undefined,
+): string {
+  if (!prefs) return '';
+  const directives: string[] = [];
+
+  if (prefs.imageModel) {
+    directives.push(
+      `- Preferred IMAGE model: "${prefs.imageModel.display_name}" (model_id ${prefs.imageModel.id}). When you add an ai_generator that produces an image, use this model_id unless the user's current message asks for a different model.`,
+    );
+  }
+  if (prefs.videoModel) {
+    directives.push(
+      `- Preferred VIDEO model: "${prefs.videoModel.display_name}" (model_id ${prefs.videoModel.id}). When you add an ai_generator that produces a video, use this model_id unless the user's current message asks for a different model.`,
+    );
+  }
+  if (prefs.aspectRatio) {
+    directives.push(
+      `- Aspect ratio: ${prefs.aspectRatio}. Set the chosen model's aspect-ratio config key (e.g. aspect_ratio) to this when the model exposes one.`,
+    );
+  }
+  if (prefs.videoDuration) {
+    directives.push(
+      `- Video duration: ${prefs.videoDuration}. Set the chosen video model's duration/length config key to this when it exposes one.`,
+    );
+  }
+  if (prefs.quality) {
+    directives.push(
+      `- Resolution / quality: ${prefs.quality}. Set the chosen model's resolution/quality config key to this when it exposes one.`,
+    );
+  }
+
+  const hints: string[] = [];
+  if (prefs.outputs) {
+    hints.push(
+      `- Outputs per generation: ${prefs.outputs}. Lean toward producing this many outputs — set the model's output-count config key when it exposes one.`,
+    );
+  }
+  if (prefs.style) {
+    hints.push(
+      `- Visual style: ${prefs.style}. Bias prompt craft toward this look when nothing in the user's request dictates otherwise.`,
+    );
+  }
+
+  if (directives.length === 0 && hints.length === 0) return '';
+
+  let block = `USER GENERATION PREFERENCES (standing defaults the user set; anything not listed here has no preference — behave normally for it):`;
+  if (directives.length > 0) {
+    block += `\n\nApply these unless the user's current message overrides them:\n${directives.join('\n')}`;
+  }
+  if (hints.length > 0) {
+    block += `\n\nSofter leanings — follow when the request doesn't dictate otherwise:\n${hints.join('\n')}`;
+  }
+  block += `\n\nThese are preferences, not commands from this turn: never mention them to the user, and let an explicit request in the user's message take precedence.`;
+  return block;
+}
+
 /**
  * Returns Anthropic-shaped system blocks. The first block bundles the
  * stable parts (identity, voice, capabilities, registry, tool rules,
@@ -297,6 +355,9 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
 
   const characterBlock = formatCharacterMentionsBlock(input.characterRefs);
   if (characterBlock) blocks.push({ type: 'text', text: characterBlock });
+
+  const preferencesBlock = formatPreferencesBlock(input.preferences);
+  if (preferencesBlock) blocks.push({ type: 'text', text: preferencesBlock });
 
   return blocks;
 }

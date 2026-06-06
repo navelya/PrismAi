@@ -4,6 +4,32 @@ export type { NodeStatus };
 
 export type RunProposalStatus = 'ready' | 'running' | 'done' | 'failed' | 'superseded';
 
+/**
+ * Standing chat-composer preferences. Each value is either a concrete choice or
+ * the sentinel `'auto'` (no preference). Model keys hold the AiModel id as a
+ * string. See UISlice.chatPreferences for lifecycle/persistence.
+ */
+export interface ChatPreferences {
+    imageModelId: string;   // AiModel id (stringified) or 'auto'
+    videoModelId: string;   // AiModel id (stringified) or 'auto'
+    aspectRatio: string;    // '1:1' | '16:9' | '9:16' | '4:3' | '3:4' | '21:9' | 'auto'
+    videoDuration: string;  // '5s' | '10s' | '15s' | 'auto'
+    quality: string;        // '480p' | '720p' | '1080p' | 'auto'
+    outputs: string;        // '1' | '2' | '4' | 'auto'
+    style: string;          // 'Photorealistic' | 'Cinematic' | 'Illustration' | 'Anime' | '3D' | 'auto'
+}
+
+/** All-'auto' default — no preferences set. */
+export const DEFAULT_CHAT_PREFERENCES: ChatPreferences = {
+    imageModelId: 'auto',
+    videoModelId: 'auto',
+    aspectRatio: 'auto',
+    videoDuration: 'auto',
+    quality: 'auto',
+    outputs: 'auto',
+    style: 'auto',
+};
+
 // Message interface
 export interface Message {
     id: string;
@@ -440,6 +466,17 @@ export interface UISlice {
      */
     autoRunEnabled: boolean;
     setAutoRunEnabled: (v: boolean) => void;
+    /**
+     * Standing composer preferences the user sets from the chat Preferences
+     * panel. Every key defaults to 'auto' (no preference). Non-auto values are
+     * shown as removable chips above the composer and sent to the chat brain as
+     * a dynamic system block; 'auto' keys are omitted entirely so the brain
+     * behaves exactly as it does today for those. Persisted across sessions via
+     * profiles.preferences.chatPreferences (hydrated in ThemeProvider) and the
+     * localStorage persist slice for a warm rehydrate.
+     */
+    chatPreferences: ChatPreferences;
+    setChatPreference: (key: keyof ChatPreferences, value: string) => void;
     /**
      * Whether the user has seen the one-time auto-run intro modal. Sourced from
      * profiles.preferences.seenAutoRunIntro (once-per-user across devices),

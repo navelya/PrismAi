@@ -12,12 +12,47 @@ import { sanitizeMentionedCharacterIds, type CharacterSnapshot } from '@/lib/uti
 import { getAuthenticatedUser } from '@/lib/api/auth';
 import { createAutoVersion } from '@/lib/db/versions';
 import { FAST_LANE_TOOLS } from '@/lib/chat/tools/definitions';
+import type { ChatPreferencesPayload } from '@/lib/chat/preferences';
 
 // Switched from 'edge' to 'nodejs' because @anthropic-ai/sdk imports
 // node:fs transitively, which Edge runtime cannot bundle.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
+
+/**
+ * Defensive parse of the client-supplied generation preferences. Only known
+ * keys survive; strings are length-capped; model entries must carry a numeric
+ * id + string display_name. Returns null when nothing usable remains, so a
+ * malformed body degrades to "no preferences" rather than erroring the turn.
+ */
+function parsePreferences(raw: any): ChatPreferencesPayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const out: ChatPreferencesPayload = {};
+  const str = (v: any): string | undefined =>
+    typeof v === 'string' && v.trim().length > 0 ? v.slice(0, 64) : undefined;
+  const model = (v: any) =>
+    v && typeof v === 'object' && typeof v.id === 'number' && typeof v.display_name === 'string'
+      ? { id: v.id, display_name: v.display_name.slice(0, 120) }
+      : undefined;
+
+  const im = model(raw.imageModel);
+  if (im) out.imageModel = im;
+  const vm = model(raw.videoModel);
+  if (vm) out.videoModel = vm;
+  const ar = str(raw.aspectRatio);
+  if (ar) out.aspectRatio = ar;
+  const vd = str(raw.videoDuration);
+  if (vd) out.videoDuration = vd;
+  const q = str(raw.quality);
+  if (q) out.quality = q;
+  const o = str(raw.outputs);
+  if (o) out.outputs = o;
+  const s = str(raw.style);
+  if (s) out.style = s;
+
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 function parseImageAttachments(raw: any): ImageAttachment[] {
   if (!Array.isArray(raw)) return [];
@@ -495,6 +530,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
     .slice(-8);
 
   const images = parseImageAttachments(attachedImages);
+  const preferences = parsePreferences(body?.preferences);
 
   // Upload attached images to storage so the model can reference stable URLs.
   // `attachedImageUrls` (full public URLs) feed the brain; `attachedImagePaths`
@@ -587,6 +623,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           attachedImageUrls,
           nodeRefs,
           characterRefs,
+          preferences,
         };
 
         let result;

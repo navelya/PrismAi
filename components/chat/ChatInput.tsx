@@ -19,6 +19,8 @@ import {
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { ChatPlusMenu } from './ChatPlusMenu';
+import { ChatPreferencesMenu } from './ChatPreferencesMenu';
+import { ChatPreferenceChips } from './ChatPreferenceChips';
 import { SelectionPillRow } from './SelectionPillRow';
 import { useCharacters } from '@/lib/hooks/use-characters';
 import CharacterMentionPicker, { buildMentionResults, extractMentionedCharacters } from './CharacterMentionPicker';
@@ -275,6 +277,11 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         changes WITHOUT re-rendering ChatInput or the conversation. */}
                     <SelectionPillRow />
 
+                    {/* Removable pills for the user's non-Auto generation
+                        preferences. Also a self-subscribing leaf — a preference
+                        change re-renders only this row. */}
+                    <ChatPreferenceChips />
+
                     {mentionQuery !== null && (
                         <CharacterMentionPicker
                             own={characters}
@@ -418,9 +425,10 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                                     ${isMultiLine || attachedImages.length > 0 || isCanvasMode ? '' : 'pt-2'}
                                     ${isViewer ? 'opacity-40 pointer-events-none' : ''}`}
                     >
-                        {/* Left: attachment (+) menu — Files action + auto-run slider */}
+                        {/* Left: attachment (+) menu + generation preferences */}
                         <div className="flex items-center gap-1 z-10">
                             <ChatPlusMenu onOpenImagePicker={onOpenImagePicker} />
+                            <ChatPreferencesMenu />
                         </div>
 
                         {/* Right: voice + send/stop */}
