@@ -111,14 +111,70 @@ function sample<T>(arr: T[], n: number): T[] {
 }
 
 /**
+ * The welcome heading, typed out on enter. The name is revealed in a delicate
+ * accent-gradient with a soft glow; a thin caret blinks while typing and fades
+ * once it's done. Honors prefers-reduced-motion by showing the full line at
+ * once. `aria-label` carries the full text so screen readers don't hear it
+ * letter-by-letter.
+ */
+function TypewriterGreeting({ firstName, className }: { firstName: string; className?: string }) {
+    const prefix = firstName ? 'Welcome, ' : 'Welcome to Prisfol';
+    const name = firstName || '';
+    const full = prefix + name;
+    const [count, setCount] = useState(0);
+
+    useEffect(() => {
+        const reduce = typeof window !== 'undefined'
+            && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (reduce) { setCount(full.length); return; }
+        setCount(0);
+        let i = 0;
+        const id = setInterval(() => {
+            i += 1;
+            setCount(i);
+            if (i >= full.length) clearInterval(id);
+        }, 55);
+        return () => clearInterval(id);
+    }, [full]);
+
+    const prefixShown = prefix.slice(0, Math.min(count, prefix.length));
+    const nameShown = count > prefix.length ? name.slice(0, count - prefix.length) : '';
+    const done = count >= full.length;
+
+    return (
+        <h1
+            aria-label={full}
+            className={`font-sans normal-case font-bold tracking-tight text-content-primary ${className ?? ''}`}
+        >
+            <span aria-hidden>
+                {prefixShown}
+                {nameShown && (
+                    <span
+                        className="bg-gradient-to-r from-accent-primary to-accent-secondary bg-clip-text text-transparent"
+                        style={{ filter: 'drop-shadow(0 0 10px rgb(var(--accent-primary) / 0.35))' }}
+                    >
+                        {nameShown}
+                    </span>
+                )}
+                <span
+                    aria-hidden
+                    className={`inline-block w-[2px] h-[0.92em] translate-y-[0.1em] ml-1 rounded-full bg-accent-primary align-middle transition-opacity duration-500 ${done ? 'opacity-0' : 'opacity-80 animate-pulse'}`}
+                />
+            </span>
+        </h1>
+    );
+}
+
+/**
  * Entry point to the template gallery. The "Browse templates" pill opens
  * /templates on click; hovering it reveals a popover of 4 RANDOM templates
  * (re-rolled each time it opens) with thumbnail + description, each selectable
  * — clicking one opens the same preview modal the gallery uses.
  *
- * Hover stays alive across the button→popover trip via (a) a `pb-2` bridge so
- * there's no dead gap between them and (b) a short close delay on mouse-leave,
- * so the popover no longer vanishes the instant the cursor leaves the button.
+ * The popover is portaled to <body> (fixed positioning, centered under the
+ * button) so it can open downward without the welcome area's overflow clipping
+ * it; hover stays alive across the gap via a close delay plus mouse handlers on
+ * the portaled panel.
  */
 function TemplatesAffordance() {
     const router = useRouter();
@@ -343,11 +399,10 @@ export function ChatEmptyState({
                     <div className="min-h-full flex flex-col items-center justify-center px-6 py-10">
                         <div className="w-full max-w-2xl">
                             {/* Greeting — softened off the global all-caps/black
-                                heading style for a warmer, friendlier tone. */}
+                                heading style, typed out on enter with the name in
+                                a delicate accent gradient. */}
                             <div className="text-center mb-8 chat-text-fade-in">
-                                <h1 className="font-sans normal-case font-semibold tracking-tight text-[28px] sm:text-[32px] text-content-primary">
-                                    {firstName ? `Welcome, ${firstName}` : 'Welcome to Prisfol'}
-                                </h1>
+                                <TypewriterGreeting firstName={firstName} className="text-[28px] sm:text-[32px]" />
                                 <p className="text-content-secondary mt-2 max-w-md mx-auto">
                                     Pick a starting point below — or just describe what you want in the composer.
                                 </p>
@@ -432,9 +487,7 @@ export function ChatEmptyState({
             <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-5 py-8">
                 <div className="w-full max-w-sm">
                     <div className="text-center mb-6">
-                        <h1 className="font-sans normal-case font-semibold tracking-tight text-2xl text-content-primary">
-                            {firstName ? `Welcome, ${firstName}` : 'Welcome to Prisfol'}
-                        </h1>
+                        <TypewriterGreeting firstName={firstName} className="text-2xl" />
                         <p className="text-content-secondary text-sm mt-1.5">
                             Pick a starting point, or describe what you want below.
                         </p>
