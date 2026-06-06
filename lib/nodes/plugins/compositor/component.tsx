@@ -953,6 +953,8 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 outputKind === 'video' ? 'rgb(139, 92, 246)'
                 : outputKind === 'image' ? 'rgb(59, 130, 246)'
                 : '#f8fafc',
+            // `type` drives the handle's type icon; narrowed kind when known.
+            type: (outputKind === 'video' || outputKind === 'image' ? outputKind : ['image', 'video']) as string | string[],
         }],
         [outputKind],
     );

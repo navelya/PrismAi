@@ -93,7 +93,9 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         controls.forEach((ctrl: any) => {
             const val = control_values?.[ctrl.api_mapping_key] ?? ctrl.default_value;
-            if (val !== undefined && val !== '') {
+            // null is treated the same as undefined/'' — an auto/random seed resolves to
+            // null and must be omitted so the model randomizes. Sending null is never intended.
+            if (val !== undefined && val !== '' && val !== null) {
                 replicateInputs[ctrl.api_mapping_key] = val;
             }
         });

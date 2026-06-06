@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Switch } from '@/components/ui/Switch';
 import { parseReplicateSchema, formatDisplayName } from '@/lib/utils/schema-parser';
 import AIGeneratorProperties from '@/lib/nodes/plugins/ai_generator/properties';
-import { Control } from '@/lib/nodes/types';
+import { Control, isSeedControl } from '@/lib/nodes/types';
 
 // =============================================================================
 // UI COMPONENTS
@@ -359,6 +359,8 @@ export function ModelForm({
 
     const normalizeDefaultForComponent = (ctrl: Control, nextComponent: Control['component']) => {
         const currentValue = ctrl.default_value;
+        // Seed keeps its auto (null) / pinned (number) value regardless of component type.
+        if (isSeedControl(ctrl)) return currentValue ?? null;
         const normalizedType = (ctrl.type || '').toLowerCase();
         const isSelect = nextComponent === 'select' || nextComponent === 'aspect_ratio' || nextComponent === 'resolution' || nextComponent === 'format';
         const isBoolean = nextComponent === 'checkbox' || nextComponent === 'reverse' || normalizedType === 'boolean';
@@ -660,7 +662,41 @@ export function ModelForm({
                                     </div>
                                 )}
 
-                                {isNumericControl(ctrl) && !isBooleanControl(ctrl) && (() => {
+                                {isSeedControl(ctrl) && (() => {
+                                    const isAuto = ctrl.default_value === null || ctrl.default_value === undefined || ctrl.default_value === '';
+                                    const step = ctrl.step ?? 1;
+                                    const numericDefault = Number.isFinite(Number(ctrl.default_value)) ? Number(ctrl.default_value) : (ctrl.min ?? 0);
+                                    return (
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
+                                                <div>
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-content-tertiary">Auto (random seed)</p>
+                                                    <p className="text-[9px] text-content-tertiary/60 mt-1 leading-snug">On = sent empty, randomized every run. Turn off to pin a default seed.</p>
+                                                </div>
+                                                <Switch
+                                                    checked={isAuto}
+                                                    onCheckedChange={(checked) => setControlPatch(ctrl.id, { default_value: checked ? null : (ctrl.min ?? 0) })}
+                                                    label={isAuto ? 'Auto' : 'Fixed'}
+                                                />
+                                            </div>
+                                            {!isAuto && (
+                                                <NumberInput
+                                                    label="Default Seed"
+                                                    min={ctrl.min}
+                                                    max={ctrl.max}
+                                                    step={step}
+                                                    value={numericDefault}
+                                                    onChange={e => {
+                                                        const val = Number(e.target.value);
+                                                        setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? val : (ctrl.min ?? 0) });
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+
+                                {isNumericControl(ctrl) && !isBooleanControl(ctrl) && !isSeedControl(ctrl) && (() => {
                                     const step = ctrl.step ?? (normalizedControlType(ctrl) === 'integer' ? 1 : 0.01);
                                     const fallback = ctrl.min ?? 0;
                                     const current = Number.isFinite(Number(ctrl.default_value)) ? Number(ctrl.default_value) : fallback;
@@ -776,7 +812,7 @@ export function ModelForm({
                                     );
                                 })()}
 
-                                {isSelectControl(ctrl) && !isBooleanControl(ctrl) && !isNumericControl(ctrl) && (
+                                {isSelectControl(ctrl) && !isBooleanControl(ctrl) && !isNumericControl(ctrl) && !isSeedControl(ctrl) && (
                                     Array.isArray(ctrl.options) && ctrl.options.length > 0 ? (
                                         <Select
                                             label="Default Value"
@@ -799,7 +835,7 @@ export function ModelForm({
                                     )
                                 )}
 
-                                {!isBooleanControl(ctrl) && !isNumericControl(ctrl) && !isSelectControl(ctrl) && !isJsonControl(ctrl) && (
+                                {!isBooleanControl(ctrl) && !isNumericControl(ctrl) && !isSelectControl(ctrl) && !isJsonControl(ctrl) && !isSeedControl(ctrl) && (
                                     (ctrl.component === 'textarea' || ctrl.component === 'prompt_textarea' || ctrl.component === 'negative_prompt') ? (
                                         <Textarea
                                             label="Default Value"

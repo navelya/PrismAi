@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { useUpdateNodeInternals } from 'reactflow';
 import { Check, Square, LayoutGrid, MoreHorizontal, Play, Coins, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -60,14 +60,18 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     // persisted outputs collection, selection is driven by config.selected_output_index.
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [imageLoaded, setImageLoaded] = useState(false);
-    // Width (px) the loaded image actually fills, derived from its natural
-    // aspect ratio. When set, it drives the node width so the box hugs the
-    // image instead of reserving the full 420px. Without this, an <img> with
-    // both max-width and max-height contributes its max-width (420) to the
-    // node's `max-content` width while rendering narrower (height-bound) for
-    // portrait outputs — leaving a dead gray band on the right. null until the
-    // image loads (falls back to max-content).
-    const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+    // Natural dimensions of every output image we've seen, keyed by URL. The
+    // node width hugs the ACTIVE image's aspect ratio (see previewWidth below),
+    // and caching by URL means switching the carousel to an already-loaded image
+    // recomputes the width instantly — its <img> won't re-fire onLoad from cache,
+    // so a per-index recompute that relied on onLoad would leave the node stuck
+    // at the previous (often wider) image's width, the dead band on the right.
+    const [dimsByUrl, setDimsByUrl] = useState<Record<string, { w: number; h: number }>>({});
+    // Last resolved width, so the brief window before a fresh image loads keeps
+    // the prior width instead of jumping to `max-content` — which, for a
+    // multi-output carousel, measures the whole slide track (clamped to 420) and
+    // reserves empty space beside the single visible image.
+    const lastWidthRef = useRef<number | null>(null);
 
     // Lightbox state
     const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -150,19 +154,19 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const isDefaultFactoryLabel = persistedLabel === '' || persistedLabel === 'Ai Generator' || persistedLabel === 'AI Generator' || persistedLabel === 'AI Model';
     const nodeTitle = isDefaultFactoryLabel ? aiDefaultLabel : data.label;
 
-    // Reset image loaded state when output changes to a new one
+    // Reset image loaded state when output changes to a new one. Width is NOT
+    // reset here — it's derived from the active image's cached dims (below), so
+    // it stays pinned to the prior image until the new one loads, then updates.
     useEffect(() => {
         if (output) {
             setImageLoaded(false);
-            setPreviewWidth(null);
         }
     }, [output]);
 
-    // Also reset if we start running
+    // Also reset blur-replay state if we start running.
     useEffect(() => {
         if (status === 'running') {
             setImageLoaded(false);
-            setPreviewWidth(null);
         }
     }, [status]);
 
@@ -185,18 +189,27 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         setNodeOutput(id, activeItemEnvelope(liveOutput, activeOutputVal, activeOutputType));
     }, [id, liveOutput, activeOutputVal, activeOutputType, setNodeOutput]);
 
-    // Derive the node's width from the loaded image's true aspect ratio so the
-    // box hugs the image (no gray band beside portrait outputs). Only meaningful
-    // in single-preview mode; the grid wants full width.
-    const handleImageLoad = (dims?: { naturalWidth: number; naturalHeight: number }) => {
+    // Cache the loaded image's natural dimensions, keyed by URL. The node width
+    // is derived from the ACTIVE image's cached dims (see previewWidth below) so
+    // the box hugs the image (no gray band beside portrait outputs). Only
+    // meaningful in single-preview mode; the grid wants full width.
+    // `url` is the slide's OWN url — every slide (not just the active one)
+    // reports its dims so the cache is warm before the user navigates to it.
+    // An off-screen slide that already finished loading won't re-fire onLoad
+    // when it later becomes active, so keying on the active url alone would
+    // leave every non-first image uncached and the node stuck at the wrong width.
+    const handleImageLoad = (
+        dims?: { naturalWidth: number; naturalHeight: number },
+        url?: string
+    ) => {
         setImageLoaded(true);
         if (previewMode !== 'single') return;
         if (!dims || dims.naturalWidth <= 0 || dims.naturalHeight <= 0) return;
-        const MAX = 420;
-        const fitted = dims.naturalWidth >= dims.naturalHeight
-            ? MAX
-            : Math.round((MAX * dims.naturalWidth) / dims.naturalHeight);
-        setPreviewWidth(Math.max(200, Math.min(MAX, fitted)));
+        const key = url ?? activeUrl;
+        if (!key) return;
+        setDimsByUrl((prev) =>
+            prev[key] ? prev : { ...prev, [key]: { w: dims.naturalWidth, h: dims.naturalHeight } }
+        );
     };
 
     const inputHandles = selectedModel?.inputs_schema?.handles || [];
@@ -289,6 +302,14 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const rawEffectiveType = collectionUrls ? collectionType : activeType;
     const effectiveIndex = collectionUrls ? selectedIndex : activeImageIndex;
 
+    // The media URL currently shown — what handleImageLoad caches dims against
+    // and what the node width is derived from. Mirrors OutputPreview's own URL
+    // filtering so the index lines up.
+    const effectiveMediaUrls = (Array.isArray(effectiveOutput) ? effectiveOutput : [effectiveOutput])
+        .map((o: any) => (typeof o === 'string' ? o : o?.url))
+        .filter((v: any) => typeof v === 'string' && (v.startsWith('http') || v.startsWith('data:')));
+    const activeUrl: string | undefined = effectiveMediaUrls[effectiveIndex] ?? effectiveMediaUrls[0];
+
     // Single source of truth for "is this a text/prompt preview?", derived from
     // the EFFECTIVE output actually being rendered — using the same content check
     // OutputPreview uses internally (no displayable urls + extractable text). The
@@ -322,17 +343,43 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     // refresh — leaving a skinny box instead of the default landscape footprint.
     const isFixedWidth = isTextPreview || activeType === 'audio';
     const fixedWidth = activeType === 'audio' ? 280 : 320;
+
+    // Width the active image fills, derived from its cached natural aspect ratio.
+    // null until we've seen this image load at least once.
+    const MAX_PREVIEW_W = 420;
+    const activeDims = activeUrl ? dimsByUrl[activeUrl] : undefined;
+    const previewWidth =
+        previewMode === 'single' && activeDims && activeDims.w > 0 && activeDims.h > 0
+            ? Math.max(
+                  200,
+                  Math.min(
+                      MAX_PREVIEW_W,
+                      activeDims.w >= activeDims.h
+                          ? MAX_PREVIEW_W
+                          : Math.round((MAX_PREVIEW_W * activeDims.w) / activeDims.h)
+                  )
+              )
+            : null;
+    if (previewWidth != null) lastWidthRef.current = previewWidth;
+
+    // The width the node actually holds: the active image's fitted width, or —
+    // while a fresh result is still mid-load — the last resolved width so the
+    // node stays put instead of jumping. Only a truly first-ever load (nothing
+    // cached) has neither.
+    const resolvedWidth = previewWidth ?? lastWidthRef.current;
+
     const mediaStyle: React.CSSProperties = {
-        // Once the image has loaded we know its real fitted width and pin the
-        // node to it; until then fall back to max-content. Pinning avoids the
-        // max-width-vs-max-height intrinsic-sizing quirk that left a gray band
-        // beside portrait outputs.
-        width: previewWidth ?? 'max-content',
-        // previewWidth is clamped >=200, so the 200 floor never overrides a
-        // pinned portrait width; while previewWidth is null the 320 floor keeps
-        // the landscape footprint.
-        minWidth: previewWidth != null ? 200 : 320,
-        maxWidth: 420,
+        // Pin to the resolved width. Falling back to `max-content` only when we
+        // have no width at all avoids over-measuring a multi-output carousel's
+        // slide track (empty space beside the single visible image).
+        width: resolvedWidth ?? 'max-content',
+        // Floor of 200 whenever we have ANY resolved width (clamped >=200, so it
+        // never overrides a pinned portrait width). The wider 320 landscape
+        // floor applies ONLY before the first image is known — otherwise a
+        // re-run on a portrait node briefly snapped to 320 and flashed the
+        // default background beside the image until the new image loaded.
+        minWidth: resolvedWidth != null ? 200 : 320,
+        maxWidth: MAX_PREVIEW_W,
     };
     const textMinHeightClass = "min-h-[140px]";
 
@@ -433,8 +480,10 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                     />
                 )}
 
-                {/* Loading State Overlay (Always renders on top of Output if running) */}
-                {status === 'running' && <GlassyLoader containerClassName="z-50 bg-black/40 backdrop-blur-md" />}
+                {/* Loading State Overlay — frosts the previous result and shows
+                    "Generating…". The travelling-light border lives on the node
+                    card itself (BaseNode), not here. */}
+                {status === 'running' && <GlassyLoader containerClassName="z-50" />}
 
                 {/* View Toggles - Only show for media grids with multiple items */}
                 {((isMediaResultType(effectiveType as any) || effectiveType === 'text') && Array.isArray(effectiveOutput) && effectiveOutput.length > 1) && (
@@ -877,9 +926,10 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                             preload={isActive ? 'auto' : 'metadata'}
                             width={320}
                             containerClassName="h-auto"
-                            // Size the node to the active video's aspect ratio
-                            // (parity with the image path's onLoad sizing).
-                            onLoadedMetadata={isActive ? (e: any) => onImageLoad?.({ naturalWidth: e.currentTarget.videoWidth, naturalHeight: e.currentTarget.videoHeight }) : undefined}
+                            // Size the node to each video's aspect ratio (parity
+                            // with the image path); keyed by the slide's own url so
+                            // the cache is warm before the user navigates to it.
+                            onLoadedMetadata={(e: any) => onImageLoad?.({ naturalWidth: e.currentTarget.videoWidth, naturalHeight: e.currentTarget.videoHeight }, u)}
                             className={cn(
                                 "w-full h-auto object-contain max-w-none max-h-[420px] min-h-[200px] bg-black/40",
                                 !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
@@ -903,7 +953,9 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                         src={toThumbnailUrl(u, { width: 768 }) ?? u}
                         fallbackSrc={u}
                         alt="Output"
-                        onLoad={isActive ? onImageLoad : undefined}
+                        // Every slide reports its own dims (keyed by its url) so
+                        // the width cache is warm before the user navigates.
+                        onLoad={(dims) => onImageLoad?.(dims, u)}
                         // h-auto so the wrapper hugs the image height instead of
                         // BlurryImage's default h-full (which collapses to 0 inside
                         // the flex track and clips the image).

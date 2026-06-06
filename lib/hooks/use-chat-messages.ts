@@ -74,6 +74,11 @@ export function useChatMessages({
     // Freeze a chat-run's inline results onto the message when its terminal
     // nodes all settle, and flip the RunProposalCard status accordingly.
     const nodeStatusesForRun = useAppStore((s) => s.nodeStatuses);
+    // Subscribed so the freeze re-evaluates when a terminal's output (and its
+    // execution stamp) lands — setNodeStatus no-ops once a node is already
+    // 'success', so a status-only dependency would miss the moment THIS run's
+    // output finally replaces a stale prior one.
+    const nodeOutputExecutionsForRun = useAppStore((s) => s.nodeOutputExecutions);
     useEffect(() => {
         const msgs = useAppStore.getState().chatMessages;
         for (const m of msgs) {
@@ -89,6 +94,19 @@ export function useChatMessages({
                     runProposal: { ...rp, status: 'failed' },
                 });
                 void persistRunProposal(m.id);
+                continue;
+            }
+
+            // Execution-correlation gate: when this card knows the execution it
+            // dispatched under, only freeze once the terminals' outputs were
+            // produced by THAT execution. A terminal still carrying a prior
+            // run's output (e.g. an out-of-order completion from a superseded
+            // execution) means this run's result hasn't landed yet — wait.
+            const outExecs = useAppStore.getState().nodeOutputExecutions || {};
+            if (rp.executionId && ids.some((id) => {
+                const stamp = outExecs[id];
+                return stamp !== undefined && stamp !== rp.executionId;
+            })) {
                 continue;
             }
 
@@ -109,7 +127,7 @@ export function useChatMessages({
             });
             void persistFrozenResult(m.id, frozen);
         }
-    }, [nodeStatusesForRun]);
+    }, [nodeStatusesForRun, nodeOutputExecutionsForRun]);
 
     // Durable-URL convergence. When a chat run's terminal node is ephemeral
     // (compositor, blur, …) its output is first frozen with a

@@ -51,6 +51,16 @@ export interface InputsSchema {
     controls?: Control[];
 }
 
+/**
+ * A control is treated as a "seed" input (with auto/random semantics) when its
+ * api_mapping_key is "seed". Convention: `default_value === null` (or empty) means
+ * AUTO — the value is omitted from the model payload so it randomizes every run.
+ * A number means the seed is pinned to that value.
+ */
+export function isSeedControl(ctrl: Pick<Control, 'api_mapping_key'>): boolean {
+    return (ctrl?.api_mapping_key || '').toLowerCase() === 'seed';
+}
+
 export interface OutputsSchema {
     handles?: OutputHandle[];
 }

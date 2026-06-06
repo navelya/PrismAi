@@ -346,7 +346,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                     </>
                 )}
                 {/* Modern Glassy Loading Effect */}
-                {(isUploading || (data.config as any)?._isUploading === true) && <GlassyLoader />}
+                {(isUploading || (data.config as any)?._isUploading === true) && <GlassyLoader label="Uploading" />}
             </div>
 
             {/* Hidden file input */}

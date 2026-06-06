@@ -125,6 +125,11 @@ export interface Message {
         status: RunProposalStatus;
         /** When set, why the run can't dispatch (validation message). Shown on the card. */
         error?: string;
+        /** The execution_id this proposal's run dispatched under (stamped by
+         *  commitExecution). The freeze only snapshots a terminal's output once
+         *  that output was produced by THIS execution — so a stale prior-run
+         *  output lingering in nodeOutputs can never be frozen into the card. */
+        executionId?: string;
     };
     // Terminal node ids whose outputs render inline under this message while a
     // chat-triggered run is in flight. Frozen into `result` on completion.
@@ -318,6 +323,11 @@ export interface ExecutionSlice {
     executionStartTime: number | null;
     nodeStatuses: Record<string, NodeStatus>;
     nodeOutputs: Record<string, any>;
+    // The execution_id that produced each node's current `nodeOutputs` entry.
+    // Lets the chat-run freeze tell THIS run's output apart from a stale prior
+    // run's output that lingers in the shared, execution-agnostic nodeOutputs
+    // slot. Cleared in lock-step with nodeOutputs.
+    nodeOutputExecutions: Record<string, string | undefined>;
     // Server-side failure message per node (e.g. the Replicate prediction error),
     // keyed by nodeId. Populated when a node's status becomes 'error' and surfaced
     // as a hover tooltip on the node's error badge. Cleared when the node leaves
@@ -336,7 +346,7 @@ export interface ExecutionSlice {
     setNodeStatus: (nodeId: string, status: NodeStatus) => void;
     setNodeError: (nodeId: string, error: string | null) => void;
     resetNodeStatuses: () => void;
-    setNodeOutput: (nodeId: string, output: any) => void;
+    setNodeOutput: (nodeId: string, output: any, executionId?: string) => void;
     clearNodeOutputs: () => void;
     cleanupNodeMetadata: (nodeId: string) => void;
     invalidateNodes: (nodeIds: string[]) => void;

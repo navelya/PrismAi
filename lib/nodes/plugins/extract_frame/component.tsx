@@ -346,10 +346,11 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
     // ── Handles ──────────────────────────────────────────────────────────────
     const handleColor = mediaKind === 'video' ? 'rgb(139, 92, 246)' : mediaKind === 'image' ? 'rgb(59, 130, 246)' : '#f8fafc';
     const customInputs = useMemo(
-        () => [{ id: 'image', label: mediaKind === 'image' ? 'Image' : 'Video', color: handleColor }],
+        () => [{ id: 'image', label: mediaKind === 'image' ? 'Image' : 'Video', color: handleColor, type: mediaKind ?? ['image', 'video'] }],
         [mediaKind, handleColor],
     );
-    const customOutputs = useMemo(() => [{ id: 'image_out', label: 'Frame', color: 'rgb(59, 130, 246)' }], []);
+    // The extracted frame is always a still image.
+    const customOutputs = useMemo(() => [{ id: 'image_out', label: 'Frame', color: 'rgb(59, 130, 246)', type: 'image' }], []);
     useEffect(() => { updateNodeInternals(id); }, [id, mediaKind, updateNodeInternals]);
 
     // ── Baked output (the extracted frame) → download + lightbox ─────────────

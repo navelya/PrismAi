@@ -212,14 +212,10 @@ export default function SharedWorkflowEditor({
         onNodeDragStart?.(event, node);
     }, [onNodeDragStart, selectedNode, setSelectedNode]);
 
-    // Finishing a drag (or a long press-and-release in place) opens the dragged
-    // node's property panel — so moving a node then letting go surfaces its
-    // properties. Skip multi-node drags so we don't override the multi-select UI.
-    const handleNodeDragStop = useCallback((_event: any, node: any, draggedNodes: any) => {
-        if (effectiveReadOnly) return;
-        if (Array.isArray(draggedNodes) && draggedNodes.length > 1) return;
-        if (node?.id) setSelectedNode(node.id);
-    }, [effectiveReadOnly, setSelectedNode]);
+    // Dragging a node must NOT open the property panel. The panel is opened only
+    // by an explicit click (handleNodeClick). If a node was already selected, its
+    // panel slides off during the drag and returns afterward because the store
+    // selection persists — no drag-stop re-select is needed.
 
     const selectedNodeData = useMemo(() => nodes.find(n => n.id === selectedNode), [nodes, selectedNode]);
 
@@ -495,6 +491,25 @@ export default function SharedWorkflowEditor({
             const data = await res.json();
             if (data.execution_id) {
                 store.setActiveExecutionId(data.execution_id);
+
+                // Correlate this server-issued execution with the chat-run card
+                // that triggered it. node_results rows carry the SERVER execution
+                // id (the start route ignores the client's), so the freeze must
+                // match against that id — using the client-generated `executionId`
+                // here would never match and hang the card on 'running'. A chat
+                // run arrives as a 'selection' whose targets are the card's
+                // runTargetIds; stamp every running, not-yet-stamped card this
+                // run covers (see use-chat-messages freeze + nodeOutputExecutions).
+                if (mode === 'selection' && selectionIds && selectionIds.length > 0) {
+                    const targetSet = new Set(selectionIds);
+                    for (const m of useAppStore.getState().chatMessages) {
+                        const rp = m.runProposal;
+                        if (!rp || rp.status !== 'running' || rp.executionId) continue;
+                        if (rp.runTargetIds.length > 0 && rp.runTargetIds.every((id) => targetSet.has(id))) {
+                            store.updateMessage(m.id, { runProposal: { ...rp, executionId: data.execution_id } });
+                        }
+                    }
+                }
             }
 
             if (executionTimeoutRef.current) {
@@ -784,7 +799,6 @@ export default function SharedWorkflowEditor({
                                 canUndo={canUndo}
                                 canRedo={canRedo}
                                 onNodeDragStart={handleNodeDragStart}
-                                onNodeDragStop={handleNodeDragStop}
                                 onDuplicate={duplicateNodes}
                                 onDelete={deleteNodes}
                                 onCopy={handleCopy}

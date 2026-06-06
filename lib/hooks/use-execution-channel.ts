@@ -45,7 +45,7 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
         const finalData = coerceResultDataArray(resultData ?? []);
 
         if (finalData.length > 0) {
-            store.setNodeOutput(nodeId, toOutputEnvelope(finalType, finalData));
+            store.setNodeOutput(nodeId, toOutputEnvelope(finalType, finalData), executionId);
 
             // Accumulate into the node's persisted collection — ONLY for live
             // results. Hydration runs applyNodeResult AFTER the saved workflow

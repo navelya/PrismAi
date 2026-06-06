@@ -12,8 +12,73 @@ import { findHandleForNode, findAllCompatibleHandlesForNode, wouldCreateCycle } 
 import { useNodeValidationErrors } from '@/lib/hooks/use-node-validation';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { NodeHeader } from '@/lib/nodes/core/canvas/NodeHeader';
+import { iconForHandleType } from '@/lib/nodes/core/canvas/handle-type-icon';
 import { Tooltip } from '@/components/ui/Tooltip';
+import GeneratingBorder from '@/components/ui/GeneratingBorder';
 import { motion } from 'framer-motion';
+
+// The React Flow <Handle> itself is an invisible, fixed-size hit-box. Keeping
+// its layout box constant means React Flow's measured connection point never
+// moves — the visible dot/chip grows on hover purely as a child, so wires stay
+// anchored to the node edge. The `before` pseudo keeps a generous 40px circular
+// grab area. The visible affordance is rendered by <HandleDot> below.
+const HANDLE_HITBOX_CLASS =
+    "w-5 h-5 !bg-transparent !border-0 z-50 translate-y-[-50%] origin-center " +
+    "before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 " +
+    "before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]";
+
+// Per-handle stagger step (ms). Icons reveal in index order on open and retract
+// in reverse order on close — see `delay` computed at each call site.
+const HANDLE_STAGGER_MS = 45;
+
+// The visible handle: a plain neutral dot at rest that smoothly zooms into a
+// larger, lightly-glassy chip revealing the data-type icon when `open` (node
+// hovered, or a compatible target while dragging a wire), then zooms back out.
+//
+// Centering: a single-cell grid with `place-items-center` (and a blockified
+// icon) keeps the glyph dead-centered regardless of side or icon shape.
+// Centered absolutely inside the fixed hit-box so growing the chip never shifts
+// the wire's connection point. pointer-events-none so it never steals the
+// handle's drag-to-connect.
+//
+// Stagger: `delay` is applied to both chip and icon transitions. The caller
+// passes an ascending delay while opening and a descending one while closing,
+// so the sequence plays forward in and reverse out.
+function HandleDot({
+    type,
+    open,
+    delay,
+    highlight,
+}: {
+    type: string | string[] | undefined;
+    open: boolean;
+    delay: number;
+    highlight?: boolean;
+}) {
+    const Icon = iconForHandleType(type);
+    return (
+        <span
+            className={cn(
+                "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 grid place-items-center pointer-events-none",
+                "border border-stroke-strong transition-all duration-150 ease-out",
+                open
+                    ? "w-5 h-5 rounded-[7px] bg-surface-elevated/70 shadow-lg"
+                    : "w-2.5 h-2.5 rounded-full bg-surface-elevated shadow-sm",
+                highlight && "animate-pulse !border-content-primary",
+            )}
+            style={{ transitionDelay: `${delay}ms` }}
+        >
+            <Icon
+                className={cn(
+                    "block w-3 h-3 text-content-secondary transition-all duration-150 ease-out",
+                    open ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                )}
+                style={{ transitionDelay: `${delay}ms` }}
+                strokeWidth={2.25}
+            />
+        </span>
+    );
+}
 
 // Stable framer-motion prop references.
 const ANIMATE_TARGET = { scale: 1, opacity: 1 };
@@ -47,8 +112,8 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // Handle controls
     renderInputs?: boolean;
     renderOutput?: boolean;
-    customInputs?: Array<{ id: string; label: string; color: string; type?: string; is_array?: boolean; isMandatory?: boolean }>;
-    customOutputs?: Array<{ id: string; label: string; color: string; type?: string; is_array?: boolean; isMandatory?: boolean }>;
+    customInputs?: Array<{ id: string; label: string; color: string; type?: string | string[]; is_array?: boolean; isMandatory?: boolean }>;
+    customOutputs?: Array<{ id: string; label: string; color: string; type?: string | string[]; is_array?: boolean; isMandatory?: boolean }>;
     // Additional styling
     contentClassName?: string;
     badgeCount?: number;
@@ -401,7 +466,6 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     // Get the current zoom level to compensate border-widths
     const zoom = useStore((s: ReactFlowState) => s.transform[2]);
     const b1 = 1 / zoom;
-    const b2 = 2 / zoom;
 
     // Below ~25% zoom the selection border reads as a heavy band, so taper its
     // weight: full width at/above 25%, thinning toward 0.4x as zoom nears 0.
@@ -564,6 +628,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             }}
             {...props}
         >
+            {/* Travelling-light "generating" border — overlays the card's own
+                border while this node is running. Absolute + pointer-events-none,
+                so it never affects layout or interaction. */}
+            {status === 'running' && <GeneratingBorder />}
+
             {/* Aspect-ratio-locked resize handles (opt-in via `resizable`).
                 Visible only while selected. NodeResizer renders the four
                 corner handles plus the connecting border lines (the border
@@ -735,6 +804,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         const totalHeight = (totalHandles - 1) * spacing;
                         const offset = (index * spacing) - (totalHeight / 2);
                         const isMissing = (input as any).isMandatory && !connectedTargetHandles.has(input.id);
+                        const inputType = (input as any).type ?? (input as any).expectedType
+                            ?? sharedDef?.handles?.inputs?.find((h: any) => h.id === input.id)?.expectedType;
+                        const forced = isHandleLabelForced('target', input.id);
+                        const open = isHovered || forced;
+                        // Forward stagger on open, reverse on close; wire-drag reveals snap (no delay).
+                        const delay = forced ? 0 : (isHovered ? index : totalHandles - 1 - index) * HANDLE_STAGGER_MS;
 
                         return (
                             <React.Fragment key={input.id}>
@@ -746,32 +821,25 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     // (ai_generator) shift `top` when the handle count changes, and
                                     // transitioning it makes React Flow's updateNodeInternals measure the
                                     // handle mid-animation — the wrong bounds get cached and never refresh.
-                                    className={cn(
-                                        "w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center",
-                                        "before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]",
-                                        isMissing && "animate-pulse shadow-[0_0_8px_rgba(255,255,255,0.4)]"
-                                    )}
+                                    className={cn(HANDLE_HITBOX_CLASS)}
                                     style={{
-                                        borderWidth: `${b2}px`,
-                                        borderStyle: 'solid',
-                                        background: input.color || nodeColor,
-                                        boxShadow: isMissing
-                                            ? `0 0 12px ${input.color || nodeColor}80`
-                                            : `0 0 10px ${input.color || nodeColor}40`,
-                                        left: -5,
+                                        left: -10,
                                         top: `calc(50% + ${offset}px)`,
                                     }}
                                 >
+                                    <HandleDot type={inputType} open={open} delay={delay} highlight={isMissing} />
                                     {input.label && (() => {
                                         const isErrorState = !hideStatus && status === 'error' && isMissing;
-                                        const forced = isHandleLabelForced('target', input.id);
 
                                         return (
-                                            <div className={cn(
-                                                "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
-                                                forced ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                                                isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
-                                            )} style={!isErrorState ? { color: input.color || nodeColor } : undefined}>
+                                            <div
+                                                className={cn(
+                                                    "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out drop-shadow-md z-[70]",
+                                                    open ? "opacity-100" : "opacity-0",
+                                                    isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
+                                                )}
+                                                style={{ transitionDelay: `${delay}ms` }}
+                                            >
                                                 {input.label}{(input as any).isMandatory ? ' *' : ''}
                                             </div>
                                         );
@@ -784,16 +852,18 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     <Handle
                         type="target"
                         position={Position.Left}
-                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center
-                                  before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
-                        style={{
-                            borderWidth: `${b2}px`,
-                            borderStyle: 'solid',
-                            background: nodeColor,
-                            boxShadow: `0 0 10px ${nodeColor}40`,
-                            left: -5,
-                        }}
+                        className={cn(HANDLE_HITBOX_CLASS)}
+                        style={{ left: -10 }}
                     >
+                        {(() => {
+                            const defaultInput = sharedDef?.handles?.inputs?.[0];
+                            const isMissing = defaultInput?.isMandatory && !(
+                                (defaultInput.id && connectedTargetHandles.has(defaultInput.id)) ||
+                                connectedTargetHandles.has('__default__')
+                            );
+                            const open = isHovered || isHandleLabelForced('target', defaultInput?.id ?? '');
+                            return <HandleDot type={defaultInput?.expectedType} open={open} delay={0} highlight={isMissing} />;
+                        })()}
                         {defaultInputLabel && (() => {
                             const defaultInput = sharedDef?.handles?.inputs?.[0];
                             const isMissing = defaultInput?.isMandatory && !(
@@ -801,14 +871,16 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 connectedTargetHandles.has('__default__')
                             );
                             const isErrorState = !hideStatus && status === 'error' && isMissing;
-                            const forced = isHandleLabelForced('target', defaultInput?.id ?? '');
+                            const open = isHovered || isHandleLabelForced('target', defaultInput?.id ?? '');
 
                             return (
-                                <div className={cn(
-                                    "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 drop-shadow-md z-[70]",
-                                    forced ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                                    isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
-                                )} style={!isErrorState ? { color: nodeColor } : undefined}>
+                                <div
+                                    className={cn(
+                                        "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out drop-shadow-md z-[70]",
+                                        open ? "opacity-100" : "opacity-0",
+                                        isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
+                                    )}
+                                >
                                     {defaultInputLabel}{defaultInput?.isMandatory ? ' *' : ''}
                                 </div>
                             );
@@ -859,34 +931,33 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         const totalHeight = (totalHandles - 1) * spacing;
                         const offset = (index * spacing) - (totalHeight / 2);
 
+                        const outputType = output.type ?? sharedDef?.handles?.outputs?.find((h: any) => h.id === output.id)?.dataType;
+                        const forced = isHandleLabelForced('source', output.id);
+                        const open = isHovered || forced;
+                        const delay = forced ? 0 : (isHovered ? index : totalHandles - 1 - index) * HANDLE_STAGGER_MS;
+
                         return (
                             <Handle
                                 key={output.id}
                                 type="source"
                                 position={Position.Right}
                                 id={output.id}
-                                className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center
-                                          before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
+                                className={cn(HANDLE_HITBOX_CLASS)}
                                 style={{
-                                    borderWidth: `${b2}px`,
-                                    borderStyle: 'solid',
-                                    background: output.color || nodeColor,
-                                    boxShadow: `0 0 10px ${output.color || nodeColor}40`,
-                                    right: -5,
+                                    right: -10,
                                     top: `calc(50% + ${offset}px)`
                                 }}
                             >
-                                {(() => {
-                                    const forced = isHandleLabelForced('source', output.id);
-                                    return (
-                                        <div className={cn(
-                                            "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]",
-                                            forced ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                                        )} style={{ color: output.color || nodeColor }}>
-                                            {output.label}
-                                        </div>
-                                    );
-                                })()}
+                                <HandleDot type={outputType} open={open} delay={delay} />
+                                <div
+                                    className={cn(
+                                        "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
+                                        open ? "opacity-100" : "opacity-0"
+                                    )}
+                                    style={{ transitionDelay: `${delay}ms` }}
+                                >
+                                    {output.label}
+                                </div>
                             </Handle>
                         );
                     })
@@ -895,23 +966,20 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="source"
                         position={Position.Right}
                         id={defaultOutputId}
-                        className="w-2.5 h-2.5 !border-surface-primary hover:!scale-125 transition-[transform,box-shadow,background-color] duration-200 z-50 translate-y-[-50%] origin-center
-                                  before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]"
-                        style={{
-                            borderWidth: `${b2}px`,
-                            borderStyle: 'solid',
-                            background: nodeColor,
-                            boxShadow: `0 0 10px ${nodeColor}40`,
-                            right: -5,
-                        }}
+                        className={cn(HANDLE_HITBOX_CLASS)}
+                        style={{ right: -10 }}
                     >
+                        {(() => {
+                            const open = isHovered || isHandleLabelForced('source', defaultOutputId);
+                            return <HandleDot type={sharedDef?.handles?.outputs?.[0]?.dataType} open={open} delay={0} />;
+                        })()}
                         {defaultOutputLabel && (() => {
-                            const forced = isHandleLabelForced('source', defaultOutputId);
+                            const open = isHovered || isHandleLabelForced('source', defaultOutputId);
                             return (
                                 <div className={cn(
-                                    "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-300 text-content-primary drop-shadow-md z-[70]",
-                                    forced ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                                )} style={{ color: nodeColor }}>
+                                    "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
+                                    open ? "opacity-100" : "opacity-0"
+                                )}>
                                     {defaultOutputLabel}
                                 </div>
                             );

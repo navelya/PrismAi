@@ -13,7 +13,7 @@ import { formatDisplayName } from '@/lib/utils/schema-parser';
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
 // =============================================================================
-import { AiModel, Control } from '@/lib/nodes/types';
+import { AiModel, Control, isSeedControl } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { computeAiNodeCost, clampIterations } from '@/lib/billing/cost';
@@ -351,6 +351,27 @@ function ControlRenderer({
     const label = control.label || formatDisplayName(control.api_mapping_key);
 
     const minimalLabelClass = "text-[8px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-0.5 leading-none opacity-80";
+
+    // Seed: empty by default (= random per image). Pre-fills only if the admin pinned a
+    // numeric default. Clearing the field stores '' so the executor omits it.
+    if (isSeedControl(control)) {
+        const raw = value ?? control.default_value ?? '';
+        return (
+            <NumberInput
+                label={label}
+                min={control.min}
+                max={control.max}
+                step={control.step ?? 1}
+                value={raw === null ? '' : raw}
+                placeholder="Random"
+                onChange={e => {
+                    const v = e.target.value;
+                    onChange(control.api_mapping_key, v === '' ? '' : parseFloat(v));
+                }}
+                variant="minimal"
+            />
+        );
+    }
 
     switch (control.component) {
         case 'textarea':

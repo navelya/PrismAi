@@ -187,14 +187,16 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         return '#f8fafc';
     }, [mediaKind]);
 
+    // `type` drives the handle's type icon in BaseNode. Use the narrowed media
+    // kind when known, else the broad union (renders the generic "any" icon).
     const customInputs = useMemo(
-        () => [{ id: 'image', label: handleLabel, color: handleColor }],
-        [handleLabel, handleColor],
+        () => [{ id: 'image', label: handleLabel, color: handleColor, type: mediaKind ?? ['image', 'video'] }],
+        [handleLabel, handleColor, mediaKind],
     );
 
     const customOutputs = useMemo(
-        () => [{ id: 'image_out', label: handleLabel, color: handleColor }],
-        [handleLabel, handleColor],
+        () => [{ id: 'image_out', label: handleLabel, color: handleColor, type: mediaKind ?? ['image', 'video'] }],
+        [handleLabel, handleColor, mediaKind],
     );
 
     // Trigger a ReactFlow re-measure when handle shape/color changes — cheap

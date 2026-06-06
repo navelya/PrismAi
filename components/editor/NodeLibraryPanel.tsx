@@ -33,6 +33,7 @@ const BASICS_TILES: Tile[] = [
     { name: 'Generate text', desc: 'ai text llm', icon: Icons.Type, nodeTypeCandidates: ['text_generation', 'generate_text', 'generate-text'] },
     { name: 'Generate image', desc: 'ai image picture', icon: Icons.Image, nodeTypeCandidates: ['image_generation', 'generate_image', 'generate-image'] },
     { name: 'Generate video', desc: 'ai video animation', icon: Icons.Video, nodeTypeCandidates: ['video_generation', 'generate_video', 'generate-video'] },
+    { name: 'Generate speech', desc: 'ai speech voice audio tts narration', icon: Icons.Speech, nodeTypeCandidates: ['generate_speech', 'speech_generation', 'generate-speech'] },
     { name: 'Compositor', desc: 'combine layers canvas', icon: Icons.Layers, payload: { type: 'compositor' } },
 ];
 

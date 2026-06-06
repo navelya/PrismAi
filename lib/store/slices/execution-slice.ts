@@ -7,6 +7,7 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
     executionStartTime: null,
     nodeStatuses: {},
     nodeOutputs: {},
+    nodeOutputExecutions: {},
     nodeErrors: {},
     optimisticCreditDelta: 0,
     pendingCharges: {},
@@ -66,30 +67,48 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
 
     resetNodeStatuses: () => set({ nodeStatuses: {}, nodeErrors: {} }),
 
-    setNodeOutput: (nodeId, output) =>
-        set((state) => ({
-            nodeOutputs: {
-                ...state.nodeOutputs,
-                [nodeId]: output,
-            },
-        })),
+    setNodeOutput: (nodeId, output, executionId) =>
+        set((state) => {
+            const nextExecutions = { ...state.nodeOutputExecutions };
+            // Stamp (or clear) the producing execution alongside the output so the
+            // chat-run freeze can tell this run's output from a stale prior one.
+            if (output == null) {
+                delete nextExecutions[nodeId];
+            } else if (executionId) {
+                nextExecutions[nodeId] = executionId;
+            } else {
+                // Output set without a known execution (source re-seed, optimistic
+                // path) — drop any stale stamp rather than keep a wrong one.
+                delete nextExecutions[nodeId];
+            }
+            return {
+                nodeOutputs: {
+                    ...state.nodeOutputs,
+                    [nodeId]: output,
+                },
+                nodeOutputExecutions: nextExecutions,
+            };
+        }),
 
-    clearNodeOutputs: () => set({ nodeOutputs: {} }),
+    clearNodeOutputs: () => set({ nodeOutputs: {}, nodeOutputExecutions: {} }),
 
     cleanupNodeMetadata: (nodeId: string) => {
-        const { nodeStatuses, nodeOutputs, nodeErrors } = get();
+        const { nodeStatuses, nodeOutputs, nodeOutputExecutions, nodeErrors } = get();
 
         const newStatuses = { ...nodeStatuses };
         const newOutputs = { ...nodeOutputs };
+        const newOutputExecutions = { ...nodeOutputExecutions };
         const newErrors = { ...nodeErrors };
 
         delete newStatuses[nodeId];
         delete newOutputs[nodeId];
+        delete newOutputExecutions[nodeId];
         delete newErrors[nodeId];
 
         set({
             nodeStatuses: newStatuses,
             nodeOutputs: newOutputs,
+            nodeOutputExecutions: newOutputExecutions,
             nodeErrors: newErrors,
         });
     },
@@ -99,17 +118,20 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
 
         const newStatuses = { ...state.nodeStatuses };
         const newOutputs = { ...state.nodeOutputs };
+        const newOutputExecutions = { ...state.nodeOutputExecutions };
         const newErrors = { ...state.nodeErrors };
 
         nodeIds.forEach((id) => {
             delete newStatuses[id];
             delete newOutputs[id];
+            delete newOutputExecutions[id];
             delete newErrors[id];
         });
 
         set({
             nodeStatuses: newStatuses,
             nodeOutputs: newOutputs,
+            nodeOutputExecutions: newOutputExecutions,
             nodeErrors: newErrors,
         });
     },

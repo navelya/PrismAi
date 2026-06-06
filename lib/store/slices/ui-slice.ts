@@ -326,6 +326,17 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         const cur = get().nodeStatuses;
         const nextStatuses = { ...cur };
         for (const id of nodeIds) nextStatuses[id] = 'pending';
+        // Drop each target's PREVIOUS run output (and its execution stamp) in the
+        // same tick. Seeding 'pending' alone left the stale image sitting in
+        // nodeOutputs, where the chat-run freeze would snapshot it the instant the
+        // node settled — so the chat showed the old result while the canvas (which
+        // renders from its per-execution outputs collection) showed the new one.
+        const nextOutputs = { ...get().nodeOutputs };
+        const nextOutputExecutions = { ...get().nodeOutputExecutions };
+        for (const id of nodeIds) {
+            delete nextOutputs[id];
+            delete nextOutputExecutions[id];
+        }
         set({
             // runFromNodeId stays non-null so the existing SharedWorkflowEditor effect
             // (which gates on `if (!runFromNodeId || !runMode) return`) still fires.
@@ -335,6 +346,8 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
             runSelectionIds: nodeIds,
             runPreconfirmed: opts?.preconfirmed ?? false,
             nodeStatuses: nextStatuses,
+            nodeOutputs: nextOutputs,
+            nodeOutputExecutions: nextOutputExecutions,
         });
     },
     clearRunFromNode: () => set({ runFromNodeId: null, runMode: null, runSelectionIds: null, runPreconfirmed: false }),
