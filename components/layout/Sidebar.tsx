@@ -3,7 +3,7 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Pen, LayoutTemplate, Boxes, Settings, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown, PanelLeft, Coins, Sparkles } from 'lucide-react';
+import { MessageSquare, Pen, LayoutTemplate, Boxes, Settings, X, Trash2, Loader2, LogOut, User as UserIcon, Plus, Image, ChevronDown, PanelLeft, Coins, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
@@ -367,10 +367,13 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                 {/* Credits + Upgrade, above the profile row. */}
                                 <div className="flex items-center gap-2">
                                     <button
-                                        onClick={() => setShowPlans(true)}
+                                        onClick={() => {
+                                            openAccountModal('credits-billing');
+                                            onClose?.();
+                                        }}
                                         className="flex items-center gap-2 flex-1 min-w-0 px-3 py-2 rounded-xl bg-surface-tertiary hover:bg-interactive-hover transition-colors text-content-primary"
                                     >
-                                        <Coins className="w-5 h-5 text-accent-primary flex-shrink-0" />
+                                        <Coins className="w-5 h-5 flex-shrink-0" />
                                         {balanceLoading
                                             ? <Skeleton className="h-4 w-12" />
                                             : <span className="text-sm font-semibold tabular-nums truncate">{formatCredits(balance)}</span>}
@@ -379,7 +382,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                         onClick={() => setShowPlans(true)}
                                         className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-accent-primary bg-accent-primary/10 hover:bg-accent-primary/20 transition-colors flex-shrink-0"
                                     >
-                                        <Sparkles className="w-4 h-4" />
+                                        <Zap className="w-4 h-4" />
                                         Upgrade
                                     </button>
                                 </div>
@@ -626,11 +629,11 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                         {isExpanded ? (
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => setShowPlans(true)}
+                                    onClick={() => openAccountModal('credits-billing')}
                                     className="flex items-center gap-1.5 min-w-0 flex-1 h-9 px-2 rounded-lg hover:bg-interactive-hover transition-colors text-content-primary"
-                                    title="Credits"
+                                    title="Credits & billing"
                                 >
-                                    <Coins className="w-[18px] h-[18px] text-accent-primary flex-shrink-0" />
+                                    <Coins className="w-[18px] h-[18px] flex-shrink-0" />
                                     {balanceLoading
                                         ? <Skeleton className="h-4 w-10" />
                                         : <span className="text-[13px] font-semibold tabular-nums truncate">{formatCredits(balance)}</span>}
@@ -639,7 +642,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                     onClick={() => setShowPlans(true)}
                                     className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-semibold text-accent-primary bg-accent-primary/10 hover:bg-accent-primary/20 transition-colors flex-shrink-0"
                                 >
-                                    <Sparkles className="w-4 h-4" />
+                                    <Zap className="w-4 h-4" />
                                     Upgrade
                                 </button>
                             </div>
@@ -647,12 +650,12 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                             <div className="flex flex-col gap-0.5">
                                 <Tooltip content={balanceLoading ? 'Credits' : `${formatCredits(balance)} credits`} position="right">
                                     <button
-                                        onClick={() => setShowPlans(true)}
+                                        onClick={() => openAccountModal('credits-billing')}
                                         className="flex items-center h-9 rounded-lg text-content-primary hover:bg-interactive-hover transition-colors"
-                                        aria-label="Credits"
+                                        aria-label="Credits & billing"
                                     >
                                         <span className="w-10 flex items-center justify-center flex-shrink-0">
-                                            <Coins className="w-[18px] h-[18px] text-accent-primary" />
+                                            <Coins className="w-[18px] h-[18px]" />
                                         </span>
                                     </button>
                                 </Tooltip>
@@ -663,7 +666,7 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                                         aria-label="Upgrade"
                                     >
                                         <span className="w-10 flex items-center justify-center flex-shrink-0">
-                                            <Sparkles className="w-[18px] h-[18px]" />
+                                            <Zap className="w-[18px] h-[18px]" />
                                         </span>
                                     </button>
                                 </Tooltip>
