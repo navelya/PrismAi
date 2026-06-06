@@ -14,6 +14,7 @@ import {
   normalizeNodeResultType,
   toResultDataForType,
 } from '@/lib/workflow/result-format';
+import { clampIterations } from '@/lib/billing/cost';
 
 const WEBHOOK_MEDIA_EXTENSIONS: Record<NodeResultType, string> = {
   image: 'png',
@@ -202,6 +203,60 @@ async function mirrorMediaToStorage(
   return mirroredUrls;
 }
 
+/**
+ * Refund a single failed fan-out iteration. The upfront debit charged
+ * cost_by_node[nodeId] (which already includes the iteration multiplier), so one
+ * iteration's share is that value / iterations. Sourced from the persisted
+ * execution_debit ledger metadata so it can't drift from what was charged.
+ * Idempotent per (execution, node, prediction_index) via the credit_tokens key.
+ */
+async function refundFailedIteration(
+  supabase: ReturnType<typeof createServiceClient>,
+  executionId: string,
+  nodeId: string,
+  predictionIndex: number
+): Promise<void> {
+  // The execution_debit ledger row holds user_id + the per-node cost map.
+  const { data: debitRow } = await supabase
+    .from('token_ledger')
+    .select('user_id, metadata')
+    .eq('execution_id', executionId)
+    .eq('reason', 'execution_debit')
+    .maybeSingle();
+  if (!debitRow?.user_id) return; // nothing was charged (cost 0) → nothing to refund
+
+  const costByNode = (debitRow.metadata as any)?.cost_by_node ?? {};
+  const nodeTotal = Number(costByNode[nodeId]);
+  if (!Number.isFinite(nodeTotal) || nodeTotal <= 0) return;
+
+  // Resolve this node's iteration count from the execution graph to divide correctly.
+  const { data: exec } = await supabase
+    .from('executions')
+    .select('graph_json')
+    .eq('id', executionId)
+    .single();
+  const graphNodes = (exec?.graph_json as any)?.nodes ?? [];
+  const node = graphNodes.find((n: any) => n.id === nodeId);
+  const iterations = clampIterations(node?.data?.config?.iterations ?? node?.config?.iterations);
+  const perIteration = nodeTotal / iterations;
+  if (!(perIteration > 0)) return;
+
+  const { error } = await supabase.rpc('credit_tokens', {
+    p_user_id: debitRow.user_id,
+    p_amount: perIteration,
+    p_reason: 'execution_partial_refund',
+    p_idempotency_key: `refund:${executionId}:${nodeId}:${predictionIndex}`,
+    p_execution_id: executionId,
+    p_stripe_event_id: null,
+    p_metadata: { node_id: nodeId, prediction_index: predictionIndex, reason: 'iteration_failed' },
+  });
+  if (error) {
+    // Don't fail the webhook over a refund hiccup — log and continue so the
+    // node can still finalize. A missed refund is recoverable; a stuck node is not.
+    console.error(`[Webhook/Replicate-v2] Partial refund failed for ${nodeId}#${predictionIndex}:`, error.message);
+  }
+}
+
 export async function POST(request: NextRequest) {
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('[Webhook/Replicate-v2] 📨 RECEIVED WEBHOOK FROM REPLICATE:');
@@ -298,6 +353,7 @@ export async function POST(request: NextRequest) {
             .update({ status: 'failed', error: `Media upload to storage failed: ${uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'}`, updated_at: new Date().toISOString() })
             .eq('id', predRow!.id);
           if (predErr) throw new Error(`node_predictions update failed: ${predErr.message}`);
+          await refundFailedIteration(supabase, executionId, nodeId, predRow!.prediction_index);
           const { origin } = new URL(request.url);
           await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
           return NextResponse.json({ success: true });
@@ -331,6 +387,7 @@ export async function POST(request: NextRequest) {
             .update({ status: 'failed', error: 'Media could not be permanently stored. Please re-run the node.', updated_at: new Date().toISOString() })
             .eq('id', predRow!.id);
           if (predErr) throw new Error(`node_predictions update failed: ${predErr.message}`);
+          await refundFailedIteration(supabase, executionId, nodeId, predRow!.prediction_index);
           const { origin } = new URL(request.url);
           await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
           return NextResponse.json({ success: true });
@@ -394,6 +451,7 @@ export async function POST(request: NextRequest) {
           .update({ status: 'failed', error: predictionError || `Prediction ${status}`, updated_at: new Date().toISOString() })
           .eq('id', predRow!.id);
         if (predErr) throw new Error(`node_predictions update failed: ${predErr.message}`);
+        await refundFailedIteration(supabase, executionId, nodeId, predRow!.prediction_index);
         const outputType = await resolveNodeOutputWireType(supabase, executionCtx?.graph_json, nodeId);
         const { origin } = new URL(request.url);
         await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
