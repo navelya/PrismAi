@@ -111,11 +111,10 @@ function sample<T>(arr: T[], n: number): T[] {
 }
 
 /**
- * The welcome heading, typed out on enter. The name is revealed in a delicate
- * accent-gradient with a soft glow; a thin caret blinks while typing and fades
- * once it's done. Honors prefers-reduced-motion by showing the full line at
- * once. `aria-label` carries the full text so screen readers don't hear it
- * letter-by-letter.
+ * The welcome heading, typed out on enter. The name is revealed in the primary
+ * accent color; a thin caret blinks while typing and fades once it's done.
+ * Honors prefers-reduced-motion by showing the full line at once. `aria-label`
+ * carries the full text so screen readers don't hear it letter-by-letter.
  */
 function TypewriterGreeting({ firstName, className }: { firstName: string; className?: string }) {
     const prefix = firstName ? 'Welcome, ' : 'Welcome to Prisfol';
@@ -148,14 +147,7 @@ function TypewriterGreeting({ firstName, className }: { firstName: string; class
         >
             <span aria-hidden>
                 {prefixShown}
-                {nameShown && (
-                    <span
-                        className="bg-gradient-to-r from-accent-primary to-accent-secondary bg-clip-text text-transparent"
-                        style={{ filter: 'drop-shadow(0 0 10px rgb(var(--accent-primary) / 0.35))' }}
-                    >
-                        {nameShown}
-                    </span>
-                )}
+                {nameShown && <span className="text-accent-primary">{nameShown}</span>}
                 <span
                     aria-hidden
                     className={`inline-block w-[2px] h-[0.92em] translate-y-[0.1em] ml-1 rounded-full bg-accent-primary align-middle transition-opacity duration-500 ${done ? 'opacity-0' : 'opacity-80 animate-pulse'}`}
