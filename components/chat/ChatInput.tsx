@@ -277,11 +277,6 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         changes WITHOUT re-rendering ChatInput or the conversation. */}
                     <SelectionPillRow />
 
-                    {/* Removable pills for the user's non-Auto generation
-                        preferences. Also a self-subscribing leaf — a preference
-                        change re-renders only this row. */}
-                    <ChatPreferenceChips />
-
                     {mentionQuery !== null && (
                         <CharacterMentionPicker
                             own={characters}
@@ -399,7 +394,7 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                         className={`bg-transparent focus:outline-none text-content-primary placeholder-content-tertiary resize-none leading-6 [&::-webkit-scrollbar]:hidden
                                      ${isMultiLine || attachedImages.length > 0 || isCanvasMode
                                 ? `relative w-full px-4 py-2 ${isCanvasMode ? 'px-3' : 'px-4'}`
-                                : `absolute left-24 right-24 top-1/2 -translate-y-1/2 px-2 py-2`
+                                : `absolute left-24 right-24 bottom-0 px-2 py-3`
                             }`}
                         style={{
                             minHeight:
@@ -414,6 +409,15 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                             msOverflowStyle: 'none',
                         } as React.CSSProperties}
                     />
+
+                    {/* Removable preference pills, styled to match the action-row
+                        buttons. Sits BETWEEN the input and the buttons. A
+                        self-subscribing leaf — a preference change re-renders only
+                        this row. Hidden on the welcome composer (!isCanvasMode):
+                        a brand-new chat shouldn't lead with standing generation
+                        prefs, and the welcome composer uses the inset single-line
+                        layout where a chip row has nowhere clean to go. */}
+                    {isCanvasMode && <ChatPreferenceChips />}
 
                     {/* ── Action row ─────────────────────────────────────────────────
                          Full-screen (!isCanvasMode):  [ + ]  ···  [ mic ] [ send ]

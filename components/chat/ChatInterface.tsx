@@ -433,7 +433,18 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 chatInputProps={chatInputProps}
                 textareaRef={textareaRef}
                 onCreateNewSession={createNewSession}
-                onSuggestionClick={(prompt) => setInput(prompt)}
+                onSuggestionClick={(prompt) => {
+                    setInput(prompt);
+                    // Focus + drop the caret at the end so the user can keep typing
+                    // from the starter prompt immediately.
+                    requestAnimationFrame(() => {
+                        const el = textareaRef.current;
+                        if (!el) return;
+                        el.focus();
+                        const end = el.value.length;
+                        el.setSelectionRange(end, end);
+                    });
+                }}
                 evictionToast={evictionToast}
                 evictionToastMessage={evictionToastMessage}
                 onDismissEvictionToast={dismissEvictionToast}

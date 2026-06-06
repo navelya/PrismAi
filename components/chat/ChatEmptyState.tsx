@@ -1,10 +1,48 @@
 'use client';
 
 import React from 'react';
-import { ImagePlus, Pen } from 'lucide-react';
+import { ImagePlus, Pen, Sparkles, Wand2, Workflow as WorkflowIcon, MessageCircleQuestion, ArrowRight } from 'lucide-react';
 import ChatInput from './ChatInput';
 import { Toast } from '@/components/ui/Toast';
 import type { Character } from '@/lib/api/client';
+
+/**
+ * Capability cards for the welcome screen. Each teaches one thing Prisfol can
+ * do and, on click, seeds the composer with a starter prompt the user can edit
+ * and send. They give the otherwise-empty welcome screen a clear "here's what
+ * you can do, pick one to begin" purpose without burying the composer.
+ */
+const CAPABILITY_CARDS: {
+    icon: typeof Sparkles;
+    title: string;
+    description: string;
+    prompt: string;
+}[] = [
+    {
+        icon: Sparkles,
+        title: 'Generate',
+        description: 'Create images & video from a description.',
+        prompt: 'Generate a cinematic product shot of ',
+    },
+    {
+        icon: Wand2,
+        title: 'Edit & retouch',
+        description: 'Remove backgrounds, swap outfits, fix lighting.',
+        prompt: 'Remove the background from my photo and ',
+    },
+    {
+        icon: WorkflowIcon,
+        title: 'Automate',
+        description: 'Chain steps to process many images at once.',
+        prompt: 'Build a workflow to upscale and watermark a batch of photos',
+    },
+    {
+        icon: MessageCircleQuestion,
+        title: 'Get guidance',
+        description: 'Not sure where to start? Ask what is possible.',
+        prompt: 'What can I build with Prisfol?',
+    },
+];
 
 interface ChatInputProps {
     value: string;
@@ -87,41 +125,62 @@ export function ChatEmptyState({
                     </div>
                 )}
 
-                <div className="flex-1 flex items-center justify-center p-6">
-                    <div className="w-full max-w-2xl text-center">
-                        <div className="flex items-center justify-center gap-3 mb-2">
-                            {/* <div className="w-10 h-10 rounded-xl bg-gradient-premium flex items-center justify-center shadow-md shadow-accent-primary/20">
-                                <Sparkles className="w-5 h-5 text-content-inverted" />
-                            </div> */}
-                            <h1 className="text-2xl font-bold text-content-primary">
+                <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
+                    <div className="w-full max-w-2xl chat-text-fade-in">
+                        {/* Greeting */}
+                        <div className="flex flex-col items-center text-center mb-7">
+                            <div className="w-12 h-12 mb-4 rounded-2xl bg-gradient-to-br from-accent-primary/25 to-accent-primary/5 border border-accent-primary/20 flex items-center justify-center shadow-lg shadow-accent-primary/10">
+                                <Sparkles className="w-6 h-6 text-accent-primary" strokeWidth={2} />
+                            </div>
+                            <h1 className="text-3xl font-bold text-content-primary tracking-tight">
                                 {userName ? `Welcome, ${userName.trim().split(" ")[0].replace(/^./, c => c.toUpperCase())}` : 'Welcome to Prisfol'}
                             </h1>
+                            <p className="text-content-secondary mt-2 max-w-md">
+                                Describe what you want to create and I&apos;ll build the workflow — or pick a starting point below.
+                            </p>
                         </div>
-                        <p className="text-content-secondary mb-8">
-                            Tell me what you'd like to do with images, and I'll create an automation workflow for you.
-                        </p>
 
+                        {/* Composer — the primary action */}
                         <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={false} />
 
-                        <div className="mt-8 flex flex-wrap justify-center gap-2">
-                            <button
-                                onClick={onCreateNewSession}
-                                className="px-4 py-2 text-sm bg-accent-primary hover:bg-accent-hover text-white flex items-center gap-2
-                                           rounded-full transition-colors font-medium shadow-md shadow-accent-primary/20"
-                            >
-                                <Pen className="w-4 h-4" />
-                                Start Empty Canvas
-                            </button>
-                            {['Find 10 cat images', 'Remove backgrounds', 'Upscale my photos'].map((prompt) => (
+                        {/* Capability cards — what you can do, click to start */}
+                        <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {CAPABILITY_CARDS.map(({ icon: Icon, title, description, prompt }) => (
                                 <button
-                                    key={prompt}
+                                    key={title}
+                                    type="button"
                                     onClick={() => onSuggestionClick(prompt)}
-                                    className="px-4 py-2 text-sm bg-surface-secondary hover:bg-accent-primary/5 text-content-secondary hover:text-accent-primary
-                                               rounded-full transition-colors border border-stroke-subtle hover:border-accent-primary/30"
+                                    className="group flex items-start gap-3 p-3.5 text-left rounded-2xl
+                                               bg-surface-secondary/60 hover:bg-surface-secondary
+                                               border border-stroke-subtle hover:border-accent-primary/40
+                                               transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20"
                                 >
-                                    {prompt}
+                                    <span className="shrink-0 w-9 h-9 rounded-xl bg-accent-primary/10 group-hover:bg-accent-primary/15 border border-accent-primary/15 flex items-center justify-center transition-colors">
+                                        <Icon className="w-[18px] h-[18px] text-accent-primary" strokeWidth={2} />
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                        <span className="flex items-center gap-1.5 text-sm font-medium text-content-primary">
+                                            {title}
+                                            <ArrowRight className="w-3.5 h-3.5 text-content-tertiary opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
+                                        </span>
+                                        <span className="block text-xs text-content-secondary mt-0.5 leading-relaxed">
+                                            {description}
+                                        </span>
+                                    </span>
                                 </button>
                             ))}
+                        </div>
+
+                        {/* Secondary: skip the chat and open a blank canvas */}
+                        <div className="mt-6 flex justify-center">
+                            <button
+                                onClick={onCreateNewSession}
+                                className="group inline-flex items-center gap-2 px-3 py-1.5 text-sm text-content-tertiary hover:text-content-primary transition-colors"
+                            >
+                                <Pen className="w-3.5 h-3.5" />
+                                Prefer a blank slate? Start an empty canvas
+                                <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
+                            </button>
                         </div>
                     </div>
                 </div>
