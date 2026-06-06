@@ -1,13 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Maximize2 } from 'lucide-react';
+import { Maximize2, ImageOff } from 'lucide-react';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import type { RenderableMediaItem } from '@/lib/workflow/result-format';
 
+export type GalleryCell =
+    | { kind: 'media'; item: RenderableMediaItem }
+    | { kind: 'error' };
+
 interface RunMediaGalleryProps {
     /** Typed media items ({url,type,resolution}). Null/empty → skeleton tiles. */
-    items: RenderableMediaItem[] | null | undefined;
+    items?: RenderableMediaItem[] | null | undefined;
     isCanvasMode?: boolean;
     /**
      * Total tiles to lay out: the grid renders `max(items.length, skeletonCount)`
@@ -17,6 +21,10 @@ interface RunMediaGalleryProps {
      * the real items render (no trailing skeletons if a run emitted fewer).
      */
     skeletonCount?: number;
+    /** Ordered cells (media | error). When provided, supersedes `items` for cell
+     *  content; the grid still pads to `skeletonCount` with skeletons. Used by the
+     *  live run to interleave streamed successes and failed-iteration tiles. */
+    cells?: GalleryCell[];
 }
 
 /**
@@ -40,21 +48,27 @@ interface RunMediaGalleryProps {
  * pull) so the user never has to fight the thin native scrollbar. A drag is
  * distinguished from a click so tapping a tile still opens the lightbox.
  */
-export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0 }: RunMediaGalleryProps) {
-    const list = (Array.isArray(items) ? items : []).filter(
-        (i) => i && typeof i.url === 'string' && i.url.length > 0,
-    );
+export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0, cells }: RunMediaGalleryProps) {
+    const base: GalleryCell[] =
+        cells && cells.length > 0
+            ? cells
+            : (Array.isArray(items) ? items : [])
+                  .filter((i) => i && typeof i.url === 'string' && i.url.length > 0)
+                  .map((item) => ({ kind: 'media', item }));
 
     // Total cells = arrived media, padded out to the expected count with
     // skeletons. Always show at least one cell so an in-flight run with no count
     // still renders a placeholder.
-    const total = Math.max(list.length, skeletonCount, 1);
+    const total = Math.max(base.length, skeletonCount, 1);
 
     // One lightbox over ALL media (images + videos). ImageLightbox auto-detects
     // each item's type from its URL, so 'any' lets the user page across the whole
     // result set with full controls + download.
     const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-    const lightboxMedia = list.map((i) => ({ url: i.url }));
+
+    // Lightbox spans only the media cells (errors/skeletons aren't openable).
+    const mediaCells = base.filter((c): c is { kind: 'media'; item: RenderableMediaItem } => c.kind === 'media');
+    const lightboxMedia = mediaCells.map((c) => ({ url: c.item.url }));
 
     // Narrow (canvas) panel keeps a smaller min so ~2.5 tiles peek before the
     // sideways scroll; full-screen gives tiles more room to grow.
@@ -141,8 +155,8 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0 }: RunM
                 style={{ gridTemplateColumns: `repeat(4, minmax(${minColW}px, 1fr))` }}
             >
                 {Array.from({ length: total }).map((_, i) => {
-                    const item = list[i];
-                    if (!item) {
+                    const cell = base[i];
+                    if (!cell) {
                         return (
                             <div
                                 key={`sk-${i}`}
@@ -151,11 +165,24 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0 }: RunM
                             />
                         );
                     }
+                    if (cell.kind === 'error') {
+                        return (
+                            <div
+                                key={`err-${i}`}
+                                className="grid w-full place-items-center rounded-xl border border-red-500/30 bg-red-500/5 text-red-400/80"
+                                style={{ aspectRatio: '3 / 2' }}
+                                title="This image failed to generate and was refunded."
+                            >
+                                <ImageOff className="h-5 w-5" />
+                            </div>
+                        );
+                    }
+                    const mediaIndex = mediaCells.indexOf(cell);
                     return (
                         <MediaTile
-                            key={`${item.url}-${i}`}
-                            item={item}
-                            onOpen={() => setLightboxIndex(i)}
+                            key={`${cell.item.url}-${i}`}
+                            item={cell.item}
+                            onOpen={() => setLightboxIndex(mediaIndex)}
                         />
                     );
                 })}

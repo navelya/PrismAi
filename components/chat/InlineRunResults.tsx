@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store/app-store';
 import { extractRenderableMedia } from '@/lib/workflow/result-format';
-import { RunMediaGallery } from './RunMediaGallery';
+import { RunMediaGallery, type GalleryCell } from './RunMediaGallery';
 
 interface InlineRunResultsProps {
     terminalIds: string[];
@@ -16,36 +16,42 @@ interface InlineRunResultsProps {
 export function InlineRunResults({ terminalIds, isCanvasMode, expectedResultCount }: InlineRunResultsProps) {
     const nodeOutputs = useAppStore((s) => s.nodeOutputs);
     const nodeStatuses = useAppStore((s) => s.nodeStatuses);
+    const partials = useAppStore((s) => s.partialIterationResults);
+    const activeExecutionId = useAppStore((s) => s.activeExecutionId);
 
-    // Collect renderable media (image + video) across all terminal nodes, with
-    // type preserved. Text outputs (e.g. a prompt node's string) are ignored so
-    // the raw prompt never surfaces as a chat result.
-    //
-    // CRITICAL: only read a terminal's output once THIS run has marked it
-    // 'success'. nodeOutputs still holds the PREVIOUS run's result until the new
-    // one lands, so without this gate an update would show the stale old image
-    // (then swap) instead of a skeleton while it regenerates.
-    const items = useMemo(() => {
-        const media: ReturnType<typeof extractRenderableMedia> = [];
+    // Assemble ordered cells across terminals. A finalized ('success') terminal
+    // contributes its canonical media; a still-running terminal contributes its
+    // streamed per-iteration outcomes (completion order) — successes as media,
+    // failures as error tiles. Partials are only trusted for the active run so a
+    // stale prior run's leftovers never show.
+    const cells = useMemo(() => {
+        const out: GalleryCell[] = [];
         for (const id of terminalIds) {
-            if (nodeStatuses?.[id] !== 'success') continue;
-            for (const m of extractRenderableMedia(nodeOutputs?.[id])) {
-                if (m.type === 'image' || m.type === 'video') media.push(m);
+            if (nodeStatuses?.[id] === 'success') {
+                for (const m of extractRenderableMedia(nodeOutputs?.[id])) {
+                    if (m.type === 'image' || m.type === 'video') out.push({ kind: 'media', item: m });
+                }
+                continue;
+            }
+            const entry = partials?.[id];
+            if (entry && (!activeExecutionId || entry.executionId === activeExecutionId)) {
+                for (const it of entry.items) {
+                    if (it.status === 'failed') {
+                        out.push({ kind: 'error' });
+                    } else {
+                        for (const m of it.media) out.push({ kind: 'media', item: m });
+                    }
+                }
             }
         }
-        return media;
-    }, [terminalIds, nodeOutputs, nodeStatuses]);
+        return out;
+    }, [terminalIds, nodeOutputs, nodeStatuses, partials, activeExecutionId]);
 
-    // This component only mounts while the run is in flight (Message.tsx gates
-    // on runProposal.status === 'running'). RunMediaGallery shows skeleton tiles
-    // until media arrives AND has actually loaded — no broken-image flash. The
-    // skeleton count is the real expected output count so the grid lays out all
-    // placeholders up front and fills them in as results land.
     const skeletonCount = Math.max(1, expectedResultCount ?? terminalIds.length);
     return (
         <div className="mt-2">
             <RunMediaGallery
-                items={items}
+                cells={cells}
                 isCanvasMode={isCanvasMode}
                 skeletonCount={skeletonCount}
             />
