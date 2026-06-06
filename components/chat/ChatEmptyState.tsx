@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ImagePlus, Pen, ArrowRight, LayoutTemplate, ImageIcon } from 'lucide-react';
@@ -130,7 +131,35 @@ function TemplatesAffordance() {
     const [open, setOpen] = useState(false);
     const [picks, setPicks] = useState<TemplateListItem[]>([]);
     const [previewId, setPreviewId] = useState<string | null>(null);
+    // Portaled to <body> with fixed positioning so it opens DOWNWARD without
+    // being clipped by the welcome-area's overflow-y-auto. `pos` is computed
+    // from the trigger rect and re-centered under the button.
+    const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+    const [mounted, setMounted] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => setMounted(true), []);
+
+    useLayoutEffect(() => {
+        if (!open) return;
+        const update = () => {
+            const rect = triggerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const width = Math.min(320, window.innerWidth - 16);
+            // Center the panel on the button, clamped to the viewport.
+            const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8));
+            const top = rect.bottom + 8; // 8px gap below the trigger
+            setPos({ left, top, width });
+        };
+        update();
+        window.addEventListener('resize', update);
+        window.addEventListener('scroll', update, true);
+        return () => {
+            window.removeEventListener('resize', update);
+            window.removeEventListener('scroll', update, true);
+        };
+    }, [open]);
 
     const openMenu = () => {
         if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -138,70 +167,17 @@ function TemplatesAffordance() {
         if (!open) setPicks(sample(templates, 4)); // fresh 4 every time it opens
         setOpen(true);
     };
+    // Short close delay so moving the cursor across the 8px gap onto the panel
+    // (which re-cancels via its own onMouseEnter) doesn't dismiss it.
     const scheduleClose = () => {
         if (closeTimer.current) clearTimeout(closeTimer.current);
-        closeTimer.current = setTimeout(() => setOpen(false), 160);
+        closeTimer.current = setTimeout(() => setOpen(false), 180);
     };
 
     return (
         <div className="relative inline-flex" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
-            <AnimatePresence>
-                {open && picks.length > 0 && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 6 }}
-                        transition={{ duration: 0.15, ease: 'easeOut' }}
-                        // pb-2 is the hover bridge: it makes the popover wrapper
-                        // touch the button's top edge, so there is no gap to "fall
-                        // through" on the way up.
-                        className="absolute bottom-full left-1/2 -translate-x-1/2 pb-2 w-80 z-30"
-                    >
-                        <div className="rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 p-2">
-                            <div className="flex items-center justify-between px-1.5 pt-1 pb-1.5">
-                                <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
-                                    Templates
-                                </span>
-                                <span className="text-[10px] text-content-tertiary/70">Click to preview</span>
-                            </div>
-                            <div className="space-y-0.5">
-                                {picks.map((t) => (
-                                    <button
-                                        key={t.id}
-                                        type="button"
-                                        onClick={() => { setPreviewId(t.id); setOpen(false); }}
-                                        className="group/t w-full flex items-center gap-2.5 p-1.5 rounded-xl text-left hover:bg-white/5 transition-colors"
-                                    >
-                                        <span className="shrink-0 w-14 h-11 rounded-lg overflow-hidden bg-surface-tertiary border border-white/10 flex items-center justify-center">
-                                            {t.thumbnail_url
-                                                ? <img src={t.thumbnail_url} alt="" className="w-full h-full object-cover" />
-                                                : <ImageIcon className="w-4 h-4 text-content-tertiary/50" />}
-                                        </span>
-                                        <span className="min-w-0 flex-1">
-                                            <span className="block text-xs font-medium text-content-primary truncate">{t.name}</span>
-                                            {t.description && (
-                                                <span className="block text-[11px] text-content-secondary leading-snug line-clamp-2">
-                                                    {t.description}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => router.push('/templates')}
-                                className="mt-1 w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs font-medium text-accent-primary hover:bg-accent-primary/10 transition-colors"
-                            >
-                                Open the full gallery
-                                <ArrowRight className="w-3 h-3" />
-                            </button>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
             <button
+                ref={triggerRef}
                 type="button"
                 onClick={() => router.push('/templates')}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm
@@ -212,6 +188,65 @@ function TemplatesAffordance() {
                 <LayoutTemplate className="w-4 h-4" />
                 Browse templates
             </button>
+
+            {mounted && createPortal(
+                <AnimatePresence>
+                    {open && pos && picks.length > 0 && (
+                        <motion.div
+                            onMouseEnter={openMenu}
+                            onMouseLeave={scheduleClose}
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.15, ease: 'easeOut' }}
+                            style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
+                            className="z-[100001]"
+                        >
+                            <div className="rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 p-2">
+                                <div className="flex items-center justify-between px-1.5 pt-1 pb-1.5">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+                                        Templates
+                                    </span>
+                                    <span className="text-[10px] text-content-tertiary/70">Click to preview</span>
+                                </div>
+                                <div className="space-y-0.5">
+                                    {picks.map((t) => (
+                                        <button
+                                            key={t.id}
+                                            type="button"
+                                            onClick={() => { setPreviewId(t.id); setOpen(false); }}
+                                            className="group/t w-full flex items-center gap-2.5 p-1.5 rounded-xl text-left hover:bg-white/5 transition-colors"
+                                        >
+                                            <span className="shrink-0 w-14 h-11 rounded-lg overflow-hidden bg-surface-tertiary border border-white/10 flex items-center justify-center">
+                                                {t.thumbnail_url
+                                                    ? <img src={t.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                                                    : <ImageIcon className="w-4 h-4 text-content-tertiary/50" />}
+                                            </span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block text-xs font-medium text-content-primary truncate">{t.name}</span>
+                                                {t.description && (
+                                                    <span className="block text-[11px] text-content-secondary leading-snug line-clamp-2">
+                                                        {t.description}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => router.push('/templates')}
+                                    className="mt-1 w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs font-medium text-accent-primary hover:bg-accent-primary/10 transition-colors"
+                                >
+                                    Open the full gallery
+                                    <ArrowRight className="w-3 h-3" />
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>,
+                document.body,
+            )}
 
             <TemplatePreviewModal id={previewId} onClose={() => setPreviewId(null)} />
         </div>
@@ -329,14 +364,19 @@ export function ChatEmptyState({
                                     />
                                 ))}
                             </div>
+
+                            {/* Browse templates — directly under the cards */}
+                            <div className="mt-7 flex justify-center">
+                                <TemplatesAffordance />
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Composer — pinned to the bottom, with the secondary actions
-                    (blank canvas + browse templates) stacked right above it. */}
+                {/* Composer — pinned to the bottom, with the blank-canvas hint
+                    right above it. */}
                 <div className="sticky bottom-0 p-4 bg-surface-primary/80 backdrop-blur-sm">
-                    <div className="max-w-3xl mx-auto flex flex-col items-center gap-2 mb-3">
+                    <div className="max-w-3xl mx-auto flex justify-center mb-3">
                         <button
                             onClick={onCreateNewSession}
                             className="group inline-flex items-center gap-2 px-3 py-1 text-sm text-content-tertiary hover:text-content-primary transition-colors"
@@ -345,7 +385,6 @@ export function ChatEmptyState({
                             Prefer a blank slate? Start an empty canvas
                             <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
                         </button>
-                        <TemplatesAffordance />
                     </div>
                     <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={false} />
                 </div>
@@ -411,11 +450,16 @@ export function ChatEmptyState({
                             />
                         ))}
                     </div>
+
+                    {/* Browse templates — directly under the cards */}
+                    <div className="mt-5 flex justify-center">
+                        <TemplatesAffordance />
+                    </div>
                 </div>
             </div>
 
             <div className="sticky bottom-0 border-t border-stroke-subtle p-4 bg-surface-primary/80 backdrop-blur-sm">
-                <div className="flex flex-col items-center gap-2 mb-3">
+                <div className="flex justify-center mb-3">
                     <button
                         onClick={onCreateNewSession}
                         className="inline-flex items-center gap-2 px-3 py-1 text-sm text-content-tertiary hover:text-content-primary transition-colors"
@@ -423,7 +467,6 @@ export function ChatEmptyState({
                         <Pen className="w-3.5 h-3.5" />
                         Prefer a blank slate? Start an empty canvas
                     </button>
-                    <TemplatesAffordance />
                 </div>
                 <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={false} />
             </div>
