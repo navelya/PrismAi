@@ -1,5 +1,5 @@
 import { StateCreator } from 'zustand';
-import { RootState, ExecutionSlice } from '../types';
+import { RootState, ExecutionSlice, PartialIterationEntry } from '../types';
 
 export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlice> = (set, get) => ({
     executionResults: {},
@@ -11,6 +11,7 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
     nodeErrors: {},
     optimisticCreditDelta: 0,
     pendingCharges: {},
+    partialIterationResults: {},
 
     addExecutionResult: (workflowId, result) =>
         set((state) => ({
@@ -92,24 +93,58 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
 
     clearNodeOutputs: () => set({ nodeOutputs: {}, nodeOutputExecutions: {} }),
 
+    addPartialIterationResult: (nodeId, executionId, item) =>
+        set((state) => {
+            const prev = state.partialIterationResults[nodeId];
+            // A new execution for this node supersedes any stale partials.
+            const base: PartialIterationEntry =
+                prev && prev.executionId === executionId
+                    ? prev
+                    : { executionId, items: [] };
+            // Update in place if this prediction_index already arrived (webhook
+            // retry); otherwise append in arrival (completion) order.
+            const existingIdx = base.items.findIndex((it) => it.index === item.index);
+            const items =
+                existingIdx >= 0
+                    ? base.items.map((it, i) => (i === existingIdx ? item : it))
+                    : [...base.items, item];
+            return {
+                partialIterationResults: {
+                    ...state.partialIterationResults,
+                    [nodeId]: { executionId, items },
+                },
+            };
+        }),
+
+    clearPartialIterationResults: (nodeId) =>
+        set((state) => {
+            if (!state.partialIterationResults[nodeId]) return state;
+            const next = { ...state.partialIterationResults };
+            delete next[nodeId];
+            return { partialIterationResults: next };
+        }),
+
     cleanupNodeMetadata: (nodeId: string) => {
-        const { nodeStatuses, nodeOutputs, nodeOutputExecutions, nodeErrors } = get();
+        const { nodeStatuses, nodeOutputs, nodeOutputExecutions, nodeErrors, partialIterationResults } = get();
 
         const newStatuses = { ...nodeStatuses };
         const newOutputs = { ...nodeOutputs };
         const newOutputExecutions = { ...nodeOutputExecutions };
         const newErrors = { ...nodeErrors };
+        const newPartials = { ...partialIterationResults };
 
         delete newStatuses[nodeId];
         delete newOutputs[nodeId];
         delete newOutputExecutions[nodeId];
         delete newErrors[nodeId];
+        delete newPartials[nodeId];
 
         set({
             nodeStatuses: newStatuses,
             nodeOutputs: newOutputs,
             nodeOutputExecutions: newOutputExecutions,
             nodeErrors: newErrors,
+            partialIterationResults: newPartials,
         });
     },
 
@@ -120,12 +155,14 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
         const newOutputs = { ...state.nodeOutputs };
         const newOutputExecutions = { ...state.nodeOutputExecutions };
         const newErrors = { ...state.nodeErrors };
+        const newPartials = { ...state.partialIterationResults };
 
         nodeIds.forEach((id) => {
             delete newStatuses[id];
             delete newOutputs[id];
             delete newOutputExecutions[id];
             delete newErrors[id];
+            delete newPartials[id];
         });
 
         set({
@@ -133,6 +170,7 @@ export const createExecutionSlice: StateCreator<RootState, [], [], ExecutionSlic
             nodeOutputs: newOutputs,
             nodeOutputExecutions: newOutputExecutions,
             nodeErrors: newErrors,
+            partialIterationResults: newPartials,
         });
     },
 

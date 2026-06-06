@@ -1,5 +1,5 @@
 import { Workflow, WorkflowNode, NodeStatus, AiModel } from '../nodes/types';
-import type { NodeResultType } from '../workflow/result-format';
+import type { NodeResultType, RenderableMediaItem } from '../workflow/result-format';
 export type { NodeStatus };
 
 export type RunProposalStatus = 'ready' | 'running' | 'done' | 'failed' | 'superseded';
@@ -145,6 +145,21 @@ export interface Message {
 export interface EditorState {
     zoom: number;
     viewport: { x: number; y: number };
+}
+
+/** One iteration's outcome while a fan-out ai_generator node is still running. */
+export interface PartialIterationItem {
+    index: number;
+    status: 'completed' | 'failed';
+    /** Renderable media for a completed iteration; empty for a failed one. */
+    media: RenderableMediaItem[];
+}
+
+/** Per-node accumulator of streaming iteration results for the active run. */
+export interface PartialIterationEntry {
+    executionId: string;
+    /** Outcomes in arrival (completion) order. */
+    items: PartialIterationItem[];
 }
 
 // Slice Interfaces
@@ -362,6 +377,13 @@ export interface ExecutionSlice {
     applyOptimisticCharge: (executionId: string, cost: number, nodeIds: string[]) => void;
     settleOptimisticCharge: (executionId: string, failed: boolean) => void;
     resetOptimisticDelta: () => void;
+    partialIterationResults: Record<string, PartialIterationEntry>;
+    addPartialIterationResult: (
+        nodeId: string,
+        executionId: string,
+        item: PartialIterationItem,
+    ) => void;
+    clearPartialIterationResults: (nodeId: string) => void;
 }
 
 /**

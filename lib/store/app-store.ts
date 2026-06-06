@@ -216,6 +216,9 @@ export const useAppStore = create<RootState>()(
                     'presence',
                     // Ephemeral peer selection overlay — like cursors, never persist.
                     'peerSelections',
+                    // Ephemeral in-flight per-iteration streaming results — reset
+                    // on every run; must not survive a page refresh.
+                    'partialIterationResults',
                 ].includes(key))
             ),
             onRehydrateStorage: () => (state) => {
