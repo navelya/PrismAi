@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Maximize2 } from 'lucide-react';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import type { RenderableMediaItem } from '@/lib/workflow/result-format';
@@ -35,6 +35,10 @@ interface RunMediaGalleryProps {
  * minimum width, so a narrow chat panel can't shrink the tiles to mush — instead
  * the row overflows and scrolls sideways. In the roomy full-screen chat the
  * columns grow to fill the wider content width.
+ *
+ * The overflowing strip is also click-and-drag scrollable (grab the photos and
+ * pull) so the user never has to fight the thin native scrollbar. A drag is
+ * distinguished from a click so tapping a tile still opens the lightbox.
  */
 export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0 }: RunMediaGalleryProps) {
     const list = (Array.isArray(items) ? items : []).filter(
@@ -56,8 +60,80 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0 }: RunM
     // sideways scroll; full-screen gives tiles more room to grow.
     const minColW = isCanvasMode ? 120 : 150;
 
+    // ── Click-and-drag horizontal scroll (mouse only; touch/pen keep native
+    // panning). We drive scrollLeft directly and only engage once the pointer
+    // has moved past a small threshold, so a plain click still reaches the tile
+    // and opens the lightbox. `dragged` is consumed by an onClickCapture guard
+    // that swallows the click which fires at the end of a drag gesture. ────────
+    const scrollerRef = useRef<HTMLDivElement>(null);
+    const drag = useRef({ active: false, moved: false, startX: 0, startLeft: 0, pointerId: -1 });
+    const draggedRef = useRef(false);
+
+    // Only advertise the grab cursor when the strip actually overflows (so a
+    // single image that fits doesn't get a misleading grab affordance).
+    const [canScroll, setCanScroll] = useState(false);
+    useEffect(() => {
+        const el = scrollerRef.current;
+        if (!el) return;
+        const measure = () => setCanScroll(el.scrollWidth - el.clientWidth > 1);
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [total, minColW]);
+
+    const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (e.pointerType !== 'mouse' || e.button !== 0) return;
+        const el = scrollerRef.current;
+        if (!el || el.scrollWidth <= el.clientWidth) return; // nothing to scroll
+        drag.current = { active: true, moved: false, startX: e.clientX, startLeft: el.scrollLeft, pointerId: e.pointerId };
+        draggedRef.current = false;
+    };
+
+    const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        const d = drag.current;
+        const el = scrollerRef.current;
+        if (!d.active || !el) return;
+        const dx = e.clientX - d.startX;
+        if (!d.moved) {
+            if (Math.abs(dx) <= 4) return; // below threshold → still a potential click
+            d.moved = true;
+            draggedRef.current = true;
+            try { el.setPointerCapture(d.pointerId); } catch { /* capture is best-effort */ }
+        }
+        el.scrollLeft = d.startLeft - dx;
+        e.preventDefault();
+    };
+
+    const endDrag = () => {
+        const d = drag.current;
+        const el = scrollerRef.current;
+        if (d.moved && el) {
+            try { el.releasePointerCapture(d.pointerId); } catch { /* may already be released */ }
+        }
+        drag.current.active = false;
+    };
+
+    // The browser fires a synthetic click after a drag ends; swallow it so a
+    // drag-to-scroll never also opens the lightbox. Reset for the next gesture.
+    const onClickCapture = (e: React.MouseEvent) => {
+        if (draggedRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            draggedRef.current = false;
+        }
+    };
+
     return (
-        <div className="overflow-x-auto">
+        <div
+            ref={scrollerRef}
+            className={`overflow-x-auto select-none ${canScroll ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onClickCapture={onClickCapture}
+        >
             <div
                 className="grid gap-2"
                 style={{ gridTemplateColumns: `repeat(4, minmax(${minColW}px, 1fr))` }}
@@ -134,6 +210,7 @@ function MediaTile({
             {!errored && (isVideo ? (
                 <video
                     src={item.url}
+                    draggable={false}
                     onLoadedData={(e) => {
                         const v = e.currentTarget;
                         if (v.videoWidth && v.videoHeight) setNatural({ w: v.videoWidth, h: v.videoHeight });
@@ -151,6 +228,7 @@ function MediaTile({
                 <img
                     src={item.url}
                     alt=""
+                    draggable={false}
                     onLoad={(e) => {
                         const img = e.currentTarget;
                         if (img.naturalWidth && img.naturalHeight) setNatural({ w: img.naturalWidth, h: img.naturalHeight });

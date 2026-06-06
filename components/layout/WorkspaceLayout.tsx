@@ -375,10 +375,18 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                             : { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                 }
                 transition={isCanvasMode ? { duration: 0.22, ease: 'easeOut' } : RESIZE_TRANSITION}
-                // Floating compact panel = glass card; full-fill (welcome or
+                // Floating compact panel = solid dark card; full-fill (welcome or
                 // full-screen chat) lets the chat content (bg-surface-primary)
                 // provide its own opaque, theme-aware page background.
-                style={chatFills ? { background: undefined } : { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', background: 'rgba(12, 12, 16, 0.88)' }}
+                //
+                // NOTE: no backdrop-filter here. A scroll container nested inside a
+                // backdrop-filter ancestor is forced onto main-thread scrolling in
+                // Chromium and the blurred region is re-evaluated every frame the
+                // content moves — which made dragging the inline results' horizontal
+                // scrollbar jank for seconds. The bg is near-opaque so the blur was
+                // barely visible anyway; a solid panel reads the same and scrolls
+                // smoothly. (See the backdrop-filter perf notes in project memory.)
+                style={chatFills ? { background: undefined } : { background: 'rgba(12, 12, 16, 0.96)' }}
             >
                 {/* Chat content (header + body live inside ChatInterface) */}
                 <div className="flex-1 min-h-0 overflow-hidden">
