@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
-import { coerceResultDataArray, inferResultTypeFromValue, normalizeNodeResultType, toOutputEnvelope } from '@/lib/workflow/result-format';
+import { coerceResultDataArray, extractRenderableMedia, inferResultTypeFromValue, normalizeNodeResultType, toOutputEnvelope } from '@/lib/workflow/result-format';
 
 /**
  * Apply a node_results record directly to the Zustand store.
@@ -57,6 +57,7 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
                 store.appendAiGeneratorRun(nodeId, finalType, finalData, executionId);
             }
         }
+        store.clearPartialIterationResults(nodeId);
     } else if (status === 'failed') {
         store.setNodeStatus(nodeId, 'error');
         store.setNodeOutput(nodeId, null);
@@ -74,12 +75,29 @@ function applyNodeResult(record: any, sessionId: string, source: 'realtime' | 'h
         if (source === 'realtime') {
             console.error(`[ExecutionChannel] Node ${nodeId} failed:`, error);
         }
+        store.clearPartialIterationResults(nodeId);
     } else {
         // 'pending' and 'running' pass through directly. Clear any stale error
         // from a prior failed run so a re-run doesn't show an outdated tooltip.
         store.setNodeStatus(nodeId, status);
         store.setNodeError(nodeId, null);
     }
+}
+
+function applyPredictionResult(record: any) {
+    const store = useAppStore.getState();
+    const { node_id: nodeId, execution_id: executionId, prediction_index: index, status, result_data: resultData } = record;
+    if (!nodeId || !executionId || typeof index !== 'number') return;
+
+    if (status === 'completed') {
+        const type = inferResultTypeFromValue(resultData);
+        const media = extractRenderableMedia(toOutputEnvelope(type, coerceResultDataArray(resultData ?? [])))
+            .filter((m) => m.type === 'image' || m.type === 'video');
+        store.addPartialIterationResult(nodeId, executionId, { index, status: 'completed', media });
+    } else if (status === 'failed') {
+        store.addPartialIterationResult(nodeId, executionId, { index, status: 'failed', media: [] });
+    }
+    // 'pending' rows carry no result yet — ignore.
 }
 
 /**
@@ -204,6 +222,14 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                         // No server-side filter — see hydrateFromDb and applyNodeResult
                     },
                     handleResultChange
+                )
+                .on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'node_predictions' },
+                    (payload: any) => {
+                        const record = payload.new;
+                        if (record) applyPredictionResult(record);
+                    }
                 );
 
         const channel = buildChannel();
