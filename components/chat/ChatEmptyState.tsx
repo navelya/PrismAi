@@ -307,9 +307,10 @@ export function ChatEmptyState({
                 <div className="flex-1 overflow-y-auto">
                     <div className="min-h-full flex flex-col items-center justify-center px-6 py-10">
                         <div className="w-full max-w-2xl">
-                            {/* Greeting */}
+                            {/* Greeting — softened off the global all-caps/black
+                                heading style for a warmer, friendlier tone. */}
                             <div className="text-center mb-8 chat-text-fade-in">
-                                <h1 className="text-3xl font-bold text-content-primary tracking-tight">
+                                <h1 className="font-sans normal-case font-semibold tracking-tight text-[28px] sm:text-[32px] text-content-primary">
                                     {firstName ? `Welcome, ${firstName}` : 'Welcome to Prisfol'}
                                 </h1>
                                 <p className="text-content-secondary mt-2 max-w-md mx-auto">
@@ -328,30 +329,24 @@ export function ChatEmptyState({
                                     />
                                 ))}
                             </div>
-
-                            {/* Templates + blank canvas */}
-                            <motion.div
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.55, duration: 0.3 }}
-                                className="mt-7 flex flex-col items-center gap-3"
-                            >
-                                <TemplatesAffordance />
-                                <button
-                                    onClick={onCreateNewSession}
-                                    className="group inline-flex items-center gap-2 px-3 py-1.5 text-sm text-content-tertiary hover:text-content-primary transition-colors"
-                                >
-                                    <Pen className="w-3.5 h-3.5" />
-                                    Prefer a blank slate? Start an empty canvas
-                                    <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
-                                </button>
-                            </motion.div>
                         </div>
                     </div>
                 </div>
 
-                {/* Composer — pinned to the bottom */}
+                {/* Composer — pinned to the bottom, with the secondary actions
+                    (blank canvas + browse templates) stacked right above it. */}
                 <div className="sticky bottom-0 p-4 bg-surface-primary/80 backdrop-blur-sm">
+                    <div className="max-w-3xl mx-auto flex flex-col items-center gap-2 mb-3">
+                        <button
+                            onClick={onCreateNewSession}
+                            className="group inline-flex items-center gap-2 px-3 py-1 text-sm text-content-tertiary hover:text-content-primary transition-colors"
+                        >
+                            <Pen className="w-3.5 h-3.5" />
+                            Prefer a blank slate? Start an empty canvas
+                            <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
+                        </button>
+                        <TemplatesAffordance />
+                    </div>
                     <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={false} />
                 </div>
 
@@ -398,7 +393,7 @@ export function ChatEmptyState({
             <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-5 py-8">
                 <div className="w-full max-w-sm">
                     <div className="text-center mb-6">
-                        <h1 className="text-xl font-bold text-content-primary">
+                        <h1 className="font-sans normal-case font-semibold tracking-tight text-2xl text-content-primary">
                             {firstName ? `Welcome, ${firstName}` : 'Welcome to Prisfol'}
                         </h1>
                         <p className="text-content-secondary text-sm mt-1.5">
@@ -416,21 +411,20 @@ export function ChatEmptyState({
                             />
                         ))}
                     </div>
-
-                    <div className="mt-5 flex flex-col items-center gap-3">
-                        <TemplatesAffordance />
-                        <button
-                            onClick={onCreateNewSession}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-content-tertiary hover:text-content-primary transition-colors"
-                        >
-                            <Pen className="w-3.5 h-3.5" />
-                            Start an empty canvas
-                        </button>
-                    </div>
                 </div>
             </div>
 
             <div className="sticky bottom-0 border-t border-stroke-subtle p-4 bg-surface-primary/80 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-2 mb-3">
+                    <button
+                        onClick={onCreateNewSession}
+                        className="inline-flex items-center gap-2 px-3 py-1 text-sm text-content-tertiary hover:text-content-primary transition-colors"
+                    >
+                        <Pen className="w-3.5 h-3.5" />
+                        Prefer a blank slate? Start an empty canvas
+                    </button>
+                    <TemplatesAffordance />
+                </div>
                 <ChatInput ref={textareaRef} {...chatInputProps} hasMessages={false} />
             </div>
             {evictionToast && (
