@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import { persistPrefs } from '@/lib/user/preferences';
@@ -22,6 +22,29 @@ interface ChipOption {
     label: string;
     /** Optional leading icon URL (provider logo for model chips). */
     iconUrl?: string | null;
+    /** Optional aspect ratio "w:h" — renders a proportional ratio glyph. */
+    ratio?: string;
+}
+
+/**
+ * Proportional aspect-ratio glyph, mirroring AspectRatioPicker's RatioIcon — a
+ * small bordered box scaled to the ratio so the chip reads at a glance.
+ */
+function RatioIcon({ ratio, active }: { ratio: string; active: boolean }) {
+    const m = ratio.match(/^(\d+):(\d+)$/);
+    const w = m ? parseInt(m[1], 10) : 1;
+    const h = m ? parseInt(m[2], 10) : 1;
+    const max = 12;
+    const bw = (w / Math.max(w, h)) * max;
+    const bh = (h / Math.max(w, h)) * max;
+    return (
+        <span className="shrink-0 inline-flex items-center justify-center w-3.5 h-3.5" aria-hidden>
+            <span
+                className={`border rounded-[2px] ${active ? 'border-accent-primary' : 'border-content-tertiary opacity-60'}`}
+                style={{ width: `${bw}px`, height: `${bh}px` }}
+            />
+        </span>
+    );
 }
 
 /** A single selectable chip. Selected = accent fill; otherwise subtle. */
@@ -44,11 +67,13 @@ function Chip({
                     : 'bg-white/5 border-white/10 text-content-secondary hover:bg-white/10 hover:text-content-primary'
                 }`}
         >
-            {option.iconUrl && (
-                <span className="shrink-0 inline-flex items-center justify-center w-3.5 h-3.5 rounded overflow-hidden bg-white/5 border border-white/10">
-                    <img src={option.iconUrl} alt="" className="w-full h-full object-contain p-[1px]" />
-                </span>
-            )}
+            {option.ratio
+                ? <RatioIcon ratio={option.ratio} active={selected} />
+                : option.iconUrl && (
+                    <span className="shrink-0 inline-flex items-center justify-center w-3.5 h-3.5 rounded overflow-hidden bg-white/5 border border-white/10">
+                        <img src={option.iconUrl} alt="" className="w-full h-full object-contain p-[1px]" />
+                    </span>
+                )}
             <span className="truncate max-w-[160px]">{option.label}</span>
         </button>
     );
@@ -93,6 +118,9 @@ function Section({
 const staticOptions = (values: string[]): ChipOption[] =>
     values.map((v) => ({ value: v, label: v }));
 
+const aspectOptions = (values: string[]): ChipOption[] =>
+    values.map((v) => ({ value: v, label: v, ratio: v }));
+
 const modelOptions = (models: AiModel[]): ChipOption[] =>
     models.map((m) => ({
         value: String(m.id),
@@ -122,6 +150,24 @@ export function ChatPreferencesMenu() {
     const imgOpts = useMemo(() => modelOptions(imageModels(models)), [models]);
     const vidOpts = useMemo(() => modelOptions(videoModels(models)), [models]);
 
+    // The panel opens UPWARD from the trigger; a tall panel would otherwise
+    // clip past the top of the viewport. Cap the scroll area to the space
+    // available above the trigger (minus the 8px gap + a 12px breathing margin),
+    // so the top edge always stays on-screen — the panel scrolls internally
+    // instead of being cut. Recomputed on open and on resize.
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const [maxH, setMaxH] = useState<number | undefined>(undefined);
+    useLayoutEffect(() => {
+        if (!open) return;
+        const update = () => {
+            const top = triggerRef.current?.getBoundingClientRect().top ?? window.innerHeight;
+            setMaxH(Math.max(160, Math.min(top - 20, window.innerHeight * 0.7)));
+        };
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, [open]);
+
     const setPref = (key: keyof ChatPreferences, value: string) => {
         setChatPreference(key, value);
         // Persist the freshly-updated object (zustand sets synchronously) to the
@@ -132,6 +178,7 @@ export function ChatPreferencesMenu() {
     return (
         <div {...rootProps} className="relative">
             <button
+                ref={triggerRef}
                 type="button"
                 aria-label="Generation preferences"
                 aria-expanded={open}
@@ -142,8 +189,8 @@ export function ChatPreferencesMenu() {
             </button>
 
             {open && (
-                <div className="popover-animate absolute bottom-full left-0 mb-2 w-80 max-w-[calc(100vw-2rem)] p-1.5 rounded-2xl bg-surface-primary/80 backdrop-blur-3xl border border-white/10 shadow-2xl ring-1 ring-white/5 z-[100001]">
-                    <div className="max-h-[60vh] overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+                <div className="popover-animate absolute bottom-full left-0 mb-2 w-80 max-w-[calc(100vw-2rem)] p-1.5 rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 z-[100001]">
+                    <div className="overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{ maxHeight: maxH, scrollbarWidth: 'none' }}>
                         <Section
                             title="Image model"
                             options={imgOpts}
@@ -160,7 +207,7 @@ export function ChatPreferencesMenu() {
                         <div className="mx-1 h-px bg-white/10" />
                         <Section
                             title="Aspect ratio"
-                            options={staticOptions(ASPECT_RATIO_OPTIONS)}
+                            options={aspectOptions(ASPECT_RATIO_OPTIONS)}
                             value={chatPreferences.aspectRatio}
                             onSelect={(v) => setPref('aspectRatio', v)}
                         />

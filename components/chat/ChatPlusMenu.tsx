@@ -60,7 +60,7 @@ export function ChatPlusMenu({ onOpenImagePicker }: ChatPlusMenuProps) {
             </button>
 
             {open && (
-                <div className="popover-animate absolute bottom-full left-0 mb-2 w-60 p-1.5 rounded-2xl bg-surface-primary/80 backdrop-blur-3xl border border-white/10 shadow-2xl ring-1 ring-white/5 z-[100001]">
+                <div className="popover-animate absolute bottom-full left-0 mb-2 w-60 p-1.5 rounded-2xl bg-surface-primary border border-white/10 shadow-2xl ring-1 ring-white/5 z-[100001]">
                     {/* Attach files — styled to match a Select option row. */}
                     <button
                         type="button"

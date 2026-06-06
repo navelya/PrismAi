@@ -14,18 +14,19 @@ export const QUALITY_OPTIONS = ['480p', '720p', '1080p'];
 export const OUTPUTS_OPTIONS = ['1', '2', '4'];
 export const STYLE_OPTIONS = ['Photorealistic', 'Cinematic', 'Illustration', 'Anime', '3D'];
 
-/** A model's primary output modality, read from its first output handle. */
-export function modelOutputType(m: AiModel): string | null {
-    const t = m.outputs_schema?.handles?.[0]?.type;
-    return typeof t === 'string' ? t : null;
-}
+// Node-type ids for the "Generate image" / "Generate video" buckets. Mirrors
+// the candidate sets NodeLibraryPanel maps its Basics tiles to, so the model
+// picker shows exactly the generate-image / generate-video models (NOT every
+// image-output utility like upscale or refine).
+const IMAGE_NODE_TYPE_IDS = ['image_generation', 'generate_image', 'generate-image'];
+const VIDEO_NODE_TYPE_IDS = ['video_generation', 'generate_video', 'generate-video'];
 
 export function imageModels(models: AiModel[]): AiModel[] {
-    return models.filter((m) => m.is_active && modelOutputType(m) === 'image');
+    return models.filter((m) => m.is_active && m.node_type_id != null && IMAGE_NODE_TYPE_IDS.includes(m.node_type_id));
 }
 
 export function videoModels(models: AiModel[]): AiModel[] {
-    return models.filter((m) => m.is_active && modelOutputType(m) === 'video');
+    return models.filter((m) => m.is_active && m.node_type_id != null && VIDEO_NODE_TYPE_IDS.includes(m.node_type_id));
 }
 
 export function modelDisplayName(models: AiModel[], id: string): string | undefined {
