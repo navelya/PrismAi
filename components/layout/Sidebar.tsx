@@ -820,14 +820,14 @@ export default function Sidebar({ isOpen = true, onClose, variant = 'docked' }: 
                     shows in the canvas toolbar. */}
                 <button
                     onClick={() => setMenuOpen((v) => !v)}
-                    className="group flex items-center gap-1.5 h-9 px-2 text-content-primary hover:text-content-primary transition-colors"
+                    className="group flex items-center gap-0.5 h-10 px-2 text-content-primary hover:text-content-primary transition-colors"
                     aria-label="Open menu and sessions"
                     aria-expanded={menuOpen}
                     title="Menu & sessions"
                 >
-                    <Logo variant="mark" className="w-5 h-5 flex-shrink-0" />
+                    <Logo variant="mark" className="w-8 h-8 flex-shrink-0" />
                     <ChevronDown
-                        className={`w-3.5 h-3.5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${menuOpen ? 'rotate-180' : ''}`}
+                        className={`w-5 h-5 flex-shrink-0 text-content-tertiary transition-transform duration-200 ${menuOpen ? 'rotate-180' : ''}`}
                     />
                 </button>
 
