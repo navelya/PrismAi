@@ -147,11 +147,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
         );
     }
 
-    // On the chat / canvas workspace, canvas space is precious — the nav becomes
-    // a compact app-menu pinned to the top-left corner that overlays the canvas,
-    // so the content reclaims the full width. Everywhere else (library, assets,
-    // nodes, settings) keeps the traditional docked sidebar column.
-    const isCanvasRoute = /^\/chat(\/|$)/.test(pathname);
+    // Inside a chat SESSION (/chat/<id>) the canvas is live and space is precious,
+    // so the nav becomes a compact app-menu pinned to the top-left corner that
+    // overlays the canvas and lets the content reclaim full width. The empty chat
+    // page (/chat, no session → no canvas, just the welcome screen) and every
+    // other page (library, assets, nodes, settings) keep the traditional docked
+    // sidebar column.
+    const isCanvasRoute = /^\/chat\/[^/]+/.test(pathname);
 
     // Single, stable layout tree across both route types: the Sidebar always
     // renders at the same position and we only swap its `variant`. This keeps it
