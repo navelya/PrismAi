@@ -9,7 +9,13 @@ interface RunMediaGalleryProps {
     /** Typed media items ({url,type,resolution}). Null/empty → skeleton tiles. */
     items: RenderableMediaItem[] | null | undefined;
     isCanvasMode?: boolean;
-    /** How many skeleton tiles to show while nothing has arrived yet. */
+    /**
+     * Total tiles to lay out: the grid renders `max(items.length, skeletonCount)`
+     * cells — arrived media fills the first cells, the remainder stay skeletons.
+     * Live runs pass the expected result count (so all placeholders show up
+     * front and swap in as images land); the frozen result passes 0 so exactly
+     * the real items render (no trailing skeletons if a run emitted fewer).
+     */
     skeletonCount?: number;
 }
 
@@ -24,13 +30,21 @@ interface RunMediaGalleryProps {
  * Inline videos play as a clean, muted, controls-less preview; clicking any tile
  * (image or video) opens the shared lightbox — full controls, navigation across
  * all results, and a download button.
+ *
+ * Layout: a fixed 4-column grid that wraps into rows of 4. Each column keeps a
+ * minimum width, so a narrow chat panel can't shrink the tiles to mush — instead
+ * the row overflows and scrolls sideways. In the roomy full-screen chat the
+ * columns grow to fill the wider content width.
  */
-export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 1 }: RunMediaGalleryProps) {
+export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 0 }: RunMediaGalleryProps) {
     const list = (Array.isArray(items) ? items : []).filter(
         (i) => i && typeof i.url === 'string' && i.url.length > 0,
     );
-    const showSkeleton = list.length === 0;
-    const count = showSkeleton ? Math.max(1, skeletonCount) : list.length;
+
+    // Total cells = arrived media, padded out to the expected count with
+    // skeletons. Always show at least one cell so an in-flight run with no count
+    // still renders a placeholder.
+    const total = Math.max(list.length, skeletonCount, 1);
 
     // One lightbox over ALL media (images + videos). ImageLightbox auto-detects
     // each item's type from its URL, so 'any' lets the user page across the whole
@@ -38,26 +52,36 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 1 }: RunM
     const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
     const lightboxMedia = list.map((i) => ({ url: i.url }));
 
-    const maxW = isCanvasMode ? 300 : 460;
+    // Narrow (canvas) panel keeps a smaller min so ~2.5 tiles peek before the
+    // sideways scroll; full-screen gives tiles more room to grow.
+    const minColW = isCanvasMode ? 120 : 150;
 
     return (
-        <div className="flex flex-col gap-2">
-            {showSkeleton
-                ? Array.from({ length: count }).map((_, i) => (
-                    <div
-                        key={i}
-                        className="w-full rounded-xl border border-stroke-subtle/40 bg-surface-tertiary/40 animate-pulse"
-                        style={{ maxWidth: maxW, aspectRatio: '3 / 2' }}
-                    />
-                ))
-                : list.map((item, i) => (
-                    <MediaTile
-                        key={`${item.url}-${i}`}
-                        item={item}
-                        maxW={maxW}
-                        onOpen={() => setLightboxIndex(i)}
-                    />
-                ))}
+        <div className="overflow-x-auto">
+            <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: `repeat(4, minmax(${minColW}px, 1fr))` }}
+            >
+                {Array.from({ length: total }).map((_, i) => {
+                    const item = list[i];
+                    if (!item) {
+                        return (
+                            <div
+                                key={`sk-${i}`}
+                                className="w-full rounded-xl border border-stroke-subtle/40 bg-surface-tertiary/40 animate-pulse"
+                                style={{ aspectRatio: '3 / 2' }}
+                            />
+                        );
+                    }
+                    return (
+                        <MediaTile
+                            key={`${item.url}-${i}`}
+                            item={item}
+                            onOpen={() => setLightboxIndex(i)}
+                        />
+                    );
+                })}
+            </div>
 
             {lightboxIndex !== null && lightboxIndex >= 0 && (
                 <ImageLightbox
@@ -73,11 +97,9 @@ export function RunMediaGallery({ items, isCanvasMode, skeletonCount = 1 }: RunM
 
 function MediaTile({
     item,
-    maxW,
     onOpen,
 }: {
     item: RenderableMediaItem;
-    maxW: number;
     onOpen?: () => void;
 }) {
     const [loaded, setLoaded] = useState(false);
@@ -100,7 +122,7 @@ function MediaTile({
     return (
         <div
             className={`group relative w-full overflow-hidden rounded-xl border border-stroke-subtle/60 bg-surface-tertiary/40 ${clickable ? 'cursor-pointer' : ''}`}
-            style={{ maxWidth: maxW, aspectRatio: String(aspect) }}
+            style={{ aspectRatio: String(aspect) }}
             onClick={clickable ? onOpen : undefined}
         >
             {/* Skeleton fills the reserved footprint until the media's own load

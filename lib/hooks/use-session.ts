@@ -270,6 +270,7 @@ export function useSession() {
                             cost: number;
                             status: 'ready' | 'running' | 'done' | 'failed' | 'superseded';
                             error?: string;
+                            expectedResultCount?: number;
                         } | null;
                         inline_result_ids?: string[] | null;
                     };
@@ -326,6 +327,7 @@ export function useSession() {
                             cost: typeof rp.cost === 'number' ? rp.cost : 0,
                             status,
                             error: typeof rp.error === 'string' ? rp.error : undefined,
+                            expectedResultCount: typeof rp.expectedResultCount === 'number' ? rp.expectedResultCount : undefined,
                         };
                     }
                     if (msg.role === 'assistant' && Array.isArray(metadata.inline_result_ids)) {

@@ -4,6 +4,7 @@ import React from 'react';
 import { Bot } from 'lucide-react';
 import { Workflow } from '@/lib/nodes/types';
 import { Message } from './Message';
+import { useAppStore } from '@/lib/store/app-store';
 
 interface Message {
     id: string;
@@ -87,6 +88,10 @@ export function MessageList({
     emptyState,
     skeletonSlot,
 }: MessageListProps) {
+    // Full-screen chat gets a wider content column than the compact canvas-side
+    // panel. Subscribing here only re-renders on the (rare) fullscreen toggle.
+    const isChatFullscreen = useAppStore((s) => s.isChatFullscreen);
+    const contentMaxW = isChatFullscreen ? 'max-w-5xl' : 'max-w-3xl';
     return (
         <div
             ref={scrollContainerRef}
@@ -104,7 +109,7 @@ export function MessageList({
         >
             {!isLoadingSession && messages.length === 0 && !isLoading && emptyState}
 
-            <div ref={contentRef} className={`max-w-3xl mx-auto space-y-6 pb-2 w-full ${!isLoadingSession && messages.length === 0 && !isLoading ? 'hidden' : ''}`}>
+            <div ref={contentRef} className={`${contentMaxW} mx-auto space-y-6 pb-2 w-full ${!isLoadingSession && messages.length === 0 && !isLoading ? 'hidden' : ''}`}>
                 {isLoadingSession && messages.length === 0 ? (
                     skeletonSlot
                 ) : (

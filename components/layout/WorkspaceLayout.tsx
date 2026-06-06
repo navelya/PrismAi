@@ -142,21 +142,12 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
     const canvasLeft = 16;  // matches left-4 = 16px (same as other panels)
     const canvasTop = TOP_BAR_OFFSET;
 
-    // Track the workspace width so the full-screen chat can animate its `width`
-    // (left/top/bottom stay fixed, so only the width tweens — a clean horizontal
-    // expand from the sidebar to a full-width panel).
-    const [containerWidth, setContainerWidth] = useState(0);
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-        const update = () => setContainerWidth(el.clientWidth);
-        update();
-        const ro = new ResizeObserver(update);
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, []);
-    const fullscreenWidth = Math.max(SIDEBAR_WIDTH, containerWidth - PAD * 2);
-    const chatOpenWidth = isChatFullscreen ? fullscreenWidth : SIDEBAR_WIDTH;
+    // Full-screen chat reuses the empty-page shell: AppLayout swaps the sidebar
+    // to its DOCKED variant (which shrinks this container to the remaining
+    // column), and the chat panel fills that whole region as a solid surface —
+    // no floating glass card, no canvas, no tool rail. `chatFills` is true both
+    // for the welcome screen (no canvas) and for in-session full-screen chat.
+    const chatFills = !isCanvasMode || (isChatFullscreen && !isCopilotMinimized);
 
     // Rail left position:
     //   chat open  → right edge of chat panel (PAD + SIDEBAR_WIDTH + gap)
@@ -347,9 +338,10 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
                 onLoad={handleLoadTemplate}
             />
 
-            {/* ── LAYER 4 · Vertical Tool Rail (always visible in canvas mode) ── */}
+            {/* ── LAYER 4 · Vertical Tool Rail (canvas mode, hidden in full-screen
+                chat where the docked sidebar provides navigation) ───────────── */}
             <AnimatePresence>
-                {isCanvasMode && (
+                {isCanvasMode && !chatFills && (
                     <motion.div
                         key="tool-rail"
                         className="marquee-passthrough absolute top-1/2 -translate-y-1/2 z-[1] pointer-events-auto"
@@ -373,17 +365,20 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
             {/* ── LAYER 2 · Chat / Copilot ───────────────────────────────────── */}
             <motion.div
                 key="chat"
-                className={['marquee-passthrough absolute flex flex-col overflow-hidden', isCanvasMode ? 'z-[55] rounded-2xl border border-white/10 shadow-2xl shadow-black/50' : 'z-20'].join(' ')}
+                className={['marquee-passthrough absolute flex flex-col overflow-hidden', chatFills ? 'z-[55]' : 'z-[55] rounded-2xl border border-white/10 shadow-2xl shadow-black/50'].join(' ')}
                 initial={false}
                 animate={
-                    !isCanvasMode
+                    chatFills
                         ? { left: 0, top: 0, right: 0, bottom: 0, width: '100%' as any, height: '100%' as any, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                         : isCopilotMinimized
                             ? { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, opacity: 0, x: -24, pointerEvents: 'none' as any }
-                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: chatOpenWidth, opacity: 1, x: 0, pointerEvents: 'auto' as any }
+                            : { left: canvasLeft, top: canvasTop, bottom: PAD, width: SIDEBAR_WIDTH, opacity: 1, x: 0, pointerEvents: 'auto' as any }
                 }
                 transition={isCanvasMode ? { duration: 0.22, ease: 'easeOut' } : RESIZE_TRANSITION}
-                style={isCanvasMode ? { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', background: 'rgba(12, 12, 16, 0.88)' } : { background: undefined }}
+                // Floating compact panel = glass card; full-fill (welcome or
+                // full-screen chat) lets the chat content (bg-surface-primary)
+                // provide its own opaque, theme-aware page background.
+                style={chatFills ? { background: undefined } : { backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', background: 'rgba(12, 12, 16, 0.88)' }}
             >
                 {/* Chat content (header + body live inside ChatInterface) */}
                 <div className="flex-1 min-h-0 overflow-hidden">

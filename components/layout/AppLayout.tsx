@@ -59,6 +59,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // actually has a workflow on the canvas.
     const isMobileCanvasOpen = useAppStore((state) => state.isMobileCanvasOpen);
     const setIsMobileCanvasOpen = useAppStore((state) => state.setIsMobileCanvasOpen);
+    const isChatFullscreen = useAppStore((state) => state.isChatFullscreen);
     const inSession = /^\/chat\/[a-zA-Z0-9_-]+/.test(pathname);
     const hasCanvas = !!currentWorkflow?.nodes?.length;
     const showCanvasToggle = inSession && hasCanvas && !isMobileCanvasOpen;
@@ -155,6 +156,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
     // sidebar column.
     const isCanvasRoute = /^\/chat\/[^/]+/.test(pathname);
 
+    // Full-screen chat reuses the empty-page shell: the regular DOCKED sidebar
+    // fills the page and the chat takes the remaining column. So a session route
+    // only gets the compact floating sidebar while NOT in full-screen chat.
+    const useFloatingSidebar = isCanvasRoute && !isChatFullscreen;
+
     // Single, stable layout tree across both route types: the Sidebar always
     // renders at the same position and we only swap its `variant`. This keeps it
     // mounted when navigating between a session and another page, so the session
@@ -163,7 +169,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     //   - floating → absolute top-left overlay (out of flow → content fills full width)
     return (
         <div className="w-full h-[100dvh] flex relative overflow-hidden bg-surface-secondary">
-            <Sidebar variant={isCanvasRoute ? 'floating' : 'docked'} />
+            <Sidebar variant={useFloatingSidebar ? 'floating' : 'docked'} />
 
             {/* Main Content */}
             <div className="flex-1 min-w-0 overflow-hidden bg-surface-secondary">

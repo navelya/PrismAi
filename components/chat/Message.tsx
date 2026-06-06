@@ -72,6 +72,7 @@ interface Message {
         cost: number;
         status: import('@/lib/store/types').RunProposalStatus;
         error?: string;
+        expectedResultCount?: number;
     };
     inlineResultIds?: string[];
 }
@@ -480,6 +481,7 @@ export const Message = React.memo(function Message({
                         <InlineRunResults
                             terminalIds={message.inlineResultIds}
                             isCanvasMode={isCanvasMode}
+                            expectedResultCount={message.runProposal?.expectedResultCount}
                         />
                     )}
 

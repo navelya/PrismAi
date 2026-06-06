@@ -130,6 +130,10 @@ export interface Message {
          *  that output was produced by THIS execution — so a stale prior-run
          *  output lingering in nodeOutputs can never be frozen into the card. */
         executionId?: string;
+        /** How many media results this run is expected to emit (Σ terminal
+         *  iterations). Drives the inline skeleton-grid placeholder count so it
+         *  matches the real result count. */
+        expectedResultCount?: number;
     };
     // Terminal node ids whose outputs render inline under this message while a
     // chat-triggered run is in flight. Frozen into `result` on completion.

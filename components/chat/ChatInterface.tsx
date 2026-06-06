@@ -93,6 +93,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     const statusMessage = useAppStore((state) => state.statusMessage);
     const isLoadingSession = useAppStore((state) => state.isLoadingSession);
     const isViewer = useAppStore((state) => state.collabRole) === 'viewer';
+    // Full-screen chat widens the content column; keep the composer on the same
+    // centered max-width so input and messages share one column.
+    const isChatFullscreen = useAppStore((state) => state.isChatFullscreen);
+    const composerMaxW = isChatFullscreen ? 'max-w-5xl' : 'max-w-3xl';
 
     // CHAT scoping (collab decoupling): chat must be scoped to the per-user
     // THREAD id (store activeSessionId), NOT the URL param (which is always the
@@ -523,6 +527,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
             />
 
             <div className="sticky bottom-0 p-3 bg-surface-primary/80 backdrop-blur-sm">
+              <div className={`${composerMaxW} mx-auto w-full`}>
                 {editingMessageId && (
                     <div className="flex items-center justify-between p-3 mb-3 bg-surface-secondary border border-stroke-subtle rounded-xl animate-in slide-in-from-bottom-2 shadow-lg">
                         <div className="flex items-center gap-3">
@@ -543,6 +548,7 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     </div>
                 )}
                 <ChatInput ref={textareaRef} {...chatInputProps} isViewer={isViewer} disabled={isViewer || isLoading || isLoadingSession || !isChatReady} hasMessages={messages.length > 0} />
+              </div>
             </div>
             {evictionToast && (
                 <Toast

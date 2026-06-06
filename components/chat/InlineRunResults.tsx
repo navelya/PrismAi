@@ -8,9 +8,12 @@ import { RunMediaGallery } from './RunMediaGallery';
 interface InlineRunResultsProps {
     terminalIds: string[];
     isCanvasMode?: boolean;
+    /** Expected media count for this run (Σ terminal iterations). Sets how many
+     *  skeleton tiles the grid shows up front; falls back to the terminal count. */
+    expectedResultCount?: number;
 }
 
-export function InlineRunResults({ terminalIds, isCanvasMode }: InlineRunResultsProps) {
+export function InlineRunResults({ terminalIds, isCanvasMode, expectedResultCount }: InlineRunResultsProps) {
     const nodeOutputs = useAppStore((s) => s.nodeOutputs);
     const nodeStatuses = useAppStore((s) => s.nodeStatuses);
 
@@ -35,13 +38,16 @@ export function InlineRunResults({ terminalIds, isCanvasMode }: InlineRunResults
 
     // This component only mounts while the run is in flight (Message.tsx gates
     // on runProposal.status === 'running'). RunMediaGallery shows skeleton tiles
-    // until media arrives AND has actually loaded — no broken-image flash.
+    // until media arrives AND has actually loaded — no broken-image flash. The
+    // skeleton count is the real expected output count so the grid lays out all
+    // placeholders up front and fills them in as results land.
+    const skeletonCount = Math.max(1, expectedResultCount ?? terminalIds.length);
     return (
         <div className="mt-2">
             <RunMediaGallery
                 items={items}
                 isCanvasMode={isCanvasMode}
-                skeletonCount={Math.min(2, Math.max(1, terminalIds.length))}
+                skeletonCount={skeletonCount}
             />
         </div>
     );

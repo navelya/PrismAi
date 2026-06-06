@@ -29,9 +29,23 @@ export interface RunPlan {
     generativeCount: number;
     /** model_ids on ai_generator targets that weren't found in the client map (treated as 0 cost). */
     missingModels: number[];
+    /**
+     * How many media results the run is expected to emit — the sum over terminal
+     * nodes of their output count. An ai_generator with `iterations` = N produces
+     * N images; every other terminal produces one output. Drives the inline
+     * skeleton grid so the placeholder count matches the real result count.
+     */
+    expectedResultCount: number;
 }
 
-const EMPTY_PLAN: RunPlan = Object.freeze({ runTargetIds: [], terminalIds: [], cost: 0, generativeCount: 0, missingModels: [] });
+const EMPTY_PLAN: RunPlan = Object.freeze({ runTargetIds: [], terminalIds: [], cost: 0, generativeCount: 0, missingModels: [], expectedResultCount: 0 });
+
+/** iterations is a 1–10 integer; clamp defensively (mirrors the ai_generator UI). */
+function clampIterations(v: unknown): number {
+    const n = Math.floor(Number(v ?? 1));
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(Math.max(n, 1), 10);
+}
 
 /**
  * @param workflow      current full workflow (nodes + edges)
@@ -94,5 +108,14 @@ export function buildRunPlan(
     };
 
     const { cost, generativeCount, missingModels } = computeExecutionCost(costNodes, modelsById, graph);
-    return { runTargetIds, terminalIds, cost, generativeCount, missingModels };
+
+    // Expected media count = Σ over terminals of their output count. An
+    // ai_generator emits `iterations` images; any other terminal emits one.
+    const expectedResultCount = terminalIds.reduce((sum, id) => {
+        const n = nodeById.get(id);
+        const isGenerator = (n?.type as string) === 'ai_generator';
+        return sum + (isGenerator ? clampIterations(n?.data?.config?.iterations) : 1);
+    }, 0);
+
+    return { runTargetIds, terminalIds, cost, generativeCount, missingModels, expectedResultCount };
 }

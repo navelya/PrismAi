@@ -807,6 +807,7 @@ export function useChatMessages({
                                     terminalIds: plan.terminalIds,
                                     cost: plan.cost,
                                     status: 'ready',
+                                    expectedResultCount: plan.expectedResultCount,
                                 },
                             });
                             store.openAutoRunIntro({
@@ -838,6 +839,7 @@ export function useChatMessages({
                                     terminalIds: plan.terminalIds,
                                     cost: plan.cost,
                                     status: 'running',
+                                    expectedResultCount: plan.expectedResultCount,
                                 },
                             });
                             store.triggerRunSelection(plan.runTargetIds, { preconfirmed: true });
@@ -850,6 +852,7 @@ export function useChatMessages({
                                     cost: plan.cost,
                                     status: 'ready',
                                     error: runErr ?? undefined,
+                                    expectedResultCount: plan.expectedResultCount,
                                 },
                             });
                         }
