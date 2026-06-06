@@ -213,14 +213,21 @@ async function dispatchReplicateNode(
         workflowId: executionId,
         data: nodeConfig.data,
     };
-    const results: Awaited<ReturnType<typeof aiGeneratorExecutor>>[] = [];
-    for (let i = 0; i < iterations; i++) {
-        try {
-            results.push(await aiGeneratorExecutor(config, inputs, ctx));
-        } catch (err) {
-            results.push({ success: false, status: 'error', data: null, error: err instanceof Error ? err.message : 'Prediction create threw' } as any);
-        }
-    }
+    // Fan out concurrently: kick off all N predictions at once rather than
+    // awaiting each in turn. Each executor call just CREATES one Replicate
+    // prediction (the heavy generation runs async on Replicate and returns via
+    // webhook), so concurrent creation removes the serial latency and, in the
+    // local synchronous path, runs the generations in parallel. allSettled keeps
+    // a single failed creation from aborting the rest; a rejection maps to the
+    // same shape the previous per-iteration catch produced.
+    const settled = await Promise.allSettled(
+        Array.from({ length: iterations }, () => aiGeneratorExecutor(config, inputs, ctx))
+    );
+    const results: Awaited<ReturnType<typeof aiGeneratorExecutor>>[] = settled.map((s) =>
+        s.status === 'fulfilled'
+            ? s.value
+            : ({ success: false, status: 'error', data: null, error: s.reason instanceof Error ? s.reason.message : 'Prediction create threw' } as any)
+    );
 
     // 'pending' is production-exclusive (an async prediction was created). If none
     // are pending, every result is a synchronous success or a failure → aggregate
