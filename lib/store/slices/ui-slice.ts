@@ -57,14 +57,17 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
 
     aiTurn: null,
     beginAiTurn: () =>
-        set({ aiTurn: { active: true, touchedNodeIds: [], patchTick: 0 } }),
+        set({ aiTurn: { active: true, touchedNodeIds: [], addedNodeIds: [], patchTick: 0 } }),
     recordAiPatch: (patch) => {
         if (!patch) return;
         const current = get().aiTurn;
         if (!current || !current.active) return;
 
         const next = new Set(current.touchedNodeIds);
-        for (const n of patch.addedNodes || []) next.add(n.id);
+        // addedNodeIds tracks ONLY created nodes — the re-layout must reposition
+        // these and leave updated/endpoint (existing) nodes anchored in place.
+        const added = new Set(current.addedNodeIds);
+        for (const n of patch.addedNodes || []) { next.add(n.id); added.add(n.id); }
         for (const u of patch.updatedNodes || []) next.add(u.id);
         for (const e of patch.addedEdges || []) {
             if (e.source) next.add(e.source);
@@ -75,6 +78,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
             aiTurn: {
                 active: true,
                 touchedNodeIds: Array.from(next),
+                addedNodeIds: Array.from(added),
                 patchTick: current.patchTick + 1,
             },
         });

@@ -583,10 +583,16 @@ export interface UISlice {
      * is a monotonic counter bumped on each `recordAiPatch` so subscribers
      * fire even when the id set is unchanged (e.g. position-only update on a
      * node already tracked).
+     *
+     * `addedNodeIds` is the strict subset of nodes CREATED this turn (from
+     * `addedNodes` only — not updated nodes or edge endpoints). It drives the
+     * end-of-turn measured re-layout in <AiAddedZoom />, which must reposition
+     * only the genuinely new nodes and never move existing ones.
      */
     aiTurn: {
         active: boolean;
         touchedNodeIds: string[];
+        addedNodeIds: string[];
         patchTick: number;
     } | null;
     beginAiTurn: () => void;

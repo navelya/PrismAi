@@ -3,6 +3,8 @@
 import { memo, useEffect, useRef } from 'react';
 import { useReactFlow, useStore } from 'reactflow';
 import { useAppStore } from '@/lib/store/app-store';
+import { layoutPatchAsync } from '@/lib/workflow/layout-incremental';
+import type { WorkflowNode, WorkflowEdge } from '@/lib/nodes/types';
 
 const DURING_STREAM_DURATION = 400;
 const DURING_STREAM_PADDING = 0.2;
@@ -19,6 +21,13 @@ interface Rect {
     y: number;
     width: number;
     height: number;
+}
+
+interface AiAddedZoomProps {
+    /** Current canvas edges — fed to the end-of-turn ELK re-layout for topology. */
+    edges: WorkflowEdge[];
+    /** Store action that writes new positions (id → {x,y}) into the workflow. */
+    updatePositions?: (positions: Map<string, { x: number; y: number }>) => void;
 }
 
 /**
@@ -38,9 +47,17 @@ interface Rect {
  *
  * Returns null — no visual output.
  */
-function AiAddedZoomInner() {
+function AiAddedZoomInner({ edges, updatePositions }: AiAddedZoomProps) {
     const { getNodes, getViewport, fitBounds } = useReactFlow();
     const aiTurn = useAppStore((s) => s.aiTurn);
+
+    // Keep the latest edges/updatePositions reachable from the end-of-turn
+    // effect without adding them to its deps (which would re-arm the
+    // active→inactive transition on every edge change mid-turn).
+    const edgesRef = useRef(edges);
+    edgesRef.current = edges;
+    const updatePositionsRef = useRef(updatePositions);
+    updatePositionsRef.current = updatePositions;
 
     // React Flow's internal viewport state. Subscribing here ensures the
     // override-detection effect re-runs whenever the user pans/zooms — not
@@ -155,17 +172,102 @@ function AiAddedZoomInner() {
             debounceTimerRef.current = null;
         }
 
+        const touchedIds = aiTurn.touchedNodeIds;
+        const addedIds = aiTurn.addedNodeIds;
+        let cancelled = false;
+
         // One rAF so React Flow has measured any nodes added in the very last
-        // patch before we compute the bbox.
+        // patch. THEN re-run the incremental ELK layout on just the new nodes
+        // using their real measured sizes (the server pass only had registry
+        // fallbacks, so it placed them too tightly), and finally settle the
+        // camera onto the corrected layout.
         const raf = requestAnimationFrame(() => {
-            if (userOverrodeViewportRef.current) return;
-            const bbox = computeBbox(getNodes(), aiTurn.touchedNodeIds);
-            if (!bbox) return;
-            runProgrammaticFit(bbox, END_OF_TURN_DURATION, END_OF_TURN_PADDING);
+            if (cancelled || userOverrodeViewportRef.current) return;
+            void relayoutAddedNodes(addedIds).then(() => {
+                if (cancelled || userOverrodeViewportRef.current) return;
+                // A second frame so the position write propagates and nodes
+                // re-render at their new spots before we read bounds for the fit.
+                requestAnimationFrame(() => {
+                    if (cancelled || userOverrodeViewportRef.current) return;
+                    const bbox = computeBbox(getNodes(), touchedIds);
+                    if (!bbox) return;
+                    runProgrammaticFit(bbox, END_OF_TURN_DURATION, END_OF_TURN_PADDING);
+                });
+            });
         });
-        return () => cancelAnimationFrame(raf);
+        return () => {
+            cancelled = true;
+            cancelAnimationFrame(raf);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [aiTurn?.active]);
+
+    /**
+     * Re-run the incremental ELK layout for the nodes the AI created this turn,
+     * using React Flow's measured sizes. Existing nodes are passed as fixed
+     * anchors (never moved). When the canvas had no prior nodes,
+     * `layoutPatchAsync` docks the result at the origin — we translate it back
+     * onto the new nodes' current top-left so they refine spacing in place
+     * instead of teleporting toward (0,0).
+     */
+    async function relayoutAddedNodes(addedIds: string[]) {
+        const updateFn = updatePositionsRef.current;
+        if (!updateFn || addedIds.length === 0) return;
+
+        const addedSet = new Set(addedIds);
+        const rfNodes = getNodes();
+        // React Flow nodes already carry id/type/position/parentNode plus the
+        // measured width/height layoutPatchAsync's effectiveSize prefers, so we
+        // can hand them straight to the layout engine.
+        const newNodes = rfNodes.filter((n) => addedSet.has(n.id)) as unknown as WorkflowNode[];
+        const existingNodes = rfNodes.filter((n) => !addedSet.has(n.id)) as unknown as WorkflowNode[];
+        if (newNodes.length === 0) return;
+
+        let positions: Map<string, { x: number; y: number }>;
+        try {
+            positions = await layoutPatchAsync({
+                existingNodes,
+                existingEdges: edgesRef.current,
+                newNodes,
+                newEdges: edgesRef.current,
+            });
+        } catch (err) {
+            console.error('[AiAddedZoom] re-layout failed:', err);
+            return;
+        }
+        if (positions.size === 0) return;
+
+        // No-jump guard: with no anchors, the dock translation is (0,0). Shift
+        // the TOP-LEVEL new nodes (those without a parent) so their bounding-box
+        // top-left matches where they currently sit. Child positions are
+        // parent-relative and move with their group, so they stay untouched.
+        if (existingNodes.length === 0) {
+            const topLevelNew = newNodes.filter((n) => !(n as any).parentNode);
+            let curMinX = Infinity, curMinY = Infinity;
+            let resMinX = Infinity, resMinY = Infinity;
+            for (const n of topLevelNew) {
+                const res = positions.get(n.id);
+                if (!res || !n.position) continue;
+                curMinX = Math.min(curMinX, n.position.x);
+                curMinY = Math.min(curMinY, n.position.y);
+                resMinX = Math.min(resMinX, res.x);
+                resMinY = Math.min(resMinY, res.y);
+            }
+            if (isFinite(curMinX) && isFinite(resMinX)) {
+                const dx = curMinX - resMinX;
+                const dy = curMinY - resMinY;
+                if (dx !== 0 || dy !== 0) {
+                    const topLevelIds = new Set(topLevelNew.map((n) => n.id));
+                    for (const id of topLevelIds) {
+                        const p = positions.get(id);
+                        if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
+                    }
+                }
+            }
+        }
+
+        updateFn(positions);
+    }
 
     function runProgrammaticFit(bbox: Rect, duration: number, padding: number) {
         isProgrammaticMoveRef.current = true;

@@ -1903,7 +1903,7 @@ const EditorCanvasInner = ({
             >
                 <BaseGridLayers />
                 <SpotlightGridLayers isMouseActive={isMouseActive} />
-                <AiAddedZoom />
+                <AiAddedZoom edges={edges} updatePositions={updatePositions} />
 
                 {!isMarqueeActive && selectedNodeIds.length >= 2 && (
                     <NodeToolbar
