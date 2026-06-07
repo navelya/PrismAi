@@ -282,6 +282,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     // click makes the action feel acknowledged instantly. Re-armed on the next
     // pointer-enter so hovering the node again brings the toolbar back.
     const [toolbarDismissed, setToolbarDismissed] = useState(false);
+    // Keeps the action toolbar mounted through its fade-out. `toolbarOpen` (the
+    // logical open state) flips off the instant the node is un-hovered, but we
+    // linger `toolbarRender` for one transition so the pill can animate out
+    // before React Flow's NodeToolbar unmounts it. See the toolbarOpen effect.
+    const [toolbarRender, setToolbarRender] = useState(false);
     useEffect(() => {
         // If the wire drag ends while the cursor is still inside the card,
         // onPointerLeave won't fire — reset eagerly.
@@ -501,6 +506,20 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     // (duplicate/delete/etc.) when editing is disabled — either the mobile
     // canvas preview or a collaboration viewer (view-only) session.
     const isReadOnlyCanvas = useAppStore((state) => state.isMobileCanvasOpen || state.collabRole === 'viewer');
+
+    // Logical visibility of the per-node action toolbar. Drives the fade: when
+    // true the pill animates in; when false it animates out and then unmounts.
+    const toolbarOpen = !isResizing && !isReadOnlyCanvas && !isMultiSelectActive && !toolbarDismissed && (isHovered || !!selected);
+    // Mount immediately when opening; on close, keep mounted for one transition
+    // (160ms, matching the motion.div below) so the exit animation can play.
+    useEffect(() => {
+        if (toolbarOpen) {
+            setToolbarRender(true);
+            return;
+        }
+        const t = setTimeout(() => setToolbarRender(false), 180);
+        return () => clearTimeout(t);
+    }, [toolbarOpen]);
 
     // Node Color
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
@@ -728,7 +747,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 handles bulk actions. */}
             <NodeToolbar
                 nodeId={id}
-                isVisible={!isResizing && !isReadOnlyCanvas && !isMultiSelectActive && !toolbarDismissed && (isHovered || !!selected)}
+                isVisible={toolbarRender}
                 position={Position.Top}
                 align="end"
             >
@@ -741,9 +760,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     the toolbar flickering away mid-reach. The bridge can't
                     appear on its own because it only mounts when the toolbar
                     does, which already requires the node to be hovered. */}
-                <div
+                <motion.div
                     className="nopan"
-                    style={{ position: 'relative', pointerEvents: 'auto' }}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: toolbarOpen ? 1 : 0, y: toolbarOpen ? 0 : 4 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                    style={{ position: 'relative', pointerEvents: toolbarOpen ? 'auto' : 'none' }}
                     onPointerEnter={() => setIsHovered(true)}
                     onPointerLeave={() => setIsHovered(false)}
                 >
@@ -785,7 +807,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                             pointerEvents: 'auto',
                         }}
                     />
-                </div>
+                </motion.div>
             </NodeToolbar>
 
             {/* Run-status indicator now lives in the floating header's icon box
