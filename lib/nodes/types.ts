@@ -192,6 +192,13 @@ export interface ExecutionContext {
     userId?: string;
     sessionId?: string;
     nodeId?: string; // Current node being executed
+    /**
+     * Fan-out (iterations > 1) only: this prediction's stable index. Carried into
+     * the webhook URL so the callback can address its own node_predictions row by
+     * (execution_id, node_id, prediction_index) without depending on the async
+     * replicate_id or on the dispatcher's row insert having landed first.
+     */
+    predictionIndex?: number;
     data: any;
 }
 

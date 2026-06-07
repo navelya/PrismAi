@@ -9,6 +9,7 @@ import { NodeConfig, NodeState } from './types-v2';
 import { isEphemeralNode } from '@/lib/nodes/core/server-registry';
 import { executeEphemeralNode } from './ephemeral-executor';
 import { inferResultTypeFromValue, toResultDataForType } from './result-format';
+import { resolveNodeOutputWireType } from './output-type';
 
 const WEBHOOK_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
@@ -221,7 +222,7 @@ async function dispatchReplicateNode(
     // a single failed creation from aborting the rest; a rejection maps to the
     // same shape the previous per-iteration catch produced.
     const settled = await Promise.allSettled(
-        Array.from({ length: iterations }, () => aiGeneratorExecutor(config, inputs, ctx))
+        Array.from({ length: iterations }, (_, i) => aiGeneratorExecutor(config, inputs, { ...ctx, predictionIndex: i }))
     );
     const results: Awaited<ReturnType<typeof aiGeneratorExecutor>>[] = settled.map((s) =>
         s.status === 'fulfilled'
@@ -276,9 +277,13 @@ async function dispatchReplicateNode(
         error: r.status === 'pending' ? null : (r.error || 'Prediction create failed'),
         updated_at: new Date().toISOString(),
     }));
+    // Insert-ONLY (ignoreDuplicates): a fast prediction's webhook may have already
+    // upserted its row to 'completed'/'failed' before this batch runs. The webhook
+    // is the authoritative resolver — dispatch must register the initial rows
+    // without clobbering an already-resolved one back to 'pending'.
     const { error: insErr } = await supabase
         .from('node_predictions')
-        .upsert(rows, { onConflict: 'execution_id,node_id,prediction_index' });
+        .upsert(rows, { onConflict: 'execution_id,node_id,prediction_index', ignoreDuplicates: true });
     if (insErr) throw new Error(`Failed to record predictions: ${insErr.message}`);
 
     if (rows.every((r) => r.status === 'failed')) {
@@ -287,6 +292,22 @@ async function dispatchReplicateNode(
             error: 'All iterations failed to start',
             completed_at: new Date().toISOString(),
         }, sessionId, baseUrl);
+        return { success: true, data: { iterations, pending: 0 } };
+    }
+
+    // Covers the pathological case where every created prediction's webhook fired
+    // (and returned "not ready" for lack of a 'running' row / complete row set)
+    // before this point: now that the row set is complete, re-check. finalize is
+    // claim-once and a no-op until all iterations have resolved.
+    const outputType = await resolveNodeOutputWireType(supabase, executionId, nodeId);
+    const { data: claimed } = await supabase.rpc('finalize_fan_out', {
+        p_execution_id: executionId,
+        p_node_id: nodeId,
+        p_output_type: outputType,
+        p_expected_count: iterations,
+    });
+    if (claimed === true) {
+        await checkAndDispatchChildren(executionId, nodeId, baseUrl);
     }
 
     return { success: true, data: { iterations, pending: rows.filter((r) => r.status === 'pending').length } };

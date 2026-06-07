@@ -190,7 +190,12 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             throw new Error('Missing executionId - cannot create webhook URL. Ensure execution is started via /api/executions/start');
         }
         
-        const webhookUrl = `${appUrl}/api/webhooks/replicate-v2?executionId=${context.executionId}&nodeId=${context.nodeId}`;
+        // Fan-out runs carry the stable prediction index so the webhook can address
+        // its own node_predictions row by (execution_id, node_id, prediction_index)
+        // regardless of callback/insert ordering. Single runs omit it (legacy path).
+        const predIndexParam =
+            typeof context.predictionIndex === 'number' ? `&predIndex=${context.predictionIndex}` : '';
+        const webhookUrl = `${appUrl}/api/webhooks/replicate-v2?executionId=${context.executionId}&nodeId=${context.nodeId}${predIndexParam}`;
 
         console.log(`[AIGeneratorExecutor] Creating prediction for node ${context.nodeId}`, { 
             appUrl, 

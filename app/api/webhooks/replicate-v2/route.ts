@@ -11,9 +11,9 @@ import { checkAndDispatchChildren } from '@/lib/workflow/orchestrator';
 import {
   NodeResultType,
   isMediaResultType,
-  normalizeNodeResultType,
   toResultDataForType,
 } from '@/lib/workflow/result-format';
+import { resolveNodeOutputWireTypeFromGraph } from '@/lib/workflow/output-type';
 import { clampIterations } from '@/lib/billing/cost';
 
 const WEBHOOK_MEDIA_EXTENSIONS: Record<NodeResultType, string> = {
@@ -48,80 +48,35 @@ async function fetchWithRetry(url: string, maxAttempts = 3, delayMs = 1500): Pro
   throw new Error(`Failed to fetch media after ${maxAttempts} attempts`);
 }
 
-async function resolveNodeOutputWireType(
-  supabase: ReturnType<typeof createServiceClient>,
-  executionGraph: any,
-  nodeId: string
-): Promise<NodeResultType> {
-  const graphNodes = executionGraph?.nodes;
-  const node = Array.isArray(graphNodes) ? graphNodes.find((n: any) => n?.id === nodeId) : null;
-  const modelId = node?.data?.config?.model_id ?? node?.data?.model_id;
-
-  if (!modelId) return 'json';
-
-  const { data: model } = await supabase
-    .from('ai_models')
-    .select('outputs_schema')
-    .eq('id', modelId)
-    .single();
-
-  const handleType = model?.outputs_schema?.handles?.[0]?.type;
-  return normalizeNodeResultType(handleType);
-}
-
-async function finalizeFanOutIfReady(
+/**
+ * Finalize a fan-out node via the atomic `finalize_fan_out` RPC. The RPC, under a
+ * row lock, finalizes only once all `expectedCount` iterations have resolved and
+ * claims the running->completed/failed transition exactly once. We dispatch
+ * children only for the single caller that won the claim (RPC returns true).
+ *
+ * Replaces the former non-atomic count->gather->update, which could (a) double-
+ * finalize on concurrent "last" webhooks and (b) finalize on a partial set when a
+ * fast callback's row existed before its siblings'. The expected-count gate closes
+ * both: no node finalizes until exactly N iterations are accounted for, regardless
+ * of which writer (webhook upsert or dispatch insert) created each row first.
+ */
+async function finalizeFanOut(
   supabase: ReturnType<typeof createServiceClient>,
   executionId: string,
   nodeId: string,
   outputType: NodeResultType,
+  expectedCount: number,
   origin: string
 ): Promise<void> {
-  // Any predictions still pending? If so, nothing to do yet.
-  const { count: pendingCount, error: pendingErr } = await supabase
-    .from('node_predictions')
-    .select('id', { count: 'exact', head: true })
-    .eq('execution_id', executionId)
-    .eq('node_id', nodeId)
-    .eq('status', 'pending');
-  if (pendingErr) throw new Error(`node_predictions pending-count failed: ${pendingErr.message}`);
-  if ((pendingCount ?? 0) > 0) return;
+  const { data: claimed, error } = await supabase.rpc('finalize_fan_out', {
+    p_execution_id: executionId,
+    p_node_id: nodeId,
+    p_output_type: outputType,
+    p_expected_count: expectedCount,
+  });
+  if (error) throw new Error(`finalize_fan_out failed: ${error.message}`);
 
-  // All resolved. Gather successful outputs in prediction order.
-  const { data: rows, error: rowsErr } = await supabase
-    .from('node_predictions')
-    .select('prediction_index, status, result_data')
-    .eq('execution_id', executionId)
-    .eq('node_id', nodeId)
-    .order('prediction_index', { ascending: true });
-  if (rowsErr) throw new Error(`node_predictions gather failed: ${rowsErr.message}`);
-
-  const aggregated: any[] = [];
-  let anySuccess = false;
-  for (const r of rows ?? []) {
-    if (r.status === 'completed' && Array.isArray(r.result_data)) {
-      aggregated.push(...r.result_data);
-      anySuccess = true;
-    }
-  }
-
-  // Elect a single dispatcher: transition node_results out of 'running' exactly
-  // once. Concurrent final webhooks race here; only the row-returning update wins.
-  const { data: claimed, error: claimErr } = await supabase
-    .from('node_results')
-    .update({
-      status: anySuccess ? 'completed' : 'failed',
-      result_type: outputType,
-      result_data: aggregated,
-      error: anySuccess ? null : 'All iterations failed',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('execution_id', executionId)
-    .eq('node_id', nodeId)
-    .eq('status', 'running')
-    .select('id');
-  if (claimErr) throw new Error(`node_results claim failed: ${claimErr.message}`);
-
-  if (claimed && claimed.length > 0) {
+  if (claimed === true) {
     await checkAndDispatchChildren(executionId, nodeId, origin);
   }
 }
@@ -257,6 +212,35 @@ async function refundFailedIteration(
   }
 }
 
+/**
+ * Upsert this fan-out prediction's row by its stable (execution_id, node_id,
+ * prediction_index) key. Upsert (not update-by-id) is what lets a callback that
+ * arrives before the dispatcher's row insert still record its result: it creates
+ * the row if missing, or transitions an existing 'pending' row. replicate_id is
+ * intentionally omitted so an existing row keeps the value the dispatcher recorded.
+ */
+async function upsertPredictionRow(
+  supabase: ReturnType<typeof createServiceClient>,
+  executionId: string,
+  nodeId: string,
+  predictionIndex: number,
+  fields: { status: 'completed' | 'failed'; resultData?: any; error: string | null }
+): Promise<void> {
+  const { error: predErr } = await supabase.from('node_predictions').upsert(
+    {
+      execution_id: executionId,
+      node_id: nodeId,
+      prediction_index: predictionIndex,
+      status: fields.status,
+      ...(fields.resultData !== undefined ? { result_data: fields.resultData } : {}),
+      error: fields.error,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'execution_id,node_id,prediction_index' }
+  );
+  if (predErr) throw new Error(`node_predictions upsert failed: ${predErr.message}`);
+}
+
 export async function POST(request: NextRequest) {
   console.log('═══════════════════════════════════════════════════════════════');
   console.log('[Webhook/Replicate-v2] 📨 RECEIVED WEBHOOK FROM REPLICATE:');
@@ -318,21 +302,27 @@ export async function POST(request: NextRequest) {
     const userUuid: string | null = (executionCtx?.sessions as any)?.user_id ?? null;
     const storageSessionId = sessionId || 'unknown_session';
 
-    // Fan-out (iterations > 1) tracks each prediction in node_predictions. If a
-    // row exists for THIS prediction, take the aggregation path; otherwise the
-    // legacy single-prediction path runs unchanged.
-    const { data: predRow } = await supabase
-        .from('node_predictions')
-        .select('id, prediction_index')
-        .eq('execution_id', executionId)
-        .eq('node_id', nodeId)
-        .eq('replicate_id', predictionId)
-        .maybeSingle();
-    const isFanOut = !!predRow;
+    // Fan-out (iterations > 1) carries the stable prediction index in the webhook
+    // URL. Its presence — NOT the existence of a node_predictions row — is the
+    // fan-out signal, so a callback that beats the dispatcher's row insert still
+    // takes the aggregation path (and upserts its own row by index) instead of the
+    // legacy single-prediction clobber. Single runs omit predIndex → legacy path.
+    const predIndexParam = searchParams.get('predIndex');
+    const parsedPredIndex = predIndexParam !== null ? parseInt(predIndexParam, 10) : NaN;
+    const isFanOut = Number.isInteger(parsedPredIndex) && parsedPredIndex >= 0;
+    const predictionIndex = isFanOut ? parsedPredIndex : -1;
+    // Expected iteration count for the atomic finalize gate — read from the graph,
+    // matching what the dispatcher fanned out with (clampIterations of the config).
+    const graphNode = isFanOut
+        ? ((executionCtx?.graph_json as any)?.nodes ?? []).find((n: any) => n?.id === nodeId)
+        : null;
+    const expectedCount = isFanOut
+        ? clampIterations(graphNode?.data?.config?.iterations ?? graphNode?.config?.iterations)
+        : 0;
 
     if (status === 'succeeded') {
       const normalizedOutput = normalizeReplicateOutput(output);
-      const outputType = await resolveNodeOutputWireType(supabase, executionCtx?.graph_json, nodeId);
+      const outputType = await resolveNodeOutputWireTypeFromGraph(supabase, executionCtx?.graph_json, nodeId);
       let resultData = toResultDataForType(outputType, normalizedOutput);
 
       try {
@@ -348,14 +338,13 @@ export async function POST(request: NextRequest) {
         }
       } catch (uploadJobError) {
         if (isFanOut) {
-          const { error: predErr } = await supabase
-            .from('node_predictions')
-            .update({ status: 'failed', error: `Media upload to storage failed: ${uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'}`, updated_at: new Date().toISOString() })
-            .eq('id', predRow!.id);
-          if (predErr) throw new Error(`node_predictions update failed: ${predErr.message}`);
-          await refundFailedIteration(supabase, executionId, nodeId, predRow!.prediction_index);
+          await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
+            status: 'failed',
+            error: `Media upload to storage failed: ${uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'}`,
+          });
+          await refundFailedIteration(supabase, executionId, nodeId, predictionIndex);
           const { origin } = new URL(request.url);
-          await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
+          await finalizeFanOut(supabase, executionId, nodeId, outputType, expectedCount, origin);
           return NextResponse.json({ success: true });
         }
 
@@ -382,14 +371,13 @@ export async function POST(request: NextRequest) {
 
       if (resultData.some((item) => typeof item === 'string' && isReplicateHostedUrl(item))) {
         if (isFanOut) {
-          const { error: predErr } = await supabase
-            .from('node_predictions')
-            .update({ status: 'failed', error: 'Media could not be permanently stored. Please re-run the node.', updated_at: new Date().toISOString() })
-            .eq('id', predRow!.id);
-          if (predErr) throw new Error(`node_predictions update failed: ${predErr.message}`);
-          await refundFailedIteration(supabase, executionId, nodeId, predRow!.prediction_index);
+          await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
+            status: 'failed',
+            error: 'Media could not be permanently stored. Please re-run the node.',
+          });
+          await refundFailedIteration(supabase, executionId, nodeId, predictionIndex);
           const { origin } = new URL(request.url);
-          await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
+          await finalizeFanOut(supabase, executionId, nodeId, outputType, expectedCount, origin);
           return NextResponse.json({ success: true });
         }
 
@@ -413,13 +401,13 @@ export async function POST(request: NextRequest) {
       }
 
       if (isFanOut) {
-        const { error: predErr } = await supabase
-          .from('node_predictions')
-          .update({ status: 'completed', result_data: resultData, error: null, updated_at: new Date().toISOString() })
-          .eq('id', predRow!.id);
-        if (predErr) throw new Error(`node_predictions update failed: ${predErr.message}`);
+        await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
+          status: 'completed',
+          resultData,
+          error: null,
+        });
         const { origin } = new URL(request.url);
-        await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
+        await finalizeFanOut(supabase, executionId, nodeId, outputType, expectedCount, origin);
         return NextResponse.json({ success: true });
       }
 
@@ -446,15 +434,14 @@ export async function POST(request: NextRequest) {
       await checkAndDispatchChildren(executionId, nodeId, origin);
     } else if (status === 'failed' || status === 'canceled') {
       if (isFanOut) {
-        const { error: predErr } = await supabase
-          .from('node_predictions')
-          .update({ status: 'failed', error: predictionError || `Prediction ${status}`, updated_at: new Date().toISOString() })
-          .eq('id', predRow!.id);
-        if (predErr) throw new Error(`node_predictions update failed: ${predErr.message}`);
-        await refundFailedIteration(supabase, executionId, nodeId, predRow!.prediction_index);
-        const outputType = await resolveNodeOutputWireType(supabase, executionCtx?.graph_json, nodeId);
+        await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
+          status: 'failed',
+          error: predictionError || `Prediction ${status}`,
+        });
+        await refundFailedIteration(supabase, executionId, nodeId, predictionIndex);
+        const outputType = await resolveNodeOutputWireTypeFromGraph(supabase, executionCtx?.graph_json, nodeId);
         const { origin } = new URL(request.url);
-        await finalizeFanOutIfReady(supabase, executionId, nodeId, outputType, origin);
+        await finalizeFanOut(supabase, executionId, nodeId, outputType, expectedCount, origin);
         return NextResponse.json({ success: true });
       }
 
