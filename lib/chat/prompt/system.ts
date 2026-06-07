@@ -298,24 +298,29 @@ function formatPreferencesBlock(
     );
   }
 
-  const hints: string[] = [];
-  if (prefs.style) {
-    hints.push(
-      `- Visual style: ${prefs.style}. This is creative DIRECTION for how the result should look — NOT a model setting. Do NOT add it as a config key or control_value on any node, do NOT treat it as a field to fill on the ai_generator, and do NOT pick a model just because it exposes a "style" parameter. Instead, express the style in the PROMPT TEXT you write (describe the look in concrete words the generator understands — lighting, medium, mood, etc.) and, when it matters, lean toward a model well-suited to that look. Apply only when the user's request doesn't already dictate a different look.`,
-    );
-  }
+  // Style is handled separately from the config-key directives below: it is a
+  // PROMPT-CRAFT instruction, never a model setting, and it must be applied to
+  // every generative prompt this turn (additively), so it gets its own firm
+  // section rather than living among the "softer" leanings.
+  const styleSection = prefs.style
+    ? `ALWAYS-APPLIED PROMPT STYLE — the user set a standing visual style of "${prefs.style}". This is the single most-overlooked preference, so be deliberate: EVERY image/video prompt you author this turn MUST carry this look.
+- Translate "${prefs.style}" into concrete, descriptive prompt language (medium, lighting, color treatment, texture, composition, mood that define a "${prefs.style}" result) and weave those words into the prompt TEXT you write — in the prompt node, or the generator's prompt field if it has no separate prompt node.
+- It is ADDITIVE: combine it with the user's subject, don't replace what they asked for. ("a cat" + Cinematic → a cinematic-lit, filmic, shallow-depth-of-field photo of a cat.)
+- It is PROMPT CRAFT, NOT a model setting: never put "${prefs.style}" (or the style label) into a config key / control_value, never treat it as a field to fill on the ai_generator, and never pick a model just because it exposes a "style" parameter. It can also inform model choice when a model is clearly better suited to the look.
+- Drop it ONLY when the user's current message explicitly asks for a different, conflicting style — then follow the user.`
+    : '';
 
-  if (directives.length === 0 && hints.length === 0) return '';
+  if (directives.length === 0 && !styleSection) return '';
 
   let block = `USER GENERATION PREFERENCES (standing defaults the user set; anything not listed here has no preference — behave normally for it):`;
-  block += `\n\nCRITICAL — RESPECT EACH MODEL'S ALLOWED VALUES: a preference is a target, not a literal value to force. Before setting ANY config key from a preference, read the chosen model's "config keys" line in the AI GENERATOR MODELS section. Only set a key the model actually exposes, and only to a value inside that key's allowed options / min–max. If the preferred value is not supported by the model, KEEP the user's preferred model and use the NEAREST supported value (or the model's default) — NEVER emit a value outside the allowed set or invent a key the model doesn't have. An out-of-range value fails the run (e.g. a 422 from the provider). This applies to every model config key a preference touches — size/resolution, aspect ratio, duration — not just one. (Number of outputs is the exception: it uses the generic top-level \`iterations\` field, described below, not a model-specific key.)`;
+  block += `\n\nCRITICAL — RESPECT EACH MODEL'S ALLOWED VALUES: a preference is a target, not a literal value to force. Before setting ANY config key from a preference, read the chosen model's "config keys" line in the AI GENERATOR MODELS section. Only set a key the model actually exposes, and only to a value inside that key's allowed options / min–max. If the preferred value is not supported by the model, KEEP the user's preferred model and use the NEAREST supported value (or the model's default) — NEVER emit a value outside the allowed set or invent a key the model doesn't have. An out-of-range value fails the run (e.g. a 422 from the provider). This applies to every model config key a preference touches — size/resolution, aspect ratio, duration — not just one. (Number of outputs is the exception: it uses the generic top-level \`iterations\` field, described below, not a model-specific key. Visual style is also an exception — it is prompt craft, never a config key, see below.)`;
   if (directives.length > 0) {
     block += `\n\nApply these unless the user's current message overrides them:\n${directives.join('\n')}`;
   }
-  if (hints.length > 0) {
-    block += `\n\nSofter leanings — follow when the request doesn't dictate otherwise:\n${hints.join('\n')}`;
+  if (styleSection) {
+    block += `\n\n${styleSection}`;
   }
-  block += `\n\nThese are preferences, not commands from this turn: never mention them to the user, and let an explicit request in the user's message take precedence.`;
+  block += `\n\nThese are preferences, not commands from this turn: never mention them to the user. An explicit, conflicting request in the user's message takes precedence — but absent that, apply them (the style above is mandatory, not optional).`;
   return block;
 }
 
