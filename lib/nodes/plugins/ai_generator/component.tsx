@@ -19,6 +19,9 @@ import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '
 import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 import { computeAiNodeCost, formatCredits, clampIterations } from '@/lib/billing/cost';
 import { clampSelectedIndex, selectedValue, activeItemEnvelope, isActiveOnly, type GeneratedOutput } from './outputs';
+import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
+import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 // =============================================================================
 // TYPES - MOVED TO lib/nodes/types.ts
@@ -82,6 +85,12 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     const setNodeOutput = useAppStore(state => state.setNodeOutput);
     // View-only (collaboration viewer): the run button is grayed + disabled.
     const isViewer = useAppStore(state => state.collabRole) === 'viewer';
+    // Pre-flight wiring validation for a solo run of THIS node — same
+    // validateExecution the multi-select toolbar uses. Non-empty → the node
+    // can't run, so the Run button is disabled and explains why on hover.
+    const runErrors = useNodeRunValidation(id);
+    const cannotRun = runErrors.length > 0;
+    const runErrorText = cannotRun ? runErrors.map(formatValidationError).join(' · ') : '';
 
     // The persisted, newest-first collection. Backward-compat: a node saved
     // before this feature has only last_output — surface it as a single-item
@@ -528,13 +537,23 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                         const dynamicCost = computeAiNodeCost(data.config?.control_values, selectedModel) * clampIterations(data.config?.iterations);
                         const showCost = dynamicCost > 0;
                         return (
+                            <Tooltip
+                                content={runErrorText}
+                                position="top"
+                                popupClassName="whitespace-normal max-w-xs leading-snug normal-case tracking-normal font-semibold"
+                            >
                             <button
+                                // cannotRun is NOT wired to `disabled`: a disabled
+                                // button swallows pointer events in Chromium, which
+                                // would stop the hover tooltip from ever opening. We
+                                // gray it, block the click below, and let the Tooltip
+                                // wrapper surface the reason.
                                 disabled={isViewer}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    if (isViewer) return;
+                                    if (isViewer || cannotRun) return;
                                     triggerRunFromNode(id, 'solo');
                                 }}
                                 className={cn(
@@ -543,7 +562,11 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                                     status === 'running' && "opacity-50 pointer-events-none",
                                     // Grayed + non-interactive for viewers (pointer-events-none
                                     // keeps the default cursor — no block/not-allowed cursor).
-                                    isViewer && "opacity-50 pointer-events-none"
+                                    isViewer && "opacity-50 pointer-events-none",
+                                    // Can't run (missing/incompatible wiring): grayed + blocked.
+                                    // pointer-events-none stays OFF the button so the Tooltip
+                                    // wrapper still catches hover and surfaces the reason.
+                                    cannotRun && "opacity-50 hover:bg-accent-primary/10 hover:text-accent-primary hover:scale-100"
                                 )}
                             >
                                 <div className={cn(
@@ -560,6 +583,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                                     </div>
                                 )}
                             </button>
+                            </Tooltip>
                         );
                     })()}
                 </div>

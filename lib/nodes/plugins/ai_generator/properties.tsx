@@ -17,6 +17,9 @@ import { AiModel, Control, isSeedControl } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { computeAiNodeCost, clampIterations } from '@/lib/billing/cost';
+import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
+import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 // =============================================================================
 // SKELETON LOADER
@@ -81,6 +84,12 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const isModelsLoading = useAppStore(state => state.isModelsLoading);
     // View-only (collaboration viewer): the run button is grayed + disabled.
     const isViewer = useAppStore(state => state.collabRole) === 'viewer';
+    // Pre-flight wiring validation for a solo run of this node — same source as
+    // the node-card Run button. Empty when there's no real node (admin model
+    // edit passes no nodeId), so the button stays enabled in those contexts.
+    const runErrors = useNodeRunValidation(nodeId);
+    const cannotRun = runErrors.length > 0;
+    const runErrorText = cannotRun ? runErrors.map(formatValidationError).join(' · ') : '';
 
     const filteredModels = config.node_type_id 
         ? models.filter(m => m.node_type_id === config.node_type_id)
@@ -318,14 +327,29 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                     </span>
                 </div>
 
+                <Tooltip
+                    content={runErrorText}
+                    position="top"
+                    popupClassName="whitespace-normal max-w-xs leading-snug normal-case tracking-normal font-semibold"
+                >
                 <button
-                    onClick={() => { if (!isViewer && nodeId) triggerRunFromNode(nodeId, 'solo'); }}
+                    onClick={() => { if (!isViewer && !cannotRun && nodeId) triggerRunFromNode(nodeId, 'solo'); }}
+                    // cannotRun stays OUT of `disabled` (a disabled button swallows
+                    // hover events in Chromium → no tooltip). Styled + click-guarded
+                    // instead so the Tooltip wrapper can still explain why.
                     disabled={!nodeId || isViewer}
-                    className="h-7 px-2.5 bg-accent-primary hover:bg-accent-primary/90 rounded-lg flex items-center justify-center gap-1 text-white font-bold uppercase tracking-wider text-[10px] shadow-md shadow-accent-primary/20 transition-all disabled:opacity-30 disabled:pointer-events-none active:scale-95 shrink-0"
+                    className={cn(
+                        "h-7 px-2.5 bg-accent-primary hover:bg-accent-primary/90 rounded-lg flex items-center justify-center gap-1 text-white font-bold uppercase tracking-wider text-[10px] shadow-md shadow-accent-primary/20 transition-all active:scale-95 shrink-0",
+                        // Viewer / no-node disable keeps pointer-events off; cannotRun
+                        // leaves them on so the Tooltip wrapper can surface the reason.
+                        (!nodeId || isViewer) && "opacity-30 pointer-events-none",
+                        cannotRun && "opacity-30 hover:bg-accent-primary"
+                    )}
                 >
                     <Play className="w-2.5 h-2.5 fill-white" />
                     Run
                 </button>
+                </Tooltip>
             </div>
         </div>
     );
