@@ -384,8 +384,8 @@ function ControlRenderer({
                         value={value ?? control.default_value ?? ''}
                         onChange={e => onChange(control.api_mapping_key, e.target.value)}
                         placeholder={control.component === 'negative_prompt' ? 'What to exclude…' : 'What to generate…'}
-                        rows={3}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg text-content-primary text-xs px-2 py-1.5 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/40 resize-none leading-relaxed"
+                        rows={6}
+                        className="w-full min-h-[9rem] bg-white/5 border border-white/10 rounded-lg text-content-primary text-xs px-2 py-1.5 focus:outline-none focus:border-accent-primary/50 focus:ring-4 focus:ring-accent-primary/10 transition-all placeholder:text-content-tertiary/40 resize-none leading-relaxed"
                     />
                 </div>
             );
