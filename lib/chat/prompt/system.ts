@@ -298,29 +298,25 @@ function formatPreferencesBlock(
     );
   }
 
-  // Style is handled separately from the config-key directives below: it is a
-  // PROMPT-CRAFT instruction, never a model setting, and it must be applied to
-  // every generative prompt this turn (additively), so it gets its own firm
-  // section rather than living among the "softer" leanings.
-  const styleSection = prefs.style
-    ? `ALWAYS-APPLIED PROMPT STYLE — the user set a standing visual style of "${prefs.style}". This is the single most-overlooked preference, so be deliberate: EVERY image/video prompt you author this turn MUST carry this look.
-- Translate "${prefs.style}" into concrete, descriptive prompt language (medium, lighting, color treatment, texture, composition, mood that define a "${prefs.style}" result) and weave those words into the prompt TEXT you write — in the prompt node, or the generator's prompt field if it has no separate prompt node.
-- It is ADDITIVE: combine it with the user's subject, don't replace what they asked for. ("a cat" + Cinematic → a cinematic-lit, filmic, shallow-depth-of-field photo of a cat.)
-- It is PROMPT CRAFT, NOT a model setting: never put "${prefs.style}" (or the style label) into a config key / control_value, never treat it as a field to fill on the ai_generator, and never pick a model just because it exposes a "style" parameter. It can also inform model choice when a model is clearly better suited to the look.
-- Drop it ONLY when the user's current message explicitly asks for a different, conflicting style — then follow the user.`
+  // Style is a PROMPT-CRAFT directive (never a model setting) that must be
+  // applied to every generative prompt this turn. Kept terse on purpose — this
+  // whole block is sent uncached every turn, so it earns its tokens by being
+  // forceful, not long.
+  const styleDirective = prefs.style
+    ? `- Visual style: ${prefs.style}. MANDATORY — weave this look into the prompt TEXT of every image/video you generate (translate to concrete descriptors: medium, lighting, mood), additive to the user's subject (e.g. cat + Cinematic → "cinematic, filmic lighting, shallow DOF ... cat"). It is prompt craft, NOT a config key/control_value, and not a reason to pick a model. Drop only if the user names a conflicting style.`
     : '';
 
-  if (directives.length === 0 && !styleSection) return '';
+  if (directives.length === 0 && !styleDirective) return '';
 
   let block = `USER GENERATION PREFERENCES (standing defaults the user set; anything not listed here has no preference — behave normally for it):`;
-  block += `\n\nCRITICAL — RESPECT EACH MODEL'S ALLOWED VALUES: a preference is a target, not a literal value to force. Before setting ANY config key from a preference, read the chosen model's "config keys" line in the AI GENERATOR MODELS section. Only set a key the model actually exposes, and only to a value inside that key's allowed options / min–max. If the preferred value is not supported by the model, KEEP the user's preferred model and use the NEAREST supported value (or the model's default) — NEVER emit a value outside the allowed set or invent a key the model doesn't have. An out-of-range value fails the run (e.g. a 422 from the provider). This applies to every model config key a preference touches — size/resolution, aspect ratio, duration — not just one. (Number of outputs is the exception: it uses the generic top-level \`iterations\` field, described below, not a model-specific key. Visual style is also an exception — it is prompt craft, never a config key, see below.)`;
+  block += `\n\nCRITICAL — RESPECT EACH MODEL'S ALLOWED VALUES: a preference is a target, not a literal value to force. Before setting ANY config key from a preference, read the chosen model's "config keys" line in the AI GENERATOR MODELS section. Only set a key the model actually exposes, and only to a value inside that key's allowed options / min–max. If the preferred value is not supported by the model, KEEP the user's preferred model and use the NEAREST supported value (or the model's default) — NEVER emit a value outside the allowed set or invent a key the model doesn't have. An out-of-range value fails the run (e.g. a 422 from the provider). This applies to every model config key a preference touches — size/resolution, aspect ratio, duration — not just one. (Exceptions: number of outputs uses the top-level \`iterations\` field, and visual style is prompt craft — neither is a model config key.)`;
   if (directives.length > 0) {
     block += `\n\nApply these unless the user's current message overrides them:\n${directives.join('\n')}`;
   }
-  if (styleSection) {
-    block += `\n\n${styleSection}`;
+  if (styleDirective) {
+    block += `\n\n${styleDirective}`;
   }
-  block += `\n\nThese are preferences, not commands from this turn: never mention them to the user. An explicit, conflicting request in the user's message takes precedence — but absent that, apply them (the style above is mandatory, not optional).`;
+  block += `\n\nThese are standing preferences, not commands from this turn: never mention them to the user, and let an explicit, conflicting request in the user's message take precedence — otherwise apply them.`;
   return block;
 }
 
