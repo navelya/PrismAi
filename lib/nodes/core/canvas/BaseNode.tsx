@@ -31,6 +31,15 @@ const HANDLE_HITBOX_CLASS =
 // in reverse order on close — see `delay` computed at each call site.
 const HANDLE_STAGGER_MS = 45;
 
+// How far (px) the handle's center is pushed outside the node edge. The hit-box
+// is 20px wide and the dot is centered in it, so the dot grows symmetrically on
+// hover (to a 20px chip = 10px radius). Offsetting the center 12px out keeps the
+// expanded chip clear of the node with a small gap instead of overlapping it.
+// This is also the wire connection point, so wires get a tiny lead-in off the edge.
+// Tweak this single value to taste: closer to -20 = flush when expanded, more
+// negative = bigger gap.
+const HANDLE_OFFSET = -12
+
 // The visible handle: a plain neutral dot at rest that smoothly zooms into a
 // larger, lightly-glassy chip revealing the data-type icon when `open` (node
 // hovered, or a compatible target while dragging a wire), then zooms back out.
@@ -823,7 +832,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     // handle mid-animation — the wrong bounds get cached and never refresh.
                                     className={cn(HANDLE_HITBOX_CLASS)}
                                     style={{
-                                        left: -10,
+                                        left: HANDLE_OFFSET,
                                         top: `calc(50% + ${offset}px)`,
                                     }}
                                 >
@@ -853,7 +862,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         type="target"
                         position={Position.Left}
                         className={cn(HANDLE_HITBOX_CLASS)}
-                        style={{ left: -10 }}
+                        style={{ left: HANDLE_OFFSET }}
                     >
                         {(() => {
                             const defaultInput = sharedDef?.handles?.inputs?.[0];
@@ -944,7 +953,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 id={output.id}
                                 className={cn(HANDLE_HITBOX_CLASS)}
                                 style={{
-                                    right: -10,
+                                    right: HANDLE_OFFSET,
                                     top: `calc(50% + ${offset}px)`
                                 }}
                             >
@@ -967,7 +976,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                         position={Position.Right}
                         id={defaultOutputId}
                         className={cn(HANDLE_HITBOX_CLASS)}
-                        style={{ right: -10 }}
+                        style={{ right: HANDLE_OFFSET }}
                     >
                         {(() => {
                             const open = isHovered || isHandleLabelForced('source', defaultOutputId);
