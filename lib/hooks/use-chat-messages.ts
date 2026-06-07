@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { applyWorkflowPatch } from '@/lib/workflow/workflow-patch';
 import { expandSelectionForChat } from '@/lib/utils/selection-refs';
 import { extractRenderableMedia } from '@/lib/workflow/result-format';
+import { collectTerminalRunMedia } from '@/lib/workflow/run-media';
 import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 import { buildPreferencesPayload } from '@/lib/chat/preferences';
 
@@ -113,12 +114,14 @@ export function useChatMessages({
             // All terminals succeeded — freeze their MEDIA outputs (image +
             // video, type preserved) into `result`. Text outputs (e.g. a prompt
             // node's string) are intentionally NOT shown as a chat result.
+            // Use collectTerminalRunMedia, NOT nodeOutputs directly: an
+            // ai_generator narrows nodeOutputs to its single selected output, so a
+            // fan-out (iterations > 1) run would otherwise freeze just 1 of N.
             const store = useAppStore.getState();
             const media: ReturnType<typeof extractRenderableMedia> = [];
             for (const id of ids) {
-                for (const m of extractRenderableMedia(store.nodeOutputs?.[id])) {
-                    if (m.type === 'image' || m.type === 'video') media.push(m);
-                }
+                const node = store.currentWorkflow?.nodes.find((n) => n.id === id);
+                media.push(...collectTerminalRunMedia(node, store.nodeOutputs?.[id], rp.executionId));
             }
             const frozen = media.length ? media : null;
             useAppStore.getState().updateMessage(m.id, {

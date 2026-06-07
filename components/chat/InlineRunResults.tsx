@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store/app-store';
-import { extractRenderableMedia } from '@/lib/workflow/result-format';
+import { collectTerminalRunMedia } from '@/lib/workflow/run-media';
 import { RunMediaGallery, type GalleryCell } from './RunMediaGallery';
 
 interface InlineRunResultsProps {
@@ -25,11 +25,16 @@ export function InlineRunResults({ terminalIds, isCanvasMode, expectedResultCoun
     // failures as error tiles. Partials are only trusted for the active run so a
     // stale prior run's leftovers never show.
     const cells = useMemo(() => {
+        // Non-reactive read: the workflow node carries the full per-run output
+        // collection for ai_generator terminals (nodeOutputs is narrowed to one).
+        // Recompute is already driven by nodeOutputs/nodeStatuses changing.
+        const workflow = useAppStore.getState().currentWorkflow;
         const out: GalleryCell[] = [];
         for (const id of terminalIds) {
             if (nodeStatuses?.[id] === 'success') {
-                for (const m of extractRenderableMedia(nodeOutputs?.[id])) {
-                    if (m.type === 'image' || m.type === 'video') out.push({ kind: 'media', item: m });
+                const node = workflow?.nodes.find((n) => n.id === id);
+                for (const m of collectTerminalRunMedia(node, nodeOutputs?.[id], activeExecutionId ?? undefined)) {
+                    out.push({ kind: 'media', item: m });
                 }
                 continue;
             }
