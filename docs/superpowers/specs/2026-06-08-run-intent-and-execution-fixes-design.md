@@ -25,12 +25,37 @@ This spec folds all five into one design, sequenced so the production-breaking o
 
 ## Phase 0 — #4: Prod node stuck on "loading" (ship first)
 
+### Observed symptoms (prod only)
+
+- The **node** shows the result and stops "loading" **only after a full page refresh** — never
+  live.
+- The **chat result tile** never shows the image **at all**, even after refresh.
+- Both work live in local/dev.
+
 ### Root cause (confirmed)
 
 The backend is **correct in prod** — logs show the Replicate webhook arrives, signature
 verifies, `node_results` is written `status: 'completed'` with the bucket URL, and the
 orchestrator logs `Final Status: completed`. The failure is entirely on the **client delivery
-side**, and only in prod:
+side**, and only in prod. **The realtime channel is fully dead in prod** (high confidence — it's
+the only explanation consistent with both symptoms above):
+
+- **Why the node recovers only on refresh:** recovery comes from the **session-load path**, not
+  realtime. `loadSession` → `getSessionExecutions` reads `node_results` over plain authenticated
+  REST and writes `setNodeStatus`/`setNodeOutput`
+  ([use-session.ts:143-150, 439-483](../../../lib/hooks/use-session.ts);
+  [workflows.ts:229-233](../../../lib/db/workflows.ts)). This is independent of the realtime
+  channel. The realtime `hydrateFromDb` does **not** restore it, because it is chained off a
+  *successful* subscribe (below) — a dead channel skips it.
+- **Why the chat tile never recovers:** the durable chat tile is `message.result`
+  ([Message.tsx:376-380](../../../components/chat/Message.tsx)), frozen + persisted by the
+  run-completion watcher **only when it sees `nodeStatuses → success` live**
+  ([use-chat-messages.ts:89-131](../../../lib/hooks/use-chat-messages.ts)). With realtime dead,
+  that transition never fires live, so `message.result` is never written/persisted. On refresh
+  there's nothing to restore, and the live in-memory tile is suppressed (the proposal was
+  rewritten `running → ready` on load).
+
+The general mechanism:
 
 - **Dev** finalizes synchronously. `ai_generator` executor checks
   `isLocal = appUrl.startsWith('http://localhost')`
@@ -76,6 +101,14 @@ subscribe ⇒ loading forever.
 (a) prevents the poisoning; (b) guarantees recovery regardless of realtime health. Together they
 fix the hang even if the prod DB question is never resolved.
 
+**This single fix resolves both symptoms.** Once `node_results` events are delivered live, the
+node updates without a refresh, and the chat-result freeze watcher
+([use-chat-messages.ts:89-131](../../../lib/hooks/use-chat-messages.ts)) — gated on the same
+`nodeStatuses → success` transition — fires, writing and persisting `message.result` so the chat
+tile fills live and survives refresh. No separate final-result path is needed for the chat tile;
+`node_predictions` realtime only drives the per-iteration streaming animation, and the live tile
+already falls back to the final `nodeOutputs` when a terminal succeeds.
+
 **Operator (user) — verification, not a fix:** confirm against the **prod** Supabase project
 that `node_predictions` is in `pg_publication_tables` for `supabase_realtime`, has
 `REPLICA IDENTITY FULL`, an authenticated `SELECT` grant, and its SELECT RLS policy. If absent,
@@ -85,9 +118,12 @@ tiles; the code fix already prevents the hang).
 ### Verification
 
 - Prod: run a generation, confirm the node flips `loading → result` within seconds of the
-  webhook landing.
+  webhook landing — **without a refresh**.
+- Prod: confirm the **chat result tile** fills live in the same run, and still shows after a
+  refresh (proves `message.result` was frozen + persisted).
 - Temporarily simulate a `node_predictions` binding failure (or point at a project without it)
-  and confirm `node_results` still delivers and the node clears (proves isolation + hydrate).
+  and confirm `node_results` still delivers, the node clears, and the chat tile fills from the
+  final `nodeOutputs` (proves channel isolation + hydrate-on-failure).
 
 ---
 
