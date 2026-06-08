@@ -22,6 +22,11 @@ export interface BrainResult {
   model: 'haiku' | 'sonnet';
   /** True if the fast lane called `escalate`; the caller re-runs on Sonnet. */
   escalated: boolean;
+  /** Reactive escalation signals (fast lane). buildFailed: a workflow tool was
+   *  attempted but produced no valid patch. planRequested: Haiku called
+   *  propose_plan under deferPlanToHeavyLane — the route escalates to Sonnet. */
+  buildFailed: boolean;
+  planRequested: boolean;
   /** Explicit run intent from the run_nodes tool, or null if no run was requested. */
   runRequest: { nodeIds: string[] } | null;
 }
@@ -55,6 +60,10 @@ export interface BrainInput {
    *  iteration 1 (heavy lane); 'heuristic' = legacy short-message heuristic
    *  (free lane / default). */
   thinkingMode?: 'off' | 'on' | 'heuristic';
+  /** Reactive fast lane: when true, a propose_plan call is NOT built or emitted;
+   *  it just sets result.planRequested so the route can escalate to the heavy
+   *  lane (Sonnet) to produce the real plan. Avoids showing Haiku's weaker plan. */
+  deferPlanToHeavyLane?: boolean;
 }
 
 /**
@@ -116,6 +125,8 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let clarification: BrainResult['clarification'] = null;
   let plan: BrainResult['plan'] = null;
   let escalated = false;
+  let attemptedWorkflowTool = false;
+  let planRequested = false;
   let runRequest: BrainResult['runRequest'] = null;
   const modelKey: 'haiku' | 'sonnet' = input.model ?? 'sonnet';
 
@@ -323,6 +334,13 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
             if (name === 'propose_plan') {
               calledTerminalTool = true;
+              // Reactive fast lane: Haiku judged this needs a plan. Don't build or
+              // emit Haiku's (weaker) plan — just signal the route to escalate to
+              // Sonnet, which produces the real plan.
+              if (input.deferPlanToHeavyLane) {
+                planRequested = true;
+                break;
+              }
               const args = (event.args ?? {}) as Record<string, unknown>;
 
               // A malformed plan should self-correct, not surface a raw ⚠️ to
@@ -457,6 +475,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
             }
 
             calledWorkflowTool = true;
+            attemptedWorkflowTool = true;
             const result = await dispatchTool(state, name, event.args);
             if (!result.success) {
               input.encoder.send({ type: 'error', message: result.error || `${name} failed`, recoverable: true });
@@ -562,7 +581,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
 
-  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated, runRequest };
+  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated, buildFailed: attemptedWorkflowTool && accumulatedPatch === null, planRequested, runRequest };
 }
 
 /**
