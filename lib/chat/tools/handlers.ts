@@ -508,16 +508,18 @@ export async function dispatchTool(state: ToolHandlerState, name: ToolName, args
  */
 export function validateBlueprint(
   state: ToolHandlerState,
-  blueprint: { nodes?: any[]; edges?: any[] } | null | undefined,
+  blueprint: { nodes?: any[]; edges?: any[]; updatedNodes?: any[]; removedNodeIds?: any[] } | null | undefined,
 ): { ok: true } | { ok: false; error: string } {
   if (!blueprint || (typeof blueprint !== 'object')) {
     return { ok: false, error: 'Blueprint missing or not an object.' };
   }
   const nodes = Array.isArray(blueprint.nodes) ? blueprint.nodes : [];
   const edges = Array.isArray(blueprint.edges) ? blueprint.edges : [];
+  const updatedNodes = Array.isArray(blueprint.updatedNodes) ? blueprint.updatedNodes : [];
+  const removedNodeIds = Array.isArray(blueprint.removedNodeIds) ? blueprint.removedNodeIds : [];
 
-  if (nodes.length === 0 && edges.length === 0) {
-    return { ok: false, error: 'Blueprint must contain at least one node or one edge.' };
+  if (nodes.length === 0 && edges.length === 0 && updatedNodes.length === 0 && removedNodeIds.length === 0) {
+    return { ok: false, error: 'Blueprint must contain at least one operation (node, edge, updatedNode, or removedNodeId).' };
   }
 
   // Same per-node aiSchema check runAddNode runs.
@@ -530,6 +532,33 @@ export function validateBlueprint(
   for (const node of nodes) {
     const err = validateEdgeHandles(node, state.aiModelHandles);
     if (err) return { ok: false, error: err };
+  }
+
+  // Modification ops reference nodes that must already exist (real canvas
+  // UUIDs) — or be created earlier in this same blueprint's nodes[]. Catch a
+  // dangling reference at proposing time so the model self-corrects rather
+  // than the user hitting an apply error after Approve. (Mirrors the
+  // existence check applyUpdateNodeOp/applyRemoveNodeOp do at apply time.)
+  const knownIds = new Set<string>();
+  for (const n of state.workflow.nodes) knownIds.add(n.id);
+  for (const [temp, real] of state.idMap) { knownIds.add(temp); knownIds.add(real); }
+  for (const n of nodes) if (n && typeof n.id === 'string') knownIds.add(n.id);
+
+  for (const u of updatedNodes) {
+    if (!u || typeof u !== 'object' || typeof u.id !== 'string' || u.id.length === 0) {
+      return { ok: false, error: 'Each updatedNodes[] entry needs an "id" string (the existing node’s canvas UUID).' };
+    }
+    if (!knownIds.has(u.id)) {
+      return { ok: false, error: `updatedNodes references unknown node id "${u.id}" — it is not on the canvas and is not created in this blueprint.` };
+    }
+  }
+  for (const id of removedNodeIds) {
+    if (typeof id !== 'string' || id.length === 0) {
+      return { ok: false, error: 'Each removedNodeIds[] entry must be a non-empty string (an existing node’s canvas UUID).' };
+    }
+    if (!knownIds.has(id)) {
+      return { ok: false, error: `removedNodeIds references unknown node id "${id}" — it is not on the canvas.` };
+    }
   }
 
   return { ok: true };
@@ -579,7 +608,12 @@ export function validateTaskList(
     // Validate the task's blueprint chunk in the shadow state. The idMap
     // is then manually populated below to mirror applyAddNodeOp's side-
     // effect, so a later task referencing this task's ids will resolve.
-    const v = validateBlueprint(shadow, { nodes: t.nodes, edges: t.edges });
+    const v = validateBlueprint(shadow, {
+      nodes: t.nodes,
+      edges: t.edges,
+      updatedNodes: Array.isArray(t.updatedNodes) ? t.updatedNodes : undefined,
+      removedNodeIds: Array.isArray(t.removedNodeIds) ? t.removedNodeIds : undefined,
+    });
     if (!v.ok) return { ok: false, taskIndex: i, error: v.error };
 
     // Mirror applyAddNodeOp's idMap side-effect — registers each new node's
@@ -590,6 +624,13 @@ export function validateTaskList(
       if (node && typeof node.id === 'string' && node.id.length > 0 && !shadow.idMap.has(node.id)) {
         shadow.idMap.set(node.id, crypto.randomUUID());
       }
+    }
+    // Mirror applyRemoveNodeOp — drop removed nodes from the shadow canvas so a
+    // later task can't both rely on and remove the same node without notice.
+    if (Array.isArray(t.removedNodeIds) && t.removedNodeIds.length > 0) {
+      const removed = new Set(t.removedNodeIds.filter((x: any): x is string => typeof x === 'string'));
+      shadow.workflow.nodes = shadow.workflow.nodes.filter((n: any) => !removed.has(n.id));
+      shadow.workflow.edges = shadow.workflow.edges.filter((e: any) => !removed.has(e.source) && !removed.has(e.target));
     }
   }
 

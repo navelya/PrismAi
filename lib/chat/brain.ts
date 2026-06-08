@@ -358,8 +358,8 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
               const hasTasks = Array.isArray(args.tasks) && (args.tasks as any[]).length > 0;
               const hasBlueprint = !!args.blueprint && typeof args.blueprint === 'object';
-              const blueprintObj: { nodes?: any[]; edges?: any[] } | null = hasBlueprint
-                ? (args.blueprint as { nodes?: any[]; edges?: any[] })
+              const blueprintObj: { nodes?: any[]; edges?: any[]; updatedNodes?: any[]; removedNodeIds?: string[] } | null = hasBlueprint
+                ? (args.blueprint as { nodes?: any[]; edges?: any[]; updatedNodes?: any[]; removedNodeIds?: string[] })
                 : null;
               const rawModels = args.models;
 
@@ -420,6 +420,15 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
                     ? {
                         nodes: Array.isArray(blueprintObj?.nodes) ? blueprintObj.nodes : [],
                         edges: Array.isArray(blueprintObj?.edges) ? blueprintObj.edges : [],
+                        // A blueprint is a full patch: carry in-place edits and
+                        // deletions so an approved plan can MODIFY an existing
+                        // workflow rather than re-adding a fresh graph beside it.
+                        ...(Array.isArray(blueprintObj?.updatedNodes) && blueprintObj.updatedNodes.length > 0
+                          ? { updatedNodes: blueprintObj.updatedNodes }
+                          : {}),
+                        ...(Array.isArray(blueprintObj?.removedNodeIds) && blueprintObj.removedNodeIds.length > 0
+                          ? { removedNodeIds: blueprintObj.removedNodeIds }
+                          : {}),
                       }
                     : undefined,
                   tasks: hasTasks ? (args.tasks as any[]) : undefined,

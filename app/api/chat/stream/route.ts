@@ -4,7 +4,7 @@ import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/
 import { getRegistryContext } from '@/lib/chat/registry-cache';
 import { uploadBase64ToStorage } from '@/lib/utils/image-processing';
 import { dispatchTool, type ToolHandlerState } from '@/lib/chat/tools/handlers';
-import { applyAddNodeWithRepair } from '@/lib/chat/apply-with-repair';
+import { applyBlueprintWithRepair } from '@/lib/chat/apply-with-repair';
 import { synthesizeTaskBlueprint, sleep } from '@/lib/chat/task-loop';
 import { STAGING_DELAY_MS } from '@/lib/chat/config';
 import { MAX_NODE_REFS, type NodeRef } from '@/lib/utils/selection-refs';
@@ -183,10 +183,11 @@ async function handlePlanApprove(opts: {
           if (!isTasks) {
             // ─── ORIGINAL SINGLE-BLUEPRINT PATH — UNCHANGED ───
 
-            // 5. Apply the blueprint — self-healing: if it fails, the model
-            // corrects the offending node(s) and we retry before surfacing any
-            // error (state restored between attempts).
-            const result = await applyAddNodeWithRepair(state, blueprint, registry);
+            // 5. Apply the blueprint (a full patch: remove + add + update) —
+            // self-healing: if the add step fails, the model corrects the
+            // offending node(s) and we retry before surfacing any error (state
+            // restored between attempts).
+            const result = await applyBlueprintWithRepair(state, blueprint, registry);
             if (!result.success) {
               encoder.send({
                 type: 'error',
@@ -299,8 +300,9 @@ async function handlePlanApprove(opts: {
             const augmented = synthesizeTaskBlueprint(task);
             // Self-healing apply: a task that fails is corrected by the model
             // and retried before we ever mark it failed (state restored between
-            // attempts so a partial apply can't corrupt the canvas).
-            const result = await applyAddNodeWithRepair(state, augmented, registry);
+            // attempts so a partial apply can't corrupt the canvas). A task is a
+            // full patch — it may remove/update existing nodes, not only add.
+            const result = await applyBlueprintWithRepair(state, augmented, registry);
             if (!result.success) {
               failed = true;
               failedTaskId = task.id;

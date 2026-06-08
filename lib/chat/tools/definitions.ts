@@ -34,11 +34,52 @@ const topLevelEdgeSchema = {
 };
 
 /**
- * Shared schema fragment for nodes[] and edges[] arrays. Used by both
- * add_node (the live tool) and propose_plan.blueprint (the structured
- * payload approved into add_node verbatim). Keeping these in one place
- * prevents drift between the proposing-time validator and the apply-time
- * dispatch.
+ * One in-place node edit — same item shape as update_node.updates[]. Shared so
+ * a propose_plan blueprint/task can MODIFY existing canvas nodes (by their real
+ * UUID), not only add new ones. Without this a plan could only insert nodes, so
+ * "modify this complex workflow" rebuilt the whole graph beside the original.
+ */
+const updateNodeItemSchema = {
+  type: 'object' as const,
+  properties: {
+    id: { type: 'string', description: 'EXISTING canvas node UUID to update (or a temp id created earlier in THIS blueprint).' },
+    data: {
+      type: 'object',
+      properties: {
+        label: { type: 'string', maxLength: 40, description: 'Optional custom label override (same rules as add_node).' },
+        config: { type: 'object', additionalProperties: true },
+      },
+    },
+    position: {
+      type: 'object',
+      properties: { x: { type: 'number' }, y: { type: 'number' } },
+      required: ['x', 'y'],
+    },
+    replace_inputs: { type: 'array', items: inputEdgeSchema },
+  },
+  required: ['id'],
+} as const;
+
+/** The two modification arrays a blueprint/task may carry beyond nodes/edges. */
+const blueprintMutationSchema = {
+  updatedNodes: {
+    type: 'array' as const,
+    items: updateNodeItemSchema,
+    description: 'In-place edits to nodes that ALREADY exist on the canvas. Reference each by its real canvas UUID (from EXISTING WORKFLOW). Use this to change config/label/wiring instead of re-adding a fresh node.',
+  },
+  removedNodeIds: {
+    type: 'array' as const,
+    items: { type: 'string' as const },
+    description: 'Real canvas UUIDs of existing nodes to DELETE (their edges go too). Use when a modification replaces or drops nodes — so the old graph is not left orphaned beside the new one.',
+  },
+} as const;
+
+/**
+ * Shared schema fragment for the additive nodes[] and edges[] arrays. Used by
+ * both add_node (the live tool) and propose_plan.blueprint/tasks (which on
+ * approval dispatch the same add_node, plus update_node/remove_node for the
+ * blueprint's updatedNodes/removedNodeIds). Keeping these in one place prevents
+ * drift between the proposing-time validator and the apply-time dispatch.
  */
 const nodesEdgesSchema = {
   nodes: {
@@ -108,6 +149,8 @@ const taskSchema = {
     group: taskGroupSchema,
     nodes: nodesEdgesSchema.nodes,
     edges: nodesEdgesSchema.edges,
+    updatedNodes: blueprintMutationSchema.updatedNodes,
+    removedNodeIds: blueprintMutationSchema.removedNodeIds,
   },
   required: ['id', 'title', 'summary', 'nodes', 'edges'],
 } as const;
@@ -341,7 +384,10 @@ Always batch every layer update for this request into ONE call's updates[] array
       'waste real work. The plan can be a single blueprint (default) OR a ' +
       'sequential list of tasks for multi-section workflows. Use tasks ONLY ' +
       'when the workflow has 2+ logically independent sections — each task ' +
-      'is one recognizable build chunk. Do NOT use propose_plan in the same ' +
+      'is one recognizable build chunk. A blueprint is a full PATCH: when the ' +
+      'plan MODIFIES an existing workflow, edit/delete its nodes in place via ' +
+      'updatedNodes/removedNodeIds (real canvas UUIDs) rather than re-adding the ' +
+      'whole graph. Do NOT use propose_plan in the same ' +
       'turn as ask_clarification or add_node/update_node/remove_node.',
     input_schema: {
       type: 'object',
@@ -357,10 +403,12 @@ Always batch every layer update for this request into ONE call's updates[] array
         detail:  { type: 'string', maxLength: 1200 },
         blueprint: {
           type: 'object',
-          description: 'Single-blueprint mode. Omit when using tasks.',
+          description: 'Single-blueprint mode (a full workflow PATCH, not just an insert). Omit when using tasks. When MODIFYING an existing workflow, edit/delete its nodes via updatedNodes/removedNodeIds (by real canvas UUID) — do NOT re-add the whole graph as new nodes, which orphans the original.',
           properties: {
             nodes: nodesEdgesSchema.nodes,
             edges: nodesEdgesSchema.edges,
+            updatedNodes: blueprintMutationSchema.updatedNodes,
+            removedNodeIds: blueprintMutationSchema.removedNodeIds,
           },
         },
         tasks: {

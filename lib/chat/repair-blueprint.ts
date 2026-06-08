@@ -6,7 +6,7 @@ import { TOOLS } from './tools/definitions';
 /**
  * One-shot model call that takes a failing add_node payload + the apply error
  * and returns a corrected payload, preserving every node id. Used by
- * applyAddNodeWithRepair to self-heal a plan build at Approve time so the user
+ * applyBlueprintWithRepair to self-heal a plan build at Approve time so the user
  * never sees a build error from an approved plan.
  *
  * Returns null if the model can't produce a usable fix (the caller then falls

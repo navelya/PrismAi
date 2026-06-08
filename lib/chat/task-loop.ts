@@ -18,10 +18,21 @@ export function sleep(ms: number): Promise<void> {
  *
  * Returns the original arrays unchanged when task.group is absent or
  * task.nodes is empty (degenerate — bbox math would NaN).
+ *
+ * Modification ops (updatedNodes/removedNodeIds) pass through untouched — group
+ * synthesis only concerns newly-added nodes, but a task may also edit or delete
+ * existing canvas nodes, and those must reach applyBlueprintWithRepair.
  */
-export function synthesizeTaskBlueprint(task: TaskBlueprint): { nodes: any[]; edges: any[] } {
+export function synthesizeTaskBlueprint(
+  task: TaskBlueprint,
+): { nodes: any[]; edges: any[]; updatedNodes?: any[]; removedNodeIds?: string[] } {
+  const mutations = {
+    ...(Array.isArray(task.updatedNodes) && task.updatedNodes.length > 0 ? { updatedNodes: task.updatedNodes } : {}),
+    ...(Array.isArray(task.removedNodeIds) && task.removedNodeIds.length > 0 ? { removedNodeIds: task.removedNodeIds } : {}),
+  };
+
   if (!task.group || task.nodes.length === 0) {
-    return { nodes: task.nodes, edges: task.edges };
+    return { nodes: task.nodes, edges: task.edges, ...mutations };
   }
 
   const xs = task.nodes.map((n: any) => n.position?.x ?? 0);
@@ -70,5 +81,6 @@ export function synthesizeTaskBlueprint(task: TaskBlueprint): { nodes: any[]; ed
   return {
     nodes: [groupNode, ...children],
     edges: task.edges,
+    ...mutations,
   };
 }

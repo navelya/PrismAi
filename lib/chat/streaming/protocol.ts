@@ -13,6 +13,21 @@ export interface TaskGroup {
   color?: 'neutral' | 'indigo' | 'emerald' | 'rose' | 'amber' | 'sky';
 }
 
+/**
+ * A blueprint is a full workflow PATCH, not just an insert. Besides adding
+ * `nodes`/`edges`, it can MODIFY (`updatedNodes`) and DELETE (`removedNodeIds`)
+ * nodes that already exist on the canvas — referenced by their real canvas
+ * UUIDs. This is what lets an approved plan edit a complex workflow in place
+ * instead of rebuilding it beside the original (which left the old graph
+ * orphaned). Mirrors the live add_node + update_node + remove_node vocabulary.
+ */
+export interface BlueprintPayload {
+  nodes?: any[];                 // adds — same item shape as add_node.nodes[]
+  edges?: any[];                 // adds — same item shape as add_node.edges[]
+  updatedNodes?: any[];          // edits — same item shape as update_node.updates[]
+  removedNodeIds?: string[];     // deletes — existing canvas node UUIDs
+}
+
 export interface TaskBlueprint {
   id: string;           // model-supplied, scoped to this plan (e.g. 'scene_1')
   title: string;        // ≤60 chars
@@ -20,14 +35,17 @@ export interface TaskBlueprint {
   group?: TaskGroup;    // optional — present when this task is a logical section
   nodes: any[];         // same item shape as add_node.nodes[]
   edges: any[];         // same item shape as add_node.edges[]
+  updatedNodes?: any[];      // edits — same item shape as update_node.updates[]
+  removedNodeIds?: string[]; // deletes — existing canvas node UUIDs
 }
 
 /**
  * Wire-format shape of a workflow plan proposed by the model. Mirrors
  * the `propose_plan` tool's input schema one-to-one.
  *
- * blueprint mirrors the existing `add_node` tool input — when the user
- * approves, the route applies it via dispatchTool('add_node', blueprint).
+ * blueprint is a full workflow patch (add + update + remove) — when the user
+ * approves, the route applies it via applyBlueprintWithRepair, which dispatches
+ * remove_node → add_node → update_node in order against the live canvas.
  * tasks is an ordered array of TaskBlueprint items executed sequentially
  * on plan approval. Exactly one of blueprint or tasks must be present.
  */
@@ -38,7 +56,7 @@ export interface PlanPayload {
   models: string[];
   detail: string;
   // Exactly one of:
-  blueprint?: { nodes?: any[]; edges?: any[] };
+  blueprint?: BlueprintPayload;
   tasks?: TaskBlueprint[];
 }
 
