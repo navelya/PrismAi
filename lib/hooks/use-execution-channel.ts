@@ -191,7 +191,11 @@ async function subscribeWithRetry(
  *   WebSocket connection is confirmed, closing the missed-event window.
  */
 export function useExecutionChannel(sessionId: string | null | undefined) {
-    const executionChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
+    // node_results and node_predictions live on SEPARATE channels — see the
+    // buildResultsChannel comment below for why. Each gets its own ref so they can
+    // be subscribed, reconnected, and cleaned up independently.
+    const resultsChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
+    const predictionsChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null);
     const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
     const visibilityHandlerRef = useRef<(() => void) | null>(null);
 
@@ -210,7 +214,21 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
             applyNodeResult(record, sessionId, 'realtime');
         };
 
-        const buildChannel = () =>
+        const handlePredictionChange = (payload: any) => {
+            const record = payload.new;
+            if (record) applyPredictionResult(record);
+        };
+
+        // CRITICAL: node_results and node_predictions live on SEPARATE channels.
+        // Supabase validates EVERY postgres_changes binding on a channel at
+        // subscribe() time (publication membership + RLS). If any one binding
+        // fails — e.g. node_predictions isn't in the realtime publication / lacks
+        // an RLS SELECT grant in a given environment — the WHOLE channel is
+        // rejected with CHANNEL_ERROR and NO events are delivered for ANY binding
+        // on it. Putting the critical result-delivery binding (node_results) on
+        // its own channel guarantees it can never be poisoned by the non-critical
+        // streaming-partials binding (node_predictions).
+        const buildResultsChannel = () =>
             supabase
                 .channel(`session_results_${sessionId}`)
                 .on(
@@ -222,40 +240,70 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
                         // No server-side filter — see hydrateFromDb and applyNodeResult
                     },
                     handleResultChange
-                )
+                );
+
+        const buildPredictionsChannel = () =>
+            supabase
+                .channel(`session_predictions_${sessionId}`)
                 .on(
                     'postgres_changes',
                     { event: '*', schema: 'public', table: 'node_predictions' },
-                    (payload: any) => {
-                        const record = payload.new;
-                        if (record) applyPredictionResult(record);
-                    }
+                    handlePredictionChange
                 );
 
-        const channel = buildChannel();
-        executionChannelRef.current = channel;
+        const resultsChannel = buildResultsChannel();
+        resultsChannelRef.current = resultsChannel;
 
-        // Subscribe, then immediately hydrate from DB to catch any missed events
-        subscribeWithRetry(channel, 3, 1000)
+        // Subscribe the results channel, then hydrate from the DB to catch the
+        // missed-event window. Hydrate runs on FAILURE too: if the subscribe ever
+        // fails, the bounded DB catch-up still reconciles node status/output so a
+        // finished run never hangs on "loading".
+        subscribeWithRetry(resultsChannel, 3, 1000)
             .then(() => hydrateFromDb(supabase, sessionId))
             .catch((err) => {
-                console.error('[ExecutionChannel] Failed to subscribe:', err);
+                console.error('[ExecutionChannel] Results subscribe failed; hydrating from DB instead:', err);
+                return hydrateFromDb(supabase, sessionId);
             });
 
-        // Reconnect + re-hydrate when the tab becomes visible again
+        // Predictions channel is non-critical (per-iteration streaming tiles).
+        // Subscribe independently; a failure here must NOT affect node_results.
+        const predictionsChannel = buildPredictionsChannel();
+        predictionsChannelRef.current = predictionsChannel;
+        subscribeWithRetry(predictionsChannel, 3, 1000).catch((err) => {
+            console.warn('[ExecutionChannel] Predictions subscribe failed (streaming tiles only):', err);
+        });
+
+        // Reconnect + re-hydrate when the tab becomes visible again. Always
+        // re-hydrate node_results (cheap, bounded) so events missed while the tab
+        // was backgrounded or the socket briefly dropped are reconciled; rebuild a
+        // dead channel if needed.
         const handleVisibilityChange = async () => {
             if (document.visibilityState !== 'visible') return;
-            const channelState = (executionChannelRef.current as any)?.state;
-            if (channelState === 'closed' || channelState === 'errored') {
-                console.log('[ExecutionChannel] Reconnecting after visibility change...');
-                if (executionChannelRef.current) supabase.removeChannel(executionChannelRef.current);
-                const reconnected = buildChannel();
-                executionChannelRef.current = reconnected;
+
+            // Always reconcile results from the DB — covers any missed events.
+            void hydrateFromDb(supabase, sessionId);
+
+            const resultsState = (resultsChannelRef.current as any)?.state;
+            if (resultsState === 'closed' || resultsState === 'errored') {
+                console.log('[ExecutionChannel] Reconnecting results channel after visibility change...');
+                if (resultsChannelRef.current) supabase.removeChannel(resultsChannelRef.current);
+                const reconnected = buildResultsChannel();
+                resultsChannelRef.current = reconnected;
                 subscribeWithRetry(reconnected, 3, 1000)
                     .then(() => hydrateFromDb(supabase, sessionId))
                     .catch((err) => {
-                        console.error('[ExecutionChannel] Reconnection failed:', err);
+                        console.error('[ExecutionChannel] Results reconnection failed:', err);
                     });
+            }
+
+            const predState = (predictionsChannelRef.current as any)?.state;
+            if (predState === 'closed' || predState === 'errored') {
+                if (predictionsChannelRef.current) supabase.removeChannel(predictionsChannelRef.current);
+                const reconnectedPred = buildPredictionsChannel();
+                predictionsChannelRef.current = reconnectedPred;
+                subscribeWithRetry(reconnectedPred, 3, 1000).catch((err) => {
+                    console.warn('[ExecutionChannel] Predictions reconnection failed:', err);
+                });
             }
         };
 
@@ -264,15 +312,19 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
-            if (executionChannelRef.current && supabaseRef.current) {
-                try {
-                    executionChannelRef.current.unsubscribe();
-                    supabaseRef.current.removeChannel(executionChannelRef.current);
-                } catch (e) {
-                    console.log('[ExecutionChannel] Cleanup error:', e);
+            const cleanupChannel = (ref: typeof resultsChannelRef) => {
+                if (ref.current && supabaseRef.current) {
+                    try {
+                        ref.current.unsubscribe();
+                        supabaseRef.current.removeChannel(ref.current);
+                    } catch (e) {
+                        console.log('[ExecutionChannel] Cleanup error:', e);
+                    }
+                    ref.current = null;
                 }
-                executionChannelRef.current = null;
-            }
+            };
+            cleanupChannel(resultsChannelRef);
+            cleanupChannel(predictionsChannelRef);
         };
     }, [sessionId]);
 }
