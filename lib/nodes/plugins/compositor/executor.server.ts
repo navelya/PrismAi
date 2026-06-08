@@ -193,11 +193,25 @@ export const compositorExecutor = async (
 // Still-composite path (Sharp). Preserves the pre-temporal behavior exactly.
 // ───────────────────────────────────────────────────────────────────────────
 
-async function runStillComposite(
+/**
+ * Composite the still image to an in-memory buffer (no upload). Shared by the
+ * workflow executor (`runStillComposite`, which uploads the result) and the
+ * Download route (`/api/compositor/export`, which streams it back). Keeping the
+ * compositing logic in one place means a downloaded image is byte-identical to
+ * the image the workflow produces.
+ */
+export interface CompositorStillResult {
+    buffer: Buffer;
+    contentType: string;
+    ext: string;
+    width: number;
+    height: number;
+}
+
+export async function renderCompositorStill(
     config: CompositorConfig,
     inputs: Record<string, any>,
-    context: ExecutionContext,
-): Promise<NodeExecutionResult> {
+): Promise<CompositorStillResult> {
     let width = Math.round(config?.canvasWidth || 1080);
     let height = Math.round(config?.canvasHeight || 1080);
     const layers = (config?.layers || []) as CompositorLayer[];
@@ -328,12 +342,27 @@ async function runStillComposite(
 
     const ext = outputFormat === 'jpg' ? 'jpg' : outputFormat === 'jpeg' ? 'jpeg' : outputFormat === 'webp' ? 'webp' : 'png';
 
-    return uploadEphemeralResult(context, finalBuffer, {
+    return { buffer: finalBuffer, contentType, ext, width, height };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Still-composite path (Sharp). Preserves the pre-temporal behavior exactly:
+// composite to a buffer, then upload as the node's ephemeral image envelope.
+// ───────────────────────────────────────────────────────────────────────────
+
+async function runStillComposite(
+    config: CompositorConfig,
+    inputs: Record<string, any>,
+    context: ExecutionContext,
+): Promise<NodeExecutionResult> {
+    const { buffer, contentType, ext, width, height } = await renderCompositorStill(config, inputs);
+
+    return uploadEphemeralResult(context, buffer, {
         prefix: 'compositor',
         extension: ext,
         contentType,
         resolution: { width, height },
-        metadata: { format: outputFormat, source: 'Compositor', processedBy: 'ServerSharp' }
+        metadata: { format: config?.outputFormat || 'png', source: 'Compositor', processedBy: 'ServerSharp' }
     });
 }
 

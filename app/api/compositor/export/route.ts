@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/api/auth';
-import { renderCompositorVideo } from '@/lib/nodes/plugins/compositor/executor.server';
-import type { CompositorConfig } from '@/lib/nodes/plugins/compositor/definition';
+import {
+    renderCompositorVideo,
+    renderCompositorStill,
+} from '@/lib/nodes/plugins/compositor/executor.server';
+import { detectSourceKindFromUrl, hasTemporalContent } from '@/lib/nodes/plugins/compositor/shared';
+import type { LayerSourceKind } from '@/lib/nodes/plugins/compositor/shared';
+import type { CompositorConfig, CompositorLayer } from '@/lib/nodes/plugins/compositor/definition';
 
 /**
- * Render the compositor's timeline server-side and stream the mp4 back as a
- * file download. Replaces the previous client-side MediaRecorder flow.
+ * Render the compositor server-side and stream the result back as a file
+ * download. Mirrors the workflow executor's split: image-only timelines (no
+ * video/audio layer, no non-default time range) render as a still image via
+ * Sharp; anything temporal renders as an mp4 via ffmpeg. This keeps a
+ * downloaded image-only compositor consistent with the image the workflow
+ * produces, and gives image+text compositors a Download button (previously the
+ * route always produced an mp4, so the UI only offered download for video).
  *
  * Body:
  *   {
@@ -14,7 +24,7 @@ import type { CompositorConfig } from '@/lib/nodes/plugins/compositor/definition
  *     filename?: string,                // user-friendly download name (no extension needed)
  *   }
  *
- * Renders synchronously and returns the mp4 bytes directly. `maxDuration` is
+ * Renders synchronously and returns the bytes directly. `maxDuration` is
  * bumped to the Vercel Pro cap; longer timelines on Hobby plans will hit the
  * per-request execution limit before this matters.
  */
@@ -43,13 +53,44 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+        const safe = (body.filename || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+
+        // Decide image vs video the same way the workflow executor does, so the
+        // download matches what a Run would produce. A layer is temporal when
+        // its source URL is a video/audio, or it sets a non-default time range.
+        const layers = (config.layers || []) as CompositorLayer[];
+        const sourceKindByLayerId: Record<string, LayerSourceKind> = {};
+        for (const layer of layers) {
+            const url = inputs[layer.sourceHandleId];
+            sourceKindByLayerId[layer.id] =
+                typeof url === 'string' ? detectSourceKindFromUrl(url) : 'unknown';
+        }
+
+        if (!hasTemporalContent(layers, sourceKindByLayerId)) {
+            // Still image — Sharp composite, no ffmpeg.
+            const { buffer, contentType, ext } = await renderCompositorStill(config, inputs);
+            const downloadName = `${safe}-${ts}.${ext}`;
+            // NextResponse's BodyInit doesn't accept Node's Buffer directly
+            // (see mp4 note below); Uint8Array.from re-roots onto a plain
+            // ArrayBuffer that satisfies BlobPart.
+            const responseBlob = new Blob([Uint8Array.from(buffer)], { type: contentType });
+            return new NextResponse(responseBlob, {
+                status: 200,
+                headers: {
+                    'Content-Type': contentType,
+                    'Content-Length': String(responseBlob.size),
+                    'Content-Disposition': `attachment; filename="${downloadName}"`,
+                    'Cache-Control': 'no-store',
+                },
+            });
+        }
+
         const buffer = await renderCompositorVideo(config, inputs, {
             includeAudio: true,
             crf: 18,
         });
 
-        const safe = (body.filename || 'compositor').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
         const downloadName = `${safe}-${ts}.mp4`;
 
         // NextResponse's BodyInit doesn't accept Node's Buffer directly under

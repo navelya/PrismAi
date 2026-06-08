@@ -936,6 +936,13 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     }, [renderable]);
     const hasTransport = hasVideoLayer || hasAudioLayer;
 
+    // Download is offered whenever there's renderable media to export — a still
+    // composite (image/text → PNG/JPEG) or a temporal render (video/audio →
+    // mp4). The server route (/api/compositor/export) picks the format the same
+    // way the executor does. `null` (only text or nothing wired) has nothing to
+    // render, so no button.
+    const canDownload = outputKind !== null;
+
     const compositeBaseFill = useMemo(
         () => resolveCompositeBaseFill(config.backgroundColor, hasVideoLayer),
         [config.backgroundColor, hasVideoLayer],
@@ -1399,7 +1406,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 customOutputs={customOutputs}
                 customActions={
                     <>
-                        {hasVideoLayer && (
+                        {canDownload && (
                             <Tooltip
                                 content={
                                     downloadState === 'rendering' ? 'Rendering'
