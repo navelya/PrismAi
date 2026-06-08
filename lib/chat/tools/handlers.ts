@@ -469,6 +469,11 @@ export async function dispatchTool(state: ToolHandlerState, name: ToolName, args
       // heavy lane and never patches the workflow. Reached only if forwarded
       // here by mistake; treat as a no-op like the cases above.
       return { success: true };
+    case 'run_nodes':
+      // Brain-handled in brain.ts (records run intent + streams runRequest).
+      // It must never mutate the workflow, so this is a no-op like the other
+      // terminal/brain tools above.
+      return { success: true };
     default: {
       const _exhaustive: never = name;
       return { success: false, error: `Unknown tool: ${_exhaustive}` };
