@@ -13,6 +13,8 @@ type GenSlot = CharacterRefImage | null | 'failed';
 interface CharacterModalProps {
     open: boolean;
     initial?: Character | null;
+    /** Reference images to pre-seed a NEW character with (create mode only). */
+    seedImages?: CharacterRefImage[];
     onClose: () => void;
     onSave: (input: CharacterInput, id?: string) => Promise<void>;
     /** Called when a NEW character is dismissed without Cancel (X/backdrop/Escape)
@@ -22,7 +24,7 @@ interface CharacterModalProps {
 
 const MAX_IMAGES = 6;
 
-export default function CharacterModal({ open, initial, onClose, onSave, onSaveDraft }: CharacterModalProps) {
+export default function CharacterModal({ open, initial, seedImages, onClose, onSave, onSaveDraft }: CharacterModalProps) {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [weight, setWeight] = useState(70);
@@ -49,13 +51,16 @@ export default function CharacterModal({ open, initial, onClose, onSave, onSaveD
             setName(initial?.name ?? '');
             setDescription(initial?.description ?? '');
             setWeight(initial?.weight ?? 70);
-            setImages(Array.isArray(initial?.reference_images) ? initial!.reference_images : []);
+            const seeded = Array.isArray(initial?.reference_images)
+                ? initial!.reference_images
+                : (Array.isArray(seedImages) ? seedImages.slice(0, MAX_IMAGES) : []);
+            setImages(seeded);
             setErrorMsg(null);
             setGenSlots([]);
             setLightboxIndex(null);
             dismissingRef.current = false;
         }
-    }, [open, initial]);
+    }, [open, initial, seedImages]);
 
     const handleFiles = async (files: FileList | null) => {
         if (!files || files.length === 0) return;
