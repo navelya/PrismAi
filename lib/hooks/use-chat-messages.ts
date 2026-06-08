@@ -793,7 +793,10 @@ export function useChatMessages({
             // multi-task plan runs ONCE, after all tasks finish.
             try {
                 const store = useAppStore.getState();
-                const touched = store.aiTurn?.touchedNodeIds ?? [];
+                // Run intent now comes EXCLUSIVELY from the brain's run_nodes tool
+                // (runRequestIds). If the brain didn't request a run, nothing runs —
+                // adding/editing nodes no longer auto-runs them.
+                const touched = runRequestIds ?? [];
                 const workflow = store.currentWorkflow;
                 if (streamDone && touched.length > 0 && workflow) {
                     const { buildRunPlan } = await import('@/lib/billing/run-plan');
