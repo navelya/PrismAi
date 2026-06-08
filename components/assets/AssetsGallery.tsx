@@ -182,16 +182,23 @@ export default function AssetsGallery() {
             const target = e.target as HTMLElement;
             if (target.closest('[data-asset-card], button, input, a, label, audio, [role="menu"]')) return;
             e.preventDefault();
+            // Anchor in viewport coords + the scroll offset at drag start, so the
+            // start point stays pinned to the CONTENT (not the screen) as the page
+            // scrolls during the drag. The anchor's current viewport position is
+            // recovered by subtracting how far we've scrolled since.
             const startX = e.clientX, startY = e.clientY;
+            const startScrollLeft = surface.scrollLeft, startScrollTop = surface.scrollTop;
+            let lastX = startX, lastY = startY;
             let moved = false;
-            const onMove = (ev: PointerEvent) => {
-                if (!moved && Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return;
-                moved = true;
+
+            const update = () => {
+                const anchorX = startX - (surface.scrollLeft - startScrollLeft);
+                const anchorY = startY - (surface.scrollTop - startScrollTop);
                 const box: MarqueeRect = {
-                    left: Math.min(startX, ev.clientX),
-                    top: Math.min(startY, ev.clientY),
-                    right: Math.max(startX, ev.clientX),
-                    bottom: Math.max(startY, ev.clientY),
+                    left: Math.min(anchorX, lastX),
+                    top: Math.min(anchorY, lastY),
+                    right: Math.max(anchorX, lastX),
+                    bottom: Math.max(anchorY, lastY),
                 };
                 setMarquee(box);
                 const hit = new Set<string>();
@@ -201,14 +208,24 @@ export default function AssetsGallery() {
                 });
                 setSelectedIds(hit);
             };
+
+            const onMove = (ev: PointerEvent) => {
+                lastX = ev.clientX; lastY = ev.clientY;
+                if (!moved && Math.abs(lastX - startX) < 4 && Math.abs(lastY - startY) < 4) return;
+                moved = true;
+                update();
+            };
+            const onScroll = () => { if (moved) update(); };
             const onUp = () => {
                 window.removeEventListener('pointermove', onMove);
                 window.removeEventListener('pointerup', onUp);
+                surface.removeEventListener('scroll', onScroll);
                 setMarquee(null);
                 if (!moved) clearSelection();
             };
             window.addEventListener('pointermove', onMove);
             window.addEventListener('pointerup', onUp);
+            surface.addEventListener('scroll', onScroll, { passive: true });
         };
 
         surface.addEventListener('pointerdown', onPointerDown);
