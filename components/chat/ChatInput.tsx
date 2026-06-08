@@ -406,10 +406,11 @@ const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
                     {/* Removable preference pills, styled to match the action-row
                         buttons. Sits BETWEEN the input and the buttons. A
                         self-subscribing leaf — a preference change re-renders only
-                        this row. Hidden on the welcome composer (!isCanvasMode):
-                        a brand-new chat shouldn't lead with standing generation
-                        prefs — those belong once you're working in a canvas. */}
-                    {isCanvasMode && <ChatPreferenceChips />}
+                        this row. Shown on every surface (welcome composer, canvas
+                        side-window, full-screen) so the composer is consistent; the
+                        leaf returns null while every preference is Auto, so a
+                        brand-new chat still leads clean. */}
+                    <ChatPreferenceChips />
 
                     {/* ── Action row ─────────────────────────────────────────────────
                          The textarea is always a full-width row above; this button
