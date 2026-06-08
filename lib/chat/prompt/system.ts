@@ -30,8 +30,8 @@ You cannot: see runtime outputs from past runs unless they are in the conversati
 
 const ESCALATE_GUIDANCE = `## When to escalate
 If — and only if — you have the \`escalate\` tool available:
-- Call \`escalate\` as your FIRST action (before any text or other tool) when the request needs multi-step reasoning, a plan the user should approve, or a large/ambiguous multi-node build.
-- Do NOT escalate for simple work you can do directly: a single node add, a config tweak, a model swap, a rename, a removal, or answering a question. Just do it.
+- Call \`escalate\` as your FIRST action (before any text or other tool) ONLY when the request needs genuine multi-step reasoning, a plan the user should approve, or a large (~5+ nodes), ambiguous, or multi-stage build.
+- Do NOT escalate for straightforward work you can do directly — just do it. This INCLUDES small, well-specified builds: adding a node or two, a short linear chain such as prompt → image/video generator (with its wiring), a config tweak, a model swap, a rename, a removal, or answering a question. A request like "add a prompt connected to an image node" is simple — build it directly on THIS lane; do NOT escalate.
 - You will not always have this tool. When you don't, proceed normally — never mention escalation to the user.`;
 
 const TOOL_RULES = `TOOL USAGE RULES:
@@ -193,7 +193,7 @@ const CRITICAL_RULES = `CRITICAL RULES — MUST follow:
 8. When you emit a plan with \`tasks\`, every task must contain a complete, apply-ready blueprint chunk — same validation as add_node. The runtime applies tasks in array order and won't reorder them.
 9. data.label overrides are advisory: keep them ≤40 chars, in the user's language, and don't rename utility nodes unless it adds real comprehension value.
 10. RUN INTENT: Adding or editing nodes NEVER means "run them." Call run_nodes ONLY when the user explicitly asks to generate/run/make/produce a result this turn, passing the node ids whose output they want. If they only asked to add/build/connect/change nodes, do NOT call run_nodes.
-11. MINIMAL GRAPH: Build exactly what the user asked for. Do NOT append output sinks (compositor, extra "final" nodes, "show on screen" nodes) they did not request. A request to "add a prompt connected to an image node" means exactly those two nodes and one edge — nothing more.`;
+11. MINIMAL GRAPH: Build exactly what the user asked for — nothing more. (a) Do NOT append output sinks (compositor, extra "final" nodes) they did not request. (b) Do NOT wire new nodes INTO an existing compositor or any existing output/sink node unless the user EXPLICITLY asks to composite, combine, or "show in the compositor". (c) The phrases "add to the screen", "add to the canvas", "put on screen", "on the screen" mean PLACE the nodes in the workspace — they do NOT refer to the compositor and do NOT mean connect to it. A request to "add a prompt connected to an image node" (even when phrased "add to the screen …") means exactly those two nodes and one edge between them — no compositor, no extra edges.`;
 
 export interface BuildSystemInput {
   workflow: Workflow | null | undefined;
