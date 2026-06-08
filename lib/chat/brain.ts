@@ -22,6 +22,8 @@ export interface BrainResult {
   model: 'haiku' | 'sonnet';
   /** True if the fast lane called `escalate`; the caller re-runs on Sonnet. */
   escalated: boolean;
+  /** Explicit run intent from the run_nodes tool, or null if no run was requested. */
+  runRequest: { nodeIds: string[] } | null;
 }
 
 export interface BrainInput {
@@ -114,6 +116,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let clarification: BrainResult['clarification'] = null;
   let plan: BrainResult['plan'] = null;
   let escalated = false;
+  let runRequest: BrainResult['runRequest'] = null;
   const modelKey: 'haiku' | 'sonnet' = input.model ?? 'sonnet';
 
   // Trivial-message heuristic: if the user's last turn is short, has no
@@ -426,6 +429,25 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               break;
             }
 
+            if (name === 'run_nodes') {
+              // run_nodes records execution INTENT only — it NEVER mutates the
+              // workflow. The model may call it in the same turn it built nodes
+              // (add_node then run_nodes), so resolve any temp ids the model
+              // created this turn through the idMap. First valid call wins.
+              // We satisfy the tool and DO NOT mark it terminal, so the
+              // continuation turn stays valid if the model called build tools too.
+              const rawIds = Array.isArray(event.args?.nodeIds) ? event.args.nodeIds : [];
+              const resolved = rawIds
+                .filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0)
+                .map((x: string) => state.idMap.get(x) ?? x);
+              if (resolved.length > 0 && !runRequest) {
+                runRequest = { nodeIds: resolved };
+                input.encoder.send({ type: 'runRequest', nodeIds: resolved });
+              }
+              pendingTools.push({ id: event.id, success: true });
+              break;
+            }
+
             if (name !== 'add_node' && name !== 'update_node' && name !== 'update_compositor_layer' && name !== 'remove_node') {
               input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
               pendingTools.push({ id: event.id, success: false, error: `Unknown tool ${name}` });
@@ -538,7 +560,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
 
-  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated };
+  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated, runRequest };
 }
 
 /**
