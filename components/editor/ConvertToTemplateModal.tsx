@@ -7,6 +7,7 @@ import { adminTemplatesApi } from '@/lib/api/admin';
 import { useAppStore } from '@/lib/store/app-store';
 import { workflowNodeChips } from '@/lib/templates/node-chips';
 import { extractMediaUrls, detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
+import { downscaleImageToFile } from '@/lib/utils/image-processing';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Select } from '@/components/ui/Select';
@@ -80,8 +81,14 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
       fd.set('tags', JSON.stringify(tagsText.split(',').map((t) => t.trim()).filter(Boolean)));
       fd.set('use_cases', JSON.stringify(useCasesText.split('\n').map((t) => t.trim()).filter(Boolean)));
       fd.set('publish', String(publish));
-      if (file) fd.set('thumbnail', file);
-      else if (autoThumbUrl) fd.set('thumbnail_url_hint', autoThumbUrl);
+      if (file) {
+        // Downscale before upload — a full-res photo blows past the API route
+        // body limit and the upload comes back as a 413 (Content Too Large).
+        // A template thumbnail only ever renders as a small card, so a capped,
+        // re-encoded WebP is more than enough.
+        const thumb = await downscaleImageToFile(file).catch(() => file);
+        fd.set('thumbnail', thumb);
+      } else if (autoThumbUrl) fd.set('thumbnail_url_hint', autoThumbUrl);
       await adminTemplatesApi.create(fd);
       refreshTemplates(true); // refresh the shared cache so the new template appears everywhere
       setDone(true);

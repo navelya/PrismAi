@@ -80,6 +80,64 @@ export async function downscaleImageToBase64(
     });
 }
 
+/**
+ * Downscale an image File client-side and return it as a re-encoded File,
+ * ready to append to a FormData upload.
+ *
+ * Same sizing rules as {@link downscaleImageToBase64} — the longest edge is
+ * capped at `maxEdge` (never upscaled) and the result is re-encoded as WebP —
+ * but it yields a binary File (not base64) so a multipart upload stays small.
+ * A full-res photo that would otherwise blow past the API route body limit
+ * (a silent 413 "Content Too Large") collapses to a thumbnail-sized payload.
+ *
+ * @param file    The input image file.
+ * @param maxEdge Max length (px) of the longest edge (default 1024).
+ * @param quality WebP quality from 0 to 1 (default 0.85).
+ */
+export async function downscaleImageToFile(
+    file: File,
+    maxEdge = 1024,
+    quality = 0.85,
+): Promise<File> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            const longest = Math.max(img.width, img.height);
+            const scale = longest > maxEdge ? maxEdge / longest : 1;
+            const w = Math.max(1, Math.round(img.width * scale));
+            const h = Math.max(1, Math.round(img.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                reject(new Error('Canvas context not supported'));
+                return;
+            }
+            ctx.drawImage(img, 0, 0, w, h);
+            canvas.toBlob(
+                (blob) => {
+                    if (!blob) {
+                        reject(new Error('Image downscale failed'));
+                        return;
+                    }
+                    const base = file.name.replace(/\.[^.]+$/, '') || 'thumbnail';
+                    resolve(new File([blob], `${base}.webp`, { type: 'image/webp' }));
+                },
+                'image/webp',
+                quality,
+            );
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Could not read the image file'));
+        };
+        img.src = objectUrl;
+    });
+}
+
 // Counter for unique filenames within the same millisecond
 let fileCounter = 0;
 

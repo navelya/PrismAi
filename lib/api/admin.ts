@@ -257,8 +257,15 @@ export const adminTemplatesApi = {
   },
   create: async (formData: FormData) => {
     const res = await fetch('/api/admin/templates', { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to create template');
+    // A 413 (Content Too Large) returns a plain-text body, so parse defensively
+    // instead of blowing up with "Unexpected token ... is not valid JSON".
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg = res.status === 413
+        ? 'Image is too large — try a smaller thumbnail.'
+        : data?.error || `Failed to create template (${res.status})`;
+      throw new Error(msg);
+    }
     return data.template;
   },
   update: async (id: string, formData: FormData) => {
