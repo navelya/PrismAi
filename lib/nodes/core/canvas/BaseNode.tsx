@@ -595,7 +595,17 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         <motion.div
             ref={ref as any}
             initial={isNew ? { scale: 0.8, opacity: 0 } : false}
-            animate={ANIMATE_TARGET}
+            // Opacity is unified under framer-motion (NOT a React style override,
+            // which framer's own opacity motion value would clobber). For an
+            // AI-added node awaiting the end-of-turn measured re-layout
+            // (isHiddenForReveal), the animate target holds opacity at 0 so the
+            // node stays invisible at its tight pre-relayout spot; when
+            // revealAddedNodes clears it, the target flips to 1 and framer fades
+            // the node in — now at its corrected position. Non-new / existing
+            // nodes always have isHiddenForReveal === false, so this is exactly
+            // ANIMATE_TARGET (opacity 1) for them — unchanged. Scale entrance and
+            // the spring transition are preserved.
+            animate={{ ...ANIMATE_TARGET, opacity: isHiddenForReveal ? 0 : 1 }}
             onAnimationComplete={() => {
                 if (isNew) updateNodeInternals(id);
             }}
@@ -665,10 +675,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 ...(resizable ? { ['--rfz' as any]: 1 / zoom } : {}),
                 // Reveal-on-settle: AI-added nodes stay invisible until the
                 // measured re-layout repositions them, then fade in at the
-                // correct spot — no "tight then re-space" flash.
-                opacity: isHiddenForReveal ? 0 : undefined,
+                // correct spot — no "tight then re-space" flash. Opacity itself
+                // is driven by framer-motion via the `animate` prop above (a
+                // React style.opacity here would be overridden by framer's own
+                // opacity motion value from the isNew entrance). We only keep
+                // pointer-events here, which framer-motion does not manage.
                 pointerEvents: isHiddenForReveal ? 'none' : undefined,
-                transition: 'opacity 160ms ease-out',
             }}
             {...props}
         >
