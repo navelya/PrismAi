@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import { X, Download, UserPlus, Loader2 } from 'lucide-react';
 
 interface AssetSelectionToolbarProps {
@@ -16,8 +15,9 @@ interface AssetSelectionToolbarProps {
 }
 
 /**
- * Presentational bulk-action bar for the Assets gallery. Rendered by
- * AssetsGallery only when a selection exists; holds no selection state itself.
+ * Inline bulk-action controls for the Assets gallery. Rendered by AssetsGallery
+ * directly beside the results count (no background bar of its own, so it never
+ * shifts the grid). Holds no selection state itself.
  */
 export default function AssetSelectionToolbar({
     count,
@@ -31,32 +31,26 @@ export default function AssetSelectionToolbar({
 }: AssetSelectionToolbarProps) {
     const busy = downloading || adding;
     return (
-        <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="sticky top-2 z-30 flex items-center gap-3 px-4 py-2.5 rounded-xl border border-stroke-subtle bg-surface-elevated shadow-lg"
-        >
+        <div className="flex items-center gap-2 pl-3 ml-1 border-l border-stroke-subtle">
+            <span className="text-sm font-medium text-content-primary whitespace-nowrap">{count} selected</span>
+
             <button
                 onClick={onClear}
-                className="p-1.5 rounded-lg hover:bg-interactive-hover transition-colors"
+                className="p-1 rounded-md hover:bg-interactive-hover transition-colors"
                 title="Clear selection"
                 aria-label="Clear selection"
             >
-                <X className="w-4 h-4 text-content-secondary" />
+                <X className="w-3.5 h-3.5 text-content-secondary" />
             </button>
 
-            <span className="text-sm font-medium text-content-primary">{count} selected</span>
-
-            <div className="flex-1" />
-
-            {error && <span className="text-xs text-red-400">{error}</span>}
+            {error && <span className="text-xs text-red-400 whitespace-nowrap">{error}</span>}
 
             <button
                 onClick={onDownload}
                 disabled={busy}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary text-sm font-medium hover:bg-interactive-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary text-xs font-medium hover:bg-interactive-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             >
-                {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                 <span>Download zip</span>
             </button>
 
@@ -64,11 +58,11 @@ export default function AssetSelectionToolbar({
                 onClick={onAddToCharacter}
                 disabled={busy || imageCount === 0}
                 title={imageCount === 0 ? 'Select at least one image' : imageCount > 6 ? 'Only the first 6 images will be used' : undefined}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary text-sm font-medium hover:bg-accent-primary/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-accent-primary/10 border border-accent-primary/20 text-accent-primary text-xs font-medium hover:bg-accent-primary/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             >
-                {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
                 <span>Add to character</span>
             </button>
-        </motion.div>
+        </div>
     );
 }

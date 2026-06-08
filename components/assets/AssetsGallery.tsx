@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
+import { Slider } from '@/components/ui/Slider';
 import AssetSelectionToolbar from '@/components/assets/AssetSelectionToolbar';
 import CharacterModal from '@/components/assets/CharacterModal';
 import { unpackAssets, type AssetItem, type AssetType, type TypeFilter } from '@/lib/assets/unpack';
@@ -166,11 +167,15 @@ export default function AssetsGallery() {
         if (el) cardRefs.current.set(id, el); else cardRefs.current.delete(id);
     }, []);
 
-    // Marquee: starts only when the pointer goes down on the grid background
-    // (a gap between cards), never on a card itself. Hit-tests card rects on
-    // each move and replaces the selection with the intersecting ids.
+    // Marquee: starts on any empty area of the gallery (the gutters/space
+    // around the grid as well as the gaps between cards), but never on a card
+    // or an interactive control. Hit-tests card rects on each move and replaces
+    // the selection with the intersecting ids. A click that never moves clears
+    // the selection.
     const startMarquee = useCallback((e: React.PointerEvent) => {
-        if (e.button !== 0 || e.target !== e.currentTarget) return;
+        if (e.button !== 0) return;
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-asset-card], button, input, a, label, audio, [role="menu"]')) return;
         const startX = e.clientX, startY = e.clientY;
         let moved = false;
         const onMove = (ev: PointerEvent) => {
@@ -194,10 +199,11 @@ export default function AssetsGallery() {
             window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup', onUp);
             setMarquee(null);
+            if (!moved) clearSelection();
         };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
-    }, []);
+    }, [clearSelection]);
 
     const selectedImageItems = React.useMemo(
         () => visibleAssets.filter((a) => selectedIds.has(a.id) && a.result_type === 'image'),
@@ -260,23 +266,36 @@ export default function AssetsGallery() {
     const gridTemplate = { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` };
 
     return (
-        <div className="space-y-5">
+        <div className="space-y-5 min-h-[calc(100vh-14rem)] select-none" onPointerDown={startMarquee}>
             <div className="flex items-center justify-between gap-4">
-                <p className="text-sm text-content-tertiary">
-                    {isLoading ? 'Loading…' : `${visibleAssets.length} ${visibleAssets.length === 1 ? 'result' : 'results'}`}
-                </p>
+                <div className="flex items-center gap-1">
+                    <p className="text-sm text-content-tertiary whitespace-nowrap">
+                        {isLoading ? 'Loading…' : `${visibleAssets.length} ${visibleAssets.length === 1 ? 'result' : 'results'}`}
+                    </p>
+                    {selectedIds.size > 0 && (
+                        <AssetSelectionToolbar
+                            count={selectedIds.size}
+                            imageCount={selectedImageItems.length}
+                            downloading={downloading}
+                            adding={addingToCharacter}
+                            error={actionError}
+                            onClear={clearSelection}
+                            onDownload={handleDownload}
+                            onAddToCharacter={handleAddToCharacter}
+                        />
+                    )}
+                </div>
                 <div className="flex items-center gap-3">
                     <label className="flex items-center gap-2 text-content-tertiary" title="Assets per row">
                         <LayoutGrid className="w-4 h-4" />
-                        <input
-                            type="range"
+                        <Slider
+                            value={columns}
+                            onChange={(v) => setColumns(Math.round(v))}
                             min={MIN_COLUMNS}
                             max={MAX_COLUMNS}
                             step={1}
-                            value={columns}
-                            onChange={(e) => setColumns(parseInt(e.target.value, 10))}
-                            className="w-24 accent-accent-primary cursor-pointer"
-                            aria-label="Assets per row"
+                            ariaLabel="Assets per row"
+                            className="w-24"
                         />
                     </label>
                     <AssetTypeFilter typeFilter={typeFilter} onChange={setTypeFilter} />
@@ -290,19 +309,6 @@ export default function AssetsGallery() {
                 </div>
             </div>
 
-            {selectedIds.size > 0 && (
-                <AssetSelectionToolbar
-                    count={selectedIds.size}
-                    imageCount={selectedImageItems.length}
-                    downloading={downloading}
-                    adding={addingToCharacter}
-                    error={actionError}
-                    onClear={clearSelection}
-                    onDownload={handleDownload}
-                    onAddToCharacter={handleAddToCharacter}
-                />
-            )}
-
             {isLoading ? (
                 <div className="grid gap-5" style={gridTemplate}>
                     {Array.from({ length: 8 }).map((_, i) => (
@@ -314,8 +320,7 @@ export default function AssetsGallery() {
             ) : (
                 <div
                     ref={gridRef}
-                    onPointerDown={startMarquee}
-                    className="grid gap-5 select-none"
+                    className="grid gap-5"
                     style={gridTemplate}
                 >
                     <AnimatePresence initial={false}>
@@ -404,6 +409,7 @@ function AssetCard({ asset, index, selected, selectionActive, onActivate, onTogg
     return (
         <motion.div
             ref={(el) => registerRef(asset.id, el)}
+            data-asset-card
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2, delay: Math.min(index, 12) * 0.03 }}
