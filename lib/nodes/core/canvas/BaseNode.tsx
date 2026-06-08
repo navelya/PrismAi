@@ -228,6 +228,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const models = useAppStore((s) => s.models);
     const edges = useEdges();
 
+    // True while this node was just added by the AI and is awaiting the
+    // end-of-turn measured re-layout. Selector returns a primitive boolean, so
+    // unrelated nodes don't re-render when the hidden set changes.
+    const isHiddenForReveal = useAppStore((s) => !!s.aiTurn?.hiddenAddedIds?.includes(id));
+
     const dragRole: 'none' | 'origin' | 'compatible' | 'incompatible' = useMemo(() => {
         if (!wireDrag) return 'none';
         if (wireDrag.originNodeId === id) return 'origin';
@@ -658,6 +663,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                 // CSS so the handles + connecting border keep a constant on-screen
                 // size regardless of canvas zoom.
                 ...(resizable ? { ['--rfz' as any]: 1 / zoom } : {}),
+                // Reveal-on-settle: AI-added nodes stay invisible until the
+                // measured re-layout repositions them, then fade in at the
+                // correct spot — no "tight then re-space" flash.
+                opacity: isHiddenForReveal ? 0 : undefined,
+                pointerEvents: isHiddenForReveal ? 'none' : undefined,
+                transition: 'opacity 160ms ease-out',
             }}
             {...props}
         >

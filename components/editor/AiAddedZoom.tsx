@@ -153,7 +153,7 @@ function AiAddedZoomInner({ edges, updatePositions }: AiAddedZoomProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [aiTurn?.patchTick, aiTurn?.active]);
 
-    // End-of-turn settle fit. Triggered when active flips from true → false.
+    // End-of-turn settle. Triggered when active flips true → false.
     useEffect(() => {
         const isActive = !!aiTurn?.active;
         const wasActive = endTurnPrevActiveRef.current;
@@ -162,9 +162,11 @@ function AiAddedZoomInner({ edges, updatePositions }: AiAddedZoomProps) {
         // Only run on the active → inactive transition.
         if (!(wasActive && !isActive)) return;
         if (!aiTurn) return;
-        if (aiTurn.patchTick === 0) return;
-        if (userOverrodeViewportRef.current) return;
-        if (aiTurn.touchedNodeIds.length === 0) return;
+
+        const touchedIds = aiTurn.touchedNodeIds;
+        const addedIds = aiTurn.addedNodeIds;
+        const reveal = () => useAppStore.getState().revealAddedNodes();
+        let cancelled = false;
 
         // Cancel any pending during-stream fit — the settle is the canonical move.
         if (debounceTimerRef.current) {
@@ -172,23 +174,22 @@ function AiAddedZoomInner({ edges, updatePositions }: AiAddedZoomProps) {
             debounceTimerRef.current = null;
         }
 
-        const touchedIds = aiTurn.touchedNodeIds;
-        const addedIds = aiTurn.addedNodeIds;
-        let cancelled = false;
-
-        // One rAF so React Flow has measured any nodes added in the very last
-        // patch. THEN re-run the incremental ELK layout on just the new nodes
-        // using their real measured sizes (the server pass only had registry
-        // fallbacks, so it placed them too tightly), and finally settle the
-        // camera onto the corrected layout.
+        // One rAF so React Flow has measured nodes added in the last patch. THEN
+        // re-run the incremental ELK layout on just the new nodes with their real
+        // measured sizes (the server pass only had registry fallbacks), reveal
+        // them in their corrected positions, and finally settle the camera.
         const raf = requestAnimationFrame(() => {
-            if (cancelled || userOverrodeViewportRef.current) return;
+            if (cancelled) { reveal(); return; }
             void relayoutAddedNodes(addedIds).then(() => {
-                if (cancelled || userOverrodeViewportRef.current) return;
-                // A second frame so the position write propagates and nodes
-                // re-render at their new spots before we read bounds for the fit.
+                // A second frame so the position write propagates before we
+                // reveal and read bounds for the fit.
                 requestAnimationFrame(() => {
+                    // Reveal unconditionally — even if the camera fit below is
+                    // suppressed — so hidden nodes can never get stuck invisible.
+                    reveal();
                     if (cancelled || userOverrodeViewportRef.current) return;
+                    if (aiTurn.patchTick === 0) return;
+                    if (touchedIds.length === 0) return;
                     const bbox = computeBbox(getNodes(), touchedIds);
                     if (!bbox) return;
                     runProgrammaticFit(bbox, END_OF_TURN_DURATION, END_OF_TURN_PADDING);
@@ -198,6 +199,8 @@ function AiAddedZoomInner({ edges, updatePositions }: AiAddedZoomProps) {
         return () => {
             cancelled = true;
             cancelAnimationFrame(raf);
+            // Safety net: if the effect tears down before reveal ran, reveal now.
+            reveal();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [aiTurn?.active]);

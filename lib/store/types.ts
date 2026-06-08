@@ -593,11 +593,13 @@ export interface UISlice {
         active: boolean;
         touchedNodeIds: string[];
         addedNodeIds: string[];
+        hiddenAddedIds: string[];
         patchTick: number;
     } | null;
     beginAiTurn: () => void;
     recordAiPatch: (patch: import('@/lib/workflow/workflow-patch').WorkflowPatch | null | undefined) => void;
     endAiTurn: () => void;
+    revealAddedNodes: () => void;
 }
 
 export interface LivePositionSlice {

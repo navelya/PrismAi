@@ -57,7 +57,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
 
     aiTurn: null,
     beginAiTurn: () =>
-        set({ aiTurn: { active: true, touchedNodeIds: [], addedNodeIds: [], patchTick: 0 } }),
+        set({ aiTurn: { active: true, touchedNodeIds: [], addedNodeIds: [], hiddenAddedIds: [], patchTick: 0 } }),
     recordAiPatch: (patch) => {
         if (!patch) return;
         const current = get().aiTurn;
@@ -67,7 +67,10 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         // addedNodeIds tracks ONLY created nodes — the re-layout must reposition
         // these and leave updated/endpoint (existing) nodes anchored in place.
         const added = new Set(current.addedNodeIds);
-        for (const n of patch.addedNodes || []) { next.add(n.id); added.add(n.id); }
+        // hiddenAddedIds mirrors addedNodeIds: new nodes render invisible until
+        // the end-of-turn measured re-layout reveals them in place.
+        const hidden = new Set(current.hiddenAddedIds);
+        for (const n of patch.addedNodes || []) { next.add(n.id); added.add(n.id); hidden.add(n.id); }
         for (const u of patch.updatedNodes || []) next.add(u.id);
         for (const e of patch.addedEdges || []) {
             if (e.source) next.add(e.source);
@@ -79,6 +82,7 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
                 active: true,
                 touchedNodeIds: Array.from(next),
                 addedNodeIds: Array.from(added),
+                hiddenAddedIds: Array.from(hidden),
                 patchTick: current.patchTick + 1,
             },
         });
@@ -87,6 +91,11 @@ export const createUISlice: StateCreator<RootState, [], [], UISlice> = (set, get
         const current = get().aiTurn;
         if (!current) return;
         set({ aiTurn: { ...current, active: false } });
+    },
+    revealAddedNodes: () => {
+        const current = get().aiTurn;
+        if (!current || current.hiddenAddedIds.length === 0) return;
+        set({ aiTurn: { ...current, hiddenAddedIds: [] } });
     },
 
     // Bulk-download progress (multi-select toolbar → "Download selected").
