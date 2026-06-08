@@ -51,7 +51,7 @@ export default function AssetsPage() {
     };
 
     return (
-        <div className="w-full h-full overflow-y-auto bg-surface-primary mesh-gradient">
+        <div data-assets-scroll className="w-full h-full overflow-y-auto bg-surface-primary mesh-gradient">
             <div className="max-w-7xl mx-auto p-8 space-y-6">
                 <div>
                     <h1 className="text-3xl font-bold text-content-primary">Assets</h1>

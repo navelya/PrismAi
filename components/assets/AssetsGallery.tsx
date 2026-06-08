@@ -74,7 +74,7 @@ export default function AssetsGallery() {
     const [seedImages, setSeedImages] = useState<CharacterRefImage[] | null>(null);
 
     const supabase = React.useMemo(() => createClient(), []);
-    const gridRef = useRef<HTMLDivElement | null>(null);
+    const rootRef = useRef<HTMLDivElement | null>(null);
     const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
 
     const fetchAssets = useCallback(async () => {
@@ -167,42 +167,52 @@ export default function AssetsGallery() {
         if (el) cardRefs.current.set(id, el); else cardRefs.current.delete(id);
     }, []);
 
-    // Marquee: starts on any empty area of the gallery (the gutters/space
-    // around the grid as well as the gaps between cards), but never on a card
+    // Marquee: attached to the page's full-width scroll container (so a drag
+    // can start in the gutters to the SIDES of the grid, not just the gaps
+    // between cards), falling back to the gallery root. Never starts on a card
     // or an interactive control. Hit-tests card rects on each move and replaces
-    // the selection with the intersecting ids. A click that never moves clears
+    // the selection with the intersecting ids; a click that never moves clears
     // the selection.
-    const startMarquee = useCallback((e: React.PointerEvent) => {
-        if (e.button !== 0) return;
-        const target = e.target as HTMLElement;
-        if (target.closest('[data-asset-card], button, input, a, label, audio, [role="menu"]')) return;
-        const startX = e.clientX, startY = e.clientY;
-        let moved = false;
-        const onMove = (ev: PointerEvent) => {
-            if (!moved && Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return;
-            moved = true;
-            const box: MarqueeRect = {
-                left: Math.min(startX, ev.clientX),
-                top: Math.min(startY, ev.clientY),
-                right: Math.max(startX, ev.clientX),
-                bottom: Math.max(startY, ev.clientY),
+    useEffect(() => {
+        const surface = (rootRef.current?.closest('[data-assets-scroll]') as HTMLElement | null) ?? rootRef.current;
+        if (!surface) return;
+
+        const onPointerDown = (e: PointerEvent) => {
+            if (e.button !== 0) return;
+            const target = e.target as HTMLElement;
+            if (target.closest('[data-asset-card], button, input, a, label, audio, [role="menu"]')) return;
+            e.preventDefault();
+            const startX = e.clientX, startY = e.clientY;
+            let moved = false;
+            const onMove = (ev: PointerEvent) => {
+                if (!moved && Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return;
+                moved = true;
+                const box: MarqueeRect = {
+                    left: Math.min(startX, ev.clientX),
+                    top: Math.min(startY, ev.clientY),
+                    right: Math.max(startX, ev.clientX),
+                    bottom: Math.max(startY, ev.clientY),
+                };
+                setMarquee(box);
+                const hit = new Set<string>();
+                cardRefs.current.forEach((el, id) => {
+                    const r = el.getBoundingClientRect();
+                    if (r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top) hit.add(id);
+                });
+                setSelectedIds(hit);
             };
-            setMarquee(box);
-            const hit = new Set<string>();
-            cardRefs.current.forEach((el, id) => {
-                const r = el.getBoundingClientRect();
-                if (r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top) hit.add(id);
-            });
-            setSelectedIds(hit);
+            const onUp = () => {
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                setMarquee(null);
+                if (!moved) clearSelection();
+            };
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
         };
-        const onUp = () => {
-            window.removeEventListener('pointermove', onMove);
-            window.removeEventListener('pointerup', onUp);
-            setMarquee(null);
-            if (!moved) clearSelection();
-        };
-        window.addEventListener('pointermove', onMove);
-        window.addEventListener('pointerup', onUp);
+
+        surface.addEventListener('pointerdown', onPointerDown);
+        return () => surface.removeEventListener('pointerdown', onPointerDown);
     }, [clearSelection]);
 
     const selectedImageItems = React.useMemo(
@@ -266,7 +276,7 @@ export default function AssetsGallery() {
     const gridTemplate = { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` };
 
     return (
-        <div className="space-y-5 min-h-[calc(100vh-14rem)] select-none" onPointerDown={startMarquee}>
+        <div ref={rootRef} className="space-y-5 select-none">
             <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-1">
                     <p className="text-sm text-content-tertiary whitespace-nowrap">
@@ -318,11 +328,7 @@ export default function AssetsGallery() {
             ) : visibleAssets.length === 0 ? (
                 <EmptyState filtered={assets.length > 0 && visibleAssets.length === 0} />
             ) : (
-                <div
-                    ref={gridRef}
-                    className="grid gap-5"
-                    style={gridTemplate}
-                >
+                <div className="grid gap-5" style={gridTemplate}>
                     <AnimatePresence initial={false}>
                         {visibleAssets.map((asset, i) => (
                             <AssetCard

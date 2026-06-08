@@ -1110,19 +1110,35 @@ const EditorCanvasInner = ({
         return set;
     }, [wireDrag, reactFlowInstance, localNodes, models]);
 
-    const memoizedEdges = useMemo(() => edges.map(e => {
-        const isDimmed = dimmedNodeIds && (
-            dimmedNodeIds.has(e.source) || dimmedNodeIds.has(e.target)
-        );
-        return {
-            ...e,
-            type: 'default',
-            animated: false,
-            style: isDimmed
-                ? { ...edgeStyle, opacity: 0.3, filter: 'grayscale(0.6)', transition: 'opacity 150ms, filter 150ms' }
-                : edgeStyle,
-        };
-    }), [edges, edgeStyle, dimmedNodeIds]);
+    // Nodes the AI just added are held invisible (BaseNode/GroupNode opacity 0)
+    // until the end-of-turn measured re-layout reveals them in their settled
+    // positions. Hide any edge touching one of those nodes too — otherwise the
+    // wires dangle to not-yet-visible / mis-positioned nodes, which is the
+    // "only lines, nothing sitting right" intermediate the user sees mid-turn.
+    // revealAddedNodes() clears the set, so the edges appear with their nodes.
+    const hiddenAddedIds = useAppStore((s) => s.aiTurn?.hiddenAddedIds);
+
+    const memoizedEdges = useMemo(() => {
+        const hiddenSet = hiddenAddedIds && hiddenAddedIds.length > 0
+            ? new Set(hiddenAddedIds)
+            : null;
+        return edges.map(e => {
+            if (hiddenSet && (hiddenSet.has(e.source) || hiddenSet.has(e.target))) {
+                return { ...e, type: 'default', animated: false, hidden: true };
+            }
+            const isDimmed = dimmedNodeIds && (
+                dimmedNodeIds.has(e.source) || dimmedNodeIds.has(e.target)
+            );
+            return {
+                ...e,
+                type: 'default',
+                animated: false,
+                style: isDimmed
+                    ? { ...edgeStyle, opacity: 0.3, filter: 'grayscale(0.6)', transition: 'opacity 150ms, filter 150ms' }
+                    : edgeStyle,
+            };
+        });
+    }, [edges, edgeStyle, dimmedNodeIds, hiddenAddedIds]);
 
     const { getRFNode, getRFNodes, getRFEdges } = {
         getRFNode: (id: string) => reactFlowInstance?.getNode(id),

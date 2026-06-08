@@ -56,6 +56,13 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     const wireDrag = useWireDrag();
     const isWireDragging = wireDrag !== null;
 
+    // AI-add reveal-on-settle: a freshly-added group stays invisible until the
+    // end-of-turn measured re-layout reveals it in its settled position (same
+    // gate child nodes use in BaseNode). Without this the group shell renders
+    // immediately at the server's fallback-sized position, then jumps once the
+    // re-layout runs — the "not sitting right" flash the user reported.
+    const isHiddenForReveal = useAppStore((s) => !!s.aiTurn?.hiddenAddedIds?.includes(id));
+
     // Stored size — set at creation (AI synthesis or manual group action) and
     // updated by the resize handles. Acts as the FLOOR for our rendered size.
     const storedWidth = data.config?.width ?? 400;
@@ -330,7 +337,7 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                 so the bubble does NOT scale with the canvas zoom (matching
                 the multi-select toolbar's behavior). Click to edit. */}
             <NodeToolbar
-                isVisible={true}
+                isVisible={!isHiddenForReveal}
                 nodeId={id}
                 position={Position.Top}
                 align="start"
@@ -431,13 +438,14 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                     // routed inside the group remain clickable. Interactive bits
                     // (resize handles, title bubble) opt back in below.
                     pointerEvents: 'none',
+                    // Reveal-on-settle hide wins over wire-drag dimming.
                     // Wire-drag dimming: group containers have no connection handles
                     // so they are always incompatible during any active wire drag.
-                    opacity: isWireDragging ? 0.3 : undefined,
+                    opacity: isHiddenForReveal ? 0 : (isWireDragging ? 0.3 : undefined),
                     filter: isWireDragging ? 'grayscale(0.6)' : undefined,
-                    transition: isWireDragging
-                        ? 'opacity 150ms, filter 150ms, border-color 150ms'
-                        : undefined,
+                    transition: (isWireDragging || isHiddenForReveal)
+                        ? 'opacity 200ms, filter 150ms, border-color 150ms'
+                        : 'opacity 200ms',
                 }}
                 data-group-id={id}
                 data-group-selected={selected ? 'true' : 'false'}
