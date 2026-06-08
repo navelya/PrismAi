@@ -5,11 +5,11 @@
 // Tune values here when a node type's rendered size changes.
 // ─────────────────────────────────────────────────────────────────────────────
 export const NODE_DIMENSIONS: Record<string, { width: number; height: number }> = {
-    prompt:       { width: 185, height: 100 },
-    media_input:  { width: 210, height: 180 },
-    compositor:   { width: 210, height: 280 },
-    blur:         { width: 210, height: 220 },
-    ai_generator: { width: 210, height: 380 },
+    prompt:       { width: 440, height: 200 },
+    media_input:  { width: 240, height: 200 },
+    compositor:   { width: 260, height: 300 },
+    blur:         { width: 240, height: 260 },
+    ai_generator: { width: 320, height: 420 },
     // group_container size is normally computed dynamically by
     // layout-incremental's per-group interior pass; this entry is only a
     // fallback for empty groups or for existing groups whose stored
