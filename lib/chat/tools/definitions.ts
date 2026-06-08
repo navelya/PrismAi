@@ -271,6 +271,22 @@ Always batch every layer update for this request into ONE call's updates[] array
     },
   },
   {
+    name: 'run_nodes',
+    description: 'Request that the given nodes be RUN (executed) now. Call this ONLY when the user explicitly asks to generate / run / make / produce a result this turn. Adding or editing nodes does NOT imply a run — never call run_nodes just because you added nodes. Pass the node ids whose output the user wants (usually the generator(s) or final node); the system automatically runs everything downstream. You MAY reference ids you created earlier this same turn with add_node. The user still controls whether it auto-runs or shows a Run button — your job is only to signal that a run was requested.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        nodeIds: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string' },
+          description: 'Node IDs to run (canvas UUIDs or temporary IDs you used in this turn). Bundle every node to run into this single array.',
+        },
+      },
+      required: ['nodeIds'],
+    },
+  },
+  {
     name: 'ask_clarification',
     description:
       'Ask the user 1-4 clarifying questions, each with 2-4 short option chips. ' +
@@ -391,4 +407,4 @@ export const FAST_LANE_TOOLS: AnthropicTool[] = [
   ESCALATE_TOOL,
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan' | 'escalate';
+export type ToolName = 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan' | 'escalate' | 'run_nodes';
