@@ -626,6 +626,27 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           preferences,
         };
 
+        // Deterministic escalate guard: keep CLEARLY-simple turns on the Haiku
+        // fast lane and don't even OFFER the escalate tool, so a trivial ask
+        // (e.g. "add a prompt connected to an image node") can't be dragged onto
+        // the thinking heavy lane. Conservative on purpose — anything long, with
+        // an image, multi-sentence, or carrying planning/complexity words keeps
+        // the normal escalate path so genuinely hard builds still get Sonnet.
+        const lastUserTurnText = (() => {
+          for (let i = turns.length - 1; i >= 0; i--) {
+            if (turns[i].role === 'user') return turns[i].text ?? '';
+          }
+          return '';
+        })();
+        const COMPLEXITY_SIGNALS = /\b(plan|pipeline|stages?|steps?|then|afterwards?|story|scene|storyboard|multiple|several|complex|workflow for|combine|composite|stitch)\b/i;
+        const sentenceCount = (lastUserTurnText.match(/[.!?]+/g) ?? []).length;
+        const isTrivialTurn =
+          lastUserTurnText.trim().length > 0 &&
+          lastUserTurnText.length <= 160 &&
+          images.length === 0 &&
+          sentenceCount <= 1 &&
+          !COMPLEXITY_SIGNALS.test(lastUserTurnText);
+
         let result;
         if (!canEscalate) {
           // Free tier: Haiku, full tools, NO thinking. The cheap lane is the
@@ -647,12 +668,15 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
             thinkingMode: 'on',
           });
         } else {
-          // Fast lane: Haiku, no thinking, fast tools + escalate.
+          // Fast lane: Haiku, no thinking, fast tools + escalate — UNLESS the
+          // turn is trivially simple, in which case drop the escalate tool
+          // entirely so it stays on Haiku with zero thinking.
+          const offerEscalate = !isTrivialTurn;
           result = await runBrain({
             ...commonInput,
             model: 'haiku',
-            tools: FAST_LANE_TOOLS,
-            allowEscalate: true,
+            tools: offerEscalate ? FAST_LANE_TOOLS : FAST_LANE_TOOLS.filter((t) => t.name !== 'escalate'),
+            allowEscalate: offerEscalate,
             thinkingMode: 'off',
           });
           if (result.escalated) {
