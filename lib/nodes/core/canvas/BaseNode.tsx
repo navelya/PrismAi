@@ -439,6 +439,11 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
         window.addEventListener('pointerup', onUp);
     };
 
+    // A node is a "leaf" if it has no outgoing edges — the running border is
+    // only shown on leaves so intermediate nodes (e.g. a prompt feeding an
+    // ai_generator) don't show the animation while their consumer runs.
+    const isLeafNode = useMemo(() => !edges.some((e) => e.source === id), [edges, id]);
+
     // Precompute the set of this node's connected target handles once per
     // render so the per-handle "missing mandatory" check is O(1) instead of
     // O(edges) per handle. The empty-targetHandle case (edge created without
@@ -659,7 +664,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
             {/* Travelling-light "generating" border — overlays the card's own
                 border while this node is running. Absolute + pointer-events-none,
                 so it never affects layout or interaction. */}
-            {status === 'running' && <GeneratingBorder />}
+            {status === 'running' && isLeafNode && <GeneratingBorder />}
 
             {/* Aspect-ratio-locked resize handles (opt-in via `resizable`).
                 Visible only while selected. NodeResizer renders the four
