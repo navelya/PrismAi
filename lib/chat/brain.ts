@@ -433,7 +433,9 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               // run_nodes records execution INTENT only — it NEVER mutates the
               // workflow. The model may call it in the same turn it built nodes
               // (add_node then run_nodes), so resolve any temp ids the model
-              // created this turn through the idMap. First valid call wins.
+              // created this turn through the idMap. First valid call wins WITHIN
+              // this brain pass (a fast→heavy escalation re-run may emit another;
+              // the client decodes last-wins, which is fine).
               // We satisfy the tool and DO NOT mark it terminal, so the
               // continuation turn stays valid if the model called build tools too.
               const rawIds = Array.isArray(event.args?.nodeIds) ? event.args.nodeIds : [];

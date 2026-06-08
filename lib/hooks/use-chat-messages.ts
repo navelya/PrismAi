@@ -796,13 +796,13 @@ export function useChatMessages({
                 // Run intent now comes EXCLUSIVELY from the brain's run_nodes tool
                 // (runRequestIds). If the brain didn't request a run, nothing runs —
                 // adding/editing nodes no longer auto-runs them.
-                const touched = runRequestIds ?? [];
+                const runIds = runRequestIds ?? [];
                 const workflow = store.currentWorkflow;
-                if (streamDone && touched.length > 0 && workflow) {
+                if (streamDone && runIds.length > 0 && workflow) {
                     const { buildRunPlan } = await import('@/lib/billing/run-plan');
                     const { buildModelsMap } = await import('@/lib/billing/cost');
                     const modelsById = buildModelsMap(store.models as any[]);
-                    const plan = buildRunPlan(workflow as any, touched, modelsById);
+                    const plan = buildRunPlan(workflow as any, runIds, modelsById);
 
                     if (plan.runTargetIds.length > 0) {
                         // First-time auto-run intro: the very first paid (cost > 0,
