@@ -15,9 +15,10 @@ import type { Character } from '@/lib/api/client';
 /**
  * Capability cards for the welcome screen. Each teaches one thing Prisfol can
  * do and, on click, seeds the composer with a starter prompt the user can edit
- * and send. The `image` is a generated glass-icon thumbnail (in
- * public/assets/welcome-cards) standing in for a generic icon, so the cards
- * read as a small gallery of what's possible rather than a list of buttons.
+ * and send. The `image` is a full-bleed conceptual hero (in
+ * public/assets/welcome-cards) that illustrates the card's title, with the
+ * title/description overlaid on a bottom scrim — so the cards read as a small
+ * gallery of what's possible rather than a list of buttons.
  */
 const CAPABILITY_CARDS: {
     image: string;
@@ -78,21 +79,25 @@ function WelcomeCard({
             animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
             transition={{ delay: 0.12 + index * 0.09, type: 'spring', stiffness: 230, damping: 22 }}
             whileHover={{ y: -4 }}
-            className="group relative flex items-center gap-3.5 p-3 text-left rounded-2xl overflow-hidden
-                       bg-surface-secondary/60 hover:bg-surface-secondary
-                       border border-stroke-subtle hover:border-accent-primary/40
-                       transition-colors duration-200 hover:shadow-xl hover:shadow-black/30"
+            className="group relative flex flex-col justify-end text-left rounded-2xl overflow-hidden
+                       aspect-[16/10] border border-stroke-subtle hover:border-accent-primary/40
+                       transition-colors duration-200 hover:shadow-xl hover:shadow-black/40"
         >
-            {/* Generated glass-icon thumbnail (stands in for an icon) */}
-            <span className="shrink-0 w-14 h-14 rounded-xl overflow-hidden bg-surface-primary ring-1 ring-white/10 group-hover:ring-accent-primary/30 transition-all">
-                <img src={card.image} alt="" draggable={false} className="w-full h-full object-cover" />
-            </span>
-            <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-content-primary">
+            {/* Full-bleed conceptual hero illustrating the card's title */}
+            <img
+                src={card.image}
+                alt=""
+                draggable={false}
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+            />
+            {/* Bottom scrim so the overlaid title/description stay legible */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+            <span className="relative min-w-0 p-4">
+                <span className="flex items-center gap-1.5 text-base font-semibold text-white">
                     {card.title}
-                    <ArrowRight className="w-3.5 h-3.5 text-content-tertiary opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
+                    <ArrowRight className="w-4 h-4 text-white/70 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
                 </span>
-                <span className="block text-xs text-content-secondary mt-0.5 leading-relaxed">
+                <span className="block text-xs text-white/70 mt-0.5 leading-relaxed">
                     {card.description}
                 </span>
             </span>
