@@ -81,6 +81,7 @@ export type StreamEvent =
   | { type: 'error'; message: string; recoverable: boolean }
   | { type: 'switching' }
   | { type: 'model'; model: 'haiku' | 'sonnet' }
+  | { type: 'runRequest'; nodeIds: string[] }
   | { type: 'done' };
 
 export type StreamEventType = StreamEvent['type'];
