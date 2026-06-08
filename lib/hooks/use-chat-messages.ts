@@ -520,6 +520,7 @@ export function useChatMessages({
             let streamDone = false;
             let buffer = '';
             let finalWorkflow: Workflow | undefined = undefined;
+            let runRequestIds: string[] | null = null;
             let streamingWorkflowCursor: Workflow | null | undefined = useAppStore.getState().currentWorkflow;
 
             const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
@@ -717,6 +718,11 @@ export function useChatMessages({
                         finalWorkflow = streamingWorkflowCursor || undefined;
                         await nextFrame();
                     }
+                }
+                else if (parsed.type === 'runRequest') {
+                    runRequestIds = Array.isArray(parsed.nodeIds)
+                        ? parsed.nodeIds.filter((x: unknown): x is string => typeof x === 'string')
+                        : null;
                 }
                 else if (parsed.type === 'error') {
                     const errorText = parsed.message ?? parsed.content ?? 'Unknown error';
