@@ -365,7 +365,7 @@ export default function WorkspaceLayout({ chatPanel, workflow, onExecutionResult
             {/* ── LAYER 2 · Chat / Copilot ───────────────────────────────────── */}
             <motion.div
                 key="chat"
-                className={['marquee-passthrough absolute flex flex-col overflow-hidden', chatFills ? 'z-[55]' : 'z-[55] rounded-2xl border border-white/10 shadow-2xl shadow-black/50'].join(' ')}
+                className={['marquee-passthrough absolute flex flex-col overflow-hidden', chatFills ? 'z-[55]' : 'z-[55] rounded-2xl border border-stroke-subtle shadow-2xl shadow-black/50'].join(' ')}
                 initial={false}
                 animate={
                     chatFills

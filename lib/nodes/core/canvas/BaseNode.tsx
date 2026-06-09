@@ -86,28 +86,53 @@ function HandleDot({
     // animates the slide, and transitionDelay keeps it in stagger sequence.
     const driftX = open ? (side === 'left' ? -HANDLE_HOVER_SHIFT : HANDLE_HOVER_SHIFT) : 0;
     return (
+        // Positioning layer: owns the centering + outward drift transform (so
+        // the inner chip's transform is free for the hover scale). transition
+        // animates the drift; transitionDelay keeps it in the open stagger.
         <span
-            className={cn(
-                "absolute left-1/2 top-1/2 grid place-items-center pointer-events-none",
-                "border border-stroke-strong transition-all duration-150 ease-out",
-                open
-                    ? "w-5 h-5 rounded-[7px] bg-surface-elevated/70 shadow-lg group-hover/handle:w-7 group-hover/handle:h-7 group-hover/handle:shadow-xl"
-                    : "w-2.5 h-2.5 rounded-full bg-surface-elevated shadow-sm",
-                highlight && "animate-pulse !border-content-primary",
-            )}
+            className="absolute left-1/2 top-1/2 pointer-events-none transition-transform duration-150 ease-out"
             style={{
                 transitionDelay: `${delay}ms`,
                 transform: `translate(calc(-50% + ${driftX}px), -50%)`,
             }}
         >
-            <Icon
+            {/* Chip: a direct hover on the handle pops it a touch via a GPU
+                transform: scale (origin center) — small and springy, not a leap.
+                The icon rides the same scale. transitionProperty is spelled out
+                so size/shadow follow the open-stagger `delay`, but `transform`
+                (the hover scale) fires with 0 delay → instant under the cursor. */}
+            <span
                 className={cn(
-                    "block w-3 h-3 text-content-secondary transition-all duration-150 ease-out",
-                    open ? "opacity-100 scale-100 group-hover/handle:scale-125" : "opacity-0 scale-50",
+                    // flex centering (not grid place-items-center) so the icon is
+                    // reliably dead-center — the scale then grows symmetrically
+                    // about that point with no vertical drift. Shadow is held
+                    // constant on hover; a growing (downward) shadow read as the
+                    // chip sliding down rather than zooming in place.
+                    "flex items-center justify-center border border-stroke-strong ease-out",
+                    open
+                        ? "w-5 h-5 rounded-[7px] bg-surface-elevated/70 shadow-lg group-hover/handle:scale-110"
+                        : "w-2.5 h-2.5 rounded-full bg-surface-elevated shadow-sm",
+                    highlight && "animate-pulse !border-content-primary",
                 )}
-                style={{ transitionDelay: `${delay}ms` }}
-                strokeWidth={2.25}
-            />
+                style={{
+                    transformOrigin: 'center',
+                    transitionProperty: 'width, height, background-color, box-shadow, transform',
+                    // transform (the hover scale) snaps faster than the rest so the
+                    // pop feels instant; size/shadow keep the calmer 150ms.
+                    transitionDuration: '150ms, 150ms, 150ms, 150ms, 90ms',
+                    transitionTimingFunction: 'ease-out',
+                    transitionDelay: `${delay}ms, ${delay}ms, ${delay}ms, ${delay}ms, 0ms`,
+                }}
+            >
+                <Icon
+                    className={cn(
+                        "block w-3 h-3 text-content-secondary transition-all duration-150 ease-out",
+                        open ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                    )}
+                    style={{ transitionDelay: `${delay}ms` }}
+                    strokeWidth={2.25}
+                />
+            </span>
         </span>
     );
 }

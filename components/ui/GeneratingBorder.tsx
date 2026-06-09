@@ -21,10 +21,10 @@ const ringMask: React.CSSProperties = {
 };
 
 /**
- * Animated "generating" border — two light arcs travelling the perimeter in
- * opposite directions, masked down to a thin ring. Absolutely positioned and
- * pointer-events-none, so it overlays the host's border without affecting
- * layout or interaction. Match the host's border-radius via `className`.
+ * Animated "generating" border — a single light arc travelling the perimeter,
+ * masked down to a thin ring. Absolutely positioned and pointer-events-none, so
+ * it overlays the host's border without affecting layout or interaction. Match
+ * the host's border-radius via `className`.
  */
 export default function GeneratingBorder({ className }: GeneratingBorderProps) {
     return (
@@ -43,15 +43,6 @@ export default function GeneratingBorder({ className }: GeneratingBorderProps) {
                 }}
                 animate={{ rotate: 360 }}
                 transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-            />
-            <motion.div
-                className="absolute -inset-[60%]"
-                style={{
-                    background:
-                        'conic-gradient(from 180deg, transparent 0deg, transparent 300deg, rgb(var(--accent-secondary)) 350deg, transparent 360deg)',
-                }}
-                animate={{ rotate: -360 }}
-                transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
             />
         </div>
     );

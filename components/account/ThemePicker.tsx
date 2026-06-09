@@ -55,6 +55,16 @@ const THEMES: ThemeDef[] = [
         name: 'Oceanic Neon',
         palette: { bg: '#05070a', surface: '#0f172a', accent: '#06b6d4', accent2: '#14b8a6', text: '#f8fafc', border: '#1e293b' },
     },
+    {
+        id: 'banana-dark',
+        name: 'Banana Dark',
+        palette: { bg: '#171408', surface: '#231e0e', accent: '#facc15', accent2: '#fbbf24', text: '#fefce8', border: '#302914' },
+    },
+    {
+        id: 'banana-light',
+        name: 'Banana Light',
+        palette: { bg: '#fefce8', surface: '#ffffff', accent: '#ca8a04', accent2: '#d97706', text: '#29250a', border: '#fef08a' },
+    },
 ];
 
 /** Miniature editor-window preview painted from a theme's palette. */

@@ -6,8 +6,8 @@ import { userApi } from '@/lib/api/client';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store/app-store';
 
-export type Theme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'emerald-aurora' | 'sunset-vibe' | 'system' | 'light' | 'dark';
-export type ResolvedTheme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'emerald-aurora' | 'sunset-vibe';
+export type Theme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'emerald-aurora' | 'sunset-vibe' | 'banana-light' | 'banana-dark' | 'system' | 'light' | 'dark';
+export type ResolvedTheme = 'modern-light' | 'modern-dark' | 'oceanic-neon' | 'midnight-slate' | 'emerald-aurora' | 'sunset-vibe' | 'banana-light' | 'banana-dark';
 
 interface ThemeContextType {
     /** User's selected theme preference */
@@ -160,7 +160,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         theme,
         resolvedTheme,
         setTheme,
-        isDark: resolvedTheme !== 'modern-light',
+        isDark: !resolvedTheme.endsWith('light'),
     };
 
     return (

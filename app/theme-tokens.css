@@ -250,3 +250,104 @@
   --checker-1: 15 5 20;
   --checker-2: 40 15 50;
 }
+
+/* === PRO: BANANA DARK === */
+[data-theme="banana-dark"] {
+  /* Surfaces */
+  --bg-primary: 23 20 8;
+  --bg-secondary: 35 30 14;
+  --bg-tertiary: 48 41 20;
+  --bg-elevated: 35 30 14;
+
+  /* Typography */
+  --text-primary: 254 252 232;
+  /* yellow-50 */
+  --text-secondary: 253 230 138;
+  /* yellow-200 */
+  --text-tertiary: 161 144 90;
+  --text-inverted: 23 20 8;
+
+  /* Accents (Banana yellow / amber) */
+  --accent-primary: 250 204 21;
+  /* yellow-400 */
+  --accent-secondary: 251 191 36;
+  /* amber-400 */
+  --accent-success: 16 185 129;
+  --accent-error: 248 113 113;
+  --accent-warning: 245 158 11;
+
+  /* Borders */
+  --border-subtle: 48 41 20;
+  --border-default: 66 56 28;
+  --border-strong: 250 204 21;
+
+  /* Interactive */
+  --interactive-hover: 48 41 20;
+  --interactive-active: 66 56 28;
+
+  /* Canvas Specific */
+  --canvas-bg: 23 20 8;
+  --canvas-dots: 48 41 20;
+  --canvas-node-bg: 35 30 14;
+  --canvas-node-text: 254 252 232;
+  --canvas-node-subtext: 253 230 138;
+  --canvas-edge: 250 204 21;
+  --canvas-handle: 250 204 21;
+
+  /* Glassmorphism */
+  --glass-bg: 35 30 14;
+  --glass-opacity: 0.6;
+  --checker-1: 23 20 8;
+  --checker-2: 35 30 14;
+}
+
+/* === PRO: BANANA LIGHT === */
+[data-theme="banana-light"] {
+  /* Surfaces */
+  --bg-primary: 254 252 232;
+  /* yellow-50 */
+  --bg-secondary: 254 249 195;
+  /* yellow-100 */
+  --bg-tertiary: 254 240 138;
+  /* yellow-200 */
+  --bg-elevated: 255 255 255;
+
+  /* Typography */
+  --text-primary: 41 37 10;
+  --text-secondary: 113 96 30;
+  --text-tertiary: 161 144 90;
+  --text-inverted: 255 255 255;
+
+  /* Accents (deepened banana for light-bg contrast) */
+  --accent-primary: 202 138 4;
+  /* yellow-600 */
+  --accent-secondary: 217 119 6;
+  /* amber-600 */
+  --accent-success: 5 150 105;
+  --accent-error: 220 38 38;
+  --accent-warning: 217 119 6;
+
+  /* Borders */
+  --border-subtle: 254 240 138;
+  --border-default: 253 224 71;
+  --border-strong: 202 138 4;
+
+  /* Interactive */
+  --interactive-hover: 254 249 195;
+  --interactive-active: 254 240 138;
+
+  /* Canvas Specific */
+  --canvas-bg: 254 249 195;
+  --canvas-dots: 253 224 71;
+  --canvas-node-bg: 255 255 255;
+  --canvas-node-text: 41 37 10;
+  --canvas-node-subtext: 113 96 30;
+  --canvas-edge: 202 138 4;
+  --canvas-handle: 202 138 4;
+
+  /* Glassmorphism */
+  --glass-bg: 254 252 232;
+  --glass-opacity: 0.5;
+  --checker-1: 254 249 195;
+  --checker-2: 255 255 255;
+}
