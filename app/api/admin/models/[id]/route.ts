@@ -41,7 +41,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
                 },
                 outputs_schema: outputs_schema || { handles: [] },
                 provider_id,
-                provider_model_id: provider_model_id ?? null,
+                provider_model_id: provider_model_id || null,
                 updated_at: new Date().toISOString()
             })
             .eq('id', id)

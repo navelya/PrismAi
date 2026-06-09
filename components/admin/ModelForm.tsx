@@ -411,6 +411,10 @@ export function ModelForm({
     const isExternalProvider = !!selectedProvider?.adapter_key;
 
     const applyElevenLabsPreset = () => {
+        // Wholesale overwrite — guard against clobbering hand-built controls.
+        if (visualControls.length > 0 && !window.confirm('Replace the current controls with the ElevenLabs speech preset?')) {
+            return;
+        }
         setVisualControls([
             { id: 'c_text', api_mapping_key: 'text', label: 'Text', type: 'string', component: 'prompt_textarea', default_value: '', is_visible: true },
             { id: 'c_voice', api_mapping_key: 'voice_id', label: 'Voice', type: 'string', component: 'voice_picker', default_value: '', is_visible: true },
@@ -455,6 +459,11 @@ export function ModelForm({
 
         await onSubmit({
             ...form,
+            // External (adapter) models have no Replicate id; clear any stale one
+            // left over from switching a Replicate model to an external provider.
+            replicate_model_id: isExternalProvider ? null : (form.replicate_model_id || null),
+            // Normalize blank → null so the column is never an empty string.
+            provider_model_id: form.provider_model_id || null,
             inputs_schema: compiledInputs,
             outputs_schema: compiledOutputs,
             credit_cost: Number(form.credit_cost),
@@ -553,6 +562,7 @@ export function ModelForm({
                             value={form.provider_model_id}
                             onChange={e => setForm({ ...form, provider_model_id: e.target.value })}
                             placeholder="eleven_v3"
+                            required
                         />
                     )}
                 </div>
