@@ -55,6 +55,11 @@ export async function uploadResultBuffer(
   index = 0
 ): Promise<string> {
   const now = Date.now();
+  // Store under `results/`, NOT `thumbnails/`. The `thumbnails/{nodeId}` folder
+  // is treated as ephemeral and is wiped wholesale when a node is deleted
+  // (see deleteNodeWithAssets in lib/store/slices/ui-slice.ts). This is the only
+  // persisted copy of a node's output, so it must live in a permanent path that
+  // node deletion never touches.
   const storagePath = `${userId}/${sessionId}/results/${nodeId}/result_${now}_${index}.${ext}`;
   const { error: uploadError } = await supabase.storage.from('chat-assets').upload(storagePath, buffer, {
     contentType: WEBHOOK_MEDIA_CONTENT_TYPES[resultType],
@@ -77,6 +82,9 @@ export async function mirrorMediaToStorage(
   nodeId: string
 ): Promise<string[]> {
   const now = Date.now();
+  // Pre-sized and written by index — downstream consumers rely on positional
+  // alignment with the input `urls` array, so order must be preserved across
+  // the parallel workers below.
   const mirroredUrls: string[] = new Array(urls.length);
 
   const processOne = async (i: number): Promise<void> => {
@@ -93,6 +101,8 @@ export async function mirrorMediaToStorage(
 
     const extMatch = sourceUrl.match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|avi|mkv|mp3|wav|ogg|m4a|aac|flac|glb|gltf|obj|fbx|stl|usd|usdz)(\?|$)/i);
     const ext = extMatch?.[1]?.toLowerCase() || WEBHOOK_MEDIA_EXTENSIONS[resultType];
+    // Store under `results/`, NOT `thumbnails/` — the thumbnails folder is wiped
+    // on node deletion; this is the only persisted copy of the node's output.
     const storagePath = `${userId}/${sessionId}/results/${nodeId}/result_${now}_${i}.${ext}`;
 
     const { error: uploadError } = await supabase.storage.from('chat-assets').upload(storagePath, buffer, {
@@ -109,6 +119,10 @@ export async function mirrorMediaToStorage(
     mirroredUrls[i] = urlData.publicUrl;
   };
 
+  // Worker pool: N workers pull from a shared cursor. If a worker throws,
+  // Promise.all rejects with that error; other workers may finish their current
+  // task harmlessly (uploads are idempotent via upsert:true) before the rejection
+  // propagates to the caller's try/catch.
   let cursor = 0;
   const workerCount = Math.min(MIRROR_CONCURRENCY, urls.length);
   const workers = Array.from({ length: workerCount }, async () => {
