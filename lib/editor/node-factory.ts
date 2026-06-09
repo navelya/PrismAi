@@ -42,6 +42,10 @@ export function createNodeFromType(
             width: 400,
             height: 300,
         },
+        note: {
+            text: '',
+            author: null,
+        },
     };
 
     // Merge caller-supplied initialConfig over the defaults

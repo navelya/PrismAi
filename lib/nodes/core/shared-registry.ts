@@ -48,4 +48,29 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
         },
         nonExecutable: true,
     } as any,
+    note: {
+        type: 'note',
+        family: 'organization',
+        category: 'organization',
+        meta: {
+            label: 'Note',
+            color: 'rgb(var(--stroke-subtle))',
+            icon: 'StickyNote',
+        },
+        handles: {
+            inputs: [],
+            outputs: [],
+        },
+        defaultConfig: {
+            text: '',
+            author: null,
+        },
+        aiSchema: {
+            type: 'object',
+            properties: {
+                text: { type: 'string' },
+            },
+        },
+        nonExecutable: true,
+    } as any,
 };
