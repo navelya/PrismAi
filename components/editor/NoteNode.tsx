@@ -66,9 +66,14 @@ function NoteNode({ id, data, selected }: NodeProps<NoteNodeData>) {
 
     return (
         <motion.div
-            initial={false}
-            animate={{ opacity: isHiddenForReveal ? 0 : 1 }}
-            transition={{ duration: 0.2 }}
+            // Same pop-in as every other node (BaseNode): a freshly added note
+            // (isNew) springs from 0.8→1 scale + fade. Opacity stays under
+            // framer (not a style override) and is held at 0 while an AI-added
+            // note awaits the end-of-turn measured re-layout (isHiddenForReveal);
+            // manual adds have isHiddenForReveal === false, so they pop right in.
+            initial={data.isNew ? { scale: 0.8, opacity: 0 } : false}
+            animate={{ scale: 1, opacity: isHiddenForReveal ? 0 : 1 }}
+            transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
             className={cn(
                 'relative w-[220px] rounded-xl border bg-surface-elevated/90 backdrop-blur-sm shadow-lg transition-colors',
                 selected ? 'border-accent-primary' : 'border-stroke-subtle',
