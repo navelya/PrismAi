@@ -14,6 +14,7 @@ import { resolveNodeOutputWireType } from './output-type';
 const WEBHOOK_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 import { checkAndDispatchChildren, handleNodeFailure } from './orchestrator';
+import { refundFailedIteration } from './refund';
 
 /**
  * Supabase REST calls occasionally fail at the transport layer with an opaque
@@ -247,6 +248,17 @@ async function dispatchReplicateNode(
             resultType = t;
             aggregated.push(...toResultDataForType(t, r.data));
         }
+        // Synchronous fan-out (e.g. ElevenLabs): failed iterations were charged
+        // upfront but produce no result here, so refund each one. Mirrors the
+        // per-iteration refund the Replicate webhook does on the async path.
+        const syncRefundClient = createServiceClient();
+        await Promise.all(
+            results.map((r, i) =>
+                (!r.success || r.status !== 'success')
+                    ? refundFailedIteration(syncRefundClient, executionId, nodeId, i)
+                    : Promise.resolve()
+            )
+        );
         if (aggregated.length === 0) throw new Error('All iterations failed');
         await updateNodeState(executionId, nodeId, {
             status: 'completed',
