@@ -5,6 +5,7 @@ import { buildSystemPrompt } from './prompt/system';
 import type { RegistryContextInput } from './prompt/registry-context';
 import { TOOLS, type ToolName, type AnthropicTool } from './tools/definitions';
 import { dispatchTool, validateBlueprint, validateTaskList, type ToolHandlerState } from './tools/handlers';
+import type { TemplateSearchResult } from './tools/template-search';
 import type { PlanPayload, ClarificationQuestion } from './streaming/protocol';
 import { streamAnthropicTurn, toAnthropicMessages, type ChatTurn } from './provider/anthropic';
 import type { StreamEncoder } from './streaming/encoder';
@@ -64,6 +65,11 @@ export interface BrainInput {
    *  it just sets result.planRequested so the route can escalate to the heavy
    *  lane (Sonnet) to produce the real plan. Avoids showing Haiku's weaker plan. */
   deferPlanToHeavyLane?: boolean;
+  /** Injected handler for the `search_templates` tool. Provided by the chat
+   *  route (which has a user-scoped Supabase client). If absent, the brain
+   *  reports "search not available" back to the model, which then proceeds to
+   *  build from scratch — the tool remains in the schema either way. */
+  searchTemplates?: (query: string) => Promise<TemplateSearchResult>;
 }
 
 /**
@@ -172,7 +178,11 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     // synthetic tool_result user message that re-prompts Claude. Terminal
     // tools (ask_clarification, propose_plan) end the loop and do not need
     // a tool_result — the brain returns and the next user turn restarts.
-    type PendingTool = { id: string; success: boolean; error?: string };
+    // `result` carries a custom tool_result content string back to Claude
+    // (used by search_templates to ship the matched template JSON). When
+    // omitted, the default 'ok' / error string is used — preserves the
+    // existing behavior for every other tool.
+    type PendingTool = { id: string; success: boolean; error?: string; result?: string };
     const pendingTools: PendingTool[] = [];
     let calledWorkflowTool = false;
     let calledTerminalTool = false;
@@ -477,6 +487,60 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               break;
             }
 
+            if (name === 'search_templates') {
+              // Non-terminal data-returning tool. The brain calls the injected
+              // searchTemplates function (set by the chat route from a user-
+              // scoped Supabase client) and ships the matched template JSON
+              // back to Claude as the tool_result content. Streams a dedicated
+              // start/complete pair so the UI timeline can show progress.
+              const rawQuery = typeof event.args?.query === 'string' ? event.args.query.trim() : '';
+              input.encoder.send({ type: 'template_search_start' });
+              let searchResult: TemplateSearchResult;
+              if (!input.searchTemplates) {
+                searchResult = { matched: false, template: null, why: 'search not available' };
+              } else if (!rawQuery) {
+                searchResult = { matched: false, template: null, why: 'empty query' };
+              } else {
+                try {
+                  searchResult = await input.searchTemplates(rawQuery);
+                } catch (err: any) {
+                  console.warn('[chat] search_templates failed:', err?.message ?? err);
+                  searchResult = { matched: false, template: null, why: 'search failed' };
+                }
+              }
+              input.encoder.send({
+                type: 'template_search_complete',
+                matched: searchResult.matched,
+                templateName: searchResult.template?.name ?? null,
+              });
+              // Build a compact JSON payload the model can read on the next
+              // iteration. On a hit, ship the full skeleton (nodes + edges)
+              // for the model to adapt; on a miss, a short "build from scratch"
+              // signal so the model proceeds without it.
+              const payload = searchResult.matched && searchResult.template
+                ? {
+                    matched: true,
+                    template: {
+                      id: searchResult.template.id,
+                      name: searchResult.template.name,
+                      description: searchResult.template.description,
+                      workflow: searchResult.template.workflow,
+                    },
+                    instructions:
+                      'Use this template SKELETON (which nodes connect to which) as a starting point. ' +
+                      'Rewrite prompt text, swap models, adapt labels, and add or drop nodes to fit ' +
+                      'the user\'s actual request — DO NOT copy this verbatim. The template\'s model ' +
+                      'choices and prompts are not authoritative.',
+                  }
+                : {
+                    matched: false,
+                    why: searchResult.why,
+                    instructions: 'No good template fit. Proceed to build from scratch.',
+                  };
+              pendingTools.push({ id: event.id, success: true, result: JSON.stringify(payload) });
+              break;
+            }
+
             if (name !== 'add_node' && name !== 'update_node' && name !== 'update_compositor_layer' && name !== 'remove_node') {
               input.encoder.send({ type: 'error', message: `Unknown tool ${name}`, recoverable: true });
               pendingTools.push({ id: event.id, success: false, error: `Unknown tool ${name}` });
@@ -560,7 +624,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
         content: pendingTools.map(t => ({
           type: 'tool_result' as const,
           tool_use_id: t.id,
-          content: t.success ? 'ok' : (t.error || 'tool failed'),
+          content: t.success ? (t.result ?? 'ok') : (t.error || 'tool failed'),
           is_error: !t.success,
         })),
       });

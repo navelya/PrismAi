@@ -100,6 +100,8 @@ export type StreamEvent =
   | { type: 'switching' }
   | { type: 'model'; model: 'haiku' | 'sonnet' }
   | { type: 'runRequest'; nodeIds: string[] }
+  | { type: 'template_search_start' }
+  | { type: 'template_search_complete'; matched: boolean; templateName: string | null }
   | { type: 'done' };
 
 export type StreamEventType = StreamEvent['type'];

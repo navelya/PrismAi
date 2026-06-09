@@ -138,6 +138,24 @@ User wants to improve a low-quality or damaged photo but hasn't told you which p
 
 If the user's request doesn't match any archetype, fall back to your judgment: split when sections are independent, group when 2+ nodes share a logical purpose, otherwise single blueprint with no groups.`;
 
+const TEMPLATE_SEARCH = `TEMPLATE SEARCH — before planning a NEW workflow from scratch:
+- Before calling propose_plan for a NEW workflow that is complex enough to warrant a plan, call search_templates ONCE with a short keyword-style query describing what the user wants. The library is curated; a hit means the topology is already proven and you start from a skeleton instead of inventing one.
+- When NOT to search (these are hard rules — searching here wastes a second of latency and confuses the result):
+  * The user is UPDATING an existing workflow (any add / remove / change to nodes already on the canvas). The current canvas IS the skeleton — never bring in another. This applies even when the update is complex enough to need a plan.
+  * Trivial requests: single-node adds, model swaps, renames, removals, config tweaks, prompt edits, compositor-layer edits. Just do them.
+  * Pure questions and clarifications.
+  * You already searched this turn (one call per turn, max).
+- HOW to query: phrase it as a template name or use-case, NOT as a question. "ugc skincare video", "product photo set studio", "background remove + upscale pipeline" — keywords beat full sentences.
+- The matcher returns AT MOST one template and MAY return none. Never assume a result before you see it.
+- On a HIT, treat the returned workflow as STRUCTURAL INSPIRATION ONLY. Then propose_plan based on it:
+  * Keep the topology (which node types connect to which) as a starting point.
+  * REWRITE every prompt node's text to fit the user's actual subject — never carry over the template's prompts verbatim.
+  * Re-evaluate model choices against the current registry and the user's brief. Swap if a better fit exists or the user named a specific model.
+  * Adapt labels, drop nodes that don't apply, add nodes the user asked for that the template lacks.
+  * The user's specific request ALWAYS wins over the template.
+- On a MISS, proceed to propose_plan exactly as you would without a search — build from scratch using your own judgment.
+- NEVER mention the search to the user. Don't say "I found a template" or "no template matched." The search is internal scaffolding; the user only ever sees the plan you propose. The card alone is what they react to.`;
+
 const PROMPT_CRAFT = `PROMPT CRAFT — how to write the text inside prompt nodes:
 There is NO LLM rewrite step between a prompt node and a generator — the text you put in a prompt node's \`text\` is exactly what the model receives. Write it final-quality, not as a rough brief. Match the structure to the MODALITY of the generator this prompt feeds: read the target generator's model bucket and its config keys (image generators; video generators expose duration/fps/aspect keys; audio generators expose voice/duration keys).
 
@@ -344,6 +362,7 @@ export function buildSystemPrompt(input: BuildSystemInput): SystemBlock[] {
     GROUPING,
     TASK_SPLITTING,
     USE_CASE_ARCHETYPES,
+    TEMPLATE_SEARCH,
     PROMPT_CRAFT,
     EDITING_RESULTS,
     MULTI_SUBJECT,

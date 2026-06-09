@@ -625,6 +625,19 @@ export function useChatMessages({
                         planLoading: true,
                     });
                 }
+                else if (parsed.type === 'template_search_start') {
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        templateSearching: true,
+                    });
+                }
+                else if (parsed.type === 'template_search_complete') {
+                    // We don't surface the hit/miss outcome to the user — the
+                    // search is internal scaffolding. Just clear the spinner;
+                    // the next step (plan, build, or text reply) is what they see.
+                    useAppStore.getState().updateMessage(assistantMsgId, {
+                        templateSearching: false,
+                    });
+                }
                 else if (parsed.type === 'plan') {
                     const p = parsed.plan;
                     if (p && typeof p === 'object') {
@@ -749,6 +762,7 @@ export function useChatMessages({
                     useAppStore.getState().updateMessage(assistantMsgId, {
                         status: 'completed',
                         planLoading: false,
+                        templateSearching: false,
                         isThinking: false,
                     });
                 }
@@ -889,6 +903,7 @@ export function useChatMessages({
                 // Don't strand the plan skeleton / "Creating plan" step if the
                 // stream broke mid-plan (network error, abort, refresh).
                 planLoading: false,
+                templateSearching: false,
                 isThinking: false,
             });
             // End the turn even on failure so the tracker doesn't strand the

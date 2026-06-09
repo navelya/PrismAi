@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ScanSearch, Brain, Route, Workflow, ChevronRight } from 'lucide-react';
+import { ScanSearch, Brain, LibraryBig, Route, Workflow, ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 /**
@@ -23,6 +23,11 @@ export interface ActivityTimelineProps {
   thinking?: string;
   isThinking?: boolean;
   thinkingDurationMs?: number;
+  /** True while the brain is consulting the template library (between
+   *  `template_search_start` and `template_search_complete`). The hit/miss
+   *  outcome is intentionally NOT surfaced — the search is internal
+   *  scaffolding. The step disappears as soon as the search resolves. */
+  templateSearching?: boolean;
   planLoading?: boolean;
   hasPlan?: boolean;
   /** True once this turn built/modified the workflow (derived from runProposal /
@@ -52,6 +57,7 @@ export function ActivityTimeline({
   thinking,
   isThinking,
   thinkingDurationMs,
+  templateSearching,
   planLoading,
   hasPlan,
   built,
@@ -80,6 +86,21 @@ export function ActivityTimeline({
       });
     }
 
+    // Transient: only renders while the matcher is in flight. We do NOT
+    // expose the hit/miss outcome — the search is internal scaffolding, so
+    // there's no "Found template / no match" follow-up step. Once the search
+    // resolves, the step simply disappears and the next step (plan or build)
+    // takes its place.
+    if (templateSearching) {
+      out.push({
+        key: 'templates',
+        Icon: LibraryBig,
+        label: 'Consulting templates',
+        status: 'active',
+        shimmer: true,
+      });
+    }
+
     const showPlan = !!planLoading || !!hasPlan;
     if (showPlan) {
       const active = !!planLoading && !hasPlan;
@@ -103,7 +124,7 @@ export function ActivityTimeline({
     }
 
     return out;
-  }, [thinking, isThinking, thinkingDurationMs, planLoading, hasPlan, built]);
+  }, [thinking, isThinking, thinkingDurationMs, templateSearching, planLoading, hasPlan, built]);
 
   // A lone "Analyzed your request" on a finished plain answer is just noise.
   if (steps.length <= 1) return null;

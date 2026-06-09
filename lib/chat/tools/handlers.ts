@@ -474,6 +474,10 @@ export async function dispatchTool(state: ToolHandlerState, name: ToolName, args
       // It must never mutate the workflow, so this is a no-op like the other
       // terminal/brain tools above.
       return { success: true };
+    case 'search_templates':
+      // Brain-handled in brain.ts (calls doTemplateSearch + streams events
+      // + ships the matched workflow back to Claude). Never mutates state.
+      return { success: true };
     default: {
       const _exhaustive: never = name;
       return { success: false, error: `Unknown tool: ${_exhaustive}` };

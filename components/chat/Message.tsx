@@ -54,6 +54,7 @@ interface Message {
         tasks?: import('@/lib/chat/streaming/protocol').TaskBlueprint[];
     };
     planLoading?: boolean;
+    templateSearching?: boolean;
     planAnswer?: {
         action: 'approve' | 'feedback';
         feedbackText?: string;
@@ -337,6 +338,7 @@ export const Message = React.memo(function Message({
                             thinking={message.thinking}
                             isThinking={message.isThinking === true}
                             thinkingDurationMs={message.thinkingDurationMs}
+                            templateSearching={message.templateSearching}
                             planLoading={message.planLoading}
                             hasPlan={!!message.plan}
                             built={!!message.runProposal || !!message.taskProgress}

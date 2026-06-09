@@ -377,6 +377,36 @@ Always batch every layer update for this request into ONE call's updates[] array
     }
   },
   {
+    name: 'search_templates',
+    description:
+      'Search the workflow-template library for a SKELETON that roughly matches ' +
+      'what the user wants to build from scratch. Call this BEFORE propose_plan, ' +
+      'and ONLY when the user is asking to BUILD A NEW WORKFLOW that is complex ' +
+      'enough to warrant a plan. Do NOT call this for: updates to an existing ' +
+      'workflow (the canvas already provides the skeleton), trivial requests, ' +
+      'single-node changes, model swaps, renames, or removals. The matcher returns ' +
+      'at most one template, and may return none — never assume a result. On a ' +
+      'hit, treat the template as STRUCTURAL INSPIRATION only: keep the topology ' +
+      'as a starting point, but rename, swap models, rewrite prompts, and add/drop ' +
+      'nodes to fit the user\'s actual request. On no match, proceed to build from ' +
+      'scratch with propose_plan as normal — never mention the search to the user.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          maxLength: 600,
+          description:
+            'A short natural-language description of what the user wants to build. ' +
+            'Phrase it like a template name or use-case, NOT like a question. The ' +
+            'matcher reads it against template names, descriptions, tags, and ' +
+            'categories — keywords beat full sentences here.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'propose_plan',
     description:
       'Propose a workflow plan for the user to approve before building. ' +
@@ -451,8 +481,8 @@ export const ESCALATE_TOOL: AnthropicTool = {
  * escalates instead of planning on the cheap tier).
  */
 export const FAST_LANE_TOOLS: AnthropicTool[] = [
-  ...TOOLS.filter(t => t.name !== 'propose_plan'),
+  ...TOOLS.filter(t => t.name !== 'propose_plan' && t.name !== 'search_templates'),
   ESCALATE_TOOL,
 ];
 
-export type ToolName = 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan' | 'escalate' | 'run_nodes';
+export type ToolName = 'add_node' | 'update_node' | 'update_compositor_layer' | 'remove_node' | 'ask_clarification' | 'propose_plan' | 'escalate' | 'run_nodes' | 'search_templates';

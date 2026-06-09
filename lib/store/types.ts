@@ -81,6 +81,12 @@ export interface Message {
     // Cleared implicitly once `plan` is set (skeleton is gated on !plan).
     // Not persisted.
     planLoading?: boolean;
+    // Transient client-only flag: true while the brain is consulting the
+    // template library on a fresh build. Set on `template_search_start`,
+    // cleared on `template_search_complete` (and forced false on `done` as
+    // a safety net). Not persisted — the search is invisible by design;
+    // the user only sees a single timeline step while it runs.
+    templateSearching?: boolean;
     // Plan card (assistant turn): set when the brain emits a `plan`
     // stream event. The full PlanPayload from the propose_plan tool.
     plan?: {

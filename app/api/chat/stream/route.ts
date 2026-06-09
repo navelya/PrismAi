@@ -4,6 +4,7 @@ import { runBrain, StreamEncoder, type ChatTurn, type ImageAttachment } from '@/
 import { getRegistryContext } from '@/lib/chat/registry-cache';
 import { uploadBase64ToStorage } from '@/lib/utils/image-processing';
 import { dispatchTool, type ToolHandlerState } from '@/lib/chat/tools/handlers';
+import { doTemplateSearch } from '@/lib/chat/tools/template-search';
 import { applyBlueprintWithRepair } from '@/lib/chat/apply-with-repair';
 import { synthesizeTaskBlueprint, sleep } from '@/lib/chat/task-loop';
 import { STAGING_DELAY_MS } from '@/lib/chat/config';
@@ -625,6 +626,11 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
           nodeRefs,
           characterRefs,
           preferences,
+          // Inject the template matcher with the request's supabase client.
+          // The tool prompt rules gate WHEN this gets called (new builds only,
+          // never on updates); the brain ships any hit as a structural seed
+          // for the model's next iteration. See lib/chat/tools/template-search.ts.
+          searchTemplates: (query: string) => doTemplateSearch({ query, supabase }),
         };
 
         let result;
