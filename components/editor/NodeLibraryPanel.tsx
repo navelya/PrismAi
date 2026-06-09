@@ -6,6 +6,8 @@ import * as Icons from 'lucide-react';
 import { Search, X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import type { NodeTypeRecord, AiModel, Category } from '@/lib/nodes/types';
+import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import { useCurrentUser } from '@/lib/hooks/use-current-user';
 import { BasicsTile, CategoryRow, ProviderRow, NodeItemRow, ModelItemRow } from './node-library/rows';
 import NodeLibraryFlyout, { FlyoutMode, FLYOUT_MAX_HEIGHT } from './NodeLibraryFlyout';
 
@@ -29,13 +31,31 @@ interface Tile {
 
 const BASICS_TILES: Tile[] = [
     { name: 'Text prompt', desc: 'plain text input', icon: Icons.Type, payload: { type: 'prompt' } },
-    { name: 'Upload image', desc: 'image video upload media', icon: Icons.Image, payload: { type: 'media_input' } },
+    { name: 'Upload', desc: 'image video audio upload media', icon: Icons.Upload, payload: { type: 'media_input' } },
     { name: 'Generate text', desc: 'ai text llm', icon: Icons.Type, nodeTypeCandidates: ['text_generation', 'generate_text', 'generate-text'] },
     { name: 'Generate image', desc: 'ai image picture', icon: Icons.Image, nodeTypeCandidates: ['image_generation', 'generate_image', 'generate-image'] },
     { name: 'Generate video', desc: 'ai video animation', icon: Icons.Video, nodeTypeCandidates: ['video_generation', 'generate_video', 'generate-video'] },
     { name: 'Generate speech', desc: 'ai speech voice audio tts narration', icon: Icons.Speech, nodeTypeCandidates: ['generate_speech', 'speech_generation', 'generate-speech'] },
     { name: 'Compositor', desc: 'combine layers canvas', icon: Icons.Layers, payload: { type: 'compositor' } },
 ];
+
+// Core registry tools grouped under a synthetic "Tools" category. These are
+// built-in plugin nodes (not DB-driven ai_generator node types), so their
+// label/icon come from the shared registry and their drag payload is just
+// `{ type }` — same path as the Basics tiles.
+const TOOL_TYPES = ['blur', 'levels', 'compositor', 'extract_frame'] as const;
+const TOOLS: { type: string; label: string; icon: string }[] = TOOL_TYPES.map(type => {
+    const meta = sharedRegistry[type]?.meta;
+    return { type, label: meta?.label ?? type, icon: meta?.icon ?? 'Box' };
+});
+const TOOLS_CATEGORY: Category = { id: 'tools', display_name: 'Tools', icon_reference: 'Wrench', order_index: -1, description: 'Edit & composite media' };
+
+// Explicit display order for the DB categories (the API returns them sorted by
+// display_name). Unlisted categories fall to the end, preserving their relative
+// order. The synthetic Tools category always renders last, after these.
+const CATEGORY_ORDER = ['image', 'video', 'audio', 'text'];
+
+const countLabel = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 interface ProviderRec { id: string; name: string; logo_url: string | null }
 
@@ -62,7 +82,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
 
     const [query, setQuery] = useState('');
     const [debouncedQuery, setDebouncedQuery] = useState('');
-    const [hoveredKind, setHoveredKind] = useState<null | 'category' | 'provider'>(null);
+    const [hoveredKind, setHoveredKind] = useState<null | 'category' | 'tools' | 'provider'>(null);
     const [hoveredId, setHoveredId] = useState<string | null>(null);
     const [flyoutTop, setFlyoutTop] = useState(0);
     const [flyoutLeft, setFlyoutLeft] = useState(0);
@@ -95,7 +115,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         }).filter((x): x is { tile: Tile; payload: Record<string, unknown> } => x !== null);
     }, [nodeTypes]);
 
-    const scheduleOpen = useCallback((kind: 'category' | 'provider', id: string, rowEl: HTMLElement) => {
+    const scheduleOpen = useCallback((kind: 'category' | 'tools' | 'provider', id: string, rowEl: HTMLElement) => {
         if (openTimer.current) { window.clearTimeout(openTimer.current); openTimer.current = null; }
         if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
 
@@ -173,16 +193,30 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const basicsHits = q
         ? resolvedBasics.filter(({ tile }) => tile.name.toLowerCase().includes(q) || tile.desc.toLowerCase().includes(q))
         : [];
+    const toolHits = q
+        ? TOOLS.filter(t => t.label.toLowerCase().includes(q) || t.type.includes(q))
+        : [];
     const nodeHits = q
         ? nodeTypes.filter(nt => nt.display_name.toLowerCase().includes(q))
         : [];
     const modelHits = q
         ? models.filter(m => m.display_name.toLowerCase().includes(q) || m.replicate_model_id.toLowerCase().includes(q))
         : [];
-    const noHits = !!q && basicsHits.length === 0 && nodeHits.length === 0 && modelHits.length === 0;
+    const noHits = !!q && basicsHits.length === 0 && toolHits.length === 0 && nodeHits.length === 0 && modelHits.length === 0;
+
+    const orderedCategories = useMemo(() => {
+        const rank = (id: string) => {
+            const i = CATEGORY_ORDER.indexOf(id);
+            return i === -1 ? CATEGORY_ORDER.length : i;
+        };
+        return [...categories].sort((a, b) => rank(a.id) - rank(b.id));
+    }, [categories]);
 
     const flyoutMode: FlyoutMode | null = useMemo(() => {
         if (!hoveredKind || !hoveredId) return null;
+        if (hoveredKind === 'tools') {
+            return { kind: 'tools', items: TOOLS };
+        }
         if (hoveredKind === 'category') {
             const category = categories.find(c => c.id === hoveredId);
             if (!category) return null;
@@ -210,6 +244,14 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         });
         onClose();
     }, [requestAddNode, onClose]);
+
+    const currentUser = useCurrentUser();
+    const handleAddNote = useCallback(() => {
+        const author = currentUser
+            ? { id: currentUser.id, name: currentUser.name, avatarUrl: currentUser.avatarUrl }
+            : null;
+        handleAdd({ type: 'note', initialConfig: { author } });
+    }, [currentUser, handleAdd]);
 
     return (
         <div
@@ -239,6 +281,14 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                     )}
                 </div>
                 <button
+                    type="button"
+                    onClick={handleAddNote}
+                    className="p-1 hover:bg-white/10 rounded-md transition-colors group shrink-0"
+                    title="Add note"
+                >
+                    <Icons.StickyNote className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary" />
+                </button>
+                <button
                     onClick={onClose}
                     className="p-1 hover:bg-white/10 rounded-md transition-colors group"
                     title="Close"
@@ -257,6 +307,19 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                     {basicsHits.map(({ tile, payload }) => (
                                         <BasicsTile key={tile.name} name={tile.name} icon={tile.icon} payload={payload} onDragStart={handleDragStartClose} onAdd={handleAdd} />
                                     ))}
+                                </div>
+                            </section>
+                        )}
+                        {toolHits.length > 0 && (
+                            <section>
+                                <SectionLabel>Tools</SectionLabel>
+                                <div className="grid grid-cols-2 gap-1">
+                                    {toolHits.map(t => {
+                                        const IconComp = (Icons[t.icon as keyof typeof Icons] as React.ComponentType<{ className?: string }>) || Icons.Wrench;
+                                        return (
+                                            <BasicsTile key={t.type} name={t.label} icon={IconComp} payload={{ type: t.type }} onDragStart={handleDragStartClose} onAdd={handleAdd} />
+                                        );
+                                    })}
                                 </div>
                             </section>
                         )}
@@ -297,23 +360,31 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                             </div>
                         </section>
 
-                        {categories.length > 0 && (
-                            <section>
-                                <SectionLabel>Categories</SectionLabel>
-                                <div className="space-y-0.5">
-                                    {categories.map(cat => (
+                        <section>
+                            <SectionLabel>Categories</SectionLabel>
+                            <div className="space-y-0.5">
+                                {orderedCategories.map(cat => (
                                         <CategoryRow
                                             key={cat.id}
                                             id={`nl-cat-${cat.id}`}
                                             category={cat}
+                                            subtitle={cat.description || countLabel(nodeTypes.filter(nt => nt.parent_categories?.includes(cat.id)).length, 'node')}
                                             active={hoveredKind === 'category' && hoveredId === cat.id}
                                             onMouseEnter={e => { cancelClose(); scheduleOpen('category', cat.id, e.currentTarget); }}
                                             onMouseLeave={handleRowLeave}
                                         />
                                     ))}
+                                <CategoryRow
+                                    key="tools"
+                                    id="nl-cat-tools"
+                                    category={TOOLS_CATEGORY}
+                                    subtitle={TOOLS_CATEGORY.description || countLabel(TOOLS.length, 'tool')}
+                                    active={hoveredKind === 'tools'}
+                                    onMouseEnter={e => { cancelClose(); scheduleOpen('tools', 'tools', e.currentTarget); }}
+                                    onMouseLeave={handleRowLeave}
+                                />
                                 </div>
                             </section>
-                        )}
 
                         {providers.length > 0 && (
                             <section>
@@ -324,6 +395,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                             key={p.id}
                                             id={`nl-prv-${p.id}`}
                                             provider={p}
+                                            subtitle={countLabel(models.filter(m => String(m.provider_id) === p.id).length, 'model')}
                                             active={hoveredKind === 'provider' && hoveredId === p.id}
                                             onMouseEnter={e => { cancelClose(); scheduleOpen('provider', p.id, e.currentTarget); }}
                                             onMouseLeave={handleRowLeave}
