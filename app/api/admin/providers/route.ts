@@ -34,6 +34,8 @@ export async function POST(req: NextRequest) {
         const formData = await req.formData();
         const name = formData.get('name') as string;
         const logoFile = formData.get('logo') as File | null;
+        const adapterKeyRaw = (formData.get('adapter_key') as string | null)?.trim();
+        const adapter_key = adapterKeyRaw ? adapterKeyRaw : null;
 
         if (!name) {
             return NextResponse.json({ error: 'Provider name is required' }, { status: 400 });
@@ -63,7 +65,7 @@ export async function POST(req: NextRequest) {
 
         const { data, error } = await supabase
             .from('providers')
-            .insert([{ id, name, logo_url: logoUrl }])
+            .insert([{ id, name, logo_url: logoUrl, adapter_key }])
             .select()
             .single();
 

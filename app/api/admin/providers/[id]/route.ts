@@ -18,6 +18,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         const formData = await req.formData();
         const name = formData.get('name') as string;
         const logoFile = formData.get('logo') as File | null;
+        const adapterKeyRaw = (formData.get('adapter_key') as string | null)?.trim();
+        const adapter_key = adapterKeyRaw ? adapterKeyRaw : null;
 
         // Fetch current provider to handle logo cleanup
         const { data: current, error: fetchError } = await supabase
@@ -61,7 +63,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
         const { data, error } = await supabase
             .from('providers')
-            .update({ name, logo_url: logoUrl, updated_at: new Date().toISOString() })
+            .update({ name, logo_url: logoUrl, adapter_key, updated_at: new Date().toISOString() })
             .eq('id', id)
             .select()
             .single();

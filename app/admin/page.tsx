@@ -582,7 +582,8 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
 
     const [providerForm, setProviderForm] = useState({
         name: '',
-        logo: null as File | null
+        logo: null as File | null,
+        adapter_key: ''
     });
     const [providerSubmitting, setProviderSubmitting] = useState(false);
 
@@ -698,6 +699,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
         try {
             const formData = new FormData();
             formData.append('name', providerForm.name);
+            formData.append('adapter_key', providerForm.adapter_key || '');
             if (providerForm.logo) {
                 formData.append('logo', providerForm.logo);
             }
@@ -711,7 +713,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                 setStatus({ type: 'success', message: 'Provider created successfully!' });
             }
 
-            setProviderForm({ name: '', logo: null });
+            setProviderForm({ name: '', logo: null, adapter_key: '' });
             await loadData();
         } catch (err: any) {
             setStatus({ type: 'error', message: err.message || 'Failed to process provider.' });
@@ -1050,7 +1052,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             <button
                                                 onClick={() => {
                                                     setEditingProvider(null);
-                                                    setProviderForm({ name: '', logo: null });
+                                                    setProviderForm({ name: '', logo: null, adapter_key: '' });
                                                 }}
                                                 className="p-2 text-content-tertiary hover:text-content-primary rounded-xl transition-all border border-white/5"
                                             >
@@ -1067,6 +1069,12 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                 onChange={e => setProviderForm({ ...providerForm, name: e.target.value })}
                                                 placeholder="e.g. Anthropic"
                                                 required
+                                            />
+                                            <Input
+                                                label="Adapter Key (blank = Replicate)"
+                                                value={providerForm.adapter_key}
+                                                onChange={e => setProviderForm({ ...providerForm, adapter_key: e.target.value })}
+                                                placeholder="e.g. elevenlabs"
                                             />
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-1 flex items-center gap-1.5 opacity-80 h-5 leading-none cursor-pointer">
@@ -1132,7 +1140,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                     <button
                                                         onClick={() => {
                                                             setEditingProvider(prov);
-                                                            setProviderForm({ name: prov.name, logo: null });
+                                                            setProviderForm({ name: prov.name, logo: null, adapter_key: prov.adapter_key || '' });
                                                             window.scrollTo({ top: 0, behavior: 'smooth' });
                                                         }}
                                                         className="p-2 text-content-tertiary hover:text-accent-primary bg-white/10 rounded-xl transition-all border border-white/10 shadow-sm"
