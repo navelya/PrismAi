@@ -69,10 +69,15 @@ export function buildRunPlan(
     // so the user sees a NEW result — not just re-run the prompt, which would
     // produce no image and surface the raw prompt text as the "result".
     // getDescendants includes the seed node itself.
+    // Visual-only nodes (groups, notes) are non-runnable: they can't execute and
+    // must never become run targets, or they inflate the skeleton with phantom
+    // tiles that never fill. Exclude them from the target set.
+    const NON_RUNNABLE_TYPES = new Set(['group_container', 'note']);
     const targetSet = new Set<string>();
     for (const id of touchedExisting) {
         for (const d of getDescendants(id, workflow.edges as any)) {
-            if (nodeById.has(d)) targetSet.add(d);
+            const dn = nodeById.get(d);
+            if (dn && !NON_RUNNABLE_TYPES.has(dn.type as string)) targetSet.add(d);
         }
     }
     const runTargetIds = Array.from(targetSet);
