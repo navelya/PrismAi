@@ -33,12 +33,21 @@ export const elevenlabsAdapter: ProviderAdapter = {
 
     // Resolve the owning user + session for the permanent storage path.
     const supabase = createServiceClient();
-    const { data: execCtx } = await supabase
+    const { data: execCtx, error: execErr } = await supabase
       .from('executions')
       .select('session_id, sessions(user_id)')
       .eq('id', ctx.executionId)
       .single();
-    const userId = (execCtx?.sessions as any)?.user_id || 'unknown_user';
+    const resolvedUserId = (execCtx?.sessions as any)?.user_id as string | undefined;
+    if (!resolvedUserId) {
+      // Should never happen for a valid in-flight execution. Warn loudly: the
+      // file would land under `results/unknown_user/...`, which is unreachable
+      // for retrieval/cleanup, rather than silently misfiling it.
+      console.warn(
+        `[elevenlabs] Could not resolve user for execution ${ctx.executionId} (${execErr?.message || 'no row'}); uploading under 'unknown_user'.`
+      );
+    }
+    const userId = resolvedUserId || 'unknown_user';
     const sessionId = ctx.sessionId || execCtx?.session_id || 'unknown_session';
 
     const url = await uploadResultBuffer(supabase, buffer, 'audio', ext, userId, sessionId, ctx.nodeId, iterationIndex);
