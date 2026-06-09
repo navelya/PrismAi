@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
     let query = auth.supabase
       .from('voices')
-      .select('id, external_voice_id, name, description, gender, age, accent, language, use_case, category, preview_url, labels')
+      .select('id, external_voice_id, name, description, gender, age, accent, language, language_codes, use_case, category, preview_url, labels')
       .eq('is_active', true)
       .eq('provider_id', provider);
 
@@ -38,7 +38,8 @@ export async function GET(req: NextRequest) {
     } else {
       if (q) query = query.ilike('name', `%${q}%`);
       if (gender) query = query.eq('gender', gender);
-      if (language) query = query.eq('language', language);
+      // language filters against the per-voice supported-languages array.
+      if (language) query = query.contains('language_codes', [language.toLowerCase()]);
       if (category) query = query.eq('category', category);
       if (useCase) query = query.eq('use_case', useCase);
     }

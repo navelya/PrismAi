@@ -36,6 +36,22 @@ const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
 function mapVoice(v, category) {
   const labels = v.labels || {};
+  // Collect the languages this voice supports. verified_languages is the rich
+  // source (shared-library / v3 voices); fall back to the single language label.
+  const codes = new Set();
+  const toCode = (s) => String(s || '').toLowerCase().split(/[-_]/)[0];
+  if (Array.isArray(v.verified_languages)) {
+    for (const vl of v.verified_languages) {
+      const c = toCode(vl && (vl.language || vl.locale));
+      if (c) codes.add(c);
+    }
+  }
+  const single = toCode(labels.language || v.language);
+  // Only add the single-label language if it looks like a code (<=3 chars),
+  // not a display name like "english".
+  if (single && single.length <= 3) codes.add(single);
+  const language_codes = Array.from(codes);
+
   return {
     provider_id: PROVIDER_ID,
     external_voice_id: v.voice_id,
@@ -45,6 +61,7 @@ function mapVoice(v, category) {
     age: labels.age || v.age || null,
     accent: labels.accent || v.accent || null,
     language: labels.language || v.language || null,
+    language_codes,
     use_case: labels.use_case || labels['use case'] || v.use_case || null,
     category: v.category || category,
     preview_url: v.preview_url || null,
