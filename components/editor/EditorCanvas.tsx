@@ -2164,7 +2164,7 @@ const EditorCanvasInner = ({
                 <CanvasContextMenu
                     position={contextMenu}
                     pendingConnection={pendingConnection}
-                    onSelectNode={(type, pos, tid, mid) => {
+                    onSelectNode={(type, pos, tid, mid, _autoHandle, initialConfig) => {
                         const flowPos = reactFlowInstance.screenToFlowPosition({ x: pos.x, y: pos.y });
                         const pending = pendingConnection;
                         const dropClient = pending ? { x: pos.x, y: pos.y } : null;
@@ -2172,7 +2172,7 @@ const EditorCanvasInner = ({
                             (useAppStore.getState().currentWorkflow?.nodes || []).map((n: any) => n.id),
                         );
 
-                        onDrop(type, flowPos, tid, mid, undefined, pending || undefined);
+                        onDrop(type, flowPos, tid, mid, initialConfig, pending || undefined);
                         setContextMenu(null);
                         setPendingConnection(null);
                         setPendingWireAnchor(null);

@@ -16,6 +16,7 @@ import {
     findCompatibleHandle,
 } from '@/lib/editor/handle-compatibility';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
+import { useCurrentUser } from '@/lib/hooks/use-current-user';
 
 interface ContextMenuItem {
     id: string;
@@ -36,7 +37,8 @@ interface CanvasContextMenuProps {
         position: { x: number; y: number },
         nodeTypeId?: string,
         modelId?: number,
-        autoConnectHandleId?: string
+        autoConnectHandleId?: string,
+        initialConfig?: Record<string, any>
     ) => void;
     onClose: () => void;
     models?: AiModel[];
@@ -120,6 +122,19 @@ export default function CanvasContextMenu({
         }
 
         onSelectNode(typePath, position, nodeTypeId, modelId, autoConnectHandleId);
+        onClose();
+    };
+
+    // Add a non-runnable note at the exact right-click position. The note's
+    // author is snapshotted from the current user at creation (frozen
+    // thereafter). Routed through onSelectNode so it reuses the menu's
+    // screen→flow conversion + the standard node-add path.
+    const currentUser = useCurrentUser();
+    const handleAddNote = () => {
+        const author = currentUser
+            ? { id: currentUser.id, name: currentUser.name, avatarUrl: currentUser.avatarUrl }
+            : null;
+        onSelectNode('note', position, undefined, undefined, undefined, { author });
         onClose();
     };
 
@@ -330,9 +345,11 @@ export default function CanvasContextMenu({
                     onEscapeKeyDown={onClose}
                     onInteractOutside={onClose}
                 >
-                    {/* Search Component */}
-                    <div className="p-1.5 border-b border-stroke-subtle/60">
-                        <div className="relative group">
+                    {/* Search Component — note button sits inline; the search
+                        input shrinks to make room (it is not shown in wire-drop
+                        mode, since a note has no handle to connect a wire to). */}
+                    <div className="p-1.5 border-b border-stroke-subtle/60 flex items-center gap-1.5">
+                        <div className="relative group flex-1">
                             <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-content-tertiary group-focus-within:text-accent-primary transition-colors" />
                             <input
                                 ref={searchInputRef}
@@ -345,6 +362,16 @@ export default function CanvasContextMenu({
                                 autoFocus
                             />
                         </div>
+                        {!pendingConnection && (
+                            <button
+                                type="button"
+                                onClick={handleAddNote}
+                                className="shrink-0 p-1.5 rounded-md text-content-tertiary hover:text-content-primary hover:bg-white/5 transition-colors"
+                                title="Add note here"
+                            >
+                                <Icons.StickyNote className="w-3.5 h-3.5" />
+                            </button>
+                        )}
                     </div>
 
                     {/* Hierarchy/Results list */}

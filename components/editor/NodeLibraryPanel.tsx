@@ -7,7 +7,6 @@ import { Search, X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
 import type { NodeTypeRecord, AiModel, Category } from '@/lib/nodes/types';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
-import { useCurrentUser } from '@/lib/hooks/use-current-user';
 import { BasicsTile, CategoryRow, ProviderRow, NodeItemRow, ModelItemRow } from './node-library/rows';
 import NodeLibraryFlyout, { FlyoutMode, FLYOUT_MAX_HEIGHT } from './NodeLibraryFlyout';
 
@@ -245,14 +244,6 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         onClose();
     }, [requestAddNode, onClose]);
 
-    const currentUser = useCurrentUser();
-    const handleAddNote = useCallback(() => {
-        const author = currentUser
-            ? { id: currentUser.id, name: currentUser.name, avatarUrl: currentUser.avatarUrl }
-            : null;
-        handleAdd({ type: 'note', initialConfig: { author } });
-    }, [currentUser, handleAdd]);
-
     return (
         <div
             ref={containerRef}
@@ -280,14 +271,6 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                         </button>
                     )}
                 </div>
-                <button
-                    type="button"
-                    onClick={handleAddNote}
-                    className="p-1 hover:bg-white/10 rounded-md transition-colors group shrink-0"
-                    title="Add note"
-                >
-                    <Icons.StickyNote className="w-3.5 h-3.5 text-content-tertiary group-hover:text-content-primary" />
-                </button>
                 <button
                     onClick={onClose}
                     className="p-1 hover:bg-white/10 rounded-md transition-colors group"
