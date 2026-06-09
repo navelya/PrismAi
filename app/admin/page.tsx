@@ -1062,7 +1062,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                     </div>
 
                                     <form onSubmit={handleProviderSubmit} className="space-y-6">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                                             <Input
                                                 label="Provider Name"
                                                 value={providerForm.name}
