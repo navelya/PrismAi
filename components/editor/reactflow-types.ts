@@ -2,6 +2,7 @@ import React from 'react';
 import { clientRegistry, FallbackNode } from '@/lib/nodes/core/client-registry';
 import AIGeneratorNode from '@/lib/nodes/plugins/ai_generator/component';
 import GroupNode from '@/components/editor/GroupNode';
+import NoteNode from '@/components/editor/NoteNode';
 
 // 🛡️ STABILITY FIX: Create the base node types in a separate utility module.
 // Next.js Fast Refresh often re-evaluates files that export React components,
@@ -19,6 +20,7 @@ const concreteNodeTypes: Record<string, React.ComponentType<any>> = {
     ai_generator: AIGeneratorNode,
     legacy: FallbackNode,
     group_container: GroupNode,
+    note: NoteNode,
 };
 
 // Dynamic AI-generator node type ids come from the DB (ai_models.node_type_id)
