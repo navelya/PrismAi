@@ -2,8 +2,9 @@
 'use client';
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, ImagePlus, LayoutTemplate } from 'lucide-react';
+import { X, Loader2, ImagePlus, LayoutTemplate, Sparkles } from 'lucide-react';
 import { adminTemplatesApi } from '@/lib/api/admin';
+import { sessionsApi } from '@/lib/api/client';
 import { useAppStore } from '@/lib/store/app-store';
 import { workflowNodeChips } from '@/lib/templates/node-chips';
 import { extractMediaUrls, detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
@@ -13,6 +14,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { MarkdownEditor } from '@/components/ui/MarkdownEditor';
+import { TEMPLATE_CATEGORIES } from '@/lib/templates/categories';
 
 interface Props {
   isOpen: boolean;
@@ -21,16 +23,17 @@ interface Props {
   defaultName: string;
 }
 
-const CATEGORIES = ['Product Photography', 'Branding', 'Video', 'Image Editing', 'Characters', 'Other'];
+const CATEGORIES = TEMPLATE_CATEGORIES;
 const CATEGORY_OPTIONS = CATEGORIES.map((c) => ({ id: c, display_name: c }));
 
 export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName }: Props) {
   const currentWorkflow = useAppStore((s) => s.currentWorkflow);
+  const setCurrentWorkflow = useAppStore((s) => s.setCurrentWorkflow);
   const refreshTemplates = useAppStore((s) => s.fetchTemplates);
   const models = useAppStore((s) => s.models);
   const categories = useAppStore((s) => s.categories);
   const [name, setName] = useState(defaultName);
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [category, setCategory] = useState<string>(CATEGORIES[0]);
   const [description, setDescription] = useState('');
   const [howItWorks, setHowItWorks] = useState('');
   const [tagsText, setTagsText] = useState('');
@@ -40,6 +43,7 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [autoFilling, setAutoFilling] = useState(false);
 
   const chips = useMemo(
     () => workflowNodeChips((currentWorkflow as any)?.nodes ?? [], models, categories),
@@ -67,6 +71,39 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
 
   const filePreview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
   const previewUrl = filePreview || autoThumbUrl;
+
+  // Let Gemini read the workflow (and its final image) and pre-fill the form.
+  // Fills empty fields only, so anything you've already typed is preserved.
+  const runAutoFill = async () => {
+    if (!sessionId) { setError('Save the workflow first, then auto-fill.'); return; }
+    setAutoFilling(true); setError(null);
+    try {
+      const f = await adminTemplatesApi.autoFill(sessionId, autoThumbUrl);
+      if (f.name && (!name.trim() || name === defaultName)) setName(f.name);
+      if (f.category && (CATEGORIES as readonly string[]).includes(f.category) && category === CATEGORIES[0]) {
+        setCategory(f.category);
+      }
+      if (f.description && !description.trim()) setDescription(f.description);
+      if (f.how_it_works && !howItWorks.trim()) setHowItWorks(f.how_it_works);
+      if (Array.isArray(f.tags) && f.tags.length && !tagsText.trim()) setTagsText(f.tags.join(', '));
+      if (Array.isArray(f.use_cases) && f.use_cases.length && !useCasesText.trim()) {
+        setUseCasesText(f.use_cases.join('\n'));
+      }
+      // Also (re)name the workflow itself — but only while it's still untitled
+      // or a default placeholder, so a title the user deliberately set survives.
+      const cur = useAppStore.getState().currentWorkflow as any;
+      const curName = (cur?.name || '').trim();
+      const isDefaultName = !curName || /^(untitled workflow|new workflow|new session|untitled)$/i.test(curName);
+      if (f.name && isDefaultName) {
+        if (cur) setCurrentWorkflow({ ...cur, name: f.name });
+        sessionsApi.update(sessionId, { title: f.name }).catch(() => { /* title mirror is best-effort */ });
+      }
+    } catch (e: any) {
+      setError(e.message || 'Auto-fill failed');
+    } finally {
+      setAutoFilling(false);
+    }
+  };
 
   const submit = async () => {
     if (!sessionId || !name.trim()) { setError('A name is required.'); return; }
@@ -122,9 +159,17 @@ export function ConvertToTemplateModal({ isOpen, onClose, sessionId, defaultName
                     <p className="text-xs text-content-tertiary">Publish this workflow as a reusable template</p>
                   </div>
                 </div>
-                <button onClick={onClose} className="p-2 hover:bg-surface-tertiary rounded-lg transition-colors">
-                  <X className="w-4 h-4 text-content-tertiary" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={runAutoFill} disabled={autoFilling || saving}
+                    title="Let AI read the workflow and fill in the details"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-accent-primary bg-accent-primary/10 border border-accent-primary/20 hover:bg-accent-primary/20 transition-colors disabled:opacity-50">
+                    {autoFilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    Auto-fill
+                  </button>
+                  <button onClick={onClose} className="p-2 hover:bg-surface-tertiary rounded-lg transition-colors">
+                    <X className="w-4 h-4 text-content-tertiary" />
+                  </button>
+                </div>
               </div>
 
               {/* Body */}

@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
 import { uploadTemplateThumbnail } from '@/lib/templates/thumbnail.server';
-import { deriveNodesUsed } from '@/lib/templates/snapshot';
+import { deriveNodesUsed, collapseToActiveResults } from '@/lib/templates/snapshot';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,14 +45,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const source = form.get('source') as string | null;
   if (source && ['official','community'].includes(source)) patch.source = source;
 
-  // Optional workflow graph update (admin edit-on-canvas). Keep outputs as-is so
-  // the gallery preview stays faithful; re-derive the nodes_used chip list.
+  // Optional workflow graph update (admin edit-on-canvas). Keep the active output
+  // so the gallery preview stays faithful, but collapse multi-result nodes to just
+  // their active result; re-derive the nodes_used chip list.
   const wfRaw = form.get('workflow');
   if (typeof wfRaw === 'string' && wfRaw) {
     try {
       const wf = JSON.parse(wfRaw);
       if (wf && Array.isArray(wf.nodes)) {
-        const workflow = { nodes: wf.nodes, edges: Array.isArray(wf.edges) ? wf.edges : [] };
+        const workflow = collapseToActiveResults({ nodes: wf.nodes, edges: Array.isArray(wf.edges) ? wf.edges : [] });
         patch.workflow = workflow;
         patch.nodes_used = deriveNodesUsed(workflow);
       }

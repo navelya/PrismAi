@@ -268,6 +268,24 @@ export const adminTemplatesApi = {
     }
     return data.template;
   },
+  /** Ask Gemini to read the workflow and propose template metadata to pre-fill the form. */
+  autoFill: async (sessionId: string, imageUrl?: string | null) => {
+    const res = await fetch('/api/admin/templates/auto-fill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, imageUrl: imageUrl || undefined }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || `Auto-fill failed (${res.status})`);
+    return data.fields as {
+      name: string;
+      category: string;
+      description: string;
+      how_it_works: string;
+      tags: string[];
+      use_cases: string[];
+    };
+  },
   update: async (id: string, formData: FormData) => {
     const res = await fetch(`/api/admin/templates/${id}`, { method: 'PATCH', body: formData });
     const data = await res.json();

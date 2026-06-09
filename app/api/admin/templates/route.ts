@@ -1,7 +1,7 @@
 // app/api/admin/templates/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
-import { deriveNodesUsed } from '@/lib/templates/snapshot';
+import { deriveNodesUsed, collapseToActiveResults } from '@/lib/templates/snapshot';
 import { resolveThumbnailFromSession, uploadTemplateThumbnail, copyImageUrlToBucket } from '@/lib/templates/thumbnail.server';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -45,11 +45,13 @@ export async function POST(req: NextRequest) {
     .single();
   if (sErr || !session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
 
-  // Store the canvas AS-IS (keep node outputs) so the template detail view can
-  // render a faithful read-only preview. The clone endpoint sanitizes outputs so
-  // a cloned workflow still starts clean.
+  // Keep each node's outputs so the template detail view can render a faithful
+  // read-only preview — but collapse multi-result nodes down to ONLY their active
+  // result, so the other discarded iterations never ride along into the template.
+  // The clone endpoint later sanitizes outputs entirely so a cloned workflow
+  // still starts clean.
   const raw = session.canvas_state || { nodes: [], edges: [] };
-  const workflow = { nodes: raw.nodes ?? [], edges: raw.edges ?? [] };
+  const workflow = collapseToActiveResults({ nodes: raw.nodes ?? [], edges: raw.edges ?? [] });
   const nodesUsed = deriveNodesUsed(workflow);
 
   // Author display name from auth user_metadata (profiles has no name column).

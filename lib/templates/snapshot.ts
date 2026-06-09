@@ -46,6 +46,44 @@ export function sanitizeTemplateWorkflow(wf: TemplateWorkflow | null | undefined
   return { nodes, edges };
 }
 
+/**
+ * Collapse every node's accumulated results down to just its currently-active
+ * one, so a stored template carries only the result the author selected — not
+ * the other N iterations they generated and discarded. The active item is kept
+ * (not stripped) so the template detail view still renders a faithful preview;
+ * a clone later runs {@link sanitizeTemplateWorkflow} to drop even that.
+ *
+ * Today only `ai_generator` accumulates multiple results, in
+ * `config.outputs` (newest-first) with `config.selected_output_index` marking
+ * the active one. Single-output nodes pass through untouched.
+ */
+export function collapseToActiveResults(wf: TemplateWorkflow | null | undefined): TemplateWorkflow {
+  const nodes = (wf?.nodes ?? []).map((n) => {
+    const config = n?.data?.config;
+    const outputs = config?.outputs;
+    if (!Array.isArray(outputs) || outputs.length <= 1) return n;
+
+    const len = outputs.length;
+    const raw = config.selected_output_index;
+    const idx = Math.max(0, Math.min(len - 1, Number.isFinite(raw) ? Math.trunc(raw) : 0));
+    const active = outputs[idx];
+
+    return {
+      ...n,
+      data: {
+        ...n.data,
+        config: {
+          ...config,
+          outputs: active ? [active] : [],
+          selected_output_index: 0,
+          last_output: active?.value ?? config.last_output ?? null,
+        },
+      },
+    };
+  });
+  return { nodes, edges: wf?.edges ?? [] };
+}
+
 /** Unique node `type` values present in a workflow, excluding non-executable group containers. */
 export function deriveNodesUsed(wf: TemplateWorkflow | null | undefined): string[] {
   const types = (wf?.nodes ?? [])
