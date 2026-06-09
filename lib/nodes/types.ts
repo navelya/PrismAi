@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'media_input' | 'compositor' | 'prompt' | 'ai_generator' | 'blur' | 'group_container' | 'note';
+export type NodeType = 'media_input' | 'compositor' | 'prompt' | 'ai_generator' | 'blur' | 'group_container' | 'note' | 'collect';
 
 export interface InputHandle {
     name: string;
@@ -212,6 +212,13 @@ export interface NodeExecutionResult {
     data: any;
     error?: string;
     status?: 'success' | 'pending' | 'error';
+    /**
+     * Optional explicit result type. When set, the ephemeral executor persists
+     * this instead of inferring from `data`'s shape. Needed by polymorphic
+     * passthrough nodes (e.g. `collect`) whose output type isn't recoverable
+     * from item shape alone — a video URL string would otherwise be mis-typed.
+     */
+    result_type?: 'image' | 'video' | 'audio' | '3d' | 'text' | 'json';
 }
 
 /**

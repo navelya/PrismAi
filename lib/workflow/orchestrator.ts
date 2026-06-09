@@ -454,6 +454,16 @@ async function buildInputsFromParents(
         }
       }
     }
+
+    // `collect` aggregates whole upstream arrays. Override its per-edge id with
+    // the FULL result_data (not just the primary) so its OFF/default mode can
+    // flatten every item of every input. Keyed by edge id like the compositor;
+    // the collect executor reads each edge id key. Done outside the
+    // typedValue guard so even a single-item upstream lands as a 1-element
+    // array under its edge id.
+    if (targetNode?.type === 'collect' && edge.id && resultData.length > 0) {
+      inputs[edge.id] = resultData;
+    }
   }
 
   return inputs;

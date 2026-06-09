@@ -7,6 +7,7 @@ import { extractFrameSharedDef } from '../plugins/extract_frame/definition';
 import { levelsSharedDef } from '../plugins/levels/definition';
 import { aiGeneratorSharedDef } from '../plugins/ai_generator/definition';
 import { characterSharedDef } from '../plugins/character/definition';
+import { collectSharedDef } from '../plugins/collect/definition';
 
 export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     prompt: promptSharedDef,
@@ -17,6 +18,7 @@ export const sharedRegistry: Record<string, NodeSharedDef<any>> = {
     levels: levelsSharedDef,
     ai_generator: aiGeneratorSharedDef,
     character: characterSharedDef,
+    collect: collectSharedDef,
     group_container: {
         type: 'group_container',
         family: 'organization',

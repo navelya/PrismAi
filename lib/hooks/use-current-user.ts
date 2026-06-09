@@ -1,13 +1,17 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { userApi } from '@/lib/api/client';
 
 export function useCurrentUser() {
     const [user, setUser] = useState<{ id: string; name: string; avatarUrl: string | null } | null>(null);
     useEffect(() => {
-        const supabase = createClient();
-        supabase.auth.getUser().then((res: any) => {
-            const u = res?.data?.user;
+        // Use the SAME source the sidebar profile avatar uses (`/api/user/me`):
+        // it resolves `public.profiles` server-side (bypassing client-side RLS),
+        // is request-deduplicated, and already powers UserAvatar. A direct client
+        // `from('profiles')` query here returned nothing under RLS, leaving the
+        // note author without a picture.
+        userApi.me().then((res: any) => {
+            const u = res?.user;
             if (!u) return;
             const meta = u.user_metadata || {};
             const emailName = (u.email || 'User').split('@')[0];
@@ -17,11 +21,12 @@ export function useCurrentUser() {
             const first = meta.given_name || meta.first_name
                 || (typeof full === 'string' && full.trim() ? full.trim().split(/\s+/)[0] : '')
                 || emailName;
-            // OAuth providers expose the avatar as `avatar_url` (Google/GitHub) or
-            // `picture`. The custom profiles.avatar_url is intentionally NOT queried
-            // here — falling back to OAuth/initials is acceptable for the note snapshot.
-            const avatarUrl = meta.avatar_url || meta.picture || null;
+            // Same 3-tier hierarchy as UserAvatar: custom profile avatar →
+            // OAuth provider avatar → null (initials fallback in the consumer).
+            const avatarUrl = u.profile?.avatar_url || meta.avatar_url || meta.picture || null;
             setUser({ id: u.id, name: first, avatarUrl });
+        }).catch(() => {
+            // Not authenticated — leave user null.
         });
     }, []);
     return user;

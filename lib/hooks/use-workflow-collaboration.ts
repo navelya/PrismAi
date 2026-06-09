@@ -130,31 +130,43 @@ export function useWorkflowCollaboration(
         return () => { supabase.removeChannel(presence); supabase.removeChannel(ops); opsChannelRef.current = null; };
     }, [canvasId, me?.id, me?.role]);
 
+    // Broadcast over the LIVE WebSocket only. realtime-js' channel.send() silently
+    // falls back to a per-message REST POST whenever the channel isn't `joined`
+    // (socket not connected, or mid-(re)subscribe) — which, for cursor moves, fires
+    // on every mouse movement and now logs a deprecation warning each time. Every
+    // op here is ephemeral or re-broadcast on the next settled edit (and the 2s DB
+    // autosave covers durability), so dropping a send while unjoined is harmless.
+    const pushOps = useCallback((event: string, payload: any) => {
+        const ch = opsChannelRef.current;
+        if (ch?.state !== 'joined') return;
+        ch.send({ type: 'broadcast', event, payload });
+    }, []);
+
     const sendCursor = useCallback((x: number, y: number) => {
         if (!me) return;
-        opsChannelRef.current?.send({ type: 'broadcast', event: 'cursor', payload: { userId: me.id, x, y } });
-    }, [me?.id]);
+        pushOps('cursor', { userId: me.id, x, y });
+    }, [me?.id, pushOps]);
     // Legacy single-node drag send (kept for callers/back-compat).
     const sendNodeDrag = useCallback((nodeId: string, x: number, y: number) => {
         if (!me) return;
-        opsChannelRef.current?.send({ type: 'broadcast', event: 'node-drag', payload: { userId: me.id, nodeId, x, y } });
-    }, [me?.id]);
+        pushOps('node-drag', { userId: me.id, nodeId, x, y });
+    }, [me?.id, pushOps]);
     // Multi-node drag send — broadcast all dragged nodes' live positions.
     const sendNodeDrags = useCallback((items: NodeDragItem[]) => {
         if (!me) return;
-        opsChannelRef.current?.send({ type: 'broadcast', event: 'node-drag', payload: { userId: me.id, items } });
-    }, [me?.id]);
+        pushOps('node-drag', { userId: me.id, items });
+    }, [me?.id, pushOps]);
     // Full structural state broadcast — the instant peer sync layer (the 2s DB
     // autosave still handles durability). Sent only on a SETTLED local edit.
     const sendState = useCallback((nodes: any[], edges: any[]) => {
         if (!me) return;
-        opsChannelRef.current?.send({ type: 'broadcast', event: 'state', payload: { origin: me.id, nodes, edges } });
-    }, [me?.id]);
+        pushOps('state', { origin: me.id, nodes, edges });
+    }, [me?.id, pushOps]);
     // In-flight group-resize broadcast — peers mirror the live geometry.
     const sendGroupResize = useCallback((nodeId: string, w: number, h: number, sx: number, sy: number) => {
         if (!me) return;
-        opsChannelRef.current?.send({ type: 'broadcast', event: 'group-resize', payload: { userId: me.id, nodeId, w, h, sx, sy } });
-    }, [me?.id]);
+        pushOps('group-resize', { userId: me.id, nodeId, w, h, sx, sy });
+    }, [me?.id, pushOps]);
     // Ephemeral peer-selection broadcast (selected node ids + live marquee box).
     // No-ops while solo (me === null), so a non-collaborative session never sends.
     const sendSelection = useCallback((
@@ -162,7 +174,7 @@ export function useWorkflowCollaboration(
         marquee: { x: number; y: number; w: number; h: number } | null,
     ) => {
         if (!me) return;
-        opsChannelRef.current?.send({ type: 'broadcast', event: 'selection', payload: { userId: me.id, selectedIds, marquee } });
-    }, [me?.id]);
+        pushOps('selection', { userId: me.id, selectedIds, marquee });
+    }, [me?.id, pushOps]);
     return { sendCursor, sendNodeDrag, sendNodeDrags, sendState, sendSelection, sendGroupResize };
 }

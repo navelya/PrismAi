@@ -46,6 +46,9 @@ export function createNodeFromType(
             text: '',
             author: null,
         },
+        collect: {
+            takeOnlyActive: false,
+        },
     };
 
     // Merge caller-supplied initialConfig over the defaults

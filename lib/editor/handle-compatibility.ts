@@ -149,9 +149,9 @@ function resolveCompositorOutputKind(nodeId: string): 'image' | 'video' | null {
  * the per-node-type carve-outs so the handle-compat helpers stay generic.
  */
 function resolveDynamicOutputType(
-    node: { type: string; id?: string } | undefined,
+    node: { type: string; id?: string; data?: { config?: any } } | undefined,
     handleId: string | null,
-): string | null {
+): string | string[] | null {
     if (!node || !node.id) return null;
     if (node.type === 'blur') {
         const kind = resolveBlurOutputKind(node.id);
@@ -159,6 +159,29 @@ function resolveDynamicOutputType(
     }
     if (node.type === 'compositor') {
         return resolveCompositorOutputKind(node.id); // 'image' | 'video' | null
+    }
+    if (node.type === 'collect') {
+        // Output mirrors the type locked by the first connected input.
+        const lt = node.data?.config?.lockedType;
+        return lt ?? null;
+    }
+    return null;
+}
+
+/**
+ * Dynamic INPUT (expected) type for nodes whose accepted type is determined at
+ * runtime. `collect` locks its `values` handle to the first connected input's
+ * type — so the connection validator must narrow `values` from the static
+ * 'any' to the locked type and reject mismatched later wires.
+ */
+function resolveDynamicInputType(
+    node: { type: string; data?: { config?: any } } | undefined,
+    handleId: string | null,
+): string | string[] | null {
+    if (!node) return null;
+    if (node.type === 'collect' && (handleId === 'values' || handleId == null)) {
+        const lt = node.data?.config?.lockedType;
+        return lt ?? null;
     }
     return null;
 }
@@ -376,7 +399,7 @@ export function findHandleForNode(
         pending.handleType === 'target' ? resolveDynamicOutputType(node as any, null) : null;
     const match = (rawHandles as any[]).find((h) => {
         const t = pending.handleType === 'source'
-            ? h.expectedType
+            ? (resolveDynamicInputType(node as any, h.id) ?? h.expectedType)
             : (dynamicOutputType ?? h.dataType);
         return typesAreCompatible(pending.dataType, t);
     });
@@ -385,7 +408,7 @@ export function findHandleForNode(
         id: match.id,
         label: match.label,
         type: pending.handleType === 'source'
-            ? match.expectedType
+            ? (resolveDynamicInputType(node as any, match.id) ?? match.expectedType)
             : (dynamicOutputType ?? match.dataType),
         isArray: match.is_array,
     };
@@ -433,7 +456,7 @@ export function getNodeHandleType(
         };
     }
     return {
-        type: h.expectedType,
+        type: resolveDynamicInputType(node as any, handleId) ?? h.expectedType,
         isArray: h.is_array,
     };
 }
@@ -501,7 +524,7 @@ export function findAllCompatibleHandlesForNode(
     return (rawHandles as any[])
         .filter((h) => {
             const t = pending.handleType === 'source'
-                ? h.expectedType
+                ? (resolveDynamicInputType(node as any, h.id) ?? h.expectedType)
                 : (dynamicOutputType ?? h.dataType);
             return typesAreCompatible(pending.dataType, t);
         })
@@ -509,7 +532,7 @@ export function findAllCompatibleHandlesForNode(
             id: h.id,
             label: h.label,
             type: pending.handleType === 'source'
-                ? h.expectedType
+                ? (resolveDynamicInputType(node as any, h.id) ?? h.expectedType)
                 : (dynamicOutputType ?? h.dataType),
             isArray: h.is_array,
         }));

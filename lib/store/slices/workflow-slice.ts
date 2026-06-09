@@ -47,6 +47,35 @@ function buildAutoLayerForEdge(
 }
 
 /**
+ * Clear a `collect` node's locked input type once it has no incoming `values`
+ * edges left, so the next wire of any type can re-lock it. Used by both the
+ * edge-removal and node-deletion paths. Returns the (possibly) new node array.
+ */
+function clearStaleCollectLocks(
+    nodes: WorkflowNode[],
+    removedEdges: { target: string }[],
+    remainingEdges: Array<{ target: string; targetHandle?: string | null }>,
+): WorkflowNode[] {
+    const collectTargets = new Set(
+        removedEdges
+            .map((e) => e.target)
+            .filter((tid) => nodes.find((n) => n.id === tid)?.type === 'collect'),
+    );
+    if (collectTargets.size === 0) return nodes;
+    return nodes.map((node) => {
+        if (!collectTargets.has(node.id) || node.type !== 'collect') return node;
+        const stillConnected = remainingEdges.some(
+            (e) => e.target === node.id && (e.targetHandle === 'values' || !e.targetHandle),
+        );
+        if (stillConnected) return node;
+        const cfg = (node.data?.config as any) || {};
+        if (cfg.lockedType == null) return node;
+        const { lockedType, ...rest } = cfg;
+        return { ...node, data: { ...node.data, config: rest } };
+    });
+}
+
+/**
  * The display title a compositor layer should adopt from its source node.
  *
  * A node's `data.label` is the factory default for AI generators ("AI
@@ -337,6 +366,9 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                     };
                 });
             }
+
+            // Unlock any collect node that just lost its last input.
+            updatedNodes = clearStaleCollectLocks(updatedNodes, removedEdges, updatedEdges as any[]);
         }
 
         set({
@@ -372,6 +404,37 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                             (e.targetHandle || null) === (connection.targetHandle || null),
                     ).length;
                     if (existing >= max) return;
+                }
+            }
+        }
+
+        // Collect: enforce same-type inputs. The first wire locks the type;
+        // later wires must be compatible with it. If all inputs were removed,
+        // any stale lockedType is ignored so the node re-locks from this wire.
+        // (isValidConnection blocks manual mismatched drags; this also guards
+        // programmatic adds.)
+        let collectLockType: string | string[] | undefined;
+        {
+            const tNode = currentWorkflow.nodes.find((n) => n.id === connection.target);
+            if (tNode?.type === 'collect') {
+                const hasInputs = (currentWorkflow.edges || []).some(
+                    (e) =>
+                        e.target === connection.target &&
+                        (e.targetHandle === 'values' || !e.targetHandle),
+                );
+                const sNode = currentWorkflow.nodes.find((n) => n.id === connection.source);
+                const srcType = getNodeHandleType(
+                    sNode as any,
+                    connection.sourceHandle || null,
+                    'source',
+                    models,
+                    sharedRegistry,
+                )?.type;
+                const locked = hasInputs ? (tNode.data?.config as any)?.lockedType : undefined;
+                if (locked != null) {
+                    if (srcType != null && !typesAreCompatible(srcType, locked)) return;
+                } else if (srcType != null) {
+                    collectLockType = srcType;
                 }
             }
         }
@@ -455,6 +518,21 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                         : n
                 );
             }
+        }
+
+        // Persist the freshly-locked type onto the collect node.
+        if (collectLockType !== undefined) {
+            updatedNodes = updatedNodes.map((n) =>
+                n.id === connection.target
+                    ? {
+                          ...n,
+                          data: {
+                              ...n.data,
+                              config: { ...(n.data?.config || {}), lockedType: collectLockType },
+                          },
+                      }
+                    : n,
+            );
         }
 
         set({
@@ -784,6 +862,9 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
                     };
                 });
             }
+
+            // Unlock any collect node that just lost its last input.
+            updatedNodes = clearStaleCollectLocks(updatedNodes, removedEdges, updatedEdges as any[]);
         }
 
         // For source nodes (Prompt, MediaInput), push the derived envelope into

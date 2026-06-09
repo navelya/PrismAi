@@ -11,6 +11,7 @@ import { serverRegistry } from '@/lib/nodes/core/server-registry';
 import { GraphJson, NodeState } from './types-v2';
 import {
   NodeResultType,
+  coerceResultDataArray,
   getPrimaryInputValue,
   inferResultTypeFromValue,
   normalizeNodeResultType,
@@ -93,7 +94,21 @@ export async function executeEphemeralNode(
     let resultType: NodeResultType = 'json';
     let resultData: any[] = [];
 
-    if (Array.isArray(result.data)) {
+    if (result.result_type) {
+      // Executor declared its type explicitly (e.g. `collect`, whose output
+      // type is dynamic and can't be recovered from item shape — a video URL
+      // string would otherwise be mis-typed as text). Trust it; just flatten
+      // media items down to their URL strings to match the stored shape.
+      resultType = normalizeNodeResultType(result.result_type);
+      const arr = Array.isArray(result.data)
+        ? result.data
+        : result.data == null
+          ? []
+          : [result.data];
+      resultData = arr.map((d: any) =>
+        d && typeof d === 'object' && typeof d.url === 'string' ? d.url : d,
+      );
+    } else if (Array.isArray(result.data)) {
       // Conventional plugin shape: array of items (ImageObject[], string[], etc.).
       const first = result.data[0];
       if (first && typeof first === 'object' && typeof (first as any).url === 'string') {
@@ -147,6 +162,10 @@ function buildNodeInputs(
 ): Record<string, any> {
   const inputs: Record<string, any> = {};
   const incomingEdges = (graph.edges || []).filter((edge) => edge.target === nodeId);
+  // `collect` aggregates whole upstream arrays, not just each upstream's
+  // primary item. Deliver every edge's FULL result_data under its edge id so
+  // the collect executor can flatten all items (its OFF/default mode).
+  const isCollectTarget = graph.nodes.find((n) => n.id === nodeId)?.type === 'collect';
   for (const edge of incomingEdges) {
     const sourceNodeState = nodeStates[edge.source];
     if (sourceNodeState?.status === 'completed') {
@@ -161,6 +180,14 @@ function buildNodeInputs(
         value = (sourceNodeState as any).result_url;
       } else {
         value = (sourceNodeState as any).output;
+      }
+      if (isCollectTarget && edge.id) {
+        // Full array for collect; falls back to the primary value's shape.
+        inputs[inputKey] = value;
+        inputs[edge.id] = sourceNodeState.result_data != null
+          ? coerceResultDataArray(sourceNodeState.result_data)
+          : value;
+        continue;
       }
       // Key by BOTH the target handle id AND the edge id. Compositor layers
       // store `layer.sourceHandleId = edge.id` because every layer edge shares

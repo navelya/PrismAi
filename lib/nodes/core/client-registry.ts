@@ -7,6 +7,7 @@ import { extractFrameClientDef } from '../plugins/extract_frame';
 import { levelsClientDef } from '../plugins/levels';
 import { aiGeneratorClientDef, AIGeneratorNode } from '../plugins/ai_generator';
 import { characterClientDef } from '../plugins/character';
+import { collectClientDef } from '../plugins/collect';
 
 export const clientRegistry: Record<string, NodeClientDef> = {
     prompt: promptClientDef,
@@ -17,6 +18,7 @@ export const clientRegistry: Record<string, NodeClientDef> = {
     levels: levelsClientDef,
     ai_generator: aiGeneratorClientDef,
     character: characterClientDef,
+    collect: collectClientDef,
 };
 
 export const FallbackNode = AIGeneratorNode;

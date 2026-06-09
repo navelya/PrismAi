@@ -20,6 +20,7 @@ import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 import { computeAiNodeCost, formatCredits, clampIterations } from '@/lib/billing/cost';
 import { clampSelectedIndex, selectedValue, activeItemEnvelope, isActiveOnly, type GeneratedOutput } from './outputs';
 import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
+import { useGridViewHeightLock } from '@/lib/hooks/use-grid-view-height-lock';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
 
@@ -342,6 +343,14 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
     // card (see below) so an audio output never inflates to the 200px media frame.
     const isAudioPreview = effectiveType === 'audio';
 
+    // Freeze the media frame's height when toggling to grid view so switching
+    // single ⇄ grid never resizes the node. Only for image/video previews —
+    // text/audio size themselves and have their own scroll containers.
+    const { ref: mediaFrameRef, lockStyle: mediaFrameLockStyle } = useGridViewHeightLock(
+        previewMode,
+        !isTextPreview && !isAudioPreview,
+    );
+
     // Sizing model:
     //   text / audio → fixed width (no intrinsic-width content to drive layout)
     //   image / video / other media → node sizes to the image's natural width,
@@ -415,6 +424,8 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             customActions={canDownload ? <CardDownloadButton state={downloadState} onClick={handleDownload} /> : undefined}
         >
             <div
+                ref={mediaFrameRef}
+                style={mediaFrameLockStyle}
                 className={cn(
                     "relative w-full group/node",
                     // Media keeps the framed, min-height card. Text drops the frame,
