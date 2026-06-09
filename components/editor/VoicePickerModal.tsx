@@ -36,18 +36,27 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const fetchVoices = useCallback(async (reset: boolean) => {
+  const fetchVoices = useCallback(async (reset: boolean, explicitPage?: number) => {
+    // Take the page explicitly when appending so "Load more" never races a
+    // not-yet-applied setPage (a stale closure would re-fetch page 0).
+    const targetPage = explicitPage ?? (reset ? 0 : page);
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (q) params.set('q', q);
       if (category) params.set('category', category);
-      params.set('page', String(reset ? 0 : page));
+      params.set('page', String(targetPage));
       params.set('page_size', '60');
       const res = await fetch(`/api/voices/list?${params.toString()}`);
       const data = await res.json();
       const next: VoiceRecord[] = data.voices || [];
-      setVoices((prev) => (reset ? next : [...prev, ...next]));
+      setVoices((prev) => {
+        if (reset) return next;
+        // Dedupe by id when appending — a voice could recur across pages if the
+        // catalog shifts between requests, which would collide React keys.
+        const seen = new Set(prev.map((v) => v.id));
+        return [...prev, ...next.filter((v) => !seen.has(v.id))];
+      });
       setHasMore(!!data.hasMore);
     } finally {
       setLoading(false);
@@ -71,6 +80,15 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
     }
   }, [open]);
 
+  // Pause + release the audio element if the modal unmounts while still open
+  // (e.g. parent route change), so playback doesn't leak past the component.
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
   const togglePreview = (voice: VoiceRecord) => {
     if (!voice.preview_url) return;
     if (!audioRef.current) audioRef.current = new Audio();
@@ -86,9 +104,9 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
   };
 
   const loadMore = () => {
-    setPage((p) => p + 1);
-    // fetch the next page (append) on the new page value
-    setTimeout(() => fetchVoices(false), 0);
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchVoices(false, nextPage);
   };
 
   if (!open) return null;
@@ -149,8 +167,8 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
                   {isSelected && <Check className="w-3.5 h-3.5 text-accent-primary shrink-0" />}
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {[voice.gender, voice.accent, voice.use_case].filter(Boolean).map((tag, i) => (
-                    <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-content-tertiary uppercase tracking-wide">
+                  {[voice.gender, voice.accent, voice.use_case].filter(Boolean).map((tag) => (
+                    <span key={String(tag)} className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-content-tertiary uppercase tracking-wide">
                       {tag}
                     </span>
                   ))}
