@@ -49,8 +49,9 @@ export async function refundFailedIteration(
     p_metadata: { node_id: nodeId, prediction_index: predictionIndex, reason: 'iteration_failed' },
   });
   if (error) {
-    // Don't fail the webhook over a refund hiccup — log and continue so the
-    // node can still finalize. A missed refund is recoverable; a stuck node is not.
-    console.error(`[Webhook/Replicate-v2] Partial refund failed for ${nodeId}#${predictionIndex}:`, error.message);
+    // Don't fail the caller over a refund hiccup — log and continue so the node
+    // can still finalize. A missed refund is recoverable; a stuck node is not.
+    // Shared by both the Replicate webhook and the synchronous dispatch path.
+    console.error(`[Billing/PartialRefund] Partial refund failed for ${nodeId}#${predictionIndex}:`, error.message);
   }
 }
