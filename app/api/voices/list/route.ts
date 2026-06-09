@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
     const provider = searchParams.get('provider') || 'elevenlabs';
     const externalId = searchParams.get('external_id');
     const gender = searchParams.get('gender');
+    const age = searchParams.get('age');
     const language = searchParams.get('language');
     const category = searchParams.get('category');
     const useCase = searchParams.get('use_case');
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
     } else {
       if (q) query = query.ilike('name', `%${q}%`);
       if (gender) query = query.eq('gender', gender);
+      if (age) query = query.eq('age', age);
       // language filters against the per-voice supported-languages array.
       if (language) query = query.contains('language_codes', [language.toLowerCase()]);
       if (category) query = query.eq('category', category);

@@ -2,9 +2,12 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Play, Pause, X, Check, User, Globe, Tag, Mic } from 'lucide-react';
+import { Play, Pause, X, Check, User, Globe, Tag, Mic } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { languageFlag, KNOWN_LANGUAGES } from '@/lib/voices/language-flags';
+import { FlagIcon } from '@/components/editor/FlagIcon';
 
 export interface VoiceRecord {
   id: string;
@@ -36,30 +39,45 @@ const CATEGORY_FILTERS: { value: string; label: string }[] = [
   { value: 'shared', label: 'Community' },
 ];
 
-const GENDER_FILTERS: { value: string; label: string }[] = [
-  { value: '', label: 'Any' },
-  { value: 'female', label: 'Female' },
-  { value: 'male', label: 'Male' },
+const GENDER_OPTIONS = [
+  { id: 'any', display_name: 'Any gender' },
+  { id: 'female', display_name: 'Female' },
+  { id: 'male', display_name: 'Male' },
+  { id: 'neutral', display_name: 'Neutral' },
 ];
 
-// De-duplicate the language dropdown by display label (fil/tl, no/nb collapse).
+const AGE_OPTIONS = [
+  { id: 'any', display_name: 'Any age' },
+  { id: 'young', display_name: 'Young' },
+  { id: 'middle_aged', display_name: 'Middle-aged' },
+  { id: 'old', display_name: 'Old' },
+];
+
+// De-duplicate the language dropdown by display label (fil/tl, no/nb collapse),
+// each option carrying its image flag.
 const LANGUAGE_OPTIONS = (() => {
   const seen = new Set<string>();
-  return KNOWN_LANGUAGES.filter((l) => {
-    if (seen.has(l.label)) return false;
+  const opts = [{ id: 'all', display_name: 'All languages' } as any];
+  for (const l of KNOWN_LANGUAGES) {
+    if (seen.has(l.label)) continue;
     seen.add(l.label);
-    return true;
-  });
+    opts.push({
+      id: l.code,
+      display_name: l.label,
+      icon: <FlagIcon country={l.country} code={l.code} title={l.label} className="w-full h-full rounded-none" />,
+    });
+  }
+  return opts;
 })();
 
 function voiceLanguages(voice: VoiceRecord) {
   const seen = new Set<string>();
-  const out: { code: string; flag: string; label: string }[] = [];
+  const out: { code: string; country: string; label: string }[] = [];
   for (const raw of voice.language_codes || []) {
     const lf = languageFlag(raw);
     if (seen.has(lf.code)) continue;
     seen.add(lf.code);
-    out.push(lf);
+    out.push({ code: lf.code, country: lf.country, label: lf.label });
   }
   return out;
 }
@@ -70,6 +88,7 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
   const [gender, setGender] = useState('');
+  const [age, setAge] = useState('');
   const [language, setLanguage] = useState('');
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -84,6 +103,7 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
       if (q) params.set('q', q);
       if (category) params.set('category', category);
       if (gender) params.set('gender', gender);
+      if (age) params.set('age', age);
       if (language) params.set('language', language);
       params.set('page', String(targetPage));
       params.set('page_size', '60');
@@ -99,7 +119,7 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
     } finally {
       setLoading(false);
     }
-  }, [q, category, gender, language, page]);
+  }, [q, category, gender, age, language, page]);
 
   // Reset + refetch when any filter changes (debounced so typing isn't chatty).
   useEffect(() => {
@@ -108,7 +128,7 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
     const t = setTimeout(() => fetchVoices(true), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, category, gender, language, open]);
+  }, [q, category, gender, age, language, open]);
 
   // Stop audio when the modal closes.
   useEffect(() => {
@@ -160,15 +180,15 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 pt-5 pb-3 border-b border-stroke-subtle/70">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-accent-primary/15 flex items-center justify-center">
-                <Mic className="w-4 h-4 text-accent-primary" />
+        <div className="px-5 pt-5 pb-4 border-b border-stroke-subtle/70 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-accent-primary/15 flex items-center justify-center">
+                <Mic className="w-4.5 h-4.5 text-accent-primary" />
               </div>
               <div>
-                <h3 className="text-sm font-black text-content-primary tracking-tight">Choose a voice</h3>
-                <p className="text-[10px] text-content-tertiary">Click ▶ to hear any voice in one click</p>
+                <h3 className="text-base font-black text-content-primary tracking-tight leading-none">Find the right voice</h3>
+                <p className="text-[10px] text-content-tertiary mt-1">Click ▶ to hear any voice in one click</p>
               </div>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-content-tertiary transition-colors">
@@ -176,61 +196,52 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
             </button>
           </div>
 
-          {/* Search */}
-          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2">
-            <Search className="w-4 h-4 text-content-tertiary shrink-0" />
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search voices by name…"
-              className="flex-1 bg-transparent text-sm text-content-primary placeholder:text-content-tertiary/50 focus:outline-none"
-            />
+          {/* Search (custom Input) */}
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search voices by name…"
+          />
+
+          {/* Category chips */}
+          <div className="flex items-center gap-1 flex-wrap">
+            {CATEGORY_FILTERS.map((c) => (
+              <button
+                key={c.value || 'all'}
+                onClick={() => setCategory(c.value)}
+                className={cn(
+                  'px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors',
+                  category === c.value ? 'bg-accent-primary text-white' : 'bg-white/5 text-content-tertiary hover:bg-white/10'
+                )}
+              >
+                {c.label}
+              </button>
+            ))}
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
-            <div className="flex items-center gap-1">
-              {CATEGORY_FILTERS.map((c) => (
-                <button
-                  key={c.value || 'all'}
-                  onClick={() => setCategory(c.value)}
-                  className={cn(
-                    'px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors',
-                    category === c.value ? 'bg-accent-primary text-white' : 'bg-white/5 text-content-tertiary hover:bg-white/10'
-                  )}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1">
-              {GENDER_FILTERS.map((g) => (
-                <button
-                  key={g.value || 'any'}
-                  onClick={() => setGender(g.value)}
-                  className={cn(
-                    'px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors',
-                    gender === g.value ? 'bg-content-primary text-surface-primary' : 'bg-white/5 text-content-tertiary hover:bg-white/10'
-                  )}
-                >
-                  {g.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1.5 ml-auto">
-              <Globe className="w-3.5 h-3.5 text-content-tertiary" />
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-lg text-xs text-content-primary px-2 py-1 focus:outline-none focus:border-accent-primary/50 cursor-pointer"
-              >
-                <option value="">All languages</option>
-                {LANGUAGE_OPTIONS.map((l) => (
-                  <option key={l.code} value={l.code}>{l.flag} {l.label}</option>
-                ))}
-              </select>
-            </div>
+          {/* Dropdown filters (custom Select) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Select
+              label="Language"
+              variant="minimal"
+              value={language || 'all'}
+              onChange={(e) => setLanguage(e.target.value === 'all' ? '' : e.target.value)}
+              options={LANGUAGE_OPTIONS}
+            />
+            <Select
+              label="Gender"
+              variant="minimal"
+              value={gender || 'any'}
+              onChange={(e) => setGender(e.target.value === 'any' ? '' : e.target.value)}
+              options={GENDER_OPTIONS}
+            />
+            <Select
+              label="Age"
+              variant="minimal"
+              value={age || 'any'}
+              onChange={(e) => setAge(e.target.value === 'any' ? '' : e.target.value)}
+              options={AGE_OPTIONS}
+            />
           </div>
         </div>
 
@@ -243,9 +254,9 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
             const shownLangs = langs.slice(0, 8);
             const extraLangs = langs.length - shownLangs.length;
             const tags = [
-              voice.gender ? { icon: User, text: voice.gender } : null,
-              voice.accent ? { icon: Globe, text: voice.accent } : null,
               voice.use_case ? { icon: Tag, text: voice.use_case } : null,
+              voice.gender ? { icon: User, text: voice.gender } : null,
+              voice.age ? { icon: User, text: voice.age } : null,
             ].filter(Boolean) as { icon: typeof User; text: string }[];
             return (
               <div
@@ -278,7 +289,7 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
                   >
                     {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
                   </button>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 pr-5">
                     <p className="text-sm font-bold text-content-primary truncate leading-tight">{voice.name}</p>
                     {voice.category && (
                       <span className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary/70">{voice.category}</span>
@@ -286,11 +297,11 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
                   </div>
                 </div>
 
-                {/* Language flags */}
+                {/* Language flags (images) */}
                 {shownLangs.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1">
                     {shownLangs.map((l) => (
-                      <span key={l.code} title={l.label} className="text-sm leading-none cursor-default">{l.flag}</span>
+                      <FlagIcon key={l.code} country={l.country} code={l.code} title={l.label} className="w-4 h-4" />
                     ))}
                     {extraLangs > 0 && (
                       <span className="text-[10px] font-semibold text-content-tertiary">+{extraLangs}</span>

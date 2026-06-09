@@ -64,16 +64,29 @@ export function normalizeLangCode(raw: string): string {
 
 export interface LanguageFlag {
   code: string;
+  /** Emoji flag (does NOT render on Windows — prefer the image via flagCdnUrl). */
   flag: string;
   label: string;
+  /** ISO 3166 alpha-2 (lowercase), for rendering an image flag. '' if unknown. */
+  country: string;
 }
 
-/** Resolve a language code to { code, flag, label }. Unknown codes get a white flag + raw label. */
+/** Resolve a language code to { code, flag, label, country }. Unknown → white flag + raw label. */
 export function languageFlag(rawCode: string): LanguageFlag {
   const code = normalizeLangCode(rawCode);
   const info = LANGUAGES[code];
-  if (!info) return { code, flag: '🏳️', label: code.toUpperCase() || 'Unknown' };
-  return { code, flag: countryToFlag(info.country), label: info.label };
+  if (!info) return { code, flag: '🏳️', label: code.toUpperCase() || 'Unknown', country: '' };
+  return { code, flag: countryToFlag(info.country), label: info.label, country: info.country.toLowerCase() };
+}
+
+/**
+ * Image-flag URL for a country code (SVG from flagcdn.com). Used instead of emoji
+ * because Windows has no flag-emoji glyphs. Returns null for unknown codes.
+ */
+export function flagCdnUrl(country: string): string | null {
+  const cc = (country || '').toLowerCase();
+  if (cc.length !== 2) return null;
+  return `https://flagcdn.com/${cc}.svg`;
 }
 
 /** The full known-language list, for filter dropdowns (sorted by label). */
