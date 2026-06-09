@@ -37,12 +37,13 @@ function NoteNode({ id, data, selected }: NodeProps<NoteNodeData>) {
     const isFocusedRef = useRef(false);
     const [draftText, setDraftText] = useState(data.config?.text || '');
 
-    // Pull external text changes in only while not actively editing.
+    // Pull external (stored) text changes in only while not actively editing.
+    // Re-runs only when the stored value changes; setState with an equal value
+    // is a no-op, so no extra guard is needed.
     useEffect(() => {
         if (isFocusedRef.current) return;
-        const incoming = data.config?.text || '';
-        if (incoming !== draftText) setDraftText(incoming);
-    }, [data.config?.text, draftText]);
+        setDraftText(data.config?.text || '');
+    }, [data.config?.text]);
 
     // Auto-size the textarea to its content; capture wheel so the canvas doesn't
     // pan/zoom while the user scrolls a long note.
