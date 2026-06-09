@@ -19,7 +19,29 @@ const ICON_CHIP_CLASS =
     'w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-surface-secondary/40 group-hover:bg-accent-primary/10 transition-colors';
 
 const ICON_CLASS =
-    'w-3.5 h-3.5 text-content-secondary group-hover:text-accent-primary transition-colors';
+    'w-3.5 h-3.5 text-content-secondary transition duration-200 group-hover:text-accent-primary group-hover:scale-110';
+
+const LOGO_CLASS =
+    'w-full h-full object-contain transition-transform duration-200 group-hover:scale-110';
+
+/** Two-line label: the name sits on its baseline and slides up on hover while
+ *  a small subtitle fades/slides in from below. The subtitle is absolutely
+ *  positioned so revealing it never changes the row height. Shared by the
+ *  flyout item rows and the master category/provider rows. */
+function RevealingLabel({ name, subtitle }: { name: string; subtitle?: string }) {
+    return (
+        <div className="flex-1 min-w-0 relative">
+            <div className="text-[11px] font-medium text-content-primary truncate leading-[14px] transition-transform duration-200 group-hover:-translate-y-1">
+                {name}
+            </div>
+            {subtitle && (
+                <div className="absolute left-0 right-0 top-full mt-0.5 text-[9px] text-content-tertiary uppercase tracking-wider truncate leading-[10px] opacity-0 -translate-y-1 group-hover:opacity-100 group-hover:-translate-y-[5px] transition-all duration-200">
+                    {subtitle}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export interface BasicsTileProps {
     name: string;
@@ -50,12 +72,14 @@ export interface CategoryRowProps {
     id?: string;
     category: Category;
     active: boolean;
+    /** Revealed on hover (e.g. an item count). */
+    subtitle?: string;
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => void;
     onMouseLeave?: (e: React.MouseEvent<HTMLButtonElement>) => void;
     onFocus?: () => void;
 }
 
-export function CategoryRow({ id, category, active, onMouseEnter, onMouseLeave, onFocus }: CategoryRowProps) {
+export function CategoryRow({ id, category, active, subtitle, onMouseEnter, onMouseLeave, onFocus }: CategoryRowProps) {
     const IconComponent = (Icons[category.icon_reference as keyof typeof Icons] as React.ComponentType<{ className?: string }>) || Icons.Folder;
     return (
         <button
@@ -66,12 +90,10 @@ export function CategoryRow({ id, category, active, onMouseEnter, onMouseLeave, 
             onFocus={onFocus}
             className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
-            <div className="flex items-center gap-2.5 min-w-0">
-                <div className={ICON_CHIP_CLASS}>
-                    <IconComponent className={ICON_CLASS} />
-                </div>
-                <span className="text-[11px] font-medium text-content-primary truncate">{category.display_name}</span>
+            <div className={ICON_CHIP_CLASS}>
+                <IconComponent className={ICON_CLASS} />
             </div>
+            <RevealingLabel name={category.display_name} subtitle={subtitle} />
             <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-50 group-hover:opacity-100 group-hover:text-accent-primary transition" />
         </button>
     );
@@ -81,12 +103,14 @@ export interface ProviderRowProps {
     id?: string;
     provider: { id: string; name: string; logo_url: string | null };
     active: boolean;
+    /** Revealed on hover (e.g. a model count). */
+    subtitle?: string;
     onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => void;
     onMouseLeave?: (e: React.MouseEvent<HTMLButtonElement>) => void;
     onFocus?: () => void;
 }
 
-export function ProviderRow({ id, provider, active, onMouseEnter, onMouseLeave, onFocus }: ProviderRowProps) {
+export function ProviderRow({ id, provider, active, subtitle, onMouseEnter, onMouseLeave, onFocus }: ProviderRowProps) {
     return (
         <button
             id={id}
@@ -96,14 +120,12 @@ export function ProviderRow({ id, provider, active, onMouseEnter, onMouseLeave, 
             onFocus={onFocus}
             className={`w-full text-left ${ROW_CLASS} justify-between data-[active=true]:bg-accent-primary/[0.08]`}
         >
-            <div className="flex items-center gap-2.5 min-w-0">
-                <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
-                    {provider.logo_url
-                        ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
-                        : <Building2 className={ICON_CLASS} />}
-                </div>
-                <span className="text-[11px] font-medium text-content-primary truncate">{provider.name}</span>
+            <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
+                {provider.logo_url
+                    ? <img src={provider.logo_url} alt={provider.name} className={LOGO_CLASS} />
+                    : <Building2 className={ICON_CLASS} />}
             </div>
+            <RevealingLabel name={provider.name} subtitle={subtitle} />
             <ChevronRight className="w-3 h-3 text-content-tertiary flex-shrink-0 opacity-50 group-hover:opacity-100 group-hover:text-accent-primary transition" />
         </button>
     );
@@ -130,14 +152,7 @@ function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDrag
             className={`${ROW_CLASS} ${clickable ? 'cursor-pointer' : draggable ? 'cursor-move' : ''}`}
         >
             {leftSlot}
-            <div className="flex-1 min-w-0 relative">
-                <div className="text-[11px] font-medium text-content-primary truncate leading-[14px] transition-transform duration-200 group-hover:-translate-y-1">
-                    {name}
-                </div>
-                <div className="absolute left-0 right-0 top-full mt-0.5 text-[9px] text-content-tertiary uppercase tracking-wider truncate leading-[10px] opacity-0 -translate-y-1 group-hover:opacity-100 group-hover:-translate-y-[5px] transition-all duration-200">
-                    {subtitle}
-                </div>
-            </div>
+            <RevealingLabel name={name} subtitle={subtitle} />
         </div>
     );
 }
@@ -167,6 +182,31 @@ export function NodeItemRow({ nodeType, onDragStart, onAdd }: NodeItemRowProps) 
     );
 }
 
+export interface ToolItemRowProps {
+    tool: { type: string; label: string; icon: string };
+    onDragStart?: () => void;
+    onAdd?: (payload: DragPayload) => void;
+}
+
+export function ToolItemRow({ tool, onDragStart, onAdd }: ToolItemRowProps) {
+    const IconComp = (Icons[tool.icon as keyof typeof Icons] as React.ComponentType<{ className?: string }>) || Icons.Wrench;
+    return (
+        <RevealingRow
+            name={tool.label}
+            subtitle="Tool"
+            draggable
+            onDragStart={onDragStart}
+            onAdd={onAdd}
+            onDragPayload={{ type: tool.type }}
+            leftSlot={
+                <div className={ICON_CHIP_CLASS}>
+                    <IconComp className={ICON_CLASS} />
+                </div>
+            }
+        />
+    );
+}
+
 export interface ModelItemRowProps {
     model: AiModel;
     provider?: { name: string; logo_url: string | null } | null;
@@ -186,7 +226,7 @@ export function ModelItemRow({ model, provider, onDragStart, onAdd }: ModelItemR
             leftSlot={
                 <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
                     {provider?.logo_url
-                        ? <img src={provider.logo_url} alt={provider.name} className="w-full h-full object-contain" />
+                        ? <img src={provider.logo_url} alt={provider.name} className={LOGO_CLASS} />
                         : <Icons.Box className={ICON_CLASS} />}
                 </div>
             }

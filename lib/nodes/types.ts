@@ -70,6 +70,8 @@ export interface Category {
     display_name: string;
     icon_reference: string;
     order_index: number;
+    /** Short blurb shown on hover in the Add Node panel; falls back to an item count when absent. */
+    description?: string;
 }
 
 export interface NodeTypeRecord {

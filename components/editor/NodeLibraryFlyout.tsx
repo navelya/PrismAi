@@ -3,10 +3,11 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import * as Icons from 'lucide-react';
 import { NodeTypeRecord, AiModel } from '@/lib/nodes/types';
-import { NodeItemRow, ModelItemRow } from './node-library/rows';
+import { NodeItemRow, ModelItemRow, ToolItemRow } from './node-library/rows';
 
 export type FlyoutMode =
     | { kind: 'category'; categoryName: string; items: NodeTypeRecord[] }
+    | { kind: 'tools'; items: { type: string; label: string; icon: string }[] }
     | { kind: 'provider'; providerName: string; items: AiModel[]; providers: { id: string; name: string; logo_url: string | null }[] };
 
 export interface NodeLibraryFlyoutProps {
@@ -48,6 +49,10 @@ export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseE
                 ) : mode.kind === 'category' ? (
                     mode.items.map(nt => (
                         <NodeItemRow key={nt.id} nodeType={nt} onDragStart={onDragStartClose} onAdd={onAdd} />
+                    ))
+                ) : mode.kind === 'tools' ? (
+                    mode.items.map(t => (
+                        <ToolItemRow key={t.type} tool={t} onDragStart={onDragStartClose} onAdd={onAdd} />
                     ))
                 ) : (
                     mode.items.map(model => {
