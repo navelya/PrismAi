@@ -140,6 +140,7 @@ export function ModelForm({
         is_active: initialData?.is_active ?? true,
         archetype_id: initialData?.archetype_id || '',
         provider_id: initialData?.provider_id || '',
+        provider_model_id: initialData?.provider_model_id || '',
         category_id: initialData?.category_id || '',
         node_type_id: initialData?.node_type_id || '',
         description: initialData?.inputs_schema?.description || '',
@@ -171,6 +172,7 @@ export function ModelForm({
                 is_active: initialData.is_active ?? true,
                 archetype_id: initialData.archetype_id || '',
                 provider_id: initialData.provider_id || '',
+                provider_model_id: initialData.provider_model_id || '',
                 category_id: initialData.category_id || '',
                 node_type_id: initialData.node_type_id || '',
                 description: initialData.inputs_schema?.description || '',
@@ -405,6 +407,20 @@ export function ModelForm({
         return JSON.stringify(ctrl.default_value ?? (normalizedControlType(ctrl) === 'array' ? [] : {}), null, 2);
     };
 
+    const selectedProvider = providers.find((p: any) => p.id === form.provider_id);
+    const isExternalProvider = !!selectedProvider?.adapter_key;
+
+    const applyElevenLabsPreset = () => {
+        setVisualControls([
+            { id: 'c_text', api_mapping_key: 'text', label: 'Text', type: 'string', component: 'prompt_textarea', default_value: '', is_visible: true },
+            { id: 'c_voice', api_mapping_key: 'voice_id', label: 'Voice', type: 'string', component: 'voice_picker', default_value: '', is_visible: true },
+            { id: 'c_stability', api_mapping_key: 'stability', label: 'Stability', type: 'number', component: 'slider', default_value: 0.5, is_visible: true, min: 0, max: 1, step: 0.01 },
+            { id: 'c_similarity', api_mapping_key: 'similarity_boost', label: 'Similarity', type: 'number', component: 'slider', default_value: 0.75, is_visible: true, min: 0, max: 1, step: 0.01 },
+            { id: 'c_style', api_mapping_key: 'style', label: 'Style', type: 'number', component: 'slider', default_value: 0, is_visible: true, min: 0, max: 1, step: 0.01 },
+            { id: 'c_format', api_mapping_key: 'output_format', label: 'Output format', type: 'string', component: 'select', default_value: 'mp3_44100_128', is_visible: false, options: ['mp3_44100_128', 'mp3_44100_64'] },
+        ] as any);
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -460,13 +476,13 @@ export function ModelForm({
                             value={form.replicate_model_id}
                             onChange={e => setForm({ ...form, replicate_model_id: e.target.value })}
                             placeholder="stability-ai/sdxl:39ed..."
-                            required
+                            required={!isExternalProvider}
                         />
                     </div>
                     <button
                         type="button"
                         onClick={fetchSchema}
-                        disabled={isFetchingSchema || !form.replicate_model_id}
+                        disabled={isFetchingSchema || !form.replicate_model_id || isExternalProvider}
                         className="mb-0.5 px-4 py-3 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary border border-accent-primary/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 h-[48px]"
                     >
                         {isFetchingSchema ? 'Fetching...' : 'Fetch Schema'}
@@ -530,7 +546,23 @@ export function ModelForm({
                         ]}
                         onChange={e => setForm({ ...form, provider_id: e.target.value === 'none' ? '' : e.target.value })}
                     />
+                    {isExternalProvider && (
+                        <Input
+                            label="Provider model id (e.g. eleven_v3)"
+                            name="provider_model_id"
+                            value={form.provider_model_id}
+                            onChange={e => setForm({ ...form, provider_model_id: e.target.value })}
+                            placeholder="eleven_v3"
+                        />
+                    )}
                 </div>
+                {isExternalProvider && (
+                    <div className="mt-3">
+                        <button type="button" onClick={applyElevenLabsPreset} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg bg-accent-primary/10 text-accent-primary border border-accent-primary/30 hover:bg-accent-primary/20 transition-all">
+                            Apply ElevenLabs speech preset
+                        </button>
+                    </div>
+                )}
             </FormSection>
 
             <FormSection

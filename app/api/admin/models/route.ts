@@ -19,12 +19,16 @@ export async function POST(req: Request) {
             inputs_schema,
             outputs_schema,
             provider_id,
+            provider_model_id,
             description
         } = body;
 
         // Basic validation
-        if (!replicate_model_id || !display_name || !category_id || !archetype_id) {
+        if (!display_name || !category_id || !archetype_id) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+        }
+        if (!replicate_model_id && !provider_id) {
+            return NextResponse.json({ error: 'Provide a replicate_model_id or a provider' }, { status: 400 });
         }
 
         const { data, error } = await auth.supabase
@@ -42,7 +46,8 @@ export async function POST(req: Request) {
                     description: description || inputs_schema?.description || ''
                 },
                 outputs_schema: outputs_schema || { handles: [] },
-                provider_id
+                provider_id,
+                provider_model_id: provider_model_id || null,
             })
             .select()
             .single();
