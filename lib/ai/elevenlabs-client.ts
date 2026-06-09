@@ -32,9 +32,9 @@ export interface GeneratedSpeech {
 
 function outputFormatToFile(outputFormat: string): { ext: string; contentType: string } {
   // ElevenLabs output_format values look like "mp3_44100_128", "pcm_16000",
-  // "ulaw_8000". We only persist mp3 as a browser-playable file here; other
-  // formats fall back to a .bin container (still downloadable). mp3 is the
-  // default and the only format the preset offers.
+  // "ulaw_8000". We persist mp3 (browser-playable) and wav; any other/unknown
+  // format falls back to mp3/audio/mpeg. mp3 is the default and the only format
+  // the preset offers.
   if (outputFormat.startsWith('mp3')) return { ext: 'mp3', contentType: 'audio/mpeg' };
   if (outputFormat.startsWith('wav')) return { ext: 'wav', contentType: 'audio/wav' };
   return { ext: 'mp3', contentType: 'audio/mpeg' };
@@ -50,6 +50,9 @@ export async function generateSpeech(args: GenerateSpeechArgs): Promise<Generate
   if (!args.text || !args.text.trim()) throw new Error('ElevenLabs: text is required');
 
   const outputFormat = args.outputFormat || 'mp3_44100_128';
+  // The encoding is governed by the output_format query param; derive the
+  // matching Accept/contentType so they never contradict it for non-mp3 formats.
+  const { ext, contentType } = outputFormatToFile(outputFormat);
   const url = `${ELEVENLABS_BASE_URL}/text-to-speech/${encodeURIComponent(args.voiceId)}?output_format=${encodeURIComponent(outputFormat)}`;
 
   const res = await fetch(url, {
@@ -57,7 +60,7 @@ export async function generateSpeech(args: GenerateSpeechArgs): Promise<Generate
     headers: {
       'xi-api-key': ELEVENLABS_API_KEY,
       'Content-Type': 'application/json',
-      Accept: 'audio/mpeg',
+      Accept: contentType,
     },
     body: JSON.stringify({
       text: args.text,
@@ -72,6 +75,5 @@ export async function generateSpeech(args: GenerateSpeechArgs): Promise<Generate
   }
 
   const buffer = Buffer.from(await res.arrayBuffer());
-  const { ext, contentType } = outputFormatToFile(outputFormat);
   return { buffer, ext, contentType };
 }
