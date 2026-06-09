@@ -15,6 +15,7 @@ export const NODE_DIMENSIONS: Record<string, { width: number; height: number }> 
     // fallback for empty groups or for existing groups whose stored
     // dimensions aren't available server-side.
     group_container: { width: 320, height: 220 },
+    note:         { width: 220, height: 120 },
 };
 
 const DEFAULT_NODE_DIM = { width: 220, height: 380 };

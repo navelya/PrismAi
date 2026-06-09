@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     // Group nodes are visual organization only — they have no handles, no
     // executor, and must never be dispatched. Strip them from the executable
     // node set before any downstream logic runs.
-    const executableNodes = allNodes.filter((n: NodeConfig) => n.type !== 'group_container');
+    const executableNodes = allNodes.filter((n: NodeConfig) => n.type !== 'group_container' && n.type !== 'note');
 
     const supabase = createServiceClient();
 

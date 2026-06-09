@@ -59,11 +59,11 @@ export async function dispatchNode(
   try {
     const nodeType = nodeConfig.type;
 
-    // Groups are non-executable visual containers. If anything ever asks for
-    // their dispatch (orchestrator misfire, AI-generated bad patch, etc.) we
+    // Groups and notes are non-executable visual nodes. If anything ever asks
+    // for their dispatch (orchestrator misfire, AI-generated bad patch, etc.) we
     // log and bail safely instead of marking the execution failed.
-    if (nodeType === 'group_container') {
-      console.log(`[Dispatch] Skipping group_container node ${nodeId} (groups are non-executable).`);
+    if (nodeType === 'group_container' || nodeType === 'note') {
+      console.log(`[Dispatch] Skipping ${nodeType} node ${nodeId} (non-executable).`);
       return { success: true, data: null };
     }
 

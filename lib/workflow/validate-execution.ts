@@ -65,7 +65,7 @@ export function validateExecution(ctx: ValidationContext): ValidationError[] {
     const nodeById = new Map(workflow.nodes.map((n) => [n.id, n]));
 
     for (const node of executing) {
-        if (node.type === 'group_container') continue;
+        if (node.type === 'group_container' || node.type === 'note') continue;
 
         const inputs = resolveNodeInputs(node, sharedRegistry, models);
         const incomingEdges = workflow.edges.filter((e) => e.target === node.id);
@@ -158,7 +158,7 @@ function computeExecutingNodes(
     sharedRegistry?: Record<string, NodeSharedDef<any>>,
 ): WorkflowNode[] {
     if (runMode === 'all') {
-        return workflow.nodes.filter((n) => n.type !== 'group_container');
+        return workflow.nodes.filter((n) => n.type !== 'group_container' && n.type !== 'note');
     }
     if (runMode === 'selection') {
         // Multi-solo: each selected node treats its siblings as fellow executors,
@@ -166,7 +166,7 @@ function computeExecutingNodes(
         // the expansion a chain like prompt → blur → ai_gen would falsely flag
         // the leaf when only it is selected.
         const expanded = expandEphemeralAncestors(workflow, targetNodeIds ?? [], sharedRegistry);
-        return workflow.nodes.filter((n) => expanded.has(n.id) && n.type !== 'group_container');
+        return workflow.nodes.filter((n) => expanded.has(n.id) && n.type !== 'group_container' && n.type !== 'note');
     }
     if (!targetNodeId) return [];
     const target = workflow.nodes.find((n) => n.id === targetNodeId);
@@ -194,7 +194,7 @@ function computeExecutingNodes(
             }
         }
     }
-    return workflow.nodes.filter((n) => executing.has(n.id) && n.type !== 'group_container');
+    return workflow.nodes.filter((n) => executing.has(n.id) && n.type !== 'group_container' && n.type !== 'note');
 }
 
 /**
