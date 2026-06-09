@@ -337,6 +337,10 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         inferredType === 'text' ||
         (effectiveUrlCount === 0 && effectiveTextValues.length > 0);
     const effectiveType = isTextPreview ? 'text' : rawEffectiveType;
+    // Audio has no intrinsic media dimensions — it's a fixed-size transport strip,
+    // not a resizable image/video. The node renders it in a compact, fixed-height
+    // card (see below) so an audio output never inflates to the 200px media frame.
+    const isAudioPreview = effectiveType === 'audio';
 
     // Sizing model:
     //   text / audio → fixed width (no intrinsic-width content to drive layout)
@@ -416,16 +420,20 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                     // Media keeps the framed, min-height card. Text drops the frame,
                     // min-height and tinted bg entirely so the inner PROMPT_BOX is the
                     // only surface — matching the standalone prompt node exactly.
+                    // Audio gets the frame but a FIXED compact height (just the
+                    // transport strip) so it never grows to the media footprint.
                     isTextPreview
                         ? "bg-transparent border-none"
-                        : "rounded-xl overflow-hidden shadow-inner min-h-[200px] border border-white/10 bg-white/5",
+                        : isAudioPreview
+                            ? "rounded-xl overflow-hidden shadow-inner h-[60px] border border-white/10 bg-white/5"
+                            : "rounded-xl overflow-hidden shadow-inner min-h-[200px] border border-white/10 bg-white/5",
                     !isDragging && "transition-all duration-500"
                 )}
             >
                 {/* Frosty Placeholder background — media only. Over a text preview
                     its from-white/10 wash stacked on the PROMPT_BOX, making the box
-                    read brighter than the prompt node; suppress it for text. */}
-                {!isTextPreview && (
+                    read brighter than the prompt node; suppress it for text/audio. */}
+                {!isTextPreview && !isAudioPreview && (
                     <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
                 )}
 
@@ -517,7 +525,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 
             {/* Model Info Footer (Refined) */}
             {selectedModel && (
-                <div className="mt-1 px-2.5 py-2 flex items-center justify-between opacity-90 group-hover:opacity-100 transition-opacity">
+                <div className="mt-0.5 px-1.5 py-1 flex items-center justify-between opacity-90 group-hover:opacity-100 transition-opacity">
                     <div
                         className="flex items-center gap-2 min-w-0 cursor-pointer"
                         onClick={(e) => {
@@ -859,12 +867,13 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
 
     if (type === 'audio' && (urls[0] || output?.url)) {
         const audioUrl = urls[0] || output?.url;
-        // Custom dark player that blends into the node's default framed card —
-        // no native white audio chrome, no extra tinted box, icon, or label
-        // (per request). The parent already draws the min-h-[200px] frosty card.
+        // Custom dark player that blends into the node's framed card — no native
+        // white audio chrome, no extra tinted box, icon, or label (per request).
+        // Fills the parent's FIXED compact card (h-[60px]) as a single transport
+        // strip; no min-height so an audio output never inflates the node.
         return (
             <div
-                className="w-full px-4 py-6 flex items-center justify-center min-h-[200px]"
+                className="w-full h-full px-3 flex items-center"
                 onMouseDown={onInteraction}
                 onPointerDown={onInteraction}
             >
