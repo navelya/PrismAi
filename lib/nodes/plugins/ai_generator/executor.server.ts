@@ -19,11 +19,15 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         // 1. Fetch model configuration from DB
         const { data: model, error: dbError } = await adminSupabase
             .from('ai_models')
-            .select('replicate_model_id, provider_model_id, inputs_schema, outputs_schema, providers(adapter_key)')
+            .select('replicate_model_id, provider_model_id, is_active, display_name, inputs_schema, outputs_schema, providers(adapter_key)')
             .eq('id', model_id)
             .single();
 
         if (dbError || !model) throw new Error(`Model not found or inactive: ${dbError?.message || 'DB Error'}`);
+
+        if (model.is_active === false) {
+            throw new Error(`Model "${model.display_name || model_id}" is no longer available. Pick a different model.`);
+        }
 
         // 2. Prepare inputs
         // ... (existing input mapping remains same)
