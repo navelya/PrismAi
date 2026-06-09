@@ -26,8 +26,15 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PROVIDER_ID = 'elevenlabs';
 const BASE = 'https://api.elevenlabs.io/v1';
-// How many shared-library voices to pull (in pages of 100).
-const SHARED_TARGET = 300;
+// How many shared-library voices to pull from the general (trending) feed.
+const SHARED_TARGET = 600;
+// Languages we explicitly sweep so the catalog has broad language variety — one
+// page per language guarantees coverage the trending feed alone would miss.
+const SWEEP_LANGUAGES = [
+  'en', 'es', 'fr', 'de', 'it', 'pt', 'pl', 'nl', 'ja', 'ko', 'zh', 'hi', 'ar',
+  'tr', 'ru', 'id', 'fil', 'sv', 'bg', 'ro', 'cs', 'el', 'fi', 'hr', 'ms', 'sk',
+  'da', 'ta', 'uk', 'hu', 'no', 'vi',
+];
 
 if (!ELEVENLABS_API_KEY) { console.error('Missing ELEVENLABS_API_KEY'); process.exit(1); }
 if (!SUPABASE_URL || !SERVICE_KEY) { console.error('Missing Supabase env'); process.exit(1); }
@@ -52,6 +59,13 @@ function mapVoice(v, category) {
   if (single && single.length <= 3) codes.add(single);
   const language_codes = Array.from(codes);
 
+  // Popularity: ElevenLabs shared-library voices carry `cloned_by_count` (how many
+  // users added the voice) — a solid popularity proxy. Premade/owned voices have no
+  // count, so they rely on `featured` for the Popular tab. Premade voices ARE the
+  // hand-picked default set, so treat them as featured.
+  const popularity = Number(v.cloned_by_count || 0) || 0;
+  const featured = !!v.featured || category === 'premade';
+
   return {
     provider_id: PROVIDER_ID,
     external_voice_id: v.voice_id,
@@ -65,6 +79,8 @@ function mapVoice(v, category) {
     use_case: labels.use_case || labels['use case'] || v.use_case || null,
     category: v.category || category,
     preview_url: v.preview_url || null,
+    popularity,
+    featured,
     labels,
     is_active: true,
     updated_at: new Date().toISOString(),
@@ -91,15 +107,19 @@ async function fetchPremadeAndOwned() {
   return voices.length;
 }
 
-async function fetchSharedLibrary() {
+// Pull a slice of /shared-voices with arbitrary query params, upserting each page.
+// Returns how many voices were collected. Stops on the first error or empty page.
+async function fetchSharedSlice(label, extraParams, target) {
   let collected = 0;
   let page = 0;
   const pageSize = 100;
-  while (collected < SHARED_TARGET) {
-    const url = `${BASE}/shared-voices?page_size=${pageSize}&page=${page}`;
-    const res = await fetch(url, { headers: { 'xi-api-key': ELEVENLABS_API_KEY } });
+  while (collected < target) {
+    const params = new URLSearchParams({ page_size: String(pageSize), page: String(page), ...extraParams });
+    const res = await fetch(`${BASE}/shared-voices?${params.toString()}`, {
+      headers: { 'xi-api-key': ELEVENLABS_API_KEY },
+    });
     if (!res.ok) {
-      console.warn(`[sync] /shared-voices page ${page} failed (${res.status}) — stopping shared sync.`);
+      console.warn(`[sync] shared(${label}) page ${page} failed (${res.status}) — stopping this slice.`);
       break;
     }
     const json = await res.json();
@@ -107,11 +127,25 @@ async function fetchSharedLibrary() {
     if (voices.length === 0) break;
     await upsertBatch(voices.filter((v) => v.voice_id).map((v) => mapVoice(v, 'shared')));
     collected += voices.length;
-    console.log(`[sync] shared page ${page}: +${voices.length} (total ${collected})`);
     if (json.has_more === false) break;
     page += 1;
   }
   return collected;
+}
+
+async function fetchSharedLibrary() {
+  // 1) The general trending feed — the bulk of popular voices.
+  let total = await fetchSharedSlice('trending', {}, SHARED_TARGET);
+  console.log(`[sync] shared trending: ${total} voices`);
+
+  // 2) Per-language sweep so every supported language is represented, even ones
+  //    the trending feed under-samples. One page (≤100) per language is plenty.
+  for (const lang of SWEEP_LANGUAGES) {
+    const n = await fetchSharedSlice(`lang:${lang}`, { language: lang }, 60);
+    if (n) console.log(`[sync] shared lang ${lang}: +${n}`);
+    total += n;
+  }
+  return total;
 }
 
 (async () => {
@@ -119,7 +153,7 @@ async function fetchSharedLibrary() {
     const a = await fetchPremadeAndOwned();
     const b = await fetchSharedLibrary();
     const { count } = await supabase.from('voices').select('*', { count: 'exact', head: true });
-    console.log(`[sync] Done. premade/owned=${a}, shared=${b}. Total rows now: ${count}`);
+    console.log(`[sync] Done. premade/owned=${a}, shared(incl. lang sweep)=${b}. Total rows now: ${count}`);
     process.exit(0);
   } catch (err) {
     console.error('[sync] ERROR:', err.message);

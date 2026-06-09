@@ -5,6 +5,7 @@ import { Mic, ChevronDown, Play, Pause, Maximize2, User, Tag } from 'lucide-reac
 import { VoicePickerModal, VoiceRecord } from '@/components/editor/VoicePickerModal';
 import { FlagIcon } from '@/components/editor/FlagIcon';
 import { languageFlag } from '@/lib/voices/language-flags';
+import { getCachedVoice, setCachedVoice } from '@/lib/voices/voice-cache';
 
 interface VoicePickerControlProps {
   label: string;
@@ -33,18 +34,28 @@ function voiceLanguages(voice: VoiceRecord | null) {
  */
 export function VoicePickerControl({ label, value, onChange }: VoicePickerControlProps) {
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<VoiceRecord | null>(null);
+  // Seed from the client-side cache so the card renders its full content with ZERO
+  // latency on reopen / reload — no "id flashes, then card pops in" delay.
+  const [selected, setSelected] = useState<VoiceRecord | null>(() => getCachedVoice(value));
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Resolve the selected voice's full record from its stored id.
+  // Resolve the selected voice's full record from its stored id. The cache covers
+  // the common case instantly; we still revalidate in the background (and cache the
+  // result) so a stale/never-seen id eventually resolves.
   useEffect(() => {
     let cancelled = false;
     if (!value) { setSelected(null); return; }
-    if (selected?.external_voice_id === value) return;
+    const cached = getCachedVoice(value);
+    if (cached) setSelected(cached);
+    if (selected?.external_voice_id === value && cached) return;
     fetch(`/api/voices/list?external_id=${encodeURIComponent(String(value))}`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) setSelected((data.voices && data.voices[0]) || null); })
+      .then((data) => {
+        if (cancelled) return;
+        const rec = (data.voices && data.voices[0]) || null;
+        if (rec) { setSelected(rec); setCachedVoice(rec); }
+      })
       .catch(() => { /* leave unresolved; card shows the id */ });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,6 +164,7 @@ export function VoicePickerControl({ label, value, onChange }: VoicePickerContro
         selectedExternalId={value ? String(value) : undefined}
         onSelect={(voice) => {
           setSelected(voice);
+          setCachedVoice(voice);
           onChange(voice.external_voice_id);
           setOpen(false);
         }}
