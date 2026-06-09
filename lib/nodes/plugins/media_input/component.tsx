@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
-import { NodeProps } from 'reactflow';
+import { NodeProps, useStore, useUpdateNodeInternals } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
@@ -32,6 +32,47 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
 
     // Use AppStore for safe config updates instead of ReactFlow's setNodes
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
+    const commitNodesChange = useAppStore((state) => state.onNodesChange);
+    const updateNodeInternals = useUpdateNodeInternals();
+    // RF-measured frame size + whether the node carries an explicit (user-resized)
+    // size. `style.width` is only set once NodeResizer has run, so it's the signal
+    // that the frame is pinned rather than auto-hugging its content.
+    const nodeWidth = useStore((s) => s.nodeInternals.get(id)?.width);
+    const nodeHeight = useStore((s) => s.nodeInternals.get(id)?.height);
+    const explicitWidth = useStore((s) => s.nodeInternals.get(id)?.style?.width);
+    // Aspect (w/h) of the media currently shown in single view, from its natural
+    // dimensions — drives the single-view re-fit below.
+    const [singleAspect, setSingleAspect] = useState<number | null>(null);
+    const handleSingleMediaLoad = useCallback((dims?: { naturalWidth: number; naturalHeight: number }) => {
+        if (dims && dims.naturalWidth > 0 && dims.naturalHeight > 0) {
+            setSingleAspect(dims.naturalWidth / dims.naturalHeight);
+        }
+    }, []);
+
+    // Re-fit the frame to the single-view media's aspect ratio.
+    //
+    // The node is aspect-ratio-locked resizable. Resizing while in GRID view bakes
+    // in an explicit width+height whose ratio matches the grid, not the image —
+    // and that pinned size persists into single view, where BaseNode makes the
+    // card fill the fixed frame, so the `object-contain` image letterboxes (the
+    // "black space" bug). A never-resized node has no `style.width` and auto-hugs
+    // the image already, so we only act once an explicit size exists. Recompute
+    // the height from the current width and the image aspect so the frame hugs
+    // the image again, keeping the user's chosen width. Aspect-locked manual
+    // resizes in single view then preserve this ratio, so the effect is a no-op
+    // for them (guarded by the tolerance, which also prevents a commit loop).
+    useEffect(() => {
+        if (previewMode !== 'single') return;
+        if (explicitWidth == null) return;
+        if (!singleAspect || !nodeWidth || !nodeHeight) return;
+        const CHROME = 14; // card border + content p-1 + dashed border, both sides
+        const desiredHeight = Math.round((nodeWidth - CHROME) / singleAspect + CHROME);
+        if (Math.abs(nodeHeight - desiredHeight) <= 4) return;
+        commitNodesChange([
+            { id, type: 'dimensions', updateStyle: true, resizing: false, dimensions: { width: nodeWidth, height: desiredHeight } } as any,
+        ]);
+        updateNodeInternals(id);
+    }, [previewMode, explicitWidth, singleAspect, nodeWidth, nodeHeight, id, commitNodesChange, updateNodeInternals]);
     const [isUploading, setIsUploading] = useState(false);
     const activeSessionId = useAppStore((state) => state.activeSessionId);
     // View-only (collaboration viewer): no add/remove of files.
@@ -241,6 +282,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                             muted
                                             loop
                                             playsInline
+                                            onLoadedMetadata={(e: any) => handleSingleMediaLoad({ naturalWidth: e.currentTarget.videoWidth, naturalHeight: e.currentTarget.videoHeight })}
                                         />
                                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                                             <Play className="w-10 h-10 text-white fill-current" />
@@ -251,6 +293,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                         src={getMediaUrl(images[activeImageIndex])}
                                         alt=""
                                         className="w-full h-full max-w-none max-h-none"
+                                        onLoad={handleSingleMediaLoad}
                                     />
                                 )}
                                 {!isViewer && (
