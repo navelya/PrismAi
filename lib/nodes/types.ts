@@ -29,7 +29,7 @@ export interface OutputHandle {
 export interface Control {
     api_mapping_key: string;
     type: string;
-    component: 'text_input' | 'textarea' | 'slider' | 'number_input' | 'checkbox' | 'select' | 'prompt_textarea' | 'negative_prompt' | 'aspect_ratio' | 'resolution' | 'format' | 'reverse' | 'threshold';
+    component: 'text_input' | 'textarea' | 'slider' | 'number_input' | 'checkbox' | 'select' | 'prompt_textarea' | 'negative_prompt' | 'aspect_ratio' | 'resolution' | 'format' | 'reverse' | 'threshold' | 'voice_picker';
     default_value: any;
     is_visible: boolean;
     label?: string;

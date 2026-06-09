@@ -99,6 +99,7 @@ const COMPONENT_DICTIONARY = [
     { id: 'format', label: 'Format', type: 'string', default_value: '' },
     { id: 'reverse', label: 'Reverse', type: 'string', default_value: '' },
     { id: 'threshold', label: 'Threshold', type: 'number', default_value: 0 },
+    { id: 'voice_picker', label: 'Voice Picker (ElevenLabs)', type: 'string', default_value: '' },
 ];
 
 const WIRE_TYPES = ['image', 'video', 'text', 'audio', 'any'];
