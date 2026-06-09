@@ -23,7 +23,10 @@ import { motion } from 'framer-motion';
 // anchored to the node edge. The `before` pseudo keeps a generous 40px circular
 // grab area. The visible affordance is rendered by <HandleDot> below.
 const HANDLE_HITBOX_CLASS =
-    "w-5 h-5 !bg-transparent !border-0 z-50 translate-y-[-50%] origin-center " +
+    // `group/handle` lets HandleDot react to a DIRECT hover on this handle (its
+    // 40px grab area below) — the chip + icon grow an extra notch via
+    // group-hover/handle: variants, layered on top of the node-hover open state.
+    "group/handle w-5 h-5 !bg-transparent !border-0 z-50 translate-y-[-50%] origin-center " +
     "before:content-[''] before:absolute before:w-10 before:h-10 before:left-1/2 before:top-1/2 " +
     "before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:z-[60]";
 
@@ -39,6 +42,14 @@ const HANDLE_STAGGER_MS = 45;
 // Tweak this single value to taste: closer to -20 = flush when expanded, more
 // negative = bigger gap.
 const HANDLE_OFFSET = -12
+
+// Extra distance (px) the expanded chip drifts AWAY from the node edge while
+// the node is hovered (input chips slide left, output chips slide right), on
+// top of HANDLE_OFFSET. Purely visual: the <Handle> hit-box — and therefore
+// the wire connection point — never moves; only the visible chip slides out,
+// animated by HandleDot's transition. Tweak to taste: 0 = no drift, larger =
+// the chip floats further off the edge when open.
+const HANDLE_HOVER_SHIFT = 6
 
 // The visible handle: a plain neutral dot at rest that smoothly zooms into a
 // larger, lightly-glassy chip revealing the data-type icon when `open` (node
@@ -58,29 +69,41 @@ function HandleDot({
     open,
     delay,
     highlight,
+    side,
 }: {
     type: string | string[] | undefined;
     open: boolean;
     delay: number;
     highlight?: boolean;
+    // Which edge this handle sits on, so the open-state drift pushes the chip
+    // OUTWARD (left handles slide left, right handles slide right).
+    side: 'left' | 'right';
 }) {
     const Icon = iconForHandleType(type);
+    // Centering transform lives inline (not the Tailwind -translate-*-1/2
+    // classes) so we can compose the outward hover drift onto it. When open,
+    // add HANDLE_HOVER_SHIFT in the outward direction; the shared transition-all
+    // animates the slide, and transitionDelay keeps it in stagger sequence.
+    const driftX = open ? (side === 'left' ? -HANDLE_HOVER_SHIFT : HANDLE_HOVER_SHIFT) : 0;
     return (
         <span
             className={cn(
-                "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 grid place-items-center pointer-events-none",
+                "absolute left-1/2 top-1/2 grid place-items-center pointer-events-none",
                 "border border-stroke-strong transition-all duration-150 ease-out",
                 open
-                    ? "w-5 h-5 rounded-[7px] bg-surface-elevated/70 shadow-lg"
+                    ? "w-5 h-5 rounded-[7px] bg-surface-elevated/70 shadow-lg group-hover/handle:w-7 group-hover/handle:h-7 group-hover/handle:shadow-xl"
                     : "w-2.5 h-2.5 rounded-full bg-surface-elevated shadow-sm",
                 highlight && "animate-pulse !border-content-primary",
             )}
-            style={{ transitionDelay: `${delay}ms` }}
+            style={{
+                transitionDelay: `${delay}ms`,
+                transform: `translate(calc(-50% + ${driftX}px), -50%)`,
+            }}
         >
             <Icon
                 className={cn(
                     "block w-3 h-3 text-content-secondary transition-all duration-150 ease-out",
-                    open ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                    open ? "opacity-100 scale-100 group-hover/handle:scale-125" : "opacity-0 scale-50",
                 )}
                 style={{ transitionDelay: `${delay}ms` }}
                 strokeWidth={2.25}
@@ -886,16 +909,19 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                         top: `calc(50% + ${offset}px)`,
                                     }}
                                 >
-                                    <HandleDot type={inputType} open={open} delay={delay} highlight={isMissing} />
+                                    <HandleDot type={inputType} open={open} delay={delay} highlight={isMissing} side="left" />
                                     {input.label && (() => {
                                         const isErrorState = !hideStatus && status === 'error' && isMissing;
 
                                         return (
                                             <div
                                                 className={cn(
-                                                    "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out drop-shadow-md z-[70]",
+                                                    // Inline beside the dot, outward to the left, vertically
+                                                    // centered on its row and right-aligned so it reads INTO
+                                                    // the node. mr clears the expanded+drifted chip.
+                                                    "absolute right-full top-1/2 -translate-y-1/2 mr-6 text-right whitespace-nowrap text-[11px] font-semibold pointer-events-none transition-all duration-150 ease-out drop-shadow-md z-[70]",
                                                     open ? "opacity-100" : "opacity-0",
-                                                    isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
+                                                    isErrorState ? "text-accent-error font-bold" : "text-content-primary"
                                                 )}
                                                 style={{ transitionDelay: `${delay}ms` }}
                                             >
@@ -921,7 +947,7 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 connectedTargetHandles.has('__default__')
                             );
                             const open = isHovered || isHandleLabelForced('target', defaultInput?.id ?? '');
-                            return <HandleDot type={defaultInput?.expectedType} open={open} delay={0} highlight={isMissing} />;
+                            return <HandleDot type={defaultInput?.expectedType} open={open} delay={0} highlight={isMissing} side="left" />;
                         })()}
                         {defaultInputLabel && (() => {
                             const defaultInput = sharedDef?.handles?.inputs?.[0];
@@ -935,9 +961,9 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                             return (
                                 <div
                                     className={cn(
-                                        "absolute bottom-full right-1/2 mb-1 mr-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out drop-shadow-md z-[70]",
+                                        "absolute right-full top-1/2 -translate-y-1/2 mr-6 text-right whitespace-nowrap text-[11px] font-semibold pointer-events-none transition-all duration-150 ease-out drop-shadow-md z-[70]",
                                         open ? "opacity-100" : "opacity-0",
-                                        isErrorState ? "text-accent-error font-extrabold" : "text-content-primary"
+                                        isErrorState ? "text-accent-error font-bold" : "text-content-primary"
                                     )}
                                 >
                                     {defaultInputLabel}{defaultInput?.isMandatory ? ' *' : ''}
@@ -1007,10 +1033,12 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     top: `calc(50% + ${offset}px)`
                                 }}
                             >
-                                <HandleDot type={outputType} open={open} delay={delay} />
+                                <HandleDot type={outputType} open={open} delay={delay} side="right" />
                                 <div
                                     className={cn(
-                                        "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
+                                        // Inline beside the dot, outward to the right, vertically
+                                        // centered and left-aligned. ml clears the expanded+drifted chip.
+                                        "absolute left-full top-1/2 -translate-y-1/2 ml-6 text-left whitespace-nowrap text-[11px] font-semibold pointer-events-none transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
                                         open ? "opacity-100" : "opacity-0"
                                     )}
                                     style={{ transitionDelay: `${delay}ms` }}
@@ -1030,13 +1058,13 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                     >
                         {(() => {
                             const open = isHovered || isHandleLabelForced('source', defaultOutputId);
-                            return <HandleDot type={sharedDef?.handles?.outputs?.[0]?.dataType} open={open} delay={0} />;
+                            return <HandleDot type={sharedDef?.handles?.outputs?.[0]?.dataType} open={open} delay={0} side="right" />;
                         })()}
                         {defaultOutputLabel && (() => {
                             const open = isHovered || isHandleLabelForced('source', defaultOutputId);
                             return (
                                 <div className={cn(
-                                    "absolute bottom-full left-1/2 mb-1 ml-1 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider pointer-events-none transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
+                                    "absolute left-full top-1/2 -translate-y-1/2 ml-6 text-left whitespace-nowrap text-[11px] font-semibold pointer-events-none transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
                                     open ? "opacity-100" : "opacity-0"
                                 )}>
                                     {defaultOutputLabel}
