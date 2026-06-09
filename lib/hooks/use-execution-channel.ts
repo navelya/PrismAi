@@ -143,6 +143,42 @@ async function hydrateFromDb(supabase: ReturnType<typeof createClient>, sessionI
 }
 
 /**
+ * Live handle to the active channel's supabase client + session, published by the
+ * hook so imperative callers (e.g. the run trigger) can reconcile after a request
+ * without prop-drilling. Null when no session channel is mounted.
+ */
+let activeChannelHandle: { supabase: ReturnType<typeof createClient>; sessionId: string } | null = null;
+
+/**
+ * Reconcile a SPECIFIC execution's node_results straight from the DB and apply
+ * them to the store, with 'realtime' semantics (so a fresh run is appended to the
+ * node's collection — appendAiGeneratorRun is idempotent per execution_id, so this
+ * never double-appends if the realtime event already landed).
+ *
+ * WHY THIS EXISTS: synchronous adapter nodes (e.g. ElevenLabs speech) complete
+ * server-side *inside* the /api/executions/start request — the node goes
+ * running→completed in one tight window, and that 'completed' realtime event can
+ * fire before the client processes it, leaving the node stuck on its optimistic
+ * "loading" until a manual refresh. Calling this right after the start request
+ * returns is deterministic: by then the row is guaranteed committed. Async
+ * (Replicate) nodes are still 'running' at that point — re-applying 'running' is a
+ * harmless no-op, and the webhook + realtime path completes them later as before.
+ */
+export async function reconcileExecutionFromDb(executionId: string): Promise<void> {
+    if (!executionId || !activeChannelHandle) return;
+    const { supabase, sessionId } = activeChannelHandle;
+    const { data, error } = await supabase
+        .from('node_results')
+        .select('node_id, status, result_type, result_data, error, session_id, execution_id')
+        .eq('execution_id', executionId);
+    if (error) {
+        console.warn('[ExecutionChannel] Post-run reconcile failed:', error.message);
+        return;
+    }
+    for (const row of data || []) applyNodeResult(row, sessionId, 'realtime');
+}
+
+/**
  * Subscribe to a channel with exponential backoff retry.
  * Resolves when SUBSCRIBED, rejects after all retries exhausted.
  */
@@ -207,6 +243,9 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
         const supabase = createClient();
         supabaseRef.current = supabase;
+        // Publish the handle so reconcileExecutionFromDb() can run a targeted
+        // post-run catch-up for synchronously-completed nodes.
+        activeChannelHandle = { supabase, sessionId };
 
         const handleResultChange = (payload: any) => {
             const record = payload.new;
@@ -312,6 +351,7 @@ export function useExecutionChannel(sessionId: string | null | undefined) {
 
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            activeChannelHandle = null;
             const cleanupChannel = (ref: typeof resultsChannelRef) => {
                 if (ref.current && supabaseRef.current) {
                     try {

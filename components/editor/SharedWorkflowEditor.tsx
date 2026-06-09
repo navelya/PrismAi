@@ -21,6 +21,7 @@ import { formatValidationError } from '@/lib/workflow/validate-execution-message
 import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
 import { createClient } from '@/lib/supabase/client';
+import { reconcileExecutionFromDb } from '@/lib/hooks/use-execution-channel';
 import { buildModelsMap, computeExecutionCost, type CostNode } from '@/lib/billing/cost';
 
 interface SharedWorkflowEditorProps {
@@ -491,6 +492,17 @@ export default function SharedWorkflowEditor({
             const data = await res.json();
             if (data.execution_id) {
                 store.setActiveExecutionId(data.execution_id);
+
+                // Synchronous adapter nodes (e.g. ElevenLabs speech) complete
+                // server-side INSIDE this request, so their 'completed' realtime
+                // event can fire in a window the client misses — leaving the node
+                // stuck on its optimistic "loading" until a manual refresh. The DB
+                // row is guaranteed committed by the time this response returns, so
+                // reconcile it straight from the DB now (plus one short follow-up
+                // for any tail timing). Idempotent for async nodes still running.
+                const execId = data.execution_id;
+                void reconcileExecutionFromDb(execId);
+                setTimeout(() => { void reconcileExecutionFromDb(execId); }, 1200);
 
                 // Correlate this server-issued execution with the chat-run card
                 // that triggered it. node_results rows carry the SERVER execution
