@@ -20,6 +20,7 @@ import { computeAiNodeCost, clampIterations } from '@/lib/billing/cost';
 import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { VoicePickerControl } from './VoicePickerControl';
 
 // =============================================================================
 // SKELETON LOADER
@@ -501,6 +502,14 @@ function ControlRenderer({
                     value={value ?? control.default_value ?? 0}
                     onChange={e => onChange(control.api_mapping_key, parseFloat(e.target.value))}
                     variant="minimal"
+                />
+            );
+        case 'voice_picker':
+            return (
+                <VoicePickerControl
+                    label={label}
+                    value={value}
+                    onChange={val => onChange(control.api_mapping_key, val)}
                 />
             );
         case 'text_input':
