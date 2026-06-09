@@ -209,17 +209,48 @@ export default function AssetsGallery() {
                 setSelectedIds(hit);
             };
 
+            // Auto-scroll: when the pointer sits within EDGE px of a surface edge
+            // during a drag, scroll toward it each frame (speed ramps with depth)
+            // so the marquee can extend past the visible viewport.
+            const EDGE = 64;
+            const MAX_SPEED = 22;
+            let rafId = 0;
+            const speedFor = (depth: number) => Math.min(MAX_SPEED, Math.max(3, (depth / EDGE) * MAX_SPEED));
+            const autoScrollStep = () => {
+                rafId = 0;
+                const rect = surface.getBoundingClientRect();
+                let vx = 0, vy = 0;
+                if (lastY < rect.top + EDGE) vy = -speedFor(rect.top + EDGE - lastY);
+                else if (lastY > rect.bottom - EDGE) vy = speedFor(lastY - (rect.bottom - EDGE));
+                if (lastX < rect.left + EDGE) vx = -speedFor(rect.left + EDGE - lastX);
+                else if (lastX > rect.right - EDGE) vx = speedFor(lastX - (rect.right - EDGE));
+                if (vx === 0 && vy === 0) return;
+                surface.scrollTop += vy;
+                surface.scrollLeft += vx;
+                update();
+                rafId = requestAnimationFrame(autoScrollStep);
+            };
+            const maybeAutoScroll = () => {
+                if (rafId) return;
+                const rect = surface.getBoundingClientRect();
+                const near = lastY < rect.top + EDGE || lastY > rect.bottom - EDGE
+                    || lastX < rect.left + EDGE || lastX > rect.right - EDGE;
+                if (near) rafId = requestAnimationFrame(autoScrollStep);
+            };
+
             const onMove = (ev: PointerEvent) => {
                 lastX = ev.clientX; lastY = ev.clientY;
                 if (!moved && Math.abs(lastX - startX) < 4 && Math.abs(lastY - startY) < 4) return;
                 moved = true;
                 update();
+                maybeAutoScroll();
             };
             const onScroll = () => { if (moved) update(); };
             const onUp = () => {
                 window.removeEventListener('pointermove', onMove);
                 window.removeEventListener('pointerup', onUp);
                 surface.removeEventListener('scroll', onScroll);
+                if (rafId) cancelAnimationFrame(rafId);
                 setMarquee(null);
                 if (!moved) clearSelection();
             };
