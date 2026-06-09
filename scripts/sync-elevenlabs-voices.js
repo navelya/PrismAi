@@ -68,7 +68,9 @@ async function fetchPremadeAndOwned() {
   const json = await res.json();
   const voices = json.voices || [];
   console.log(`[sync] /voices returned ${voices.length} voices`);
-  await upsertBatch(voices.map((v) => mapVoice(v, v.category || 'premade')));
+  // external_voice_id is NOT NULL — skip any entry missing voice_id so one
+  // malformed item can't reject the whole batch upsert.
+  await upsertBatch(voices.filter((v) => v.voice_id).map((v) => mapVoice(v, v.category || 'premade')));
   return voices.length;
 }
 
@@ -86,7 +88,7 @@ async function fetchSharedLibrary() {
     const json = await res.json();
     const voices = json.voices || [];
     if (voices.length === 0) break;
-    await upsertBatch(voices.map((v) => mapVoice(v, 'shared')));
+    await upsertBatch(voices.filter((v) => v.voice_id).map((v) => mapVoice(v, 'shared')));
     collected += voices.length;
     console.log(`[sync] shared page ${page}: +${voices.length} (total ${collected})`);
     if (json.has_more === false) break;
