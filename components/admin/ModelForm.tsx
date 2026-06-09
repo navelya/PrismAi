@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Switch } from '@/components/ui/Switch';
 import { parseReplicateSchema, formatDisplayName } from '@/lib/utils/schema-parser';
 import AIGeneratorProperties from '@/lib/nodes/plugins/ai_generator/properties';
+import { VoicePickerControl } from '@/lib/nodes/plugins/ai_generator/VoicePickerControl';
 import { Control, isSeedControl } from '@/lib/nodes/types';
 
 // =============================================================================
@@ -411,12 +412,16 @@ export function ModelForm({
     const isExternalProvider = !!selectedProvider?.adapter_key;
 
     const applyElevenLabsPreset = () => {
-        // Wholesale overwrite — guard against clobbering hand-built controls.
-        if (visualControls.length > 0 && !window.confirm('Replace the current controls with the ElevenLabs speech preset?')) {
+        // Wholesale overwrite — guard against clobbering hand-built controls/inputs.
+        if ((visualControls.length > 0 || visualInputWires.length > 0) && !window.confirm('Replace the current controls and inputs with the ElevenLabs speech preset?')) {
             return;
         }
+        // Text is an INPUT (wire it from a Prompt/text node), NOT a typed property.
+        // The adapter reads inputs['text'] from this handle's api_mapping_key.
+        setVisualInputWires([
+            { id: 'h_text', name: 'Text', api_mapping_key: 'text', type: 'text', is_array: false, is_mandatory: true, is_visible: true, cost_per_item: 0, max_items: 0 },
+        ] as any);
         setVisualControls([
-            { id: 'c_text', api_mapping_key: 'text', label: 'Text', type: 'string', component: 'prompt_textarea', default_value: '', is_visible: true },
             { id: 'c_voice', api_mapping_key: 'voice_id', label: 'Voice', type: 'string', component: 'voice_picker', default_value: '', is_visible: true },
             { id: 'c_stability', api_mapping_key: 'stability', label: 'Stability', type: 'number', component: 'slider', default_value: 0.5, is_visible: true, min: 0, max: 1, step: 0.01 },
             { id: 'c_similarity', api_mapping_key: 'similarity_boost', label: 'Similarity', type: 'number', component: 'slider', default_value: 0.75, is_visible: true, min: 0, max: 1, step: 0.01 },
@@ -682,6 +687,7 @@ export function ModelForm({
                                         { id: 'negative_prompt', display_name: 'Negative Prompt' },
                                         { id: 'reverse', display_name: 'Reverse Switch' },
                                         { id: 'threshold', display_name: 'Threshold Slider' },
+                                        { id: 'voice_picker', display_name: 'Voice Picker (ElevenLabs)' },
                                     ]}
                                     onChange={e => {
                                         const component = e.target.value as any;
@@ -878,7 +884,18 @@ export function ModelForm({
                                     )
                                 )}
 
-                                {!isBooleanControl(ctrl) && !isNumericControl(ctrl) && !isSelectControl(ctrl) && !isJsonControl(ctrl) && !isSeedControl(ctrl) && (
+                                {ctrl.component === 'voice_picker' && (
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-content-tertiary">Default Voice</p>
+                                        <VoicePickerControl
+                                            label=""
+                                            value={ctrl.default_value}
+                                            onChange={(val) => setControlPatch(ctrl.id, { default_value: val })}
+                                        />
+                                    </div>
+                                )}
+
+                                {ctrl.component !== 'voice_picker' && !isBooleanControl(ctrl) && !isNumericControl(ctrl) && !isSelectControl(ctrl) && !isJsonControl(ctrl) && !isSeedControl(ctrl) && (
                                     (ctrl.component === 'textarea' || ctrl.component === 'prompt_textarea' || ctrl.component === 'negative_prompt') ? (
                                         <Textarea
                                             label="Default Value"

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Play, Pause, X, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -109,9 +110,12 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
     fetchVoices(false, nextPage);
   };
 
-  if (!open) return null;
+  // Render via a portal to <body> so the fixed overlay escapes the properties
+  // panel's backdrop-filter ancestor (which would otherwise become the containing
+  // block for `position: fixed`, trapping the modal inside the side panel).
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div
         className="w-full max-w-3xl max-h-[80vh] flex flex-col bg-surface-elevated border border-stroke-subtle rounded-2xl shadow-2xl overflow-hidden"
@@ -202,6 +206,7 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
