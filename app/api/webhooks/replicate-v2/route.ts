@@ -15,38 +15,7 @@ import {
 } from '@/lib/workflow/result-format';
 import { resolveNodeOutputWireTypeFromGraph } from '@/lib/workflow/output-type';
 import { clampIterations } from '@/lib/billing/cost';
-
-const WEBHOOK_MEDIA_EXTENSIONS: Record<NodeResultType, string> = {
-  image: 'png',
-  video: 'mp4',
-  audio: 'mp3',
-  '3d': 'glb',
-  text: 'txt',
-  json: 'json',
-};
-
-const WEBHOOK_MEDIA_CONTENT_TYPES: Record<NodeResultType, string> = {
-  image: 'image/png',
-  video: 'video/mp4',
-  audio: 'audio/mpeg',
-  '3d': 'model/gltf-binary',
-  text: 'text/plain',
-  json: 'application/json',
-};
-
-async function fetchWithRetry(url: string, maxAttempts = 3, delayMs = 1500): Promise<Response> {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(url);
-    if (res.ok) return res;
-    console.warn(
-      `[Webhook/Replicate-v2] Fetch attempt ${attempt}/${maxAttempts} failed (${res.status}). ${
-        attempt < maxAttempts ? `Retrying in ${delayMs}ms...` : 'No more retries.'
-      }`
-    );
-    if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, delayMs));
-  }
-  throw new Error(`Failed to fetch media after ${maxAttempts} attempts`);
-}
+import { mirrorMediaToStorage } from '@/lib/workflow/media-mirror';
 
 /**
  * Finalize a fan-out node via the atomic `finalize_fan_out` RPC. The RPC, under a
@@ -83,79 +52,6 @@ async function finalizeFanOut(
 
 function isReplicateHostedUrl(value: string): boolean {
   return value.includes('replicate.delivery') || value.includes('replicate.com');
-}
-
-// Cap on simultaneous fetch+upload pairs. Each in-flight item holds the full
-// media payload in memory as a Buffer, so unbounded Promise.all would OOM the
-// function on large batches of video. 5 is enough parallelism for typical
-// 4-image outputs while keeping peak memory bounded.
-const MIRROR_CONCURRENCY = 5;
-
-async function mirrorMediaToStorage(
-  supabase: ReturnType<typeof createServiceClient>,
-  urls: string[],
-  resultType: NodeResultType,
-  userId: string,
-  sessionId: string,
-  nodeId: string
-): Promise<string[]> {
-  const now = Date.now();
-  // Pre-sized and written by index — downstream consumers rely on positional
-  // alignment with the input `urls` array, so order must be preserved across
-  // parallel workers.
-  const mirroredUrls: string[] = new Array(urls.length);
-
-  const processOne = async (i: number): Promise<void> => {
-    const sourceUrl = urls[i];
-
-    if (!sourceUrl.startsWith('http')) {
-      mirroredUrls[i] = sourceUrl;
-      return;
-    }
-
-    const response = await fetchWithRetry(sourceUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    const extMatch = sourceUrl.match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|avi|mkv|mp3|wav|ogg|m4a|aac|flac|glb|gltf|obj|fbx|stl|usd|usdz)(\?|$)/i);
-    const ext = extMatch?.[1]?.toLowerCase() || WEBHOOK_MEDIA_EXTENSIONS[resultType];
-    // Store under `results/`, NOT `thumbnails/`. The `thumbnails/{nodeId}` folder
-    // is treated as ephemeral and is wiped wholesale when a node is deleted
-    // (see deleteNodeWithAssets in lib/store/slices/ui-slice.ts). This is the only
-    // persisted copy of an AI node's output, so it must live in a permanent path
-    // that node deletion never touches.
-    const storagePath = `${userId}/${sessionId}/results/${nodeId}/result_${now}_${i}.${ext}`;
-
-    const { error: uploadError } = await supabase.storage.from('chat-assets').upload(storagePath, buffer, {
-      contentType: WEBHOOK_MEDIA_CONTENT_TYPES[resultType],
-      cacheControl: '3600',
-      upsert: true,
-    });
-
-    if (uploadError) {
-      throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
-    }
-
-    const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
-    mirroredUrls[i] = urlData.publicUrl;
-  };
-
-  // Worker pool: N workers pull from a shared cursor. If a worker throws,
-  // Promise.all rejects with that error; other workers may finish their
-  // current task harmlessly (uploads are idempotent via upsert:true) before
-  // the rejection propagates to the caller's try/catch.
-  let cursor = 0;
-  const workerCount = Math.min(MIRROR_CONCURRENCY, urls.length);
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const i = cursor++;
-      if (i >= urls.length) return;
-      await processOne(i);
-    }
-  });
-  await Promise.all(workers);
-
-  return mirroredUrls;
 }
 
 /**
