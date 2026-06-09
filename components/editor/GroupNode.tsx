@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { NodeProps, NodeToolbar, Position, useReactFlow } from 'reactflow';
+import { NodeProps, NodeToolbar, Position, useReactFlow, useStore } from 'reactflow';
+import type { ReactFlowState } from 'reactflow';
 import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
@@ -31,6 +32,12 @@ function resolveIcon(name: string | undefined): LucideIcon {
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+// Below this zoom the group's title bubble (rendered at constant screen size
+// via NodeToolbar, so it does NOT shrink with the canvas) reads as clutter
+// floating over a tiny group. Hide it past this threshold. Matches the grid's
+// first detail-drop breakpoint in GridLayers for a consistent feel.
+const TITLE_HIDE_ZOOM = 0.3;
 
 const GROUP_COLOR_CLASSES: Record<string, { bgRgba: string; borderRgba: string }> = {
     neutral: { bgRgba: 'rgba(127, 127, 127, 0.10)', borderRgba: 'rgba(127, 127, 127, 0.375)' },
@@ -62,6 +69,10 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
     // immediately at the server's fallback-sized position, then jumps once the
     // re-layout runs — the "not sitting right" flash the user reported.
     const isHiddenForReveal = useAppStore((s) => !!s.aiTurn?.hiddenAddedIds?.includes(id));
+
+    // Reactive zoom — drives hiding the title bubble when zoomed far out.
+    // Re-renders only when the threshold actually flips (boolean selector).
+    const isTitleHiddenByZoom = useStore((s: ReactFlowState) => s.transform[2] < TITLE_HIDE_ZOOM);
 
     // Stored size — set at creation (AI synthesis or manual group action) and
     // updated by the resize handles. Acts as the FLOOR for our rendered size.
@@ -337,7 +348,7 @@ export default function GroupNode({ id, data, selected }: NodeProps<GroupNodeDat
                 so the bubble does NOT scale with the canvas zoom (matching
                 the multi-select toolbar's behavior). Click to edit. */}
             <NodeToolbar
-                isVisible={!isHiddenForReveal}
+                isVisible={!isHiddenForReveal && !isTitleHiddenByZoom}
                 nodeId={id}
                 position={Position.Top}
                 align="start"

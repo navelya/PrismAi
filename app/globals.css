@@ -336,20 +336,6 @@
   box-shadow: none !important;
 }
 
-/* Marquee/box-selecting a resizable node leaves React Flow's
-   `.react-flow__nodesselection-rect` overlay (z-index 3, pointer-events: all)
-   sitting over the selection's bounding box. App nodes default to zIndex 0 and
-   a marquee never elevates them (unlike a click, which brings the node to
-   front), so the overlay paints OVER the node's resize handles and swallows
-   their pointer events — the handles look missing / can't be grabbed after a
-   box-select. Make the rect non-blocking and untinted so the handles show
-   through and stay grabbable; the live drag box (.react-flow__selection) keeps
-   its fill, and dragging any selected node still moves the whole selection. */
-.react-flow__nodesselection-rect {
-  pointer-events: none !important;
-  background: transparent !important;
-}
-
 .react-flow__resize-control.line {
   border-color: rgb(var(--accent-primary) / 0.55) !important;
   /* Visual border only — BaseNode's own edge strips own the drag so the
