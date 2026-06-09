@@ -2,6 +2,7 @@ import { NodeExecutor, NodeExecutionResult, ExecutionContext } from '../../types
 import { replicate, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
 import { isOutputEnvelope } from '@/lib/workflow/result-format';
 import { createServiceClient } from '@/lib/supabase/service';
+import { getProviderAdapter } from '@/lib/ai/providers/registry';
 
 /**
  * AI Generator Executor
@@ -18,7 +19,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         // 1. Fetch model configuration from DB
         const { data: model, error: dbError } = await adminSupabase
             .from('ai_models')
-            .select('replicate_model_id, inputs_schema, outputs_schema')
+            .select('replicate_model_id, provider_model_id, inputs_schema, outputs_schema, providers(adapter_key)')
             .eq('id', model_id)
             .single();
 
@@ -153,6 +154,28 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         if (missingRequired.length > 0) {
             throw new Error(`Missing required input(s): ${missingRequired.join(', ')}`);
+        }
+
+        // ── External provider adapter fork ──────────────────────────────────
+        // If this model's provider has a registered code adapter (ElevenLabs,
+        // etc.), run it instead of the Replicate path. The inputs map built above
+        // (`replicateInputs`, keyed by api_mapping_key) is the provider-agnostic
+        // payload. Sync adapters upload their bytes and return a hosted { url };
+        // the dispatcher completes the node via its sync-success path.
+        const adapterKey = (model as any)?.providers?.adapter_key as string | undefined;
+        const adapter = getProviderAdapter(adapterKey);
+        if (adapter) {
+            return await adapter.execute({
+                model: model as any,
+                inputs: replicateInputs,
+                iterationIndex: typeof context.predictionIndex === 'number' ? context.predictionIndex : 0,
+                ctx: context,
+            });
+        }
+        // ── End adapter fork; below is the unchanged Replicate path ──────────
+
+        if (!model.replicate_model_id) {
+            throw new Error(`Model ${model_id} has no replicate_model_id and no provider adapter`);
         }
 
         if (!process.env.REPLICATE_API_TOKEN) throw new Error('Replicate API token missing');
