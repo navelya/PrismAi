@@ -1222,32 +1222,6 @@ export default function Home() {
                     </motion.div>
                 </section>
 
-                {/* ─── Stats Bar (Light) ──────────────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-16">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-4 border-y border-slate-200 py-12">
-                        {[
-                            { v: 4200000, suffix: '+', label: 'Workflows generated' },
-                            { v: 32, suffix: '', label: 'Frontier models' },
-                            { v: 8, suffix: 's', label: 'Avg generation time' },
-                            { v: 99, suffix: '%', label: 'Uptime, last 90d' },
-                        ].map((s, i) => (
-                            <motion.div
-                                key={i}
-                                initial={{ opacity: 0, y: 16 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                viewport={{ once: true }}
-                                transition={{ duration: 0.6, delay: i * 0.08 }}
-                                className="flex flex-col items-center md:items-start gap-2 px-4"
-                            >
-                                <span className="text-3xl md:text-5xl font-black tracking-tighter text-slate-900 font-display">
-                                    <AnimatedCounter value={s.v} suffix={s.suffix} />
-                                </span>
-                                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-400">{s.label}</span>
-                            </motion.div>
-                        ))}
-                    </div>
-                </section>
-
                 {/* ─── Capabilities Bento (Light) ─────────────────────────────── */}
                 <section className="relative w-full max-w-7xl px-8 py-24" id="capabilities">
                     <SectionHeader
