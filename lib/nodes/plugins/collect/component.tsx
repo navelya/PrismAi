@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { NodeProps, useUpdateNodeInternals } from 'reactflow';
+import { NodeProps, useStore, useUpdateNodeInternals } from 'reactflow';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
@@ -11,7 +11,6 @@ import BlurryVideo from '@/components/ui/BlurryVideo';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { Switch } from '@/components/ui/Switch';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
-import { useGridViewHeightLock } from '@/lib/hooks/use-grid-view-height-lock';
 import { detectMediaTypeFromUrl, NodeResultType } from '@/lib/workflow/result-format';
 import { LayoutGrid, Square, Check, Play, Combine, FileText, Music, Box } from 'lucide-react';
 import { NodeClientDef, NodeDataType } from '../../core/types';
@@ -93,15 +92,26 @@ function getItemText(item: any): string {
 
 function CollectNode({ data, id, selected, dragging = false }: NodeProps<CollectNodeData>) {
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
+    const commitNodesChange = useAppStore((state) => state.onNodesChange);
     const updateNodeInternals = useUpdateNodeInternals();
 
     const [previewMode, setPreviewMode] = useState<'single' | 'grid'>('single');
     const [activeIndex, setActiveIndex] = useState(0);
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
-    // Freeze the preview height when switching to grid so the node doesn't
-    // resize on view toggle (parity with media_input).
-    const { ref: previewRef, lockStyle: previewLockStyle } = useGridViewHeightLock(previewMode);
+
+    // RF-measured frame size + whether the node carries an explicit (user-resized)
+    // size. Mirrors media_input: the single-view frame re-fits to the active
+    // media's aspect ratio so it never letterboxes after a grid-view resize.
+    const nodeWidth = useStore((s) => s.nodeInternals.get(id)?.width);
+    const nodeHeight = useStore((s) => s.nodeInternals.get(id)?.height);
+    const explicitWidth = useStore((s) => s.nodeInternals.get(id)?.style?.width);
+    const [singleAspect, setSingleAspect] = useState<number | null>(null);
+    const handleSingleMediaLoad = useCallback((dims?: { naturalWidth: number; naturalHeight: number }) => {
+        if (dims && dims.naturalWidth > 0 && dims.naturalHeight > 0) {
+            setSingleAspect(dims.naturalWidth / dims.naturalHeight);
+        }
+    }, []);
 
     const config = useMemo<CollectConfig>(
         () => ({ takeOnlyActive: false, ...((data.config as Partial<CollectConfig>) || {}) }),
@@ -138,6 +148,28 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
         if (activeIndex > items.length - 1) setActiveIndex(items.length > 0 ? items.length - 1 : 0);
     }, [items.length, activeIndex]);
 
+    // Re-fit the frame to the single-view media's aspect ratio (mirrors
+    // media_input). Resizing while in GRID view bakes in an explicit width+height
+    // whose ratio matches the grid, not the image — and that pinned size persists
+    // into single view, where BaseNode makes the card fill the fixed frame, so
+    // `object-contain` letterboxes. A never-resized node has no `style.width` and
+    // auto-hugs the image already, so we only act once an explicit size exists.
+    // Recompute the height from the current width and image aspect so the frame
+    // hugs the image again, keeping the user's chosen width. The ±4 tolerance
+    // prevents a commit loop.
+    useEffect(() => {
+        if (previewMode !== 'single') return;
+        if (explicitWidth == null) return;
+        if (!singleAspect || !nodeWidth || !nodeHeight) return;
+        const CHROME = 14; // card border + content p-1 + preview border, both sides
+        const desiredHeight = Math.round((nodeWidth - CHROME) / singleAspect + CHROME);
+        if (Math.abs(nodeHeight - desiredHeight) <= 4) return;
+        commitNodesChange([
+            { id, type: 'dimensions', updateStyle: true, resizing: false, dimensions: { width: nodeWidth, height: desiredHeight } } as any,
+        ]);
+        updateNodeInternals(id);
+    }, [previewMode, explicitWidth, singleAspect, nodeWidth, nodeHeight, id, commitNodesChange, updateNodeInternals]);
+
     const handleToggleActive = useCallback(
         (checked: boolean) => {
             updateNodeConfig(id, { ...data.config, takeOnlyActive: checked });
@@ -167,7 +199,6 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
     }, [id, locked, lockedType]);
 
     const activeItem = items[activeIndex];
-    const activeUrl = getItemUrl(activeItem);
     const activeKind = activeItem != null ? getItemKind(activeItem, locked) : null;
     const mediaUrls = useMemo(() => items.map(getItemUrl).filter((u): u is string => !!u), [items]);
 
@@ -177,7 +208,14 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
         const fit = mode === 'grid' ? 'object-cover' : 'object-contain';
 
         if (kind === 'image' && url) {
-            return <BlurryImage src={url} alt="" className={cn('w-full h-full max-w-none max-h-none', fit)} />;
+            return (
+                <BlurryImage
+                    src={url}
+                    alt=""
+                    className={cn('w-full h-full max-w-none max-h-none', fit)}
+                    onLoad={mode === 'single' ? handleSingleMediaLoad : undefined}
+                />
+            );
         }
         if (kind === 'video' && url) {
             return (
@@ -188,6 +226,15 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
                     muted
                     loop
                     playsInline
+                    onLoadedMetadata={
+                        mode === 'single'
+                            ? (e: any) =>
+                                  handleSingleMediaLoad({
+                                      naturalWidth: e.currentTarget.videoWidth,
+                                      naturalHeight: e.currentTarget.videoHeight,
+                                  })
+                            : undefined
+                    }
                 />
             );
         }
@@ -195,9 +242,7 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
             return (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2 text-content-tertiary">
                     <Music className="w-5 h-5" />
-                    {mode === 'single' && url && (
-                        <audio src={url} controls className="w-full nodrag" />
-                    )}
+                    {mode === 'single' && url && <audio src={url} controls className="w-full nodrag" />}
                 </div>
             );
         }
@@ -237,11 +282,7 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
             width=""
             style={{ width: 320 }}
         >
-            <div
-                ref={previewRef}
-                style={previewLockStyle}
-                className="relative w-full h-full min-h-[160px] rounded-xl overflow-hidden border border-white/10 bg-white/5 group/node"
-            >
+            <div className="relative w-full h-full min-h-[160px] rounded-xl overflow-hidden border border-white/10 bg-white/5 group/node">
                 {/* Locked-type + count chip */}
                 {(lockedType || items.length > 0) && (
                     <div className="absolute top-2 left-2 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-[9px] font-bold uppercase tracking-wider text-white/80 pointer-events-none">
@@ -263,7 +304,7 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
                     </div>
                 ) : previewMode === 'single' ? (
                     <div
-                        className="w-full h-full group/preview relative cursor-zoom-in flex items-center justify-center"
+                        className="w-full h-full group/preview relative cursor-zoom-in"
                         onMouseEnter={() => videoRef.current?.play().catch(() => {})}
                         onMouseLeave={() => {
                             if (videoRef.current) {
@@ -309,6 +350,20 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
                     </div>
                 )}
 
+                {/* "Take only active" switch — overlay (like media_input's controls)
+                    so the node content stays just the preview box and single view
+                    can hug the image aspect. */}
+                {items.length > 0 && (
+                    <div className="absolute bottom-2 left-2 z-20 flex items-center bg-black/60 backdrop-blur-md rounded-lg px-2.5 py-1.5 border border-white/10 shadow-xl opacity-0 group-hover/node:opacity-100 transition-opacity">
+                        <Switch
+                            size="sm"
+                            checked={!!config.takeOnlyActive}
+                            onCheckedChange={handleToggleActive}
+                            label="Active only"
+                        />
+                    </div>
+                )}
+
                 {/* View toggle (matches media_input) */}
                 {items.length > 1 && (
                     <div className="absolute bottom-2 right-2 flex bg-black/60 backdrop-blur-md rounded-lg p-0.5 border border-white/10 z-20 shadow-xl opacity-0 group-hover/node:opacity-100 transition-opacity">
@@ -328,19 +383,6 @@ function CollectNode({ data, id, selected, dragging = false }: NodeProps<Collect
                         </button>
                     </div>
                 )}
-            </div>
-
-            {/* "Take only active" switch */}
-            <div className="mt-2 px-1 pb-1 flex items-center justify-between gap-2">
-                <Switch
-                    size="sm"
-                    checked={!!config.takeOnlyActive}
-                    onCheckedChange={handleToggleActive}
-                    label="Active only"
-                />
-                <span className="text-[9px] text-content-tertiary text-right leading-tight max-w-[150px]">
-                    {config.takeOnlyActive ? 'One item per input' : 'Flatten all items'}
-                </span>
             </div>
 
             {showMediaLightbox && (
