@@ -452,50 +452,124 @@ function CapabilityCardFace({ icon: Icon, title, desc, image, accent }: { icon: 
     );
 }
 
-// Mobile coverflow: the active card sits center-front and covers part of its two
-// neighbours, which peek out the sides scaled-down and slightly tilted. Swipe or
-// tap a side card / a dot to bring another to the front.
-function CapabilityCarousel({ items }: { items: typeof CAPABILITIES }) {
-    const [active, setActive] = useState(0);
-    const n = items.length;
-    const clamp = (i: number) => Math.max(0, Math.min(n - 1, i));
+// One coverflow card. Subscribes to the shared `dragX` motion value so it tracks
+// the finger live (its visual distance from centre = its slot `d` + dragX/STEP).
+function CapabilityCarouselCard({
+    item, d, dragX, STEP, cardW, onSelect
+}: {
+    item: typeof CAPABILITIES[number];
+    d: number;
+    dragX: MotionValue<number>;
+    STEP: number;
+    cardW: number;
+    onSelect: () => void;
+}) {
+    const vd = useTransform(dragX, (dx) => d + dx / STEP);
+    const x = useTransform(vd, (v) => v * STEP);
+    const scale = useTransform(vd, (v) => 1 - Math.min(Math.abs(v), 1) * 0.18);
+    const rotate = useTransform(vd, (v) => Math.max(-1, Math.min(1, v)) * 6);
+    const opacity = useTransform(vd, (v) => (Math.abs(v) > 1.7 ? 0 : 1));
+    const zIndex = useTransform(vd, (v) => Math.round(100 - Math.abs(v) * 10));
+    const isCenter = d === 0;
 
     return (
-        <div className="relative">
-            <div className="relative h-[368px] overflow-hidden">
+        <motion.div
+            style={{ x, scale, rotate, opacity, zIndex, width: cardW }}
+            onClick={() => { if (!isCenter) onSelect(); }}
+            className={cn(
+                "absolute inset-0 m-auto h-[320px]",
+                isCenter ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+            )}
+        >
+            <CapabilityCardFace icon={item.icon} title={item.title} desc={item.desc} image={item.image} accent={item.accent} />
+        </motion.div>
+    );
+}
+
+// Mobile coverflow: full-bleed and INFINITE. The active card sits centre-front
+// and covers part of its two neighbours, which peek out the sides scaled-down
+// and tilted. Drag follows the finger live (manual pointer tracking → shared
+// `dragX`), snaps on release, and wraps around at both ends.
+function CapabilityCarousel({ items }: { items: typeof CAPABILITIES }) {
+    const n = items.length;
+    const [current, setCurrent] = useState(0); // 0..n-1
+    const [stageW, setStageW] = useState(0);
+    const stageRef = useRef<HTMLDivElement>(null);
+    const dragX = useMotionValue(0);
+    const pointerRef = useRef<{ id: number; startX: number } | null>(null);
+    const animatingRef = useRef(false);
+
+    useEffect(() => {
+        const el = stageRef.current;
+        if (!el) return;
+        const update = () => setStageW(el.clientWidth);
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    const cardW = Math.min(300, (stageW > 0 ? stageW : 320) * 0.72);
+    const STEP = Math.max(120, cardW * 0.62);
+
+    // Animate to the neighbour, then commit the index + reset dragX in one frame
+    // so the motion is continuous (no jump) and the loop is seamless.
+    const step = (dir: number) => {
+        if (animatingRef.current || dir === 0) return;
+        animatingRef.current = true;
+        animate(dragX, -dir * STEP, { type: 'spring', stiffness: 320, damping: 34 }).then(() => {
+            setCurrent((c) => ((c + dir) % n + n) % n);
+            dragX.set(0);
+            animatingRef.current = false;
+        });
+    };
+
+    const onPointerDown = (e: React.PointerEvent) => {
+        if (animatingRef.current) return;
+        pointerRef.current = { id: e.pointerId, startX: e.clientX };
+        try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    const onPointerMove = (e: React.PointerEvent) => {
+        const p = pointerRef.current;
+        if (!p || p.id !== e.pointerId) return;
+        dragX.set(e.clientX - p.startX); // live finger tracking
+    };
+    const onPointerEnd = (e: React.PointerEvent) => {
+        const p = pointerRef.current;
+        if (!p || p.id !== e.pointerId) return;
+        const delta = e.clientX - p.startX;
+        pointerRef.current = null;
+        const threshold = STEP * 0.32;
+        if (delta <= -threshold) step(1);
+        else if (delta >= threshold) step(-1);
+        else animate(dragX, 0, { type: 'spring', stiffness: 320, damping: 34 });
+    };
+
+    return (
+        <div>
+            <div
+                ref={stageRef}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerEnd}
+                onPointerCancel={onPointerEnd}
+                className="relative h-[372px] overflow-hidden select-none touch-pan-y"
+            >
                 {items.map((item, i) => {
-                    const offset = i - active;
-                    const abs = Math.abs(offset);
-                    if (abs > 1) return null; // render center + immediate neighbours only
-                    const isCenter = offset === 0;
+                    // shortest signed distance with wrap-around (infinite)
+                    let d = ((i - current) % n + n) % n;
+                    if (d > n / 2) d -= n;
+                    if (Math.abs(d) > 2) return null; // render centre + 2 each side
                     return (
-                        <motion.div
+                        <CapabilityCarouselCard
                             key={item.title}
-                            drag={isCenter ? 'x' : false}
-                            dragConstraints={{ left: 0, right: 0 }}
-                            dragElastic={0.18}
-                            onDragEnd={(_, info) => {
-                                if (info.offset.x < -50) setActive((a) => clamp(a + 1));
-                                else if (info.offset.x > 50) setActive((a) => clamp(a - 1));
-                            }}
-                            onClick={() => { if (!isCenter) setActive(i); }}
-                            initial={false}
-                            animate={{
-                                x: `${offset * 42}%`,
-                                scale: isCenter ? 1 : 0.82,
-                                rotate: isCenter ? 0 : (offset < 0 ? -5 : 5),
-                                zIndex: 10 - abs,
-                                opacity: 1,
-                            }}
-                            transition={{ type: 'spring', stiffness: 280, damping: 30 }}
-                            style={{ touchAction: 'pan-y' }}
-                            className={cn(
-                                "absolute inset-0 m-auto w-[72%] max-w-[300px] h-[320px]",
-                                isCenter ? "cursor-grab active:cursor-grabbing" : "cursor-pointer brightness-[0.96]"
-                            )}
-                        >
-                            <CapabilityCardFace icon={item.icon} title={item.title} desc={item.desc} image={item.image} accent={item.accent} />
-                        </motion.div>
+                            item={item}
+                            d={d}
+                            dragX={dragX}
+                            STEP={STEP}
+                            cardW={cardW}
+                            onSelect={() => step(d > 0 ? 1 : -1)}
+                        />
                     );
                 })}
             </div>
@@ -506,11 +580,11 @@ function CapabilityCarousel({ items }: { items: typeof CAPABILITIES }) {
                     <button
                         key={item.title}
                         type="button"
-                        onClick={() => setActive(i)}
+                        onClick={() => { if (!animatingRef.current) { setCurrent(i); dragX.set(0); } }}
                         aria-label={`Show ${item.title}`}
                         className={cn(
                             "h-1.5 rounded-full transition-all duration-300",
-                            i === active ? "w-6 bg-slate-900" : "w-1.5 bg-slate-300 hover:bg-slate-400"
+                            i === current ? "w-6 bg-slate-900" : "w-1.5 bg-slate-300 hover:bg-slate-400"
                         )}
                     />
                 ))}
@@ -1583,8 +1657,8 @@ export default function Home() {
                         ))}
                     </div>
 
-                    {/* Mobile: coverflow carousel */}
-                    <div className="md:hidden">
+                    {/* Mobile: full-bleed coverflow carousel */}
+                    <div className="md:hidden relative left-1/2 -translate-x-1/2 w-screen">
                         <CapabilityCarousel items={CAPABILITIES} />
                     </div>
                 </section>
