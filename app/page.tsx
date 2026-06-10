@@ -11,7 +11,6 @@ import {
     Activity,
     Target,
     Image as ImageIcon,
-    Sparkles,
     Wand2,
     Layers3,
     Eraser,
@@ -187,14 +186,6 @@ function HeroChatInput() {
             transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
             className="relative w-full max-w-2xl mx-auto"
         >
-            {/* Soft animated glow — intensifies on focus */}
-            <div
-                className={cn(
-                    "absolute -inset-1.5 rounded-[2.25rem] bg-gradient-to-r from-accent-primary/40 via-accent-secondary/30 to-accent-primary/40 blur-2xl transition-opacity duration-700",
-                    focused ? "opacity-90" : "opacity-50"
-                )}
-            />
-
             <div
                 className={cn(
                     "relative rounded-[1.9rem] border bg-white/80 backdrop-blur-xl shadow-2xl shadow-slate-900/10 transition-colors duration-500 overflow-hidden",
@@ -205,13 +196,8 @@ function HeroChatInput() {
                 <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent-primary/60 to-transparent" />
 
                 <div className="relative flex items-end gap-2.5 p-3 md:p-4">
-                    {/* Brand glyph */}
-                    <div className="hidden sm:flex w-11 h-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg">
-                        <Sparkles className="w-5 h-5 text-accent-primary" />
-                    </div>
-
                     {/* Textarea + animated placeholder overlay */}
-                    <div className="relative flex-1 min-w-0 py-2.5">
+                    <div className="relative flex-1 min-w-0 py-2.5 pl-2">
                         <textarea
                             ref={textareaRef}
                             value={value}
@@ -224,7 +210,7 @@ function HeroChatInput() {
                             className="relative z-10 w-full resize-none bg-transparent text-slate-900 text-base md:text-lg font-medium leading-relaxed outline-none placeholder:text-transparent max-h-[220px]"
                         />
                         {value.length === 0 && (
-                            <div className="pointer-events-none absolute inset-0 z-0 flex items-start text-base md:text-lg font-medium text-slate-400 leading-relaxed">
+                            <div className="pointer-events-none absolute inset-0 z-0 flex items-start pl-2 text-base md:text-lg font-medium text-slate-400 leading-relaxed">
                                 <span className="whitespace-pre-wrap">{placeholder}</span>
                                 <span className="ml-0.5 mt-[0.15em] inline-block w-[2px] h-[1.15em] bg-accent-primary animate-pulse" />
                             </div>
@@ -261,9 +247,8 @@ function HeroChatInput() {
                         type="button"
                         onClick={() => submit(chip.prompt)}
                         disabled={leaving}
-                        className="group inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/70 backdrop-blur-md border border-slate-200 text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 hover:text-slate-900 hover:border-accent-primary/50 hover:bg-white transition-all shadow-sm"
+                        className="inline-flex items-center px-3.5 py-2 rounded-full bg-white/70 backdrop-blur-md border border-slate-200 text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 hover:text-slate-900 hover:border-accent-primary/50 hover:bg-white transition-all shadow-sm"
                     >
-                        <Sparkles className="w-2.5 h-2.5 text-accent-primary opacity-70 group-hover:opacity-100 transition-opacity" />
                         {chip.label}
                     </button>
                 ))}
@@ -804,7 +789,7 @@ function ScrollWorkflowSection() {
                         >
                             <div className="w-full h-full rounded-lg border border-accent-primary/30 bg-slate-800 shadow-2xl flex flex-col">
                                 <div className="px-2 py-1 bg-accent-primary/10 border-b border-accent-primary/20 flex items-center gap-1">
-                                    <Sparkles className="w-2 h-2 text-accent-primary" />
+                                    <MessageSquare className="w-2 h-2 text-accent-primary" />
                                     <span className="text-[6px] font-black uppercase tracking-[0.3em] text-accent-primary">PROMPT</span>
                                 </div>
                                 <div className="flex-1 p-2 overflow-hidden">
@@ -1113,7 +1098,7 @@ function ShowcaseChatPanel() {
 
                 <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.35 }} className="flex justify-start">
                     <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tl-sm bg-slate-100 text-slate-700 text-sm leading-relaxed">
-                        On it — sourcing your watch, generating 4 backdrops, compositing, then upscaling 4×.
+                        On it — taking your watch and generating it across 4 studio backdrops: minimal, dramatic, neon, editorial.
                     </div>
                 </motion.div>
 
@@ -1121,7 +1106,7 @@ function ShowcaseChatPanel() {
                 <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.7 }} className="flex justify-start">
                     <div className="w-full max-w-[94%] space-y-2">
                         <div className="flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.4em] text-accent-primary">
-                            <Sparkles className="w-2.5 h-2.5" /> 4 frames ready
+                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary" /> 4 frames ready
                         </div>
                         <div className="flex gap-2">
                             {SHOWCASE_RESULTS.map((o, i) => (
@@ -1145,7 +1130,6 @@ function ShowcaseChatPanel() {
             </div>
 
             <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center gap-3 shrink-0">
-                <Sparkles className="w-3.5 h-3.5 text-accent-primary shrink-0" />
                 <div className="flex-1 min-w-0">
                     <PromptRotator size="sm" />
                 </div>
@@ -1175,16 +1159,15 @@ function ShowcaseWorkflowNode({ style, label, icon: Icon, accent, children }: { 
 
 function ShowcaseWorkflow() {
     const wires = [
-        'M30 28 C 35 28, 34 50, 39 50',
-        'M30 72 C 35 72, 34 50, 39 50',
-        'M61 50 L 66 50',
-        'M79 50 L 80 50',
+        'M31 28 C 36 28, 35 50, 40 50',
+        'M31 72 C 36 72, 35 50, 40 50',
+        'M66 50 L 74 50',
     ];
     return (
         <div className="relative h-full w-full rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white overflow-hidden shadow-xl">
             <div className="absolute top-0 inset-x-0 z-20 flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-white/70 backdrop-blur">
                 <Network className="w-3 h-3 text-accent-primary" />
-                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Workflow · 5 nodes</span>
+                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Workflow · 4 nodes</span>
                 <span className="ml-auto flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.3em] text-emerald-500">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Ready
                 </span>
@@ -1210,12 +1193,12 @@ function ShowcaseWorkflow() {
             </svg>
 
             {/* Source */}
-            <ShowcaseWorkflowNode style={{ left: '4%', top: '14%', width: '26%', height: '28%' }} label="Source · watch" icon={ImageIcon}>
+            <ShowcaseWorkflowNode style={{ left: '4%', top: '14%', width: '27%', height: '28%' }} label="Source · watch" icon={ImageIcon}>
                 <img src={SHOWCASE_SOURCE} className="w-full h-full object-cover" alt="watch source" />
             </ShowcaseWorkflowNode>
 
-            {/* Backdrops ×4 */}
-            <ShowcaseWorkflowNode style={{ left: '4%', top: '58%', width: '26%', height: '28%' }} label="Backdrops ×4" icon={Wand2} accent>
+            {/* Backdrops ×4 (style references) */}
+            <ShowcaseWorkflowNode style={{ left: '4%', top: '58%', width: '27%', height: '28%' }} label="Backdrops ×4" icon={Layers3}>
                 <div className="grid grid-cols-2 grid-rows-2 gap-0.5 w-full h-full p-0.5">
                     <div className="rounded-sm bg-gradient-to-br from-slate-200 to-slate-100" />
                     <div className="rounded-sm bg-gradient-to-br from-slate-900 to-slate-600" />
@@ -1224,23 +1207,16 @@ function ShowcaseWorkflow() {
                 </div>
             </ShowcaseWorkflowNode>
 
-            {/* Composite */}
-            <ShowcaseWorkflowNode style={{ left: '39%', top: '36%', width: '22%', height: '28%' }} label="Composite" icon={Layers3}>
-                <div className="w-full h-full flex items-center justify-center">
-                    <Layers3 className="w-7 h-7 text-slate-300" />
-                </div>
-            </ShowcaseWorkflowNode>
-
-            {/* Upscale */}
-            <ShowcaseWorkflowNode style={{ left: '66%', top: '39%', width: '13%', height: '22%' }} label="Upscale" icon={Maximize2}>
-                <div className="w-full h-full flex flex-col items-center justify-center gap-0.5">
-                    <Maximize2 className="w-4 h-4 text-slate-300" />
-                    <span className="text-[6px] font-black uppercase tracking-wider text-slate-400">4×</span>
+            {/* Image generation */}
+            <ShowcaseWorkflowNode style={{ left: '40%', top: '33%', width: '26%', height: '34%' }} label="Image generation" icon={Wand2} accent>
+                <div className="w-full h-full flex flex-col items-center justify-center gap-1.5">
+                    <Wand2 className="w-6 h-6 text-accent-primary/70" />
+                    <span className="text-[6px] font-black uppercase tracking-[0.25em] text-slate-400">diffusion</span>
                 </div>
             </ShowcaseWorkflowNode>
 
             {/* Output ×4 */}
-            <ShowcaseWorkflowNode style={{ left: '80%', top: '14%', width: '17%', height: '72%' }} label="Output ×4" icon={Play} accent>
+            <ShowcaseWorkflowNode style={{ left: '74%', top: '14%', width: '22%', height: '72%' }} label="Output ×4" icon={Play} accent>
                 <div className="grid grid-cols-1 grid-rows-4 gap-0.5 w-full h-full p-0.5">
                     {SHOWCASE_RESULTS.map((o) => (
                         <div key={o.tag} className="relative rounded-sm overflow-hidden min-h-0">
@@ -1253,13 +1229,13 @@ function ShowcaseWorkflow() {
     );
 }
 
-// Marketing showcase. Desktop: chat + workflow side-by-side. Mobile: chat only,
-// with a workflow FAB that swaps to the canvas (chat collapses into an icon);
-// a chat FAB then re-opens the conversation as an overlay on top of the canvas —
-// minimal mimicry of a real workflow session.
+// Marketing showcase. Desktop: chat + workflow side-by-side. Mobile: the canvas
+// is always the base layer with the chat docked over it as a minimized bottom
+// sheet (open by default — so the canvas reads behind it on load, like a real
+// workflow session). Closing the sheet reveals the full canvas; a chat FAB
+// re-opens it.
 function ChatFirstShowcase() {
-    const [mobilePanel, setMobilePanel] = useState<'chat' | 'canvas'>('chat');
-    const [chatOverlay, setChatOverlay] = useState(false);
+    const [chatOpen, setChatOpen] = useState(true);
 
     return (
         <>
@@ -1269,78 +1245,55 @@ function ChatFirstShowcase() {
                 <ShowcaseWorkflow />
             </div>
 
-            {/* Mobile: single stage with chat ⇄ canvas transition */}
+            {/* Mobile: canvas base + chat as a minimized sheet on top */}
             <div className="md:hidden relative w-full h-[560px] overflow-hidden rounded-3xl">
-                <AnimatePresence initial={false}>
-                    {mobilePanel === 'chat' ? (
-                        <motion.div
-                            key="chat"
-                            initial={{ opacity: 0, scale: 0.96 }}
-                            animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.2, x: '42%', y: '42%' }}
-                            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                            className="absolute inset-0 origin-bottom-right"
-                        >
-                            <ShowcaseChatPanel />
-                        </motion.div>
-                    ) : (
-                        <motion.div
-                            key="canvas"
-                            initial={{ opacity: 0, scale: 0.96 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.96 }}
-                            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                            className="absolute inset-0"
-                        >
-                            <ShowcaseWorkflow />
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                {/* Canvas — always behind */}
+                <div className="absolute inset-0">
+                    <ShowcaseWorkflow />
+                </div>
 
-                {/* Toggle FAB — hidden while the chat overlay is open */}
+                {/* Chat FAB — shown when the sheet is closed */}
                 <AnimatePresence>
-                    {!chatOverlay && (
+                    {!chatOpen && (
                         <motion.button
-                            key={mobilePanel}
                             type="button"
                             initial={{ scale: 0, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0, opacity: 0 }}
                             transition={{ type: 'spring', damping: 18, stiffness: 320 }}
-                            onClick={() => (mobilePanel === 'chat' ? setMobilePanel('canvas') : setChatOverlay(true))}
-                            aria-label={mobilePanel === 'chat' ? 'Open workflow' : 'Open chat'}
-                            className="absolute bottom-4 right-4 z-30 w-12 h-12 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center active:scale-95 transition-transform"
+                            onClick={() => setChatOpen(true)}
+                            aria-label="Open chat"
+                            className="absolute bottom-4 right-4 z-40 w-12 h-12 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center active:scale-95 transition-transform"
                         >
-                            {mobilePanel === 'chat'
-                                ? <Network className="w-5 h-5 text-accent-primary" />
-                                : <MessageSquare className="w-5 h-5 text-accent-primary" />}
+                            <MessageSquare className="w-5 h-5 text-accent-primary" />
                         </motion.button>
                     )}
                 </AnimatePresence>
 
-                {/* Chat overlay — slides up on top of the canvas */}
+                {/* Chat — minimized bottom sheet docked over the canvas */}
                 <AnimatePresence>
-                    {chatOverlay && (
+                    {chatOpen && (
                         <>
+                            {/* Light tap-to-close catcher; keeps the canvas clearly visible */}
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
                                 transition={{ duration: 0.25 }}
-                                onClick={() => setChatOverlay(false)}
-                                className="absolute inset-0 z-30 bg-slate-900/30 backdrop-blur-sm"
+                                onClick={() => setChatOpen(false)}
+                                className="absolute inset-0 z-30 bg-slate-900/5"
                             />
                             <motion.div
                                 initial={{ y: '100%' }}
                                 animate={{ y: 0 }}
                                 exit={{ y: '100%' }}
                                 transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-                                className="absolute inset-x-2 bottom-2 top-12 z-40"
+                                className="absolute inset-x-2 bottom-2 top-[42%] z-40"
                             >
                                 <ShowcaseChatPanel />
                                 <button
                                     type="button"
-                                    onClick={() => setChatOverlay(false)}
+                                    onClick={() => setChatOpen(false)}
                                     aria-label="Close chat"
                                     className="absolute -top-9 right-0 z-50 w-8 h-8 rounded-xl bg-slate-900 text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
                                 >
@@ -1472,7 +1425,7 @@ export default function Home() {
                 </motion.nav>
 
                 {/* ─── Hero & Chat Composer Section ───────────────────────────── */}
-                <section className="relative w-full min-h-[100vh] flex flex-col items-center justify-center pb-16 pt-28 md:pt-32" id="workflow">
+                <section className="relative w-full flex flex-col items-center pt-24 md:pt-28 pb-10 md:pb-14" id="workflow">
                     {/* Ambient concentric rings + glow behind the composer */}
                     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
                         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(95vw,900px)] aspect-square rounded-full bg-[radial-gradient(circle,rgba(56,189,248,0.14),transparent_62%)]" />
@@ -1484,9 +1437,9 @@ export default function Home() {
                         initial={{ opacity: 0, y: 30, scale: 0.96 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                        className="relative z-20 w-full max-w-3xl px-5 md:px-6 flex flex-col items-center text-center gap-8 md:gap-10"
+                        className="relative z-20 w-full max-w-3xl px-5 md:px-6 flex flex-col items-center text-center gap-6 md:gap-8"
                     >
-                        <div className="space-y-5">
+                        <div className="space-y-4 md:space-y-5">
                             <h1 className="text-[clamp(2.25rem,8vw,4.75rem)] font-black tracking-tighter text-slate-900 leading-[0.88] font-display uppercase drop-shadow-sm">
                                 The Visual Engine for Your <span className="text-accent-primary italic">Imagination</span>.
                             </h1>
@@ -1514,7 +1467,7 @@ export default function Home() {
                 </section>
 
                 {/* ─── Capabilities Bento (Light) ─────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-24" id="capabilities">
+                <section className="relative w-full max-w-7xl px-8 pt-12 pb-20 md:py-24" id="capabilities">
                     <SectionHeader
                         tag="Capabilities"
                         title="Everything you need to make. Nothing in the way."
@@ -1770,7 +1723,7 @@ export default function Home() {
                                         href="/templates"
                                         className="flex items-center justify-center gap-3 px-10 py-5 rounded-2xl border border-white/15 text-white font-black text-base hover:bg-white/10 transition-all"
                                     >
-                                        <Sparkles className="w-5 h-5" />
+                                        <Layers3 className="w-5 h-5" />
                                         Browse templates
                                     </Link>
                                 </div>
