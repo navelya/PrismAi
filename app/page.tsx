@@ -2,20 +2,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion, useScroll, useTransform, AnimatePresence, useMotionValue, useSpring, useInView, MotionValue, animate, useAnimationFrame } from 'framer-motion';
-import ReactFlow, {
-    applyNodeChanges,
-    CoordinateExtent,
-    Node,
-    NodeChange,
-    Edge,
-    Handle,
-    Position,
-    ReactFlowProvider,
-    useEdgesState,
-    useReactFlow
-} from 'reactflow';
-import 'reactflow/dist/style.css';
 import {
     ArrowRight,
     Play,
@@ -23,7 +11,6 @@ import {
     Activity,
     Target,
     Image as ImageIcon,
-    Sparkles,
     Wand2,
     Layers3,
     Eraser,
@@ -37,7 +24,8 @@ import {
     GitBranch,
     Scissors,
     MessageSquare,
-    Send
+    Send,
+    X
 } from 'lucide-react';
 import { BrandCarousel } from '@/components/ui/BrandCarousel';
 import { Logo } from '@/components/ui/Logo';
@@ -57,7 +45,7 @@ const SectionHeader = ({ tag, title, description, dark = false, center = false }
         whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
         viewport={{ once: true }}
         transition={{ duration: 0.8 }}
-        className={cn("mb-12 space-y-5", center && "text-center flex flex-col items-center")}
+        className={cn("mb-8 md:mb-12 space-y-5", center && "text-center flex flex-col items-center")}
     >
         <span className="text-[7px] font-black uppercase tracking-[0.5em] text-accent-primary opacity-60">{tag}</span>
         <h2 className={cn(
@@ -78,434 +66,194 @@ const SectionHeader = ({ tag, title, description, dark = false, center = false }
 );
 
 // =============================================================================
-// REACT FLOW DEMO COMPONENTS
+// HERO CHAT INPUT (typewriter prompt suggestions + jump straight into a chat)
 // =============================================================================
 
-const PROMPT_CYCLES = [
-    'MAXIMUM PRECISION. CINEMATIC TEXTURE. MINIMALIST BALANCE. OPTIMIZED ENGINE.',
-    'EDITORIAL PORTRAIT. STUDIO LIGHT. HIGH-FIDELITY SKIN. SHALLOW DEPTH.',
-    'GOLDEN HOUR. 35MM FILM. DUOTONE PALETTE. ATMOSPHERIC HAZE.',
-    'BRUTALIST GEOMETRY. NEON ACCENTS. LIQUID METAL. POLISHED CONCRETE.',
-    'PRODUCT HERO. SEAMLESS BACKDROP. RIM LIGHT. ULTRA SHARP DETAIL.',
+// Rotating, action-oriented prompts that get "typed" into the empty input so a
+// first-time visitor instantly sees what they can ask for.
+const HERO_PROMPTS = [
+    'A cinematic portrait, 35mm film, golden-hour light…',
+    'Turn this product photo into a neon studio hero shot…',
+    'Generate an isometric dashboard in a mint & slate palette…',
+    'Remove the background and drop the subject on marble…',
+    'An editorial fashion shoot on a brutalist concrete set…',
+    'Ghibli-style landscape with hand-painted clouds…',
+    'Restore and upscale this old photo to crisp 4K…',
 ];
 
-const DemoNode = ({ data }: any) => {
-    const [promptIdx, setPromptIdx] = useState(0);
-
-    useEffect(() => {
-        if (data.type !== 'prompt') return;
-        const t = setInterval(() => setPromptIdx((i) => (i + 1) % PROMPT_CYCLES.length), 3500);
-        return () => clearInterval(t);
-    }, [data.type]);
-
-    const isOutput = data.title === 'FINAL_OUTPUT';
-
-    return (
-        <div
-            className="flex flex-col gap-2 group"
-            style={{
-                transform: 'scale(var(--home-demo-node-zoom-comp, 1))',
-                transformOrigin: 'top left'
-            }}
-        >
-            <Handle type="target" position={Position.Left} className="w-0 h-0 border-none bg-transparent" />
-            <div className="flex items-center gap-1.5 px-1">
-                <data.icon className="w-2.5 h-2.5 text-accent-primary" />
-                <span className="text-[7px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-accent-primary transition-colors">{data.title}</span>
-                {isOutput && (
-                    <span className="ml-auto flex items-center gap-1">
-                        <span className="relative flex w-1.5 h-1.5">
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-70 animate-ping" />
-                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                        </span>
-                        <span className="text-[6px] font-black uppercase tracking-[0.3em] text-emerald-600">Render</span>
-                    </span>
-                )}
-            </div>
-            <div
-                className="relative rounded-xl overflow-hidden border border-slate-200 bg-white shadow-xl transition-all duration-700 group-hover:shadow-2xl group-hover:border-accent-primary/40"
-                style={{
-                    width: data.type === 'image'
-                        ? `calc(150px * var(--home-demo-screen-scale, 1))`
-                        : `calc(220px * var(--home-demo-screen-scale, 1))`,
-                    height: data.type === 'image'
-                        ? `calc(180px * var(--home-demo-screen-scale, 1))`
-                        : undefined,
-                    padding: data.type === 'prompt'
-                        ? `calc(16px * var(--home-demo-screen-scale, 1))`
-                        : undefined,
-                }}
-            >
-                {data.type === 'image' ? (
-                    <img src={data.image} className="w-full h-full object-cover grayscale-[40%] group-hover:grayscale-0 transition-all duration-700" alt={data.title} />
-                ) : (
-                    <AnimatePresence mode="wait">
-                        <motion.p
-                            key={promptIdx}
-                            initial={{ opacity: 0, y: 6, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                            exit={{ opacity: 0, y: -6, filter: 'blur(4px)' }}
-                            transition={{ duration: 0.5 }}
-                            className="text-[9px] text-slate-500 leading-relaxed font-bold uppercase tracking-tight"
-                        >
-                            {PROMPT_CYCLES[promptIdx]}
-                        </motion.p>
-                    </AnimatePresence>
-                )}
-            </div>
-            <Handle type="source" position={Position.Right} className="w-0 h-0 border-none bg-transparent" />
-        </div>
-    );
-};
-
-const nodeTypes = { demo: DemoNode };
-
-const initialEdges: Edge[] = [
-    { id: 'e1-3', source: '1', target: '3', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
-    { id: 'e2-3', source: '2', target: '3', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
-    { id: 'e3-4', source: '3', target: '4', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
-    { id: 'e4-5', source: '4', target: '5', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
+// One-tap starters. Clicking sends the full `prompt`; the chip shows the short label.
+const HERO_CHIPS: { label: string; prompt: string }[] = [
+    { label: 'Product hero shot', prompt: 'Create a clean product hero shot on a seamless studio backdrop with soft rim lighting.' },
+    { label: 'Cinematic portrait', prompt: 'A cinematic portrait, 35mm film, shallow depth of field, warm golden-hour light.' },
+    { label: 'Remove background', prompt: 'Remove the background from my image and place the subject on a polished marble surface.' },
+    { label: 'Restore old photo', prompt: 'Restore and upscale this old photo to crisp 4K with natural, true-to-life color.' },
 ];
 
-// =============================================================================
-// INTERACTIVE WORKFLOW DEMO COMPONENT
-// =============================================================================
+// A self-deleting typewriter. Types a phrase, holds, deletes, advances to the
+// next. `active` lets the caller freeze + clear it the moment the user starts
+// typing for real (the live text takes over from the animated placeholder).
+function useTypewriter(
+    phrases: string[],
+    { typeSpeed = 42, deleteSpeed = 22, holdTime = 1700, active = true }: { typeSpeed?: number; deleteSpeed?: number; holdTime?: number; active?: boolean } = {}
+) {
+    const [text, setText] = useState('');
+    const [phraseIdx, setPhraseIdx] = useState(0);
+    const phaseRef = useRef<'typing' | 'holding' | 'deleting'>('typing');
 
-function InteractiveWorkflowDemoInner() {
-    const baseNodes: Node[] = [
-        { id: '1', type: 'demo', position: { x: 120, y: 120 }, data: { title: 'SOURCE_ALPHA', icon: ImageIcon, image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-        { id: '2', type: 'demo', position: { x: 120, y: 350 }, data: { title: 'ASSET_BETA', icon: Target, image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-        { id: '3', type: 'demo', position: { x: 380, y: 250 }, data: { title: 'NEURAL_PROMPT', icon: Sparkles, type: 'prompt', image: 'MAXIMUM PRECISION. CINEMATIC TEXTURE. MINIMALIST BALANCE. OPTIMIZED ENGINE.' } },
-        { id: '4', type: 'demo', position: { x: 700, y: 250 }, data: { title: 'PROCESS_FRAME', icon: Activity, image: 'https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-        { id: '5', type: 'demo', position: { x: 960, y: 250 }, data: { title: 'FINAL_OUTPUT', icon: Play, image: 'https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-    ];
-
-    const [nodes, setNodes] = React.useState<Node[]>(baseNodes);
-    const [edges, , onEdgesChange] = useEdgesState(initialEdges);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const layoutInitializedRef = useRef(false);
-    const nodeRatiosRef = useRef<Record<string, { xRatio: number; yBottomRatio: number }>>({});
-    const initialDevicePixelRatioRef = useRef<number | null>(null);
-    const [nodeExtent, setNodeExtent] = React.useState<CoordinateExtent>([[-600, -400], [1800, 1200]]);
-    const [nodeZoomCompensation, setNodeZoomCompensation] = React.useState(1);
-    const [screenScale, setScreenScale] = React.useState(1);
-    const { screenToFlowPosition } = useReactFlow();
-
-    // Responsive node scale based on viewport width
     useEffect(() => {
-        const compute = () => {
-            const w = window.innerWidth;
-            if (w >= 1536) return 1.4;
-            if (w >= 1280) return 1.25;
-            if (w >= 1024) return 1.15;
-            if (w >= 768) return 1.05;
-            return 1;
-        };
-        const update = () => setScreenScale(compute());
-        update();
-        window.addEventListener('resize', update);
-        return () => window.removeEventListener('resize', update);
-    }, []);
-
-    const getEffectiveNodeSize = React.useCallback((node: Node) => {
-        const fallbackWidth = (node.data?.type === 'prompt' ? 220 : 150) * screenScale;
-        const fallbackHeight = (node.data?.type === 'prompt' ? 120 : 180) * screenScale;
-
-        return {
-            width: (node.width ?? fallbackWidth) * nodeZoomCompensation,
-            height: (node.height ?? fallbackHeight) * nodeZoomCompensation
-        };
-    }, [nodeZoomCompensation, screenScale]);
-
-    const createNodeRatios = React.useCallback((nodesToMap: Node[], extent: CoordinateExtent) => {
-        const [[minX, minY], [maxX, maxY]] = extent;
-        const flowWidth = maxX - minX;
-        const flowHeight = maxY - minY;
-        if (flowWidth <= 0 || flowHeight <= 0) return {};
-
-        return nodesToMap.reduce<Record<string, { xRatio: number; yBottomRatio: number }>>((acc, node) => {
-            const { width, height } = getEffectiveNodeSize(node);
-            const xRange = Math.max(1, flowWidth - width);
-            const yRange = Math.max(1, flowHeight - height);
-            const xRatio = Math.min(1, Math.max(0, (node.position.x - minX) / xRange));
-            const yBottomRatio = Math.min(1, Math.max(0, (maxY - height - node.position.y) / yRange));
-
-            acc[node.id] = { xRatio, yBottomRatio };
-            return acc;
-        }, {});
-    }, [getEffectiveNodeSize]);
-
-    const applyInitialGridLayout = React.useCallback((extent: CoordinateExtent) => {
-        const [[minX, minY], [maxX, maxY]] = extent;
-        const flowWidth = maxX - minX;
-        const flowHeight = maxY - minY;
-        if (flowWidth <= 0 || flowHeight <= 0) return;
-
-        const horizontalPadding = 24;
-        const topPadding = 24;
-        const bottomPadding = 24;
-        const baseImageWidth = 150 * screenScale;
-        const baseImageHeight = 180 * screenScale;
-        const basePromptWidth = 220 * screenScale;
-        const basePromptHeight = 120 * screenScale;
-        const imageWidth = baseImageWidth * nodeZoomCompensation;
-        const imageHeight = baseImageHeight * nodeZoomCompensation;
-        const promptWidth = basePromptWidth * nodeZoomCompensation;
-        const promptHeight = basePromptHeight * nodeZoomCompensation;
-        const leftEdge = minX + horizontalPadding;
-        const rightEdge = maxX - horizontalPadding;
-        const availableWidth = Math.max(0, rightEdge - leftEdge);
-        const totalNodeWidth = (imageWidth * 3) + promptWidth;
-        const gap = Math.max(0, (availableWidth - totalNodeWidth) / 3);
-
-        const leftImageX = leftEdge;
-        const promptX = leftImageX + imageWidth + gap;
-        const processX = promptX + promptWidth + gap;
-        const rightImageX = processX + imageWidth + gap;
-        const imageBottomY = maxY - bottomPadding - imageHeight;
-        const rowGap = Math.max(20, Math.min(64, flowHeight * 0.09));
-        const topLeftY = Math.max(minY + topPadding, imageBottomY - imageHeight - rowGap);
-        const promptY = imageBottomY + (imageHeight - promptHeight) / 2;
-
-        setNodes((currentNodes) => {
-            let hasChanges = false;
-
-            const laidOutNodes = currentNodes.map((node) => {
-                const nextPosition = (() => {
-                    if (node.id === '1') return { x: leftImageX, y: topLeftY };
-                    if (node.id === '2') return { x: leftImageX, y: imageBottomY };
-                    if (node.id === '3') return { x: promptX, y: promptY };
-                    if (node.id === '4') return { x: processX, y: imageBottomY };
-                    if (node.id === '5') return { x: rightImageX, y: imageBottomY };
-                    return node.position;
-                })();
-
-                if (nextPosition.x === node.position.x && nextPosition.y === node.position.y) {
-                    return node;
-                }
-
-                hasChanges = true;
-                return { ...node, position: nextPosition };
-            });
-
-            const resultNodes = hasChanges ? laidOutNodes : currentNodes;
-            nodeRatiosRef.current = createNodeRatios(resultNodes, extent);
-            layoutInitializedRef.current = true;
-            return resultNodes;
-        });
-    }, [createNodeRatios, nodeZoomCompensation, screenScale]);
-
-    const applyRatioLayout = React.useCallback((extent: CoordinateExtent) => {
-        const ratios = nodeRatiosRef.current;
-        if (!Object.keys(ratios).length) return;
-
-        const [[minX, minY], [maxX, maxY]] = extent;
-        const flowWidth = maxX - minX;
-        const flowHeight = maxY - minY;
-        if (flowWidth <= 0 || flowHeight <= 0) return;
-
-        setNodes((currentNodes) => {
-            let hasChanges = false;
-
-            const ratioNodes = currentNodes.map((node) => {
-                const ratio = ratios[node.id];
-                if (!ratio) return node;
-
-                const { width, height } = getEffectiveNodeSize(node);
-                const xRange = Math.max(0, flowWidth - width);
-                const yRange = Math.max(0, flowHeight - height);
-                const nextPosition = {
-                    x: minX + ratio.xRatio * xRange,
-                    y: maxY - height - ratio.yBottomRatio * yRange
-                };
-
-                if (
-                    Math.abs(nextPosition.x - node.position.x) < 0.001 &&
-                    Math.abs(nextPosition.y - node.position.y) < 0.001
-                ) {
-                    return node;
-                }
-
-                hasChanges = true;
-                return { ...node, position: nextPosition };
-            });
-
-            return hasChanges ? ratioNodes : currentNodes;
-        });
-    }, [getEffectiveNodeSize]);
-
-    const clampNodePosition = React.useCallback((node: Node, position: { x: number; y: number }) => {
-        const [[minX, minY], [maxX, maxY]] = nodeExtent;
-        const { width, height } = getEffectiveNodeSize(node);
-
-        return {
-            x: Math.min(Math.max(position.x, minX), Math.max(minX, maxX - width)),
-            y: Math.min(Math.max(position.y, minY), Math.max(minY, maxY - height))
-        };
-    }, [getEffectiveNodeSize, nodeExtent]);
-
-    const onNodesChange = React.useCallback((changes: NodeChange[]) => {
-        setNodes((currentNodes) => {
-            const nodesById = new Map(currentNodes.map((node) => [node.id, node]));
-            const boundedChanges = changes.map((change) => {
-                if (change.type !== 'position' || !change.position) return change;
-                const targetNode = nodesById.get(change.id);
-                if (!targetNode) return change;
-
-                return {
-                    ...change,
-                    position: clampNodePosition(targetNode, change.position)
-                };
-            });
-
-            const nextNodes = applyNodeChanges(boundedChanges, currentNodes);
-            if (changes.some((change) => change.type === 'position' && change.position)) {
-                nodeRatiosRef.current = createNodeRatios(nextNodes, nodeExtent);
-                layoutInitializedRef.current = true;
-            }
-
-            return nextNodes;
-        });
-    }, [clampNodePosition, createNodeRatios, nodeExtent]);
-
-    const updateExtent = React.useCallback(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const rect = container.getBoundingClientRect();
-        const padding = 16;
-        const topLeft = screenToFlowPosition({ x: rect.left + padding, y: rect.top + padding });
-        const bottomRight = screenToFlowPosition({ x: rect.right - padding, y: rect.bottom - padding });
-        const normalizedExtent: CoordinateExtent = [
-            [Math.min(topLeft.x, bottomRight.x), Math.min(topLeft.y, bottomRight.y)],
-            [Math.max(topLeft.x, bottomRight.x), Math.max(topLeft.y, bottomRight.y)]
-        ];
-
-        setNodeExtent(normalizedExtent);
-        if (!layoutInitializedRef.current) {
-            applyInitialGridLayout(normalizedExtent);
-        } else {
-            applyRatioLayout(normalizedExtent);
+        if (!active) {
+            setText('');
+            phaseRef.current = 'typing';
         }
-    }, [applyInitialGridLayout, applyRatioLayout, screenToFlowPosition]);
+    }, [active]);
 
     useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
+        if (!active) return;
+        const current = phrases[phraseIdx % phrases.length];
+        let timer: ReturnType<typeof setTimeout>;
 
-        const handleWheel = (e: WheelEvent) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.stopPropagation();
+        if (phaseRef.current === 'typing') {
+            if (text.length < current.length) {
+                timer = setTimeout(() => setText(current.slice(0, text.length + 1)), typeSpeed);
+            } else {
+                phaseRef.current = 'holding';
+                timer = setTimeout(() => {
+                    phaseRef.current = 'deleting';
+                    setText(current.slice(0, current.length - 1));
+                }, holdTime);
             }
-        };
-
-        container.addEventListener('wheel', handleWheel, { capture: true, passive: false });
-        return () => container.removeEventListener('wheel', handleWheel, { capture: true });
-    }, []);
-
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const resizeAndBound = () => {
-            window.requestAnimationFrame(updateExtent);
-        };
-
-        const resizeObserver = new ResizeObserver(resizeAndBound);
-
-        resizeObserver.observe(container);
-        resizeAndBound();
-
-        return () => resizeObserver.disconnect();
-    }, [updateExtent]);
-
-    useEffect(() => {
-        const updateNodeZoomCompensation = () => {
-            const currentDevicePixelRatio = window.devicePixelRatio || 1;
-            if (initialDevicePixelRatioRef.current === null) {
-                initialDevicePixelRatioRef.current = currentDevicePixelRatio;
+        } else if (phaseRef.current === 'deleting') {
+            if (text.length > 0) {
+                timer = setTimeout(() => setText(current.slice(0, text.length - 1)), deleteSpeed);
+            } else {
+                phaseRef.current = 'typing';
+                setPhraseIdx((i) => (i + 1) % phrases.length);
             }
+        }
 
-            const baseDevicePixelRatio = initialDevicePixelRatioRef.current || 1;
-            const pageZoomFactor = currentDevicePixelRatio / baseDevicePixelRatio;
-            const nextCompensation = Number.isFinite(pageZoomFactor) && pageZoomFactor > 0
-                ? 1 / pageZoomFactor
-                : 1;
+        return () => clearTimeout(timer);
+    }, [text, phraseIdx, active, phrases, typeSpeed, deleteSpeed, holdTime]);
 
-            setNodeZoomCompensation((currentCompensation) => (
-                Math.abs(currentCompensation - nextCompensation) < 0.001
-                    ? currentCompensation
-                    : nextCompensation
-            ));
-        };
-
-        let dppxMediaQuery: MediaQueryList | null = null;
-        const handleDppxChange = () => {
-            updateNodeZoomCompensation();
-            if (dppxMediaQuery) {
-                dppxMediaQuery.removeEventListener('change', handleDppxChange);
-            }
-            dppxMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-            dppxMediaQuery.addEventListener('change', handleDppxChange);
-        };
-
-        updateNodeZoomCompensation();
-        dppxMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-        dppxMediaQuery.addEventListener('change', handleDppxChange);
-        window.addEventListener('resize', updateNodeZoomCompensation);
-        window.visualViewport?.addEventListener('resize', updateNodeZoomCompensation);
-
-        return () => {
-            dppxMediaQuery?.removeEventListener('change', handleDppxChange);
-            window.removeEventListener('resize', updateNodeZoomCompensation);
-            window.visualViewport?.removeEventListener('resize', updateNodeZoomCompensation);
-        };
-    }, []);
-
-    useEffect(() => {
-        if (!layoutInitializedRef.current) return;
-        applyRatioLayout(nodeExtent);
-    }, [applyRatioLayout, nodeExtent, nodeZoomCompensation, screenScale]);
-
-    return (
-        <div
-            ref={containerRef}
-            className="w-full h-full"
-            style={{
-                ['--home-demo-node-zoom-comp' as any]: nodeZoomCompensation,
-                ['--home-demo-screen-scale' as any]: screenScale
-            }}
-        >
-            <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                nodeTypes={nodeTypes}
-                nodeExtent={nodeExtent}
-                nodesDraggable={true}
-                nodesConnectable={false}
-                elementsSelectable={true}
-                minZoom={1}
-                maxZoom={1}
-                zoomOnScroll={false}
-                zoomOnPinch={false}
-                zoomOnDoubleClick={false}
-                panOnDrag={false}
-                preventScrolling={false}
-                autoPanOnNodeDrag={false}
-                proOptions={{ hideAttribution: true }}
-                className="bg-transparent"
-            />
-        </div>
-    );
+    return text;
 }
 
-function InteractiveWorkflowDemo() {
+// The hero centerpiece: a large, glassy composer. Typing here and hitting send
+// stashes the prompt and jumps to /chat, where ChatInterface auto-submits it —
+// so the visitor lands mid-conversation with a workflow already building.
+function HeroChatInput() {
+    const router = useRouter();
+    const [value, setValue] = useState('');
+    const [focused, setFocused] = useState(false);
+    const [leaving, setLeaving] = useState(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const placeholder = useTypewriter(HERO_PROMPTS, { active: value.length === 0 && !focused });
+
+    const submit = (text?: string) => {
+        const t = (text ?? value).trim();
+        if (!t || leaving) {
+            if (!t) textareaRef.current?.focus();
+            return;
+        }
+        try {
+            sessionStorage.setItem('prismai:pendingPrompt', t);
+        } catch {
+            // Private-mode / blocked storage: fall through and let the user type
+            // again on the chat page rather than hard-failing.
+        }
+        setLeaving(true);
+        router.push('/chat');
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+        }
+    };
+
+    // Grow with content, capped so a long paste doesn't take over the hero.
+    useEffect(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    }, [value]);
+
     return (
-        <ReactFlowProvider>
-            <InteractiveWorkflowDemoInner />
-        </ReactFlowProvider>
+        <motion.div
+            initial={{ opacity: 0, y: 28, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+            className="relative w-full max-w-2xl mx-auto"
+        >
+            <div
+                className={cn(
+                    "relative rounded-[1.9rem] border bg-white/80 backdrop-blur-xl shadow-2xl shadow-slate-900/10 transition-colors duration-500 overflow-hidden",
+                    focused ? "border-accent-primary/50" : "border-slate-200/80"
+                )}
+            >
+                {/* Top hairline accent */}
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent-primary/60 to-transparent" />
+
+                <div className="relative flex items-end gap-2.5 p-3 md:p-4">
+                    {/* Textarea + animated placeholder overlay */}
+                    <div className="relative flex-1 min-w-0 py-2.5 pl-2">
+                        <textarea
+                            ref={textareaRef}
+                            value={value}
+                            onChange={(e) => setValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onFocus={() => setFocused(true)}
+                            onBlur={() => setFocused(false)}
+                            rows={1}
+                            aria-label="Describe what you want to create"
+                            className="relative z-10 w-full resize-none bg-transparent text-slate-900 text-base md:text-lg font-medium leading-relaxed outline-none placeholder:text-transparent max-h-[220px]"
+                        />
+                        {value.length === 0 && (
+                            <div className="pointer-events-none absolute inset-0 z-0 flex items-start pl-2 text-base md:text-lg font-medium text-slate-400 leading-relaxed">
+                                <span className="whitespace-pre-wrap">{placeholder}</span>
+                                <span className="ml-0.5 mt-[0.15em] inline-block w-[2px] h-[1.15em] bg-accent-primary animate-pulse" />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Send */}
+                    <button
+                        type="button"
+                        onClick={() => submit()}
+                        disabled={leaving}
+                        aria-label="Start building"
+                        className={cn(
+                            "group shrink-0 flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all duration-300 shadow-lg",
+                            value.trim()
+                                ? "bg-accent-primary text-slate-900 hover:scale-105"
+                                : "bg-slate-900 text-white hover:bg-slate-800"
+                        )}
+                    >
+                        {leaving ? (
+                            <div className="w-5 h-5 border-2 border-current border-t-transparent animate-spin rounded-full" />
+                        ) : (
+                            <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            {/* One-tap starters */}
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2 px-2">
+                {HERO_CHIPS.map((chip) => (
+                    <button
+                        key={chip.label}
+                        type="button"
+                        onClick={() => submit(chip.prompt)}
+                        disabled={leaving}
+                        className="inline-flex items-center px-3.5 py-2 rounded-full bg-white/70 backdrop-blur-md border border-slate-200 text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 hover:text-slate-900 hover:border-accent-primary/50 hover:bg-white transition-all shadow-sm"
+                    >
+                        {chip.label}
+                    </button>
+                ))}
+            </div>
+        </motion.div>
     );
 }
 
@@ -660,6 +408,197 @@ function CapabilityCard({
                 <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
             </div>
         </motion.div>
+    );
+}
+
+// Shared capability data — drives the desktop bento grid AND the mobile carousel.
+const CAPABILITIES: { icon: any; title: string; desc: string; image: string; span?: string; accent?: boolean }[] = [
+    { icon: Wand2, title: 'Generate', desc: 'Text-to-image, text-to-video. Every flagship model, ready to chain.', image: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=900', span: 'md:col-span-2', accent: true },
+    { icon: Layers3, title: 'Compose', desc: 'Stack, mask, blend. Multi-input pipelines without leaving the canvas.', image: 'https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=900' },
+    { icon: Eraser, title: 'Edit', desc: 'Inpaint, extend, retouch. Surgical control on any source asset.', image: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=900' },
+    { icon: Maximize2, title: 'Upscale', desc: 'Sub-pixel detail recovery. Print-ready output from any source.', image: 'https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=900' },
+    { icon: Scissors, title: 'Remove Background', desc: 'One click. Studio-clean cutouts. Subjects, products, people — preserved with sub-pixel edges.', image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=900', span: 'md:col-start-3 md:row-start-2 md:row-span-2' },
+    { icon: Film, title: 'Animate', desc: 'Bring stills to motion. Frame interpolation, looping, video extension.', image: 'https://images.unsplash.com/photo-1633957897986-70e83293f3ff?auto=format&fit=crop&q=80&w=900', span: 'md:col-span-2', accent: true },
+];
+
+// Static (non-tilting) card face used inside the mobile coverflow carousel.
+function CapabilityCardFace({ icon: Icon, title, desc, image, accent }: { icon: any; title: string; desc: string; image?: string; accent?: boolean }) {
+    return (
+        <div className="relative w-full h-full rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-2xl p-7 flex flex-col gap-5">
+            {image && (
+                <div className="absolute inset-0 opacity-[0.1]">
+                    <img src={image} alt="" draggable={false} className="w-full h-full object-cover" />
+                </div>
+            )}
+            <div className={cn("absolute -top-20 -right-20 w-52 h-52 rounded-full blur-3xl", accent ? "bg-accent-primary/30" : "bg-accent-secondary/15")} />
+            <div className="relative z-10 flex items-center justify-between">
+                <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center border", accent ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-200 text-slate-900")}>
+                    <Icon className="w-5 h-5" />
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent-success animate-pulse" />
+                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-400">LIVE</span>
+                </div>
+            </div>
+            <div className="relative z-10 mt-auto">
+                <h3 className="text-2xl font-black uppercase font-display tracking-tight text-slate-900 leading-tight mb-2">{title}</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 leading-relaxed">{desc}</p>
+            </div>
+            <div className="relative z-10 flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-slate-400">
+                Explore
+                <ArrowRight className="w-3 h-3" />
+            </div>
+        </div>
+    );
+}
+
+// One coverflow card. Its visual slot is the shortest signed (wrapped) distance
+// between its index and the shared continuous position `pos`, so it tracks the
+// finger live and animates smoothly across the infinite loop.
+function CapabilityCarouselCard({
+    item, index, n, pos, STEP, cardW
+}: {
+    item: typeof CAPABILITIES[number];
+    index: number;
+    n: number;
+    pos: MotionValue<number>;
+    STEP: number;
+    cardW: number;
+}) {
+    const vd = useTransform(pos, (p) => {
+        let v = ((index - p) % n + n) % n; // 0..n
+        if (v > n / 2) v -= n;             // shortest signed: -n/2..n/2
+        return v;
+    });
+    const x = useTransform(vd, (v) => v * STEP);
+    const scale = useTransform(vd, (v) => 1 - Math.min(Math.abs(v), 1) * 0.18);
+    const rotate = useTransform(vd, (v) => Math.max(-1, Math.min(1, v)) * 6);
+    const opacity = useTransform(vd, (v) => (Math.abs(v) > 1.7 ? 0 : 1));
+    const zIndex = useTransform(vd, (v) => Math.round(100 - Math.abs(v) * 10));
+
+    return (
+        <motion.div
+            // Cards never capture pointer events — the stage owns all dragging,
+            // so a drag can begin anywhere (and over any card) at any time.
+            style={{ x, scale, rotate, opacity, zIndex, width: cardW }}
+            className="absolute inset-0 m-auto h-[320px] pointer-events-none"
+        >
+            <CapabilityCardFace icon={item.icon} title={item.title} desc={item.desc} image={item.image} accent={item.accent} />
+        </motion.div>
+    );
+}
+
+// Mobile coverflow: full-bleed, INFINITE, and fully interruptible. Everything is
+// driven by one continuous position motion value `pos` (in card units). Dragging
+// writes the finger delta straight into `pos` (live tracking); releasing flings +
+// snaps to the nearest card. A new pointer-down STOPS any in-flight snap and
+// picks up from wherever it is — so there's no dead time between drags and you
+// can fling across several cards or redirect mid-spring.
+function CapabilityCarousel({ items }: { items: typeof CAPABILITIES }) {
+    const n = items.length;
+    const pos = useMotionValue(0);
+    const [stageW, setStageW] = useState(0);
+    const [activeDot, setActiveDot] = useState(0);
+    const stageRef = useRef<HTMLDivElement>(null);
+    const controlsRef = useRef<ReturnType<typeof animate> | null>(null);
+    const drag = useRef({ active: false, startX: 0, startPos: 0, lastX: 0, lastT: 0, vel: 0 });
+
+    useEffect(() => {
+        const el = stageRef.current;
+        if (!el) return;
+        const update = () => setStageW(el.clientWidth);
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    const cardW = Math.min(300, (stageW > 0 ? stageW : 320) * 0.72);
+    const STEP = Math.max(120, cardW * 0.62);
+
+    const settle = (target: number) => {
+        controlsRef.current?.stop();
+        setActiveDot(((Math.round(target) % n) + n) % n);
+        controlsRef.current = animate(pos, target, { type: 'spring', stiffness: 300, damping: 32 });
+    };
+
+    const onPointerDown = (e: React.PointerEvent) => {
+        controlsRef.current?.stop(); // interrupt any in-flight snap immediately
+        const d = drag.current;
+        d.active = true;
+        d.startX = e.clientX;
+        d.startPos = pos.get();
+        d.lastX = e.clientX;
+        d.lastT = performance.now();
+        d.vel = 0;
+        try { stageRef.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    const onPointerMove = (e: React.PointerEvent) => {
+        const d = drag.current;
+        if (!d.active) return;
+        const now = performance.now();
+        const dt = now - d.lastT;
+        if (dt > 0) d.vel = (e.clientX - d.lastX) / dt; // px per ms
+        d.lastX = e.clientX;
+        d.lastT = now;
+        pos.set(d.startPos - (e.clientX - d.startX) / STEP); // live finger tracking
+    };
+    const onPointerEnd = (e: React.PointerEvent) => {
+        const d = drag.current;
+        if (!d.active) return;
+        d.active = false;
+        try { stageRef.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+        const here = pos.get();
+        const projected = here - (d.vel * 130) / STEP; // velocity fling
+        // Clamp the target so a fling never skips past the rendered range.
+        const target = Math.max(Math.floor(here) - 2, Math.min(Math.ceil(here) + 2, Math.round(projected)));
+        settle(target);
+    };
+
+    const goTo = (i: number) => {
+        const here = pos.get();
+        settle(i + Math.round((here - i) / n) * n); // nearest representation of card i
+    };
+
+    return (
+        <div>
+            <div
+                ref={stageRef}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerEnd}
+                onPointerCancel={onPointerEnd}
+                className="relative h-[372px] overflow-hidden select-none touch-pan-y cursor-grab active:cursor-grabbing"
+            >
+                {items.map((item, i) => (
+                    <CapabilityCarouselCard
+                        key={item.title}
+                        item={item}
+                        index={i}
+                        n={n}
+                        pos={pos}
+                        STEP={STEP}
+                        cardW={cardW}
+                    />
+                ))}
+            </div>
+
+            {/* Dots */}
+            <div className="mt-7 flex items-center justify-center gap-2">
+                {items.map((item, i) => (
+                    <button
+                        key={item.title}
+                        type="button"
+                        onClick={() => goTo(i)}
+                        aria-label={`Show ${item.title}`}
+                        className={cn(
+                            "h-1.5 rounded-full transition-all duration-300",
+                            i === activeDot ? "w-6 bg-slate-900" : "w-1.5 bg-slate-300 hover:bg-slate-400"
+                        )}
+                    />
+                ))}
+            </div>
+        </div>
     );
 }
 
@@ -1041,7 +980,7 @@ function ScrollWorkflowSection() {
                         >
                             <div className="w-full h-full rounded-lg border border-accent-primary/30 bg-slate-800 shadow-2xl flex flex-col">
                                 <div className="px-2 py-1 bg-accent-primary/10 border-b border-accent-primary/20 flex items-center gap-1">
-                                    <Sparkles className="w-2 h-2 text-accent-primary" />
+                                    <MessageSquare className="w-2 h-2 text-accent-primary" />
                                     <span className="text-[6px] font-black uppercase tracking-[0.3em] text-accent-primary">PROMPT</span>
                                 </div>
                                 <div className="flex-1 p-2 overflow-hidden">
@@ -1229,7 +1168,7 @@ function TemplateCarousel() {
     };
 
     return (
-        <section className="relative w-full py-24" id="templates">
+        <section className="relative w-full py-14 md:py-24" id="templates">
             {/* Heading */}
             <div className="max-w-7xl mx-auto px-8 mb-14 text-center flex flex-col items-center gap-5">
                 <span className="text-[7px] font-black uppercase tracking-[0.5em] text-accent-primary opacity-60">Templates</span>
@@ -1299,6 +1238,264 @@ function TemplateCarousel() {
                 </Link>
             </div>
         </section>
+    );
+}
+
+// =============================================================================
+// CHAT-FIRST SHOWCASE (chat with inline results + a related mini-workflow)
+// =============================================================================
+
+// One coherent story shared by the chat, its inline results, and the workflow
+// graph — so the conversation, the rendered frames, and the nodes all match.
+const SHOWCASE_RESULTS = [
+    { src: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=600', tag: 'minimal' },
+    { src: 'https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=600', tag: 'dramatic' },
+    { src: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=600', tag: 'neon' },
+    { src: 'https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=600', tag: 'editorial' },
+];
+
+const SHOWCASE_SOURCE = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=400';
+
+// Chat panel — the conversation plus the generated frames shown INLINE in one
+// row, exactly like a result lands in a real session.
+function ShowcaseChatPanel() {
+    return (
+        <div className="h-full w-full rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xl flex flex-col">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50/60 shrink-0">
+                <div className="flex gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-400/50" />
+                    <span className="w-2 h-2 rounded-full bg-amber-400/50" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400/50" />
+                </div>
+                <div className="ml-2 flex items-center gap-1.5">
+                    <MessageSquare className="w-3 h-3 text-accent-primary" />
+                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Prisfol Chat</span>
+                </div>
+                <div className="ml-auto flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.3em] text-emerald-500">
+                    <span className="relative flex w-1.5 h-1.5">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 animate-ping" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                    </span>
+                    Live
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+                <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5 }} className="flex justify-end">
+                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tr-sm bg-slate-900 text-white text-sm leading-relaxed">
+                        Make 4 hero shots of my watch on different studio backdrops — minimal, dramatic, neon, editorial.
+                    </div>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.35 }} className="flex justify-start">
+                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tl-sm bg-slate-100 text-slate-700 text-sm leading-relaxed">
+                        On it — taking your watch and generating it across 4 studio backdrops: minimal, dramatic, neon, editorial.
+                    </div>
+                </motion.div>
+
+                {/* Inline results — one row, right inside the conversation */}
+                <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.7 }} className="flex justify-start">
+                    <div className="w-full max-w-[94%] space-y-2">
+                        <div className="flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.4em] text-accent-primary">
+                            <span className="w-1.5 h-1.5 rounded-full bg-accent-primary" /> 4 frames ready
+                        </div>
+                        <div className="flex gap-2">
+                            {SHOWCASE_RESULTS.map((o, i) => (
+                                <motion.div
+                                    key={o.tag}
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    whileInView={{ opacity: 1, scale: 1 }}
+                                    viewport={{ once: true }}
+                                    transition={{ duration: 0.5, delay: 0.9 + i * 0.12 }}
+                                    className="relative flex-1 min-w-0 aspect-square rounded-xl overflow-hidden border border-slate-200 group"
+                                >
+                                    <img src={o.src} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={o.tag} />
+                                    <div className="absolute bottom-1 inset-x-1 px-1 py-0.5 rounded-md bg-white/85 backdrop-blur text-[6px] font-black uppercase tracking-[0.15em] text-slate-700 text-center truncate">
+                                        {o.tag}
+                                    </div>
+                                </motion.div>
+                            ))}
+                        </div>
+                    </div>
+                </motion.div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center gap-3 shrink-0">
+                <div className="flex-1 min-w-0">
+                    <PromptRotator size="sm" />
+                </div>
+                <button className="shrink-0 w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-accent-primary hover:text-slate-900 transition-colors">
+                    <Send className="w-3.5 h-3.5" />
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// A minimal node graph that mirrors the chat: source + 4 backdrops → composite
+// → upscale → the 4 output frames. Looks like a workflow; not interactive.
+function ShowcaseWorkflowNode({ style, label, icon: Icon, accent, children }: { style: React.CSSProperties; label: string; icon: any; accent?: boolean; children: React.ReactNode }) {
+    return (
+        <div className="absolute" style={style}>
+            <div className={cn("w-full h-full rounded-xl border bg-white shadow-lg flex flex-col overflow-hidden", accent ? "border-accent-primary/40" : "border-slate-200")}>
+                <div className={cn("flex items-center gap-1 px-1.5 py-1 border-b shrink-0", accent ? "bg-accent-primary/10 border-accent-primary/20" : "bg-slate-50 border-slate-100")}>
+                    <Icon className={cn("w-2.5 h-2.5", accent ? "text-accent-primary" : "text-slate-400")} />
+                    <span className="text-[6px] font-black uppercase tracking-[0.18em] text-slate-500 truncate">{label}</span>
+                </div>
+                <div className="flex-1 min-h-0">{children}</div>
+            </div>
+        </div>
+    );
+}
+
+function ShowcaseWorkflow() {
+    const wires = [
+        'M31 28 C 36 28, 35 50, 40 50',
+        'M31 72 C 36 72, 35 50, 40 50',
+        'M66 50 L 74 50',
+    ];
+    return (
+        <div className="relative h-full w-full rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white overflow-hidden shadow-xl">
+            <div className="absolute top-0 inset-x-0 z-20 flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-white/70 backdrop-blur">
+                <Network className="w-3 h-3 text-accent-primary" />
+                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Workflow · 4 nodes</span>
+                <span className="ml-auto flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.3em] text-emerald-500">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Ready
+                </span>
+            </div>
+
+            <div className="absolute inset-0 opacity-100" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.06) 1px, transparent 0)', backgroundSize: '18px 18px' }} />
+
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                {wires.map((d, i) => (
+                    <g key={i}>
+                        <path d={d} stroke="rgba(56,189,248,0.25)" strokeWidth="0.5" fill="none" />
+                        <motion.path
+                            d={d}
+                            stroke="rgb(56,189,248)"
+                            strokeWidth="0.5"
+                            fill="none"
+                            strokeDasharray="2 4"
+                            animate={{ strokeDashoffset: [0, -6] }}
+                            transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }}
+                        />
+                    </g>
+                ))}
+            </svg>
+
+            {/* Source */}
+            <ShowcaseWorkflowNode style={{ left: '4%', top: '14%', width: '27%', height: '28%' }} label="Source · watch" icon={ImageIcon}>
+                <img src={SHOWCASE_SOURCE} className="w-full h-full object-cover" alt="watch source" />
+            </ShowcaseWorkflowNode>
+
+            {/* Backdrops ×4 (style references) */}
+            <ShowcaseWorkflowNode style={{ left: '4%', top: '58%', width: '27%', height: '28%' }} label="Backdrops ×4" icon={Layers3}>
+                <div className="grid grid-cols-2 grid-rows-2 gap-0.5 w-full h-full p-0.5">
+                    <div className="rounded-sm bg-gradient-to-br from-slate-200 to-slate-100" />
+                    <div className="rounded-sm bg-gradient-to-br from-slate-900 to-slate-600" />
+                    <div className="rounded-sm bg-gradient-to-br from-fuchsia-400 to-cyan-400" />
+                    <div className="rounded-sm bg-gradient-to-br from-amber-200 to-rose-300" />
+                </div>
+            </ShowcaseWorkflowNode>
+
+            {/* Image generation */}
+            <ShowcaseWorkflowNode style={{ left: '40%', top: '33%', width: '26%', height: '34%' }} label="Image generation" icon={Wand2} accent>
+                <div className="w-full h-full flex flex-col items-center justify-center gap-1.5">
+                    <Wand2 className="w-6 h-6 text-accent-primary/70" />
+                    <span className="text-[6px] font-black uppercase tracking-[0.25em] text-slate-400">diffusion</span>
+                </div>
+            </ShowcaseWorkflowNode>
+
+            {/* Output ×4 */}
+            <ShowcaseWorkflowNode style={{ left: '74%', top: '14%', width: '22%', height: '72%' }} label="Output ×4" icon={Play} accent>
+                <div className="grid grid-cols-1 grid-rows-4 gap-0.5 w-full h-full p-0.5">
+                    {SHOWCASE_RESULTS.map((o) => (
+                        <div key={o.tag} className="relative rounded-sm overflow-hidden min-h-0">
+                            <img src={o.src} className="w-full h-full object-cover" alt={o.tag} />
+                        </div>
+                    ))}
+                </div>
+            </ShowcaseWorkflowNode>
+        </div>
+    );
+}
+
+// Marketing showcase. Desktop: chat + workflow side-by-side. Mobile: the canvas
+// is always the base layer with the chat docked over it as a minimized bottom
+// sheet (open by default — so the canvas reads behind it on load, like a real
+// workflow session). Closing the sheet reveals the full canvas; a chat FAB
+// re-opens it.
+function ChatFirstShowcase() {
+    const [chatOpen, setChatOpen] = useState(true);
+
+    return (
+        <>
+            {/* Desktop: side-by-side */}
+            <div className="hidden md:grid md:grid-cols-[1.1fr_1fr] gap-6 md:h-[560px]">
+                <ShowcaseChatPanel />
+                <ShowcaseWorkflow />
+            </div>
+
+            {/* Mobile: canvas base + chat as a minimized sheet on top */}
+            <div className="md:hidden relative w-full h-[560px] overflow-hidden rounded-3xl">
+                {/* Canvas — always behind */}
+                <div className="absolute inset-0">
+                    <ShowcaseWorkflow />
+                </div>
+
+                {/* Chat FAB — shown when the sheet is closed */}
+                <AnimatePresence>
+                    {!chatOpen && (
+                        <motion.button
+                            type="button"
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
+                            transition={{ type: 'spring', damping: 18, stiffness: 320 }}
+                            onClick={() => setChatOpen(true)}
+                            aria-label="Open chat"
+                            className="absolute bottom-4 right-4 z-40 w-12 h-12 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center active:scale-95 transition-transform"
+                        >
+                            <MessageSquare className="w-5 h-5 text-accent-primary" />
+                        </motion.button>
+                    )}
+                </AnimatePresence>
+
+                {/* Chat — minimized bottom sheet docked over the canvas */}
+                <AnimatePresence>
+                    {chatOpen && (
+                        <>
+                            {/* Tap-to-close scrim; canvas reads through it behind the sheet */}
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.25 }}
+                                onClick={() => setChatOpen(false)}
+                                className="absolute inset-0 z-30 bg-slate-900/30 backdrop-blur-sm"
+                            />
+                            <motion.div
+                                initial={{ y: '100%' }}
+                                animate={{ y: 0 }}
+                                exit={{ y: '100%' }}
+                                transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+                                className="absolute inset-x-2 bottom-2 top-12 z-40"
+                            >
+                                <ShowcaseChatPanel />
+                                <button
+                                    type="button"
+                                    onClick={() => setChatOpen(false)}
+                                    aria-label="Close chat"
+                                    className="absolute -top-9 right-0 z-50 w-8 h-8 rounded-xl bg-slate-900 text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </motion.div>
+                        </>
+                    )}
+                </AnimatePresence>
+            </div>
+        </>
     );
 }
 
@@ -1418,108 +1615,43 @@ export default function Home() {
                     </div>
                 </motion.nav>
 
-                {/* ─── Hero & Workflow Unified Section ─────────────────────────── */}
-                <section className="relative w-full min-h-[100vh] flex flex-col items-center pb-12 pt-10" id="workflow">
-                    <div className="absolute inset-x-0 top-4 bottom-4 z-0 overflow-hidden hidden md:block">
-                        {mounted && <InteractiveWorkflowDemo />}
-                    </div>
-
-                    {/* Mobile-only static hero visual */}
-                    <div className="md:hidden absolute inset-x-0 top-8 bottom-0 z-0 overflow-hidden pointer-events-none">
-                        <div className="absolute inset-x-0 top-0 h-full bg-[radial-gradient(ellipse_at_50%_30%,rgba(56,189,248,0.18),transparent_60%)]" />
-                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[120%] aspect-square rounded-full border border-accent-primary/20" />
-                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[80%] aspect-square rounded-full border border-accent-primary/10" />
-                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[40%] aspect-square rounded-full border border-accent-primary/10" />
-                    </div>
-
-                    {/*
-                    // CREATORS BUILDING BADGE — uncomment when there are real users
+                {/* ─── Hero & Chat Composer Section ───────────────────────────── */}
+                <section className="relative w-full flex flex-col items-center pt-24 md:pt-28 pb-10 md:pb-14" id="workflow">
                     <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.7, duration: 0.6 }}
-                        className="relative z-20 mt-2 mb-6 flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/80 backdrop-blur-md border border-slate-200 shadow-sm"
-                    >
-                        <span className="relative flex w-2 h-2">
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-accent-success opacity-75 animate-ping" />
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-success" />
-                        </span>
-                        <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-700">
-                            <AnimatedCounter value={387} /> creators building right now
-                        </span>
-                    </motion.div>
-                    */}
-
-                    {/* Hero Text Overlay */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                        initial={{ opacity: 0, y: 30, scale: 0.96 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                        className="relative z-20 space-y-6 text-center px-6 pointer-events-none max-w-7xl w-full mt-4"
+                        className="relative z-20 w-full max-w-3xl px-5 md:px-6 flex flex-col items-center text-center gap-6 md:gap-8"
                     >
-                        <h1 className="text-[clamp(2.5rem,10vw,5.5rem)] font-black tracking-tighter text-slate-900 leading-[0.85] font-display uppercase px-4 drop-shadow-sm">
-                            The Visual Engine for Your <span className="text-accent-primary italic">Imagination</span>.
-                        </h1>
-
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pointer-events-auto pt-1">
-                            <MagneticButton href="/chat" className="w-full sm:w-auto">
-                                <div className="group flex items-center justify-center gap-3 px-10 py-5 rounded-2xl bg-slate-900 text-white font-black text-base hover:bg-accent-primary hover:text-slate-900 transition-colors shadow-2xl">
-                                    START BUILDING
-                                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                                </div>
-                            </MagneticButton>
-                            <button
-                                onClick={createNewSession}
-                                disabled={isLoading}
-                                className="w-full sm:w-auto bg-white/80 backdrop-blur-md flex items-center justify-center gap-3 px-10 py-5 rounded-2xl border border-slate-200 text-slate-900 font-black text-base hover:bg-white transition-all shadow-lg"
-                            >
-                                {isLoading ? <div className="w-5 h-5 border-2 border-accent-secondary border-t-transparent animate-spin rounded-full" /> : <Workflow className="w-5 h-5 text-accent-secondary" />}
-                                NEW SESSION
-                            </button>
+                        <div className="space-y-4 md:space-y-5">
+                            <h1 className="text-[clamp(2.25rem,8vw,4.75rem)] font-black tracking-tighter text-slate-900 leading-[0.88] font-display uppercase drop-shadow-sm">
+                                The Visual Engine for Your <span className="text-accent-primary italic">Imagination</span>.
+                            </h1>
+                            <p className="mx-auto max-w-md text-xs md:text-sm font-bold uppercase tracking-[0.18em] text-slate-500 leading-relaxed">
+                                Describe it. Prisfol builds the workflow, wires the models, and renders it.
+                            </p>
                         </div>
 
-                        {/* Auto-rotating prompt ticker */}
-                        <div className="flex items-center justify-center pointer-events-auto pt-1">
-                            <div className="inline-flex items-center gap-3 px-5 py-2 rounded-full bg-white/70 backdrop-blur-md border border-slate-200 shadow-sm">
-                                <Sparkles className="w-3 h-3 text-accent-primary" />
-                                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Try</span>
-                                <div className="w-[260px]">
-                                    <PromptRotator size="sm" />
-                                </div>
-                            </div>
-                        </div>
+                        {/* The composer — type here and you land mid-build inside /chat */}
+                        <HeroChatInput />
 
+                        {/* Secondary: skip straight to a blank canvas */}
+                        <button
+                            onClick={createNewSession}
+                            disabled={isLoading}
+                            className="group inline-flex items-center gap-2 text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] text-slate-400 hover:text-slate-900 transition-colors"
+                        >
+                            {isLoading
+                                ? <div className="w-3 h-3 border-2 border-accent-secondary border-t-transparent animate-spin rounded-full" />
+                                : <Workflow className="w-3 h-3 text-accent-secondary" />}
+                            Or start from a blank canvas
+                            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                        </button>
                     </motion.div>
-                </section>
-
-                {/* ─── Stats Bar (Light) ──────────────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-16">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-4 border-y border-slate-200 py-12">
-                        {[
-                            { v: 4200000, suffix: '+', label: 'Workflows generated' },
-                            { v: 32, suffix: '', label: 'Frontier models' },
-                            { v: 8, suffix: 's', label: 'Avg generation time' },
-                            { v: 99, suffix: '%', label: 'Uptime, last 90d' },
-                        ].map((s, i) => (
-                            <motion.div
-                                key={i}
-                                initial={{ opacity: 0, y: 16 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                viewport={{ once: true }}
-                                transition={{ duration: 0.6, delay: i * 0.08 }}
-                                className="flex flex-col items-center md:items-start gap-2 px-4"
-                            >
-                                <span className="text-3xl md:text-5xl font-black tracking-tighter text-slate-900 font-display">
-                                    <AnimatedCounter value={s.v} suffix={s.suffix} />
-                                </span>
-                                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-400">{s.label}</span>
-                            </motion.div>
-                        ))}
-                    </div>
                 </section>
 
                 {/* ─── Capabilities Bento (Light) ─────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-24" id="capabilities">
+                <section className="relative w-full max-w-7xl px-8 pt-10 pb-12 md:py-24" id="capabilities">
                     <SectionHeader
                         tag="Capabilities"
                         title="Everything you need to make. Nothing in the way."
@@ -1527,53 +1659,21 @@ export default function Home() {
                         center
                     />
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5 auto-rows-[260px]">
-                        <CapabilityCard
-                            icon={Wand2}
-                            title="Generate"
-                            desc="Text-to-image, text-to-video. Every flagship model, ready to chain."
-                            image="https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=900"
-                            span="md:col-span-2"
-                            accent
-                        />
-                        <CapabilityCard
-                            icon={Layers3}
-                            title="Compose"
-                            desc="Stack, mask, blend. Multi-input pipelines without leaving the canvas."
-                            image="https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=900"
-                        />
-                        <CapabilityCard
-                            icon={Eraser}
-                            title="Edit"
-                            desc="Inpaint, extend, retouch. Surgical control on any source asset."
-                            image="https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=900"
-                        />
-                        <CapabilityCard
-                            icon={Maximize2}
-                            title="Upscale"
-                            desc="Sub-pixel detail recovery. Print-ready output from any source."
-                            image="https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=900"
-                        />
-                        <CapabilityCard
-                            icon={Scissors}
-                            title="Remove Background"
-                            desc="One click. Studio-clean cutouts. Subjects, products, people — preserved with sub-pixel edges."
-                            image="https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=900"
-                            span="md:col-start-3 md:row-start-2 md:row-span-2"
-                        />
-                        <CapabilityCard
-                            icon={Film}
-                            title="Animate"
-                            desc="Bring stills to motion. Frame interpolation, looping, video extension."
-                            image="https://images.unsplash.com/photo-1633957897986-70e83293f3ff?auto=format&fit=crop&q=80&w=900"
-                            span="md:col-span-2"
-                            accent
-                        />
+                    {/* Desktop: bento grid */}
+                    <div className="hidden md:grid grid-cols-1 md:grid-cols-3 gap-5 auto-rows-[260px]">
+                        {CAPABILITIES.map((c) => (
+                            <CapabilityCard key={c.title} icon={c.icon} title={c.title} desc={c.desc} image={c.image} span={c.span} accent={c.accent} />
+                        ))}
+                    </div>
+
+                    {/* Mobile: full-bleed coverflow carousel */}
+                    <div className="md:hidden relative left-1/2 -translate-x-1/2 w-screen">
+                        <CapabilityCarousel items={CAPABILITIES} />
                     </div>
                 </section>
 
                 {/* ─── How it works (Light) ────────────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-24" id="how">
+                <section className="relative w-full max-w-7xl px-8 py-14 md:py-24" id="how">
                     <SectionHeader
                         tag="Workflow"
                         title="From idea to render in three nodes."
@@ -1631,7 +1731,7 @@ export default function Home() {
                 </section>
 
                 {/* ─── Chat-First Section (Light) ──────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-24" id="chat-first">
+                <section className="relative w-full max-w-7xl px-8 py-14 md:py-24" id="chat-first">
                     <SectionHeader
                         tag="Chat-first"
                         title="Or just type. We'll build it."
@@ -1639,120 +1739,7 @@ export default function Home() {
                         center
                     />
 
-                    <div className="grid md:grid-cols-[1.1fr_1fr] gap-6 items-stretch">
-                        {/* Chat panel */}
-                        <div className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xl flex flex-col min-h-[520px]">
-                            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50/60">
-                                <div className="flex gap-1.5">
-                                    <span className="w-2 h-2 rounded-full bg-red-400/50" />
-                                    <span className="w-2 h-2 rounded-full bg-amber-400/50" />
-                                    <span className="w-2 h-2 rounded-full bg-emerald-400/50" />
-                                </div>
-                                <div className="ml-2 flex items-center gap-1.5">
-                                    <MessageSquare className="w-3 h-3 text-accent-primary" />
-                                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Prisfol Chat</span>
-                                </div>
-                                <div className="ml-auto flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.3em] text-emerald-500">
-                                    <span className="relative flex w-1.5 h-1.5">
-                                        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 animate-ping" />
-                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                                    </span>
-                                    Live
-                                </div>
-                            </div>
-
-                            <div className="flex-1 px-6 py-6 space-y-4">
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    whileInView={{ opacity: 1, y: 0 }}
-                                    viewport={{ once: true }}
-                                    transition={{ duration: 0.5 }}
-                                    className="flex justify-end"
-                                >
-                                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tr-sm bg-slate-900 text-white text-sm leading-relaxed">
-                                        Make 4 hero shots of my watch on different studio backdrops — minimal, dramatic, neon, editorial.
-                                    </div>
-                                </motion.div>
-
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    whileInView={{ opacity: 1, y: 0 }}
-                                    viewport={{ once: true }}
-                                    transition={{ duration: 0.5, delay: 0.4 }}
-                                    className="flex justify-start"
-                                >
-                                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tl-sm bg-slate-100 text-slate-700 text-sm leading-relaxed">
-                                        On it. I'll generate 4 backdrop variants, composite your watch into each, then upscale the results.
-                                    </div>
-                                </motion.div>
-
-                                <motion.div
-                                    initial={{ opacity: 0 }}
-                                    whileInView={{ opacity: 1 }}
-                                    viewport={{ once: true }}
-                                    transition={{ duration: 0.6, delay: 0.9 }}
-                                    className="flex flex-col gap-3 mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-100"
-                                >
-                                    <div className="flex items-center gap-2 text-[7px] font-black uppercase tracking-[0.4em] text-accent-primary">
-                                        <span className="relative flex w-1.5 h-1.5">
-                                            <span className="absolute inline-flex h-full w-full rounded-full bg-accent-primary opacity-70 animate-ping" />
-                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent-primary" />
-                                        </span>
-                                        Building workflow · 6 nodes
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] font-mono text-slate-500">
-                                        <span>· source / watch.jpg</span>
-                                        <span>· backdrop ×4</span>
-                                        <span>· composite node</span>
-                                        <span>· upscale 4×</span>
-                                    </div>
-                                </motion.div>
-                            </div>
-
-                            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center gap-3">
-                                <Sparkles className="w-3.5 h-3.5 text-accent-primary shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                    <PromptRotator size="sm" />
-                                </div>
-                                <button className="shrink-0 w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-accent-primary hover:text-slate-900 transition-colors">
-                                    <Send className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Output preview */}
-                        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 flex flex-col min-h-[520px]">
-                            <div className="flex items-center justify-between mb-5">
-                                <div className="flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-accent-success animate-pulse" />
-                                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Output / 4 frames</span>
-                                </div>
-                                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-emerald-500">Ready</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 flex-1">
-                                {[
-                                    { src: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=600', tag: 'minimal' },
-                                    { src: 'https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=600', tag: 'dramatic' },
-                                    { src: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=600', tag: 'neon' },
-                                    { src: 'https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=600', tag: 'editorial' },
-                                ].map((o, i) => (
-                                    <motion.div
-                                        key={i}
-                                        initial={{ opacity: 0, scale: 0.92, y: 16 }}
-                                        whileInView={{ opacity: 1, scale: 1, y: 0 }}
-                                        viewport={{ once: true }}
-                                        transition={{ duration: 0.6, delay: 1.2 + i * 0.15 }}
-                                        className="relative rounded-2xl overflow-hidden border border-slate-200 group"
-                                    >
-                                        <img src={o.src} className="w-full h-full aspect-square object-cover transition-transform duration-700 group-hover:scale-105" alt="" />
-                                        <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur text-[7px] font-black uppercase tracking-[0.3em] text-slate-700">
-                                            {o.tag}
-                                        </div>
-                                    </motion.div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
+                    <ChatFirstShowcase />
                 </section>
 
                 {/* ─── Dark Sections Wrapper ───────────────────────────────────── */}
@@ -1762,7 +1749,7 @@ export default function Home() {
                     {/* ─── Brand Carousel ───────────────────────────────────────── */}
                     {mounted && (
                         <motion.div
-                            className="w-full pt-24 pb-4"
+                            className="w-full pt-14 md:pt-24 pb-4"
                             initial={{ opacity: 0 }}
                             whileInView={{ opacity: 1 }}
                             viewport={{ once: true }}
@@ -1772,7 +1759,7 @@ export default function Home() {
                     )}
 
                     {/* ─── Demo Video (Dark) ────────────────────────────────────── */}
-                    <section className="w-full max-w-6xl px-8 py-16">
+                    <section className="w-full max-w-6xl px-8 py-12 md:py-16">
                         <SectionHeader
                             tag="Demo"
                             title="See it move."
@@ -1824,7 +1811,7 @@ export default function Home() {
                     </section>
 
                     {/* ─── Live Gallery (Dark) ──────────────────────────────────── */}
-                    <section className="w-full max-w-7xl px-8 py-24 relative">
+                    <section className="w-full max-w-7xl px-8 py-14 md:py-24 relative">
                         <SectionHeader
                             tag="Gallery"
                             title="Made by creators, on the canvas."
@@ -1858,7 +1845,7 @@ export default function Home() {
                     <TemplateCarousel />
 
                     {/* ─── Final CTA (Dark) ────────────────────────────────────── */}
-                    <section className="w-full max-w-7xl px-8 py-32">
+                    <section className="w-full max-w-7xl px-8 py-16 md:py-32">
                         <motion.div
                             initial={{ opacity: 0, y: 30 }}
                             whileInView={{ opacity: 1, y: 0 }}
@@ -1888,7 +1875,7 @@ export default function Home() {
                                         href="/templates"
                                         className="flex items-center justify-center gap-3 px-10 py-5 rounded-2xl border border-white/15 text-white font-black text-base hover:bg-white/10 transition-all"
                                     >
-                                        <Sparkles className="w-5 h-5" />
+                                        <Layers3 className="w-5 h-5" />
                                         Browse templates
                                     </Link>
                                 </div>

@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { AdjustTokensModal } from './AdjustTokensModal';
+import { RunResultStrip } from '@/components/billing/RunResultStrip';
+import type { RunDetail } from '@/lib/billing/run-details';
 import {
     adminUsersApi,
     type AdminUserDetail,
@@ -130,6 +132,7 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
     const [error, setError] = useState<string | null>(null);
 
     const [ledger, setLedger] = useState<AdminLedgerRow[]>([]);
+    const [ledgerRuns, setLedgerRuns] = useState<Record<string, RunDetail>>({});
     const [ledgerLoading, setLedgerLoading] = useState(false);
     const [assets, setAssets] = useState<AdminAssetRow[]>([]);
     const [assetsLoading, setAssetsLoading] = useState(false);
@@ -170,6 +173,7 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
         } else {
             setUser(null);
             setLedger([]);
+            setLedgerRuns({});
             setAssets([]);
             setSessions([]);
         }
@@ -187,7 +191,7 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
         setSessionsLoading(true);
 
         adminUsersApi.ledger(userId, 0, 50)
-            .then(res => { if (!cancelled) setLedger(res.rows); })
+            .then(res => { if (!cancelled) { setLedger(res.rows); setLedgerRuns(res.runDetails ?? {}); } })
             .catch(err => { if (!cancelled) setActionMessage({ type: 'error', text: err.message || 'Failed to load ledger' }); })
             .finally(() => { if (!cancelled) setLedgerLoading(false); });
 
@@ -357,7 +361,7 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
 
                                 <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5">
                                     {tab === 'overview' && <OverviewTab user={user} banned={banned} />}
-                                    {tab === 'tokens' && <TokensTab rows={ledger} loading={ledgerLoading} />}
+                                    {tab === 'tokens' && <TokensTab rows={ledger} runs={ledgerRuns} loading={ledgerLoading} />}
                                     {tab === 'assets' && <AssetsTab rows={assets} loading={assetsLoading} />}
                                     {tab === 'sessions' && <SessionsTab rows={sessions} loading={sessionsLoading} />}
                                 </div>
@@ -417,7 +421,9 @@ export function UserDetailDrawer({ userId, initialUser, currentAdminId, onClose,
                         onMutated();
                         if (tab === 'tokens' && userId) {
                             setLedgerLoading(true);
-                            adminUsersApi.ledger(userId, 0, 50).then(r => setLedger(r.rows)).finally(() => setLedgerLoading(false));
+                            adminUsersApi.ledger(userId, 0, 50)
+                                .then(r => { setLedger(r.rows); setLedgerRuns(r.runDetails ?? {}); })
+                                .finally(() => setLedgerLoading(false));
                         }
                     }}
                 />
@@ -545,22 +551,28 @@ function Row({ icon, label, value }: { icon?: React.ReactNode; label: string; va
     );
 }
 
-function TokensTab({ rows, loading }: { rows: AdminLedgerRow[]; loading: boolean }) {
+function TokensTab({ rows, runs, loading }: { rows: AdminLedgerRow[]; runs: Record<string, RunDetail>; loading: boolean }) {
     if (loading) return <LoadingBlock />;
     if (rows.length === 0) return <EmptyBlock message="No token activity yet." />;
     return (
         <div className="space-y-2">
-            {rows.map(row => (
-                <div key={row.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
-                    <div className="min-w-0">
-                        <div className="text-xs font-bold text-content-primary truncate">{humanizeReason(row)}</div>
-                        <div className="text-[10px] text-content-tertiary mt-0.5">{formatDateTime(row.created_at)}</div>
+            {rows.map(row => {
+                const detail = row.execution_id ? runs[row.execution_id] : undefined;
+                return (
+                    <div key={row.id} className="p-3 rounded-xl bg-white/5 border border-white/10">
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="text-xs font-bold text-content-primary truncate">{humanizeReason(row)}</div>
+                                <div className="text-[10px] text-content-tertiary mt-0.5">{formatDateTime(row.created_at)}</div>
+                            </div>
+                            <div className={`text-sm font-black tabular-nums shrink-0 ${row.amount > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {row.amount > 0 ? '+' : ''}{Number(row.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </div>
+                        </div>
+                        <RunResultStrip detail={detail} />
                     </div>
-                    <div className={`text-sm font-black tabular-nums shrink-0 ${row.amount > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {row.amount > 0 ? '+' : ''}{Number(row.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                </div>
-            ))}
+                );
+            })}
         </div>
     );
 }

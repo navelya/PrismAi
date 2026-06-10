@@ -39,7 +39,8 @@ import {
     Minus,
     Maximize2,
     GripVertical,
-    LayoutTemplate
+    LayoutTemplate,
+    Images
 } from 'lucide-react';
 import { modelsAdminApi } from '@/lib/api/admin';
 import { Select } from '@/components/ui/Select';
@@ -55,13 +56,14 @@ import { PricingAdminContent } from '@/components/admin/PricingAdminContent';
 import { StatisticsAdminContent } from '@/components/admin/StatisticsAdminContent';
 import { FailuresAdminContent } from '@/components/admin/FailuresAdminContent';
 import { TemplatesAdminContent } from '@/components/admin/TemplatesAdminContent';
+import { NodeResultsAdminContent } from '@/components/admin/NodeResultsAdminContent';
 import { computeAiNodeCost, formatCredits } from '@/lib/billing/cost';
 
 // =============================================================================
 // SECTION NAVIGATION CONFIG
 // =============================================================================
 
-type SectionId = 'models' | 'users' | 'pricing' | 'statistics' | 'failures' | 'templates';
+type SectionId = 'models' | 'users' | 'pricing' | 'statistics' | 'failures' | 'templates' | 'node_results';
 
 interface SectionNavItem {
     id: SectionId;
@@ -77,6 +79,7 @@ const sectionNavItems: SectionNavItem[] = [
     { id: 'statistics', label: 'Statistics', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'failures', label: 'Failures', icon: <AlertTriangle className="w-4 h-4" /> },
     { id: 'templates', label: 'Templates', icon: <LayoutTemplate className="w-4 h-4" /> },
+    { id: 'node_results', label: 'Node Results', icon: <Images className="w-4 h-4" /> },
 ];
 
 // =============================================================================
@@ -108,6 +111,7 @@ function AdminShell() {
         : sectionParam === 'statistics' ? 'statistics'
         : sectionParam === 'failures' ? 'failures'
         : sectionParam === 'templates' ? 'templates'
+        : sectionParam === 'node_results' ? 'node_results'
         : 'models';
 
     const [mobileShowContent, setMobileShowContent] = useState(false);
@@ -208,6 +212,7 @@ function AdminShell() {
                 {activeSection === 'statistics' && <StatisticsAdminContent onMobileBack={() => setMobileShowContent(false)} />}
                 {activeSection === 'failures' && <FailuresAdminContent onMobileBack={() => setMobileShowContent(false)} />}
                 {activeSection === 'templates' && <TemplatesAdminContent onMobileBack={() => setMobileShowContent(false)} />}
+                {activeSection === 'node_results' && <NodeResultsAdminContent onMobileBack={() => setMobileShowContent(false)} />}
             </main>
         </div>
     );

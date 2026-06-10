@@ -201,6 +201,28 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         handleRevert
     });
 
+    // Hand-off from the marketing home page: the hero composer stashes the typed
+    // prompt in sessionStorage and routes here. Pick it up and auto-submit it
+    // through the normal send path (which creates the session + URL on the fly),
+    // so the visitor lands mid-build. The send is deferred to the next frame so
+    // the new-chat route's clearAllState (a sibling mount effect) runs first and
+    // doesn't wipe the session we're about to create. We clear the stash inside
+    // the deferred callback — not on read — so a StrictMode mount/unmount/mount
+    // (which cancels the first frame) still delivers the prompt exactly once.
+    useEffect(() => {
+        let pending: string | null = null;
+        try { pending = sessionStorage.getItem('prismai:pendingPrompt'); } catch { /* storage blocked */ }
+        const text = pending?.trim();
+        if (!text) return;
+        const raf = requestAnimationFrame(() => {
+            try { sessionStorage.removeItem('prismai:pendingPrompt'); } catch { /* storage blocked */ }
+            sendMessage(text, [], [], () => {}, setInput);
+        });
+        return () => cancelAnimationFrame(raf);
+        // Mount-only: capture the first-render send closure; this fires once.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     const scroll = useChatScroll({ messages, isLoading, sessionId: chatThreadId });
