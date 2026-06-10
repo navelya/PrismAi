@@ -2,20 +2,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion, useScroll, useTransform, AnimatePresence, useMotionValue, useSpring, useInView, MotionValue, animate, useAnimationFrame } from 'framer-motion';
-import ReactFlow, {
-    applyNodeChanges,
-    CoordinateExtent,
-    Node,
-    NodeChange,
-    Edge,
-    Handle,
-    Position,
-    ReactFlowProvider,
-    useEdgesState,
-    useReactFlow
-} from 'reactflow';
-import 'reactflow/dist/style.css';
 import {
     ArrowRight,
     Play,
@@ -78,434 +66,208 @@ const SectionHeader = ({ tag, title, description, dark = false, center = false }
 );
 
 // =============================================================================
-// REACT FLOW DEMO COMPONENTS
+// HERO CHAT INPUT (typewriter prompt suggestions + jump straight into a chat)
 // =============================================================================
 
-const PROMPT_CYCLES = [
-    'MAXIMUM PRECISION. CINEMATIC TEXTURE. MINIMALIST BALANCE. OPTIMIZED ENGINE.',
-    'EDITORIAL PORTRAIT. STUDIO LIGHT. HIGH-FIDELITY SKIN. SHALLOW DEPTH.',
-    'GOLDEN HOUR. 35MM FILM. DUOTONE PALETTE. ATMOSPHERIC HAZE.',
-    'BRUTALIST GEOMETRY. NEON ACCENTS. LIQUID METAL. POLISHED CONCRETE.',
-    'PRODUCT HERO. SEAMLESS BACKDROP. RIM LIGHT. ULTRA SHARP DETAIL.',
+// Rotating, action-oriented prompts that get "typed" into the empty input so a
+// first-time visitor instantly sees what they can ask for.
+const HERO_PROMPTS = [
+    'A cinematic portrait, 35mm film, golden-hour light…',
+    'Turn this product photo into a neon studio hero shot…',
+    'Generate an isometric dashboard in a mint & slate palette…',
+    'Remove the background and drop the subject on marble…',
+    'An editorial fashion shoot on a brutalist concrete set…',
+    'Ghibli-style landscape with hand-painted clouds…',
+    'Restore and upscale this old photo to crisp 4K…',
 ];
 
-const DemoNode = ({ data }: any) => {
-    const [promptIdx, setPromptIdx] = useState(0);
-
-    useEffect(() => {
-        if (data.type !== 'prompt') return;
-        const t = setInterval(() => setPromptIdx((i) => (i + 1) % PROMPT_CYCLES.length), 3500);
-        return () => clearInterval(t);
-    }, [data.type]);
-
-    const isOutput = data.title === 'FINAL_OUTPUT';
-
-    return (
-        <div
-            className="flex flex-col gap-2 group"
-            style={{
-                transform: 'scale(var(--home-demo-node-zoom-comp, 1))',
-                transformOrigin: 'top left'
-            }}
-        >
-            <Handle type="target" position={Position.Left} className="w-0 h-0 border-none bg-transparent" />
-            <div className="flex items-center gap-1.5 px-1">
-                <data.icon className="w-2.5 h-2.5 text-accent-primary" />
-                <span className="text-[7px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-accent-primary transition-colors">{data.title}</span>
-                {isOutput && (
-                    <span className="ml-auto flex items-center gap-1">
-                        <span className="relative flex w-1.5 h-1.5">
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-70 animate-ping" />
-                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                        </span>
-                        <span className="text-[6px] font-black uppercase tracking-[0.3em] text-emerald-600">Render</span>
-                    </span>
-                )}
-            </div>
-            <div
-                className="relative rounded-xl overflow-hidden border border-slate-200 bg-white shadow-xl transition-all duration-700 group-hover:shadow-2xl group-hover:border-accent-primary/40"
-                style={{
-                    width: data.type === 'image'
-                        ? `calc(150px * var(--home-demo-screen-scale, 1))`
-                        : `calc(220px * var(--home-demo-screen-scale, 1))`,
-                    height: data.type === 'image'
-                        ? `calc(180px * var(--home-demo-screen-scale, 1))`
-                        : undefined,
-                    padding: data.type === 'prompt'
-                        ? `calc(16px * var(--home-demo-screen-scale, 1))`
-                        : undefined,
-                }}
-            >
-                {data.type === 'image' ? (
-                    <img src={data.image} className="w-full h-full object-cover grayscale-[40%] group-hover:grayscale-0 transition-all duration-700" alt={data.title} />
-                ) : (
-                    <AnimatePresence mode="wait">
-                        <motion.p
-                            key={promptIdx}
-                            initial={{ opacity: 0, y: 6, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                            exit={{ opacity: 0, y: -6, filter: 'blur(4px)' }}
-                            transition={{ duration: 0.5 }}
-                            className="text-[9px] text-slate-500 leading-relaxed font-bold uppercase tracking-tight"
-                        >
-                            {PROMPT_CYCLES[promptIdx]}
-                        </motion.p>
-                    </AnimatePresence>
-                )}
-            </div>
-            <Handle type="source" position={Position.Right} className="w-0 h-0 border-none bg-transparent" />
-        </div>
-    );
-};
-
-const nodeTypes = { demo: DemoNode };
-
-const initialEdges: Edge[] = [
-    { id: 'e1-3', source: '1', target: '3', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
-    { id: 'e2-3', source: '2', target: '3', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
-    { id: 'e3-4', source: '3', target: '4', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
-    { id: 'e4-5', source: '4', target: '5', animated: false, style: { stroke: '#38bdf8', strokeWidth: 2, strokeOpacity: 0.85 } },
+// One-tap starters. Clicking sends the full `prompt`; the chip shows the short label.
+const HERO_CHIPS: { label: string; prompt: string }[] = [
+    { label: 'Product hero shot', prompt: 'Create a clean product hero shot on a seamless studio backdrop with soft rim lighting.' },
+    { label: 'Cinematic portrait', prompt: 'A cinematic portrait, 35mm film, shallow depth of field, warm golden-hour light.' },
+    { label: 'Remove background', prompt: 'Remove the background from my image and place the subject on a polished marble surface.' },
+    { label: 'Restore old photo', prompt: 'Restore and upscale this old photo to crisp 4K with natural, true-to-life color.' },
 ];
 
-// =============================================================================
-// INTERACTIVE WORKFLOW DEMO COMPONENT
-// =============================================================================
+// A self-deleting typewriter. Types a phrase, holds, deletes, advances to the
+// next. `active` lets the caller freeze + clear it the moment the user starts
+// typing for real (the live text takes over from the animated placeholder).
+function useTypewriter(
+    phrases: string[],
+    { typeSpeed = 42, deleteSpeed = 22, holdTime = 1700, active = true }: { typeSpeed?: number; deleteSpeed?: number; holdTime?: number; active?: boolean } = {}
+) {
+    const [text, setText] = useState('');
+    const [phraseIdx, setPhraseIdx] = useState(0);
+    const phaseRef = useRef<'typing' | 'holding' | 'deleting'>('typing');
 
-function InteractiveWorkflowDemoInner() {
-    const baseNodes: Node[] = [
-        { id: '1', type: 'demo', position: { x: 120, y: 120 }, data: { title: 'SOURCE_ALPHA', icon: ImageIcon, image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-        { id: '2', type: 'demo', position: { x: 120, y: 350 }, data: { title: 'ASSET_BETA', icon: Target, image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-        { id: '3', type: 'demo', position: { x: 380, y: 250 }, data: { title: 'NEURAL_PROMPT', icon: Sparkles, type: 'prompt', image: 'MAXIMUM PRECISION. CINEMATIC TEXTURE. MINIMALIST BALANCE. OPTIMIZED ENGINE.' } },
-        { id: '4', type: 'demo', position: { x: 700, y: 250 }, data: { title: 'PROCESS_FRAME', icon: Activity, image: 'https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-        { id: '5', type: 'demo', position: { x: 960, y: 250 }, data: { title: 'FINAL_OUTPUT', icon: Play, image: 'https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?auto=format&fit=crop&q=80&w=400', type: 'image' } },
-    ];
-
-    const [nodes, setNodes] = React.useState<Node[]>(baseNodes);
-    const [edges, , onEdgesChange] = useEdgesState(initialEdges);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const layoutInitializedRef = useRef(false);
-    const nodeRatiosRef = useRef<Record<string, { xRatio: number; yBottomRatio: number }>>({});
-    const initialDevicePixelRatioRef = useRef<number | null>(null);
-    const [nodeExtent, setNodeExtent] = React.useState<CoordinateExtent>([[-600, -400], [1800, 1200]]);
-    const [nodeZoomCompensation, setNodeZoomCompensation] = React.useState(1);
-    const [screenScale, setScreenScale] = React.useState(1);
-    const { screenToFlowPosition } = useReactFlow();
-
-    // Responsive node scale based on viewport width
     useEffect(() => {
-        const compute = () => {
-            const w = window.innerWidth;
-            if (w >= 1536) return 1.4;
-            if (w >= 1280) return 1.25;
-            if (w >= 1024) return 1.15;
-            if (w >= 768) return 1.05;
-            return 1;
-        };
-        const update = () => setScreenScale(compute());
-        update();
-        window.addEventListener('resize', update);
-        return () => window.removeEventListener('resize', update);
-    }, []);
-
-    const getEffectiveNodeSize = React.useCallback((node: Node) => {
-        const fallbackWidth = (node.data?.type === 'prompt' ? 220 : 150) * screenScale;
-        const fallbackHeight = (node.data?.type === 'prompt' ? 120 : 180) * screenScale;
-
-        return {
-            width: (node.width ?? fallbackWidth) * nodeZoomCompensation,
-            height: (node.height ?? fallbackHeight) * nodeZoomCompensation
-        };
-    }, [nodeZoomCompensation, screenScale]);
-
-    const createNodeRatios = React.useCallback((nodesToMap: Node[], extent: CoordinateExtent) => {
-        const [[minX, minY], [maxX, maxY]] = extent;
-        const flowWidth = maxX - minX;
-        const flowHeight = maxY - minY;
-        if (flowWidth <= 0 || flowHeight <= 0) return {};
-
-        return nodesToMap.reduce<Record<string, { xRatio: number; yBottomRatio: number }>>((acc, node) => {
-            const { width, height } = getEffectiveNodeSize(node);
-            const xRange = Math.max(1, flowWidth - width);
-            const yRange = Math.max(1, flowHeight - height);
-            const xRatio = Math.min(1, Math.max(0, (node.position.x - minX) / xRange));
-            const yBottomRatio = Math.min(1, Math.max(0, (maxY - height - node.position.y) / yRange));
-
-            acc[node.id] = { xRatio, yBottomRatio };
-            return acc;
-        }, {});
-    }, [getEffectiveNodeSize]);
-
-    const applyInitialGridLayout = React.useCallback((extent: CoordinateExtent) => {
-        const [[minX, minY], [maxX, maxY]] = extent;
-        const flowWidth = maxX - minX;
-        const flowHeight = maxY - minY;
-        if (flowWidth <= 0 || flowHeight <= 0) return;
-
-        const horizontalPadding = 24;
-        const topPadding = 24;
-        const bottomPadding = 24;
-        const baseImageWidth = 150 * screenScale;
-        const baseImageHeight = 180 * screenScale;
-        const basePromptWidth = 220 * screenScale;
-        const basePromptHeight = 120 * screenScale;
-        const imageWidth = baseImageWidth * nodeZoomCompensation;
-        const imageHeight = baseImageHeight * nodeZoomCompensation;
-        const promptWidth = basePromptWidth * nodeZoomCompensation;
-        const promptHeight = basePromptHeight * nodeZoomCompensation;
-        const leftEdge = minX + horizontalPadding;
-        const rightEdge = maxX - horizontalPadding;
-        const availableWidth = Math.max(0, rightEdge - leftEdge);
-        const totalNodeWidth = (imageWidth * 3) + promptWidth;
-        const gap = Math.max(0, (availableWidth - totalNodeWidth) / 3);
-
-        const leftImageX = leftEdge;
-        const promptX = leftImageX + imageWidth + gap;
-        const processX = promptX + promptWidth + gap;
-        const rightImageX = processX + imageWidth + gap;
-        const imageBottomY = maxY - bottomPadding - imageHeight;
-        const rowGap = Math.max(20, Math.min(64, flowHeight * 0.09));
-        const topLeftY = Math.max(minY + topPadding, imageBottomY - imageHeight - rowGap);
-        const promptY = imageBottomY + (imageHeight - promptHeight) / 2;
-
-        setNodes((currentNodes) => {
-            let hasChanges = false;
-
-            const laidOutNodes = currentNodes.map((node) => {
-                const nextPosition = (() => {
-                    if (node.id === '1') return { x: leftImageX, y: topLeftY };
-                    if (node.id === '2') return { x: leftImageX, y: imageBottomY };
-                    if (node.id === '3') return { x: promptX, y: promptY };
-                    if (node.id === '4') return { x: processX, y: imageBottomY };
-                    if (node.id === '5') return { x: rightImageX, y: imageBottomY };
-                    return node.position;
-                })();
-
-                if (nextPosition.x === node.position.x && nextPosition.y === node.position.y) {
-                    return node;
-                }
-
-                hasChanges = true;
-                return { ...node, position: nextPosition };
-            });
-
-            const resultNodes = hasChanges ? laidOutNodes : currentNodes;
-            nodeRatiosRef.current = createNodeRatios(resultNodes, extent);
-            layoutInitializedRef.current = true;
-            return resultNodes;
-        });
-    }, [createNodeRatios, nodeZoomCompensation, screenScale]);
-
-    const applyRatioLayout = React.useCallback((extent: CoordinateExtent) => {
-        const ratios = nodeRatiosRef.current;
-        if (!Object.keys(ratios).length) return;
-
-        const [[minX, minY], [maxX, maxY]] = extent;
-        const flowWidth = maxX - minX;
-        const flowHeight = maxY - minY;
-        if (flowWidth <= 0 || flowHeight <= 0) return;
-
-        setNodes((currentNodes) => {
-            let hasChanges = false;
-
-            const ratioNodes = currentNodes.map((node) => {
-                const ratio = ratios[node.id];
-                if (!ratio) return node;
-
-                const { width, height } = getEffectiveNodeSize(node);
-                const xRange = Math.max(0, flowWidth - width);
-                const yRange = Math.max(0, flowHeight - height);
-                const nextPosition = {
-                    x: minX + ratio.xRatio * xRange,
-                    y: maxY - height - ratio.yBottomRatio * yRange
-                };
-
-                if (
-                    Math.abs(nextPosition.x - node.position.x) < 0.001 &&
-                    Math.abs(nextPosition.y - node.position.y) < 0.001
-                ) {
-                    return node;
-                }
-
-                hasChanges = true;
-                return { ...node, position: nextPosition };
-            });
-
-            return hasChanges ? ratioNodes : currentNodes;
-        });
-    }, [getEffectiveNodeSize]);
-
-    const clampNodePosition = React.useCallback((node: Node, position: { x: number; y: number }) => {
-        const [[minX, minY], [maxX, maxY]] = nodeExtent;
-        const { width, height } = getEffectiveNodeSize(node);
-
-        return {
-            x: Math.min(Math.max(position.x, minX), Math.max(minX, maxX - width)),
-            y: Math.min(Math.max(position.y, minY), Math.max(minY, maxY - height))
-        };
-    }, [getEffectiveNodeSize, nodeExtent]);
-
-    const onNodesChange = React.useCallback((changes: NodeChange[]) => {
-        setNodes((currentNodes) => {
-            const nodesById = new Map(currentNodes.map((node) => [node.id, node]));
-            const boundedChanges = changes.map((change) => {
-                if (change.type !== 'position' || !change.position) return change;
-                const targetNode = nodesById.get(change.id);
-                if (!targetNode) return change;
-
-                return {
-                    ...change,
-                    position: clampNodePosition(targetNode, change.position)
-                };
-            });
-
-            const nextNodes = applyNodeChanges(boundedChanges, currentNodes);
-            if (changes.some((change) => change.type === 'position' && change.position)) {
-                nodeRatiosRef.current = createNodeRatios(nextNodes, nodeExtent);
-                layoutInitializedRef.current = true;
-            }
-
-            return nextNodes;
-        });
-    }, [clampNodePosition, createNodeRatios, nodeExtent]);
-
-    const updateExtent = React.useCallback(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const rect = container.getBoundingClientRect();
-        const padding = 16;
-        const topLeft = screenToFlowPosition({ x: rect.left + padding, y: rect.top + padding });
-        const bottomRight = screenToFlowPosition({ x: rect.right - padding, y: rect.bottom - padding });
-        const normalizedExtent: CoordinateExtent = [
-            [Math.min(topLeft.x, bottomRight.x), Math.min(topLeft.y, bottomRight.y)],
-            [Math.max(topLeft.x, bottomRight.x), Math.max(topLeft.y, bottomRight.y)]
-        ];
-
-        setNodeExtent(normalizedExtent);
-        if (!layoutInitializedRef.current) {
-            applyInitialGridLayout(normalizedExtent);
-        } else {
-            applyRatioLayout(normalizedExtent);
+        if (!active) {
+            setText('');
+            phaseRef.current = 'typing';
         }
-    }, [applyInitialGridLayout, applyRatioLayout, screenToFlowPosition]);
+    }, [active]);
 
     useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
+        if (!active) return;
+        const current = phrases[phraseIdx % phrases.length];
+        let timer: ReturnType<typeof setTimeout>;
 
-        const handleWheel = (e: WheelEvent) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.stopPropagation();
+        if (phaseRef.current === 'typing') {
+            if (text.length < current.length) {
+                timer = setTimeout(() => setText(current.slice(0, text.length + 1)), typeSpeed);
+            } else {
+                phaseRef.current = 'holding';
+                timer = setTimeout(() => {
+                    phaseRef.current = 'deleting';
+                    setText(current.slice(0, current.length - 1));
+                }, holdTime);
             }
-        };
-
-        container.addEventListener('wheel', handleWheel, { capture: true, passive: false });
-        return () => container.removeEventListener('wheel', handleWheel, { capture: true });
-    }, []);
-
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const resizeAndBound = () => {
-            window.requestAnimationFrame(updateExtent);
-        };
-
-        const resizeObserver = new ResizeObserver(resizeAndBound);
-
-        resizeObserver.observe(container);
-        resizeAndBound();
-
-        return () => resizeObserver.disconnect();
-    }, [updateExtent]);
-
-    useEffect(() => {
-        const updateNodeZoomCompensation = () => {
-            const currentDevicePixelRatio = window.devicePixelRatio || 1;
-            if (initialDevicePixelRatioRef.current === null) {
-                initialDevicePixelRatioRef.current = currentDevicePixelRatio;
+        } else if (phaseRef.current === 'deleting') {
+            if (text.length > 0) {
+                timer = setTimeout(() => setText(current.slice(0, text.length - 1)), deleteSpeed);
+            } else {
+                phaseRef.current = 'typing';
+                setPhraseIdx((i) => (i + 1) % phrases.length);
             }
+        }
 
-            const baseDevicePixelRatio = initialDevicePixelRatioRef.current || 1;
-            const pageZoomFactor = currentDevicePixelRatio / baseDevicePixelRatio;
-            const nextCompensation = Number.isFinite(pageZoomFactor) && pageZoomFactor > 0
-                ? 1 / pageZoomFactor
-                : 1;
+        return () => clearTimeout(timer);
+    }, [text, phraseIdx, active, phrases, typeSpeed, deleteSpeed, holdTime]);
 
-            setNodeZoomCompensation((currentCompensation) => (
-                Math.abs(currentCompensation - nextCompensation) < 0.001
-                    ? currentCompensation
-                    : nextCompensation
-            ));
-        };
-
-        let dppxMediaQuery: MediaQueryList | null = null;
-        const handleDppxChange = () => {
-            updateNodeZoomCompensation();
-            if (dppxMediaQuery) {
-                dppxMediaQuery.removeEventListener('change', handleDppxChange);
-            }
-            dppxMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-            dppxMediaQuery.addEventListener('change', handleDppxChange);
-        };
-
-        updateNodeZoomCompensation();
-        dppxMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-        dppxMediaQuery.addEventListener('change', handleDppxChange);
-        window.addEventListener('resize', updateNodeZoomCompensation);
-        window.visualViewport?.addEventListener('resize', updateNodeZoomCompensation);
-
-        return () => {
-            dppxMediaQuery?.removeEventListener('change', handleDppxChange);
-            window.removeEventListener('resize', updateNodeZoomCompensation);
-            window.visualViewport?.removeEventListener('resize', updateNodeZoomCompensation);
-        };
-    }, []);
-
-    useEffect(() => {
-        if (!layoutInitializedRef.current) return;
-        applyRatioLayout(nodeExtent);
-    }, [applyRatioLayout, nodeExtent, nodeZoomCompensation, screenScale]);
-
-    return (
-        <div
-            ref={containerRef}
-            className="w-full h-full"
-            style={{
-                ['--home-demo-node-zoom-comp' as any]: nodeZoomCompensation,
-                ['--home-demo-screen-scale' as any]: screenScale
-            }}
-        >
-            <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                nodeTypes={nodeTypes}
-                nodeExtent={nodeExtent}
-                nodesDraggable={true}
-                nodesConnectable={false}
-                elementsSelectable={true}
-                minZoom={1}
-                maxZoom={1}
-                zoomOnScroll={false}
-                zoomOnPinch={false}
-                zoomOnDoubleClick={false}
-                panOnDrag={false}
-                preventScrolling={false}
-                autoPanOnNodeDrag={false}
-                proOptions={{ hideAttribution: true }}
-                className="bg-transparent"
-            />
-        </div>
-    );
+    return text;
 }
 
-function InteractiveWorkflowDemo() {
+// The hero centerpiece: a large, glassy composer. Typing here and hitting send
+// stashes the prompt and jumps to /chat, where ChatInterface auto-submits it —
+// so the visitor lands mid-conversation with a workflow already building.
+function HeroChatInput() {
+    const router = useRouter();
+    const [value, setValue] = useState('');
+    const [focused, setFocused] = useState(false);
+    const [leaving, setLeaving] = useState(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const placeholder = useTypewriter(HERO_PROMPTS, { active: value.length === 0 && !focused });
+
+    const submit = (text?: string) => {
+        const t = (text ?? value).trim();
+        if (!t || leaving) {
+            if (!t) textareaRef.current?.focus();
+            return;
+        }
+        try {
+            sessionStorage.setItem('prismai:pendingPrompt', t);
+        } catch {
+            // Private-mode / blocked storage: fall through and let the user type
+            // again on the chat page rather than hard-failing.
+        }
+        setLeaving(true);
+        router.push('/chat');
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+        }
+    };
+
+    // Grow with content, capped so a long paste doesn't take over the hero.
+    useEffect(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    }, [value]);
+
     return (
-        <ReactFlowProvider>
-            <InteractiveWorkflowDemoInner />
-        </ReactFlowProvider>
+        <motion.div
+            initial={{ opacity: 0, y: 28, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+            className="relative w-full max-w-2xl mx-auto"
+        >
+            {/* Soft animated glow — intensifies on focus */}
+            <div
+                className={cn(
+                    "absolute -inset-1.5 rounded-[2.25rem] bg-gradient-to-r from-accent-primary/40 via-accent-secondary/30 to-accent-primary/40 blur-2xl transition-opacity duration-700",
+                    focused ? "opacity-90" : "opacity-50"
+                )}
+            />
+
+            <div
+                className={cn(
+                    "relative rounded-[1.9rem] border bg-white/80 backdrop-blur-xl shadow-2xl shadow-slate-900/10 transition-colors duration-500 overflow-hidden",
+                    focused ? "border-accent-primary/50" : "border-slate-200/80"
+                )}
+            >
+                {/* Top hairline accent */}
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent-primary/60 to-transparent" />
+
+                <div className="relative flex items-end gap-2.5 p-3 md:p-4">
+                    {/* Brand glyph */}
+                    <div className="hidden sm:flex w-11 h-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg">
+                        <Sparkles className="w-5 h-5 text-accent-primary" />
+                    </div>
+
+                    {/* Textarea + animated placeholder overlay */}
+                    <div className="relative flex-1 min-w-0 py-2.5">
+                        <textarea
+                            ref={textareaRef}
+                            value={value}
+                            onChange={(e) => setValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onFocus={() => setFocused(true)}
+                            onBlur={() => setFocused(false)}
+                            rows={1}
+                            aria-label="Describe what you want to create"
+                            className="relative z-10 w-full resize-none bg-transparent text-slate-900 text-base md:text-lg font-medium leading-relaxed outline-none placeholder:text-transparent max-h-[220px]"
+                        />
+                        {value.length === 0 && (
+                            <div className="pointer-events-none absolute inset-0 z-0 flex items-start text-base md:text-lg font-medium text-slate-400 leading-relaxed">
+                                <span className="whitespace-pre-wrap">{placeholder}</span>
+                                <span className="ml-0.5 mt-[0.15em] inline-block w-[2px] h-[1.15em] bg-accent-primary animate-pulse" />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Send */}
+                    <button
+                        type="button"
+                        onClick={() => submit()}
+                        disabled={leaving}
+                        aria-label="Start building"
+                        className={cn(
+                            "group shrink-0 flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl transition-all duration-300 shadow-lg",
+                            value.trim()
+                                ? "bg-accent-primary text-slate-900 hover:scale-105"
+                                : "bg-slate-900 text-white hover:bg-slate-800"
+                        )}
+                    >
+                        {leaving ? (
+                            <div className="w-5 h-5 border-2 border-current border-t-transparent animate-spin rounded-full" />
+                        ) : (
+                            <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            {/* One-tap starters */}
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2 px-2">
+                {HERO_CHIPS.map((chip) => (
+                    <button
+                        key={chip.label}
+                        type="button"
+                        onClick={() => submit(chip.prompt)}
+                        disabled={leaving}
+                        className="group inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/70 backdrop-blur-md border border-slate-200 text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 hover:text-slate-900 hover:border-accent-primary/50 hover:bg-white transition-all shadow-sm"
+                    >
+                        <Sparkles className="w-2.5 h-2.5 text-accent-primary opacity-70 group-hover:opacity-100 transition-opacity" />
+                        {chip.label}
+                    </button>
+                ))}
+            </div>
+        </motion.div>
     );
 }
 
@@ -1418,77 +1180,45 @@ export default function Home() {
                     </div>
                 </motion.nav>
 
-                {/* ─── Hero & Workflow Unified Section ─────────────────────────── */}
-                <section className="relative w-full min-h-[100vh] flex flex-col items-center pb-12 pt-10" id="workflow">
-                    <div className="absolute inset-x-0 top-4 bottom-4 z-0 overflow-hidden hidden md:block">
-                        {mounted && <InteractiveWorkflowDemo />}
+                {/* ─── Hero & Chat Composer Section ───────────────────────────── */}
+                <section className="relative w-full min-h-[100vh] flex flex-col items-center justify-center pb-16 pt-28 md:pt-32" id="workflow">
+                    {/* Ambient concentric rings + glow behind the composer */}
+                    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(95vw,900px)] aspect-square rounded-full bg-[radial-gradient(circle,rgba(56,189,248,0.14),transparent_62%)]" />
+                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(90vw,860px)] aspect-square rounded-full border border-accent-primary/10" />
+                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(62vw,580px)] aspect-square rounded-full border border-accent-primary/[0.07]" />
                     </div>
 
-                    {/* Mobile-only static hero visual */}
-                    <div className="md:hidden absolute inset-x-0 top-8 bottom-0 z-0 overflow-hidden pointer-events-none">
-                        <div className="absolute inset-x-0 top-0 h-full bg-[radial-gradient(ellipse_at_50%_30%,rgba(56,189,248,0.18),transparent_60%)]" />
-                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[120%] aspect-square rounded-full border border-accent-primary/20" />
-                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[80%] aspect-square rounded-full border border-accent-primary/10" />
-                        <div className="absolute left-1/2 top-[55%] -translate-x-1/2 w-[40%] aspect-square rounded-full border border-accent-primary/10" />
-                    </div>
-
-                    {/*
-                    // CREATORS BUILDING BADGE — uncomment when there are real users
                     <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.7, duration: 0.6 }}
-                        className="relative z-20 mt-2 mb-6 flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/80 backdrop-blur-md border border-slate-200 shadow-sm"
-                    >
-                        <span className="relative flex w-2 h-2">
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-accent-success opacity-75 animate-ping" />
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-success" />
-                        </span>
-                        <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-700">
-                            <AnimatedCounter value={387} /> creators building right now
-                        </span>
-                    </motion.div>
-                    */}
-
-                    {/* Hero Text Overlay */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                        initial={{ opacity: 0, y: 30, scale: 0.96 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                        className="relative z-20 space-y-6 text-center px-6 pointer-events-none max-w-7xl w-full mt-4"
+                        className="relative z-20 w-full max-w-3xl px-5 md:px-6 flex flex-col items-center text-center gap-8 md:gap-10"
                     >
-                        <h1 className="text-[clamp(2.5rem,10vw,5.5rem)] font-black tracking-tighter text-slate-900 leading-[0.85] font-display uppercase px-4 drop-shadow-sm">
-                            The Visual Engine for Your <span className="text-accent-primary italic">Imagination</span>.
-                        </h1>
-
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pointer-events-auto pt-1">
-                            <MagneticButton href="/chat" className="w-full sm:w-auto">
-                                <div className="group flex items-center justify-center gap-3 px-10 py-5 rounded-2xl bg-slate-900 text-white font-black text-base hover:bg-accent-primary hover:text-slate-900 transition-colors shadow-2xl">
-                                    START BUILDING
-                                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                                </div>
-                            </MagneticButton>
-                            <button
-                                onClick={createNewSession}
-                                disabled={isLoading}
-                                className="w-full sm:w-auto bg-white/80 backdrop-blur-md flex items-center justify-center gap-3 px-10 py-5 rounded-2xl border border-slate-200 text-slate-900 font-black text-base hover:bg-white transition-all shadow-lg"
-                            >
-                                {isLoading ? <div className="w-5 h-5 border-2 border-accent-secondary border-t-transparent animate-spin rounded-full" /> : <Workflow className="w-5 h-5 text-accent-secondary" />}
-                                NEW SESSION
-                            </button>
+                        <div className="space-y-5">
+                            <h1 className="text-[clamp(2.25rem,8vw,4.75rem)] font-black tracking-tighter text-slate-900 leading-[0.88] font-display uppercase drop-shadow-sm">
+                                The Visual Engine for Your <span className="text-accent-primary italic">Imagination</span>.
+                            </h1>
+                            <p className="mx-auto max-w-md text-xs md:text-sm font-bold uppercase tracking-[0.18em] text-slate-500 leading-relaxed">
+                                Describe it. Prisfol builds the workflow, wires the models, and renders it.
+                            </p>
                         </div>
 
-                        {/* Auto-rotating prompt ticker */}
-                        <div className="flex items-center justify-center pointer-events-auto pt-1">
-                            <div className="inline-flex items-center gap-3 px-5 py-2 rounded-full bg-white/70 backdrop-blur-md border border-slate-200 shadow-sm">
-                                <Sparkles className="w-3 h-3 text-accent-primary" />
-                                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Try</span>
-                                <div className="w-[260px]">
-                                    <PromptRotator size="sm" />
-                                </div>
-                            </div>
-                        </div>
+                        {/* The composer — type here and you land mid-build inside /chat */}
+                        <HeroChatInput />
 
+                        {/* Secondary: skip straight to a blank canvas */}
+                        <button
+                            onClick={createNewSession}
+                            disabled={isLoading}
+                            className="group inline-flex items-center gap-2 text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] text-slate-400 hover:text-slate-900 transition-colors"
+                        >
+                            {isLoading
+                                ? <div className="w-3 h-3 border-2 border-accent-secondary border-t-transparent animate-spin rounded-full" />
+                                : <Workflow className="w-3 h-3 text-accent-secondary" />}
+                            Or start from a blank canvas
+                            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                        </button>
                     </motion.div>
                 </section>
 
