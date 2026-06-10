@@ -218,7 +218,7 @@ export function ModelItemRow({ model, provider, onDragStart, onAdd }: ModelItemR
     return (
         <RevealingRow
             name={model.display_name}
-            subtitle={model.replicate_model_id.split(':')[0]}
+            subtitle={model.replicate_model_id?.split(':')[0] ?? provider?.name ?? ''}
             draggable
             onDragStart={onDragStart}
             onAdd={onAdd}

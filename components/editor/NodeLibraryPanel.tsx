@@ -199,7 +199,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         ? nodeTypes.filter(nt => nt.display_name.toLowerCase().includes(q))
         : [];
     const modelHits = q
-        ? models.filter(m => m.display_name.toLowerCase().includes(q) || m.replicate_model_id.toLowerCase().includes(q))
+        ? models.filter(m => m.display_name.toLowerCase().includes(q) || (m.replicate_model_id?.toLowerCase().includes(q) ?? false))
         : [];
     const noHits = !!q && basicsHits.length === 0 && toolHits.length === 0 && nodeHits.length === 0 && modelHits.length === 0;
 
