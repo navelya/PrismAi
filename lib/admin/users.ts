@@ -99,6 +99,64 @@ export async function loadAllUsers(): Promise<AdminUserRow[]> {
     });
 }
 
+export interface UserDirectoryEntry {
+    id: string;
+    email: string | null;
+    username: string | null;
+    avatar_url: string | null;
+}
+
+/**
+ * Build a lookup of every auth user's display identity (email, a best-effort
+ * username pulled from auth metadata, and avatar). Used by admin views that
+ * need to attach an owner to rows keyed only by `user_id` — e.g. the node
+ * results browser. Email lives in `auth.users`; avatar in `profiles`.
+ */
+export async function loadUserDirectory(): Promise<Map<string, UserDirectoryEntry>> {
+    const service = createServiceClient();
+    const meta = new Map<string, { email: string | null; username: string | null; metaAvatar: string | null }>();
+
+    let pageIdx = 1;
+    while (true) {
+        const { data, error } = await service.auth.admin.listUsers({ page: pageIdx, perPage: SUPABASE_LIST_PAGE });
+        if (error) throw error;
+        const batch = data?.users ?? [];
+        for (const u of batch) {
+            const m = (u.user_metadata ?? {}) as Record<string, any>;
+            const rawName =
+                m.user_name ?? m.username ?? m.preferred_username ?? m.full_name ?? m.name ?? null;
+            meta.set(u.id, {
+                email: u.email ?? null,
+                username: typeof rawName === 'string' && rawName.trim() ? rawName.trim() : null,
+                metaAvatar: typeof m.avatar_url === 'string' ? m.avatar_url : null,
+            });
+        }
+        if (batch.length < SUPABASE_LIST_PAGE) break;
+        pageIdx += 1;
+        if (pageIdx > 50) break;
+    }
+
+    const ids = [...meta.keys()];
+    const { data: profiles, error: pErr } = ids.length
+        ? await service.from('profiles').select('id, avatar_url').in('id', ids)
+        : { data: [] as any[], error: null };
+    if (pErr) throw pErr;
+
+    const avatarById = new Map<string, string | null>();
+    for (const p of ((profiles ?? []) as any[])) avatarById.set(p.id, p.avatar_url ?? null);
+
+    const out = new Map<string, UserDirectoryEntry>();
+    for (const [id, m] of meta) {
+        out.set(id, {
+            id,
+            email: m.email,
+            username: m.username,
+            avatar_url: avatarById.get(id) ?? m.metaAvatar ?? null,
+        });
+    }
+    return out;
+}
+
 export function applyFiltersAndSort(
     rows: AdminUserRow[],
     opts: { q: string; status: StatusFilter; planFilter: string; sort: string; dir: 'asc' | 'desc' }
