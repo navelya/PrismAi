@@ -19,6 +19,13 @@ function fmt(seconds: number): string {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
+// Static pseudo-waveform: a fixed set of bar heights (%) so the track reads as
+// audio rather than a flat line. Deterministic, so it stays stable across renders.
+const BAR_HEIGHTS = Array.from({ length: 48 }, (_, i) => {
+    const wave = Math.sin(i * 0.7) * Math.cos(i * 0.27) + Math.sin(i * 1.9);
+    return 25 + Math.abs(wave) * 45; // ~25%..100%
+});
+
 export default function AudioPlayer({
     src,
     className,
@@ -123,16 +130,21 @@ export default function AudioPlayer({
             <div
                 ref={trackRef}
                 onPointerDown={onTrackPointerDown}
-                className="relative flex-1 h-1 rounded-full bg-white/15 cursor-pointer"
+                className="relative flex-1 h-8 flex items-center gap-[2px] cursor-pointer"
             >
-                <div
-                    className="absolute top-0 left-0 h-full rounded-full bg-accent-primary"
-                    style={{ width: `${progress}%` }}
-                />
-                <div
-                    className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-accent-primary shadow-md"
-                    style={{ left: `calc(${progress}% - 5px)` }}
-                />
+                {BAR_HEIGHTS.map((h, i) => {
+                    const played = (i / BAR_HEIGHTS.length) * 100 < progress;
+                    return (
+                        <div
+                            key={i}
+                            className={cn(
+                                'flex-1 rounded-full transition-colors',
+                                played ? 'bg-accent-primary' : 'bg-white/15',
+                            )}
+                            style={{ height: `${h}%` }}
+                        />
+                    );
+                })}
             </div>
 
             <span className="font-mono text-xs tabular-nums text-content-tertiary shrink-0">
