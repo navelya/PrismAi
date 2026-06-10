@@ -25,7 +25,8 @@ import {
     GitBranch,
     Scissors,
     MessageSquare,
-    Send
+    Send,
+    X
 } from 'lucide-react';
 import { BrandCarousel } from '@/components/ui/BrandCarousel';
 import { Logo } from '@/components/ui/Logo';
@@ -1065,6 +1066,296 @@ function TemplateCarousel() {
 }
 
 // =============================================================================
+// CHAT-FIRST SHOWCASE (chat with inline results + a related mini-workflow)
+// =============================================================================
+
+// One coherent story shared by the chat, its inline results, and the workflow
+// graph — so the conversation, the rendered frames, and the nodes all match.
+const SHOWCASE_RESULTS = [
+    { src: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=600', tag: 'minimal' },
+    { src: 'https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=600', tag: 'dramatic' },
+    { src: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=600', tag: 'neon' },
+    { src: 'https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=600', tag: 'editorial' },
+];
+
+const SHOWCASE_SOURCE = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=400';
+
+// Chat panel — the conversation plus the generated frames shown INLINE in one
+// row, exactly like a result lands in a real session.
+function ShowcaseChatPanel() {
+    return (
+        <div className="h-full w-full rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xl flex flex-col">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50/60 shrink-0">
+                <div className="flex gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-400/50" />
+                    <span className="w-2 h-2 rounded-full bg-amber-400/50" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400/50" />
+                </div>
+                <div className="ml-2 flex items-center gap-1.5">
+                    <MessageSquare className="w-3 h-3 text-accent-primary" />
+                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Prisfol Chat</span>
+                </div>
+                <div className="ml-auto flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.3em] text-emerald-500">
+                    <span className="relative flex w-1.5 h-1.5">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 animate-ping" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                    </span>
+                    Live
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+                <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5 }} className="flex justify-end">
+                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tr-sm bg-slate-900 text-white text-sm leading-relaxed">
+                        Make 4 hero shots of my watch on different studio backdrops — minimal, dramatic, neon, editorial.
+                    </div>
+                </motion.div>
+
+                <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.35 }} className="flex justify-start">
+                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tl-sm bg-slate-100 text-slate-700 text-sm leading-relaxed">
+                        On it — sourcing your watch, generating 4 backdrops, compositing, then upscaling 4×.
+                    </div>
+                </motion.div>
+
+                {/* Inline results — one row, right inside the conversation */}
+                <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.7 }} className="flex justify-start">
+                    <div className="w-full max-w-[94%] space-y-2">
+                        <div className="flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.4em] text-accent-primary">
+                            <Sparkles className="w-2.5 h-2.5" /> 4 frames ready
+                        </div>
+                        <div className="flex gap-2">
+                            {SHOWCASE_RESULTS.map((o, i) => (
+                                <motion.div
+                                    key={o.tag}
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    whileInView={{ opacity: 1, scale: 1 }}
+                                    viewport={{ once: true }}
+                                    transition={{ duration: 0.5, delay: 0.9 + i * 0.12 }}
+                                    className="relative flex-1 min-w-0 aspect-square rounded-xl overflow-hidden border border-slate-200 group"
+                                >
+                                    <img src={o.src} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={o.tag} />
+                                    <div className="absolute bottom-1 inset-x-1 px-1 py-0.5 rounded-md bg-white/85 backdrop-blur text-[6px] font-black uppercase tracking-[0.15em] text-slate-700 text-center truncate">
+                                        {o.tag}
+                                    </div>
+                                </motion.div>
+                            ))}
+                        </div>
+                    </div>
+                </motion.div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center gap-3 shrink-0">
+                <Sparkles className="w-3.5 h-3.5 text-accent-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                    <PromptRotator size="sm" />
+                </div>
+                <button className="shrink-0 w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-accent-primary hover:text-slate-900 transition-colors">
+                    <Send className="w-3.5 h-3.5" />
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// A minimal node graph that mirrors the chat: source + 4 backdrops → composite
+// → upscale → the 4 output frames. Looks like a workflow; not interactive.
+function ShowcaseWorkflowNode({ style, label, icon: Icon, accent, children }: { style: React.CSSProperties; label: string; icon: any; accent?: boolean; children: React.ReactNode }) {
+    return (
+        <div className="absolute" style={style}>
+            <div className={cn("w-full h-full rounded-xl border bg-white shadow-lg flex flex-col overflow-hidden", accent ? "border-accent-primary/40" : "border-slate-200")}>
+                <div className={cn("flex items-center gap-1 px-1.5 py-1 border-b shrink-0", accent ? "bg-accent-primary/10 border-accent-primary/20" : "bg-slate-50 border-slate-100")}>
+                    <Icon className={cn("w-2.5 h-2.5", accent ? "text-accent-primary" : "text-slate-400")} />
+                    <span className="text-[6px] font-black uppercase tracking-[0.18em] text-slate-500 truncate">{label}</span>
+                </div>
+                <div className="flex-1 min-h-0">{children}</div>
+            </div>
+        </div>
+    );
+}
+
+function ShowcaseWorkflow() {
+    const wires = [
+        'M30 28 C 35 28, 34 50, 39 50',
+        'M30 72 C 35 72, 34 50, 39 50',
+        'M61 50 L 66 50',
+        'M79 50 L 80 50',
+    ];
+    return (
+        <div className="relative h-full w-full rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white overflow-hidden shadow-xl">
+            <div className="absolute top-0 inset-x-0 z-20 flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-white/70 backdrop-blur">
+                <Network className="w-3 h-3 text-accent-primary" />
+                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Workflow · 5 nodes</span>
+                <span className="ml-auto flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.3em] text-emerald-500">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Ready
+                </span>
+            </div>
+
+            <div className="absolute inset-0 opacity-100" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.06) 1px, transparent 0)', backgroundSize: '18px 18px' }} />
+
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                {wires.map((d, i) => (
+                    <g key={i}>
+                        <path d={d} stroke="rgba(56,189,248,0.25)" strokeWidth="0.5" fill="none" />
+                        <motion.path
+                            d={d}
+                            stroke="rgb(56,189,248)"
+                            strokeWidth="0.5"
+                            fill="none"
+                            strokeDasharray="2 4"
+                            animate={{ strokeDashoffset: [0, -6] }}
+                            transition={{ duration: 0.9, repeat: Infinity, ease: 'linear' }}
+                        />
+                    </g>
+                ))}
+            </svg>
+
+            {/* Source */}
+            <ShowcaseWorkflowNode style={{ left: '4%', top: '14%', width: '26%', height: '28%' }} label="Source · watch" icon={ImageIcon}>
+                <img src={SHOWCASE_SOURCE} className="w-full h-full object-cover" alt="watch source" />
+            </ShowcaseWorkflowNode>
+
+            {/* Backdrops ×4 */}
+            <ShowcaseWorkflowNode style={{ left: '4%', top: '58%', width: '26%', height: '28%' }} label="Backdrops ×4" icon={Wand2} accent>
+                <div className="grid grid-cols-2 grid-rows-2 gap-0.5 w-full h-full p-0.5">
+                    <div className="rounded-sm bg-gradient-to-br from-slate-200 to-slate-100" />
+                    <div className="rounded-sm bg-gradient-to-br from-slate-900 to-slate-600" />
+                    <div className="rounded-sm bg-gradient-to-br from-fuchsia-400 to-cyan-400" />
+                    <div className="rounded-sm bg-gradient-to-br from-amber-200 to-rose-300" />
+                </div>
+            </ShowcaseWorkflowNode>
+
+            {/* Composite */}
+            <ShowcaseWorkflowNode style={{ left: '39%', top: '36%', width: '22%', height: '28%' }} label="Composite" icon={Layers3}>
+                <div className="w-full h-full flex items-center justify-center">
+                    <Layers3 className="w-7 h-7 text-slate-300" />
+                </div>
+            </ShowcaseWorkflowNode>
+
+            {/* Upscale */}
+            <ShowcaseWorkflowNode style={{ left: '66%', top: '39%', width: '13%', height: '22%' }} label="Upscale" icon={Maximize2}>
+                <div className="w-full h-full flex flex-col items-center justify-center gap-0.5">
+                    <Maximize2 className="w-4 h-4 text-slate-300" />
+                    <span className="text-[6px] font-black uppercase tracking-wider text-slate-400">4×</span>
+                </div>
+            </ShowcaseWorkflowNode>
+
+            {/* Output ×4 */}
+            <ShowcaseWorkflowNode style={{ left: '80%', top: '14%', width: '17%', height: '72%' }} label="Output ×4" icon={Play} accent>
+                <div className="grid grid-cols-1 grid-rows-4 gap-0.5 w-full h-full p-0.5">
+                    {SHOWCASE_RESULTS.map((o) => (
+                        <div key={o.tag} className="relative rounded-sm overflow-hidden min-h-0">
+                            <img src={o.src} className="w-full h-full object-cover" alt={o.tag} />
+                        </div>
+                    ))}
+                </div>
+            </ShowcaseWorkflowNode>
+        </div>
+    );
+}
+
+// Marketing showcase. Desktop: chat + workflow side-by-side. Mobile: chat only,
+// with a workflow FAB that swaps to the canvas (chat collapses into an icon);
+// a chat FAB then re-opens the conversation as an overlay on top of the canvas —
+// minimal mimicry of a real workflow session.
+function ChatFirstShowcase() {
+    const [mobilePanel, setMobilePanel] = useState<'chat' | 'canvas'>('chat');
+    const [chatOverlay, setChatOverlay] = useState(false);
+
+    return (
+        <>
+            {/* Desktop: side-by-side */}
+            <div className="hidden md:grid md:grid-cols-[1.1fr_1fr] gap-6 md:h-[560px]">
+                <ShowcaseChatPanel />
+                <ShowcaseWorkflow />
+            </div>
+
+            {/* Mobile: single stage with chat ⇄ canvas transition */}
+            <div className="md:hidden relative w-full h-[560px] overflow-hidden rounded-3xl">
+                <AnimatePresence initial={false}>
+                    {mobilePanel === 'chat' ? (
+                        <motion.div
+                            key="chat"
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.2, x: '42%', y: '42%' }}
+                            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                            className="absolute inset-0 origin-bottom-right"
+                        >
+                            <ShowcaseChatPanel />
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            key="canvas"
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.96 }}
+                            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                            className="absolute inset-0"
+                        >
+                            <ShowcaseWorkflow />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Toggle FAB — hidden while the chat overlay is open */}
+                <AnimatePresence>
+                    {!chatOverlay && (
+                        <motion.button
+                            key={mobilePanel}
+                            type="button"
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
+                            transition={{ type: 'spring', damping: 18, stiffness: 320 }}
+                            onClick={() => (mobilePanel === 'chat' ? setMobilePanel('canvas') : setChatOverlay(true))}
+                            aria-label={mobilePanel === 'chat' ? 'Open workflow' : 'Open chat'}
+                            className="absolute bottom-4 right-4 z-30 w-12 h-12 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center active:scale-95 transition-transform"
+                        >
+                            {mobilePanel === 'chat'
+                                ? <Network className="w-5 h-5 text-accent-primary" />
+                                : <MessageSquare className="w-5 h-5 text-accent-primary" />}
+                        </motion.button>
+                    )}
+                </AnimatePresence>
+
+                {/* Chat overlay — slides up on top of the canvas */}
+                <AnimatePresence>
+                    {chatOverlay && (
+                        <>
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.25 }}
+                                onClick={() => setChatOverlay(false)}
+                                className="absolute inset-0 z-30 bg-slate-900/30 backdrop-blur-sm"
+                            />
+                            <motion.div
+                                initial={{ y: '100%' }}
+                                animate={{ y: 0 }}
+                                exit={{ y: '100%' }}
+                                transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+                                className="absolute inset-x-2 bottom-2 top-12 z-40"
+                            >
+                                <ShowcaseChatPanel />
+                                <button
+                                    type="button"
+                                    onClick={() => setChatOverlay(false)}
+                                    aria-label="Close chat"
+                                    className="absolute -top-9 right-0 z-50 w-8 h-8 rounded-xl bg-slate-900 text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </motion.div>
+                        </>
+                    )}
+                </AnimatePresence>
+            </div>
+        </>
+    );
+}
+
+// =============================================================================
 // MAIN HOME PAGE
 // =============================================================================
 
@@ -1343,120 +1634,7 @@ export default function Home() {
                         center
                     />
 
-                    <div className="grid md:grid-cols-[1.1fr_1fr] gap-6 items-stretch">
-                        {/* Chat panel */}
-                        <div className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xl flex flex-col min-h-[520px]">
-                            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50/60">
-                                <div className="flex gap-1.5">
-                                    <span className="w-2 h-2 rounded-full bg-red-400/50" />
-                                    <span className="w-2 h-2 rounded-full bg-amber-400/50" />
-                                    <span className="w-2 h-2 rounded-full bg-emerald-400/50" />
-                                </div>
-                                <div className="ml-2 flex items-center gap-1.5">
-                                    <MessageSquare className="w-3 h-3 text-accent-primary" />
-                                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Prisfol Chat</span>
-                                </div>
-                                <div className="ml-auto flex items-center gap-1.5 text-[7px] font-black uppercase tracking-[0.3em] text-emerald-500">
-                                    <span className="relative flex w-1.5 h-1.5">
-                                        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 animate-ping" />
-                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                                    </span>
-                                    Live
-                                </div>
-                            </div>
-
-                            <div className="flex-1 px-6 py-6 space-y-4">
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    whileInView={{ opacity: 1, y: 0 }}
-                                    viewport={{ once: true }}
-                                    transition={{ duration: 0.5 }}
-                                    className="flex justify-end"
-                                >
-                                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tr-sm bg-slate-900 text-white text-sm leading-relaxed">
-                                        Make 4 hero shots of my watch on different studio backdrops — minimal, dramatic, neon, editorial.
-                                    </div>
-                                </motion.div>
-
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    whileInView={{ opacity: 1, y: 0 }}
-                                    viewport={{ once: true }}
-                                    transition={{ duration: 0.5, delay: 0.4 }}
-                                    className="flex justify-start"
-                                >
-                                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-tl-sm bg-slate-100 text-slate-700 text-sm leading-relaxed">
-                                        On it. I'll generate 4 backdrop variants, composite your watch into each, then upscale the results.
-                                    </div>
-                                </motion.div>
-
-                                <motion.div
-                                    initial={{ opacity: 0 }}
-                                    whileInView={{ opacity: 1 }}
-                                    viewport={{ once: true }}
-                                    transition={{ duration: 0.6, delay: 0.9 }}
-                                    className="flex flex-col gap-3 mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-100"
-                                >
-                                    <div className="flex items-center gap-2 text-[7px] font-black uppercase tracking-[0.4em] text-accent-primary">
-                                        <span className="relative flex w-1.5 h-1.5">
-                                            <span className="absolute inline-flex h-full w-full rounded-full bg-accent-primary opacity-70 animate-ping" />
-                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent-primary" />
-                                        </span>
-                                        Building workflow · 6 nodes
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] font-mono text-slate-500">
-                                        <span>· source / watch.jpg</span>
-                                        <span>· backdrop ×4</span>
-                                        <span>· composite node</span>
-                                        <span>· upscale 4×</span>
-                                    </div>
-                                </motion.div>
-                            </div>
-
-                            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center gap-3">
-                                <Sparkles className="w-3.5 h-3.5 text-accent-primary shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                    <PromptRotator size="sm" />
-                                </div>
-                                <button className="shrink-0 w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-accent-primary hover:text-slate-900 transition-colors">
-                                    <Send className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Output preview */}
-                        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 flex flex-col min-h-[520px]">
-                            <div className="flex items-center justify-between mb-5">
-                                <div className="flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-accent-success animate-pulse" />
-                                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500">Output / 4 frames</span>
-                                </div>
-                                <span className="text-[7px] font-black uppercase tracking-[0.4em] text-emerald-500">Ready</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 flex-1">
-                                {[
-                                    { src: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=600', tag: 'minimal' },
-                                    { src: 'https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=600', tag: 'dramatic' },
-                                    { src: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=600', tag: 'neon' },
-                                    { src: 'https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=600', tag: 'editorial' },
-                                ].map((o, i) => (
-                                    <motion.div
-                                        key={i}
-                                        initial={{ opacity: 0, scale: 0.92, y: 16 }}
-                                        whileInView={{ opacity: 1, scale: 1, y: 0 }}
-                                        viewport={{ once: true }}
-                                        transition={{ duration: 0.6, delay: 1.2 + i * 0.15 }}
-                                        className="relative rounded-2xl overflow-hidden border border-slate-200 group"
-                                    >
-                                        <img src={o.src} className="w-full h-full aspect-square object-cover transition-transform duration-700 group-hover:scale-105" alt="" />
-                                        <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur text-[7px] font-black uppercase tracking-[0.3em] text-slate-700">
-                                            {o.tag}
-                                        </div>
-                                    </motion.div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
+                    <ChatFirstShowcase />
                 </section>
 
                 {/* ─── Dark Sections Wrapper ───────────────────────────────────── */}
