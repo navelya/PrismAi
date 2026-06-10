@@ -45,7 +45,7 @@ const SectionHeader = ({ tag, title, description, dark = false, center = false }
         whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
         viewport={{ once: true }}
         transition={{ duration: 0.8 }}
-        className={cn("mb-12 space-y-5", center && "text-center flex flex-col items-center")}
+        className={cn("mb-8 md:mb-12 space-y-5", center && "text-center flex flex-col items-center")}
     >
         <span className="text-[7px] font-black uppercase tracking-[0.5em] text-accent-primary opacity-60">{tag}</span>
         <h2 className={cn(
@@ -408,6 +408,114 @@ function CapabilityCard({
                 <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
             </div>
         </motion.div>
+    );
+}
+
+// Shared capability data — drives the desktop bento grid AND the mobile carousel.
+const CAPABILITIES: { icon: any; title: string; desc: string; image: string; span?: string; accent?: boolean }[] = [
+    { icon: Wand2, title: 'Generate', desc: 'Text-to-image, text-to-video. Every flagship model, ready to chain.', image: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=900', span: 'md:col-span-2', accent: true },
+    { icon: Layers3, title: 'Compose', desc: 'Stack, mask, blend. Multi-input pipelines without leaving the canvas.', image: 'https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=900' },
+    { icon: Eraser, title: 'Edit', desc: 'Inpaint, extend, retouch. Surgical control on any source asset.', image: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=900' },
+    { icon: Maximize2, title: 'Upscale', desc: 'Sub-pixel detail recovery. Print-ready output from any source.', image: 'https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=900' },
+    { icon: Scissors, title: 'Remove Background', desc: 'One click. Studio-clean cutouts. Subjects, products, people — preserved with sub-pixel edges.', image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=900', span: 'md:col-start-3 md:row-start-2 md:row-span-2' },
+    { icon: Film, title: 'Animate', desc: 'Bring stills to motion. Frame interpolation, looping, video extension.', image: 'https://images.unsplash.com/photo-1633957897986-70e83293f3ff?auto=format&fit=crop&q=80&w=900', span: 'md:col-span-2', accent: true },
+];
+
+// Static (non-tilting) card face used inside the mobile coverflow carousel.
+function CapabilityCardFace({ icon: Icon, title, desc, image, accent }: { icon: any; title: string; desc: string; image?: string; accent?: boolean }) {
+    return (
+        <div className="relative w-full h-full rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-2xl p-7 flex flex-col gap-5">
+            {image && (
+                <div className="absolute inset-0 opacity-[0.1]">
+                    <img src={image} alt="" draggable={false} className="w-full h-full object-cover" />
+                </div>
+            )}
+            <div className={cn("absolute -top-20 -right-20 w-52 h-52 rounded-full blur-3xl", accent ? "bg-accent-primary/30" : "bg-accent-secondary/15")} />
+            <div className="relative z-10 flex items-center justify-between">
+                <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center border", accent ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-200 text-slate-900")}>
+                    <Icon className="w-5 h-5" />
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent-success animate-pulse" />
+                    <span className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-400">LIVE</span>
+                </div>
+            </div>
+            <div className="relative z-10 mt-auto">
+                <h3 className="text-2xl font-black uppercase font-display tracking-tight text-slate-900 leading-tight mb-2">{title}</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 leading-relaxed">{desc}</p>
+            </div>
+            <div className="relative z-10 flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-slate-400">
+                Explore
+                <ArrowRight className="w-3 h-3" />
+            </div>
+        </div>
+    );
+}
+
+// Mobile coverflow: the active card sits center-front and covers part of its two
+// neighbours, which peek out the sides scaled-down and slightly tilted. Swipe or
+// tap a side card / a dot to bring another to the front.
+function CapabilityCarousel({ items }: { items: typeof CAPABILITIES }) {
+    const [active, setActive] = useState(0);
+    const n = items.length;
+    const clamp = (i: number) => Math.max(0, Math.min(n - 1, i));
+
+    return (
+        <div className="relative">
+            <div className="relative h-[368px] overflow-hidden">
+                {items.map((item, i) => {
+                    const offset = i - active;
+                    const abs = Math.abs(offset);
+                    if (abs > 1) return null; // render center + immediate neighbours only
+                    const isCenter = offset === 0;
+                    return (
+                        <motion.div
+                            key={item.title}
+                            drag={isCenter ? 'x' : false}
+                            dragConstraints={{ left: 0, right: 0 }}
+                            dragElastic={0.18}
+                            onDragEnd={(_, info) => {
+                                if (info.offset.x < -50) setActive((a) => clamp(a + 1));
+                                else if (info.offset.x > 50) setActive((a) => clamp(a - 1));
+                            }}
+                            onClick={() => { if (!isCenter) setActive(i); }}
+                            initial={false}
+                            animate={{
+                                x: `${offset * 42}%`,
+                                scale: isCenter ? 1 : 0.82,
+                                rotate: isCenter ? 0 : (offset < 0 ? -5 : 5),
+                                zIndex: 10 - abs,
+                                opacity: 1,
+                            }}
+                            transition={{ type: 'spring', stiffness: 280, damping: 30 }}
+                            style={{ touchAction: 'pan-y' }}
+                            className={cn(
+                                "absolute inset-0 m-auto w-[72%] max-w-[300px] h-[320px]",
+                                isCenter ? "cursor-grab active:cursor-grabbing" : "cursor-pointer brightness-[0.96]"
+                            )}
+                        >
+                            <CapabilityCardFace icon={item.icon} title={item.title} desc={item.desc} image={item.image} accent={item.accent} />
+                        </motion.div>
+                    );
+                })}
+            </div>
+
+            {/* Dots */}
+            <div className="mt-7 flex items-center justify-center gap-2">
+                {items.map((item, i) => (
+                    <button
+                        key={item.title}
+                        type="button"
+                        onClick={() => setActive(i)}
+                        aria-label={`Show ${item.title}`}
+                        className={cn(
+                            "h-1.5 rounded-full transition-all duration-300",
+                            i === active ? "w-6 bg-slate-900" : "w-1.5 bg-slate-300 hover:bg-slate-400"
+                        )}
+                    />
+                ))}
+            </div>
+        </div>
     );
 }
 
@@ -977,7 +1085,7 @@ function TemplateCarousel() {
     };
 
     return (
-        <section className="relative w-full py-24" id="templates">
+        <section className="relative w-full py-14 md:py-24" id="templates">
             {/* Heading */}
             <div className="max-w-7xl mx-auto px-8 mb-14 text-center flex flex-col items-center gap-5">
                 <span className="text-[7px] font-black uppercase tracking-[0.5em] text-accent-primary opacity-60">Templates</span>
@@ -1274,21 +1382,21 @@ function ChatFirstShowcase() {
                 <AnimatePresence>
                     {chatOpen && (
                         <>
-                            {/* Light tap-to-close catcher; keeps the canvas clearly visible */}
+                            {/* Tap-to-close scrim; canvas reads through it behind the sheet */}
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
                                 transition={{ duration: 0.25 }}
                                 onClick={() => setChatOpen(false)}
-                                className="absolute inset-0 z-30 bg-slate-900/5"
+                                className="absolute inset-0 z-30 bg-slate-900/30 backdrop-blur-sm"
                             />
                             <motion.div
                                 initial={{ y: '100%' }}
                                 animate={{ y: 0 }}
                                 exit={{ y: '100%' }}
                                 transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-                                className="absolute inset-x-2 bottom-2 top-[42%] z-40"
+                                className="absolute inset-x-2 bottom-2 top-12 z-40"
                             >
                                 <ShowcaseChatPanel />
                                 <button
@@ -1426,13 +1534,6 @@ export default function Home() {
 
                 {/* ─── Hero & Chat Composer Section ───────────────────────────── */}
                 <section className="relative w-full flex flex-col items-center pt-24 md:pt-28 pb-10 md:pb-14" id="workflow">
-                    {/* Ambient concentric rings + glow behind the composer */}
-                    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(95vw,900px)] aspect-square rounded-full bg-[radial-gradient(circle,rgba(56,189,248,0.14),transparent_62%)]" />
-                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(90vw,860px)] aspect-square rounded-full border border-accent-primary/10" />
-                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(62vw,580px)] aspect-square rounded-full border border-accent-primary/[0.07]" />
-                    </div>
-
                     <motion.div
                         initial={{ opacity: 0, y: 30, scale: 0.96 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1467,7 +1568,7 @@ export default function Home() {
                 </section>
 
                 {/* ─── Capabilities Bento (Light) ─────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 pt-12 pb-20 md:py-24" id="capabilities">
+                <section className="relative w-full max-w-7xl px-8 pt-10 pb-12 md:py-24" id="capabilities">
                     <SectionHeader
                         tag="Capabilities"
                         title="Everything you need to make. Nothing in the way."
@@ -1475,53 +1576,21 @@ export default function Home() {
                         center
                     />
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5 auto-rows-[260px]">
-                        <CapabilityCard
-                            icon={Wand2}
-                            title="Generate"
-                            desc="Text-to-image, text-to-video. Every flagship model, ready to chain."
-                            image="https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=900"
-                            span="md:col-span-2"
-                            accent
-                        />
-                        <CapabilityCard
-                            icon={Layers3}
-                            title="Compose"
-                            desc="Stack, mask, blend. Multi-input pipelines without leaving the canvas."
-                            image="https://images.unsplash.com/photo-1635776062127-d379bfcba9f8?auto=format&fit=crop&q=80&w=900"
-                        />
-                        <CapabilityCard
-                            icon={Eraser}
-                            title="Edit"
-                            desc="Inpaint, extend, retouch. Surgical control on any source asset."
-                            image="https://images.unsplash.com/photo-1547891654-e66ed7ebb968?auto=format&fit=crop&q=80&w=900"
-                        />
-                        <CapabilityCard
-                            icon={Maximize2}
-                            title="Upscale"
-                            desc="Sub-pixel detail recovery. Print-ready output from any source."
-                            image="https://images.unsplash.com/photo-1614624532983-4ce03382d63d?auto=format&fit=crop&q=80&w=900"
-                        />
-                        <CapabilityCard
-                            icon={Scissors}
-                            title="Remove Background"
-                            desc="One click. Studio-clean cutouts. Subjects, products, people — preserved with sub-pixel edges."
-                            image="https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=900"
-                            span="md:col-start-3 md:row-start-2 md:row-span-2"
-                        />
-                        <CapabilityCard
-                            icon={Film}
-                            title="Animate"
-                            desc="Bring stills to motion. Frame interpolation, looping, video extension."
-                            image="https://images.unsplash.com/photo-1633957897986-70e83293f3ff?auto=format&fit=crop&q=80&w=900"
-                            span="md:col-span-2"
-                            accent
-                        />
+                    {/* Desktop: bento grid */}
+                    <div className="hidden md:grid grid-cols-1 md:grid-cols-3 gap-5 auto-rows-[260px]">
+                        {CAPABILITIES.map((c) => (
+                            <CapabilityCard key={c.title} icon={c.icon} title={c.title} desc={c.desc} image={c.image} span={c.span} accent={c.accent} />
+                        ))}
+                    </div>
+
+                    {/* Mobile: coverflow carousel */}
+                    <div className="md:hidden">
+                        <CapabilityCarousel items={CAPABILITIES} />
                     </div>
                 </section>
 
                 {/* ─── How it works (Light) ────────────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-24" id="how">
+                <section className="relative w-full max-w-7xl px-8 py-14 md:py-24" id="how">
                     <SectionHeader
                         tag="Workflow"
                         title="From idea to render in three nodes."
@@ -1579,7 +1648,7 @@ export default function Home() {
                 </section>
 
                 {/* ─── Chat-First Section (Light) ──────────────────────────────── */}
-                <section className="relative w-full max-w-7xl px-8 py-24" id="chat-first">
+                <section className="relative w-full max-w-7xl px-8 py-14 md:py-24" id="chat-first">
                     <SectionHeader
                         tag="Chat-first"
                         title="Or just type. We'll build it."
@@ -1597,7 +1666,7 @@ export default function Home() {
                     {/* ─── Brand Carousel ───────────────────────────────────────── */}
                     {mounted && (
                         <motion.div
-                            className="w-full pt-24 pb-4"
+                            className="w-full pt-14 md:pt-24 pb-4"
                             initial={{ opacity: 0 }}
                             whileInView={{ opacity: 1 }}
                             viewport={{ once: true }}
@@ -1607,7 +1676,7 @@ export default function Home() {
                     )}
 
                     {/* ─── Demo Video (Dark) ────────────────────────────────────── */}
-                    <section className="w-full max-w-6xl px-8 py-16">
+                    <section className="w-full max-w-6xl px-8 py-12 md:py-16">
                         <SectionHeader
                             tag="Demo"
                             title="See it move."
@@ -1659,7 +1728,7 @@ export default function Home() {
                     </section>
 
                     {/* ─── Live Gallery (Dark) ──────────────────────────────────── */}
-                    <section className="w-full max-w-7xl px-8 py-24 relative">
+                    <section className="w-full max-w-7xl px-8 py-14 md:py-24 relative">
                         <SectionHeader
                             tag="Gallery"
                             title="Made by creators, on the canvas."
@@ -1693,7 +1762,7 @@ export default function Home() {
                     <TemplateCarousel />
 
                     {/* ─── Final CTA (Dark) ────────────────────────────────────── */}
-                    <section className="w-full max-w-7xl px-8 py-32">
+                    <section className="w-full max-w-7xl px-8 py-16 md:py-32">
                         <motion.div
                             initial={{ opacity: 0, y: 30 }}
                             whileInView={{ opacity: 1, y: 0 }}
