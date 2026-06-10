@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { formatCredits } from '@/lib/billing/cost';
+import { RunResultStrip } from '@/components/billing/RunResultStrip';
+import type { RunDetail } from '@/lib/billing/run-details';
 
 interface LedgerRow {
     id: string;
     amount: number;
     reason: string;
     metadata: any;
+    execution_id: string | null;
     created_at: string;
 }
 
@@ -53,39 +55,26 @@ function formatDate(iso: string): string {
  */
 export function TokenLedgerSection() {
     const [ledger, setLedger] = useState<LedgerRow[]>([]);
+    const [runs, setRuns] = useState<Record<string, RunDetail>>({});
     const [ledgerLoading, setLedgerLoading] = useState(true);
     const [page, setPage] = useState(0);
     const [hasMore, setHasMore] = useState(false);
 
     const fetchLedger = useCallback(async (pageIdx: number) => {
         setLedgerLoading(true);
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        try {
+            const res = await fetch(`/api/billing/runs?page=${pageIdx}&pageSize=${PAGE_SIZE}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+
+            setLedger((data.rows || []) as LedgerRow[]);
+            setRuns((data.runDetails || {}) as Record<string, RunDetail>);
+            setHasMore(!!data.hasMore);
+        } catch (err) {
+            console.error('[Billing] Failed to load usage history:', err);
+        } finally {
             setLedgerLoading(false);
-            return;
         }
-
-        const from = pageIdx * PAGE_SIZE;
-        const to = from + PAGE_SIZE;
-
-        const { data, error } = await supabase
-            .from('token_ledger')
-            .select('id, amount, reason, metadata, created_at')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .range(from, to);
-
-        if (error) {
-            console.error('[Billing] Failed to load ledger:', error);
-            setLedgerLoading(false);
-            return;
-        }
-
-        const rows = (data || []) as LedgerRow[];
-        setHasMore(rows.length > PAGE_SIZE);
-        setLedger(rows.slice(0, PAGE_SIZE));
-        setLedgerLoading(false);
     }, []);
 
     useEffect(() => {
@@ -120,7 +109,11 @@ export function TokenLedgerSection() {
             ) : (
                 <ul className="divide-y divide-stroke-subtle">
                     {ledger.map((row) => (
-                        <LedgerRowItem key={row.id} row={row} />
+                        <LedgerRowItem
+                            key={row.id}
+                            row={row}
+                            detail={row.execution_id ? runs[row.execution_id] : undefined}
+                        />
                     ))}
                 </ul>
             )}
@@ -151,25 +144,28 @@ export function TokenLedgerSection() {
     );
 }
 
-function LedgerRowItem({ row }: { row: LedgerRow }) {
+function LedgerRowItem({ row, detail }: { row: LedgerRow; detail?: RunDetail }) {
     const isCredit = row.amount > 0;
     const reason = humanizeReason(row);
 
     return (
-        <li className="flex items-center gap-4 px-6 py-3.5 hover:bg-surface-primary/40 transition-colors">
-            <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-content-primary">{reason}</div>
-                <div className="text-xs text-content-tertiary mt-0.5">
-                    {formatDate(row.created_at)}
+        <li className="px-6 py-3.5 hover:bg-surface-primary/40 transition-colors">
+            <div className="flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-content-primary">{reason}</div>
+                    <div className="text-xs text-content-tertiary mt-0.5">
+                        {formatDate(row.created_at)}
+                    </div>
+                </div>
+                <div
+                    className={`text-sm font-bold tabular-nums flex-shrink-0 ${isCredit ? 'text-emerald-400' : 'text-content-primary'
+                        }`}
+                >
+                    {isCredit ? '+' : '−'}
+                    {formatCredits(Math.abs(row.amount))}
                 </div>
             </div>
-            <div
-                className={`text-sm font-bold tabular-nums flex-shrink-0 ${isCredit ? 'text-emerald-400' : 'text-content-primary'
-                    }`}
-            >
-                {isCredit ? '+' : '−'}
-                {formatCredits(Math.abs(row.amount))}
-            </div>
+            <RunResultStrip detail={detail} />
         </li>
     );
 }

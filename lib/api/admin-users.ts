@@ -1,3 +1,5 @@
+import type { RunDetail } from '@/lib/billing/run-details';
+
 export interface AdminUserListRow {
     id: string;
     email: string | null;
@@ -107,7 +109,7 @@ export const adminUsersApi = {
 
     ledger: async (id: string, page = 0, pageSize = 25) => {
         const res = await fetch(`/api/admin/users/${id}/ledger${buildQuery({ page, pageSize })}`);
-        return asJson<{ rows: AdminLedgerRow[]; total: number; page: number; pageSize: number }>(res);
+        return asJson<{ rows: AdminLedgerRow[]; total: number; page: number; pageSize: number; runDetails: Record<string, RunDetail> }>(res);
     },
 
     sessions: async (id: string, page = 0, pageSize = 25) => {
