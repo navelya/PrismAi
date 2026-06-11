@@ -7,20 +7,22 @@ export const characterExecutor = async (
     _context: ExecutionContext
 ): Promise<NodeExecutionResult> => {
     try {
-        const urls = Array.isArray(config?.referenceImages) ? config.referenceImages : [];
+        const urls = config?.sheetUrl
+            ? [config.sheetUrl]
+            : (Array.isArray(config?.referenceImages) ? config.referenceImages : []);
         if (urls.length === 0) {
             return {
                 success: false,
                 data: null,
-                error: `Character "${config?.name || 'unknown'}" has no reference images.`,
+                error: `Character "${config?.name || 'unknown'}" has no character sheet.`,
             };
         }
 
-        const imageObjects: ImageObject[] = urls.map((url, index) => ({
+        const imageObjects: ImageObject[] = urls.map((url) => ({
             url,
             resolution: { width: 800, height: 600 },
             metadata: {
-                title: `${config.name || 'Character'} reference ${index + 1}`,
+                title: `${config.name || 'Character'} sheet`,
                 source: 'Character',
                 format: typeof url === 'string' && url.includes('image/png') ? 'png' : 'jpg',
             },
@@ -31,7 +33,7 @@ export const characterExecutor = async (
         return {
             success: false,
             data: null,
-            error: error instanceof Error ? error.message : 'Failed to resolve character reference images',
+            error: error instanceof Error ? error.message : 'Failed to resolve character sheet',
         };
     }
 };

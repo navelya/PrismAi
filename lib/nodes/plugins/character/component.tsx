@@ -15,8 +15,7 @@ interface CharacterNodeData {
 
 function CharacterNode({ data, id, selected }: NodeProps<CharacterNodeData>) {
     const config = data.config || ({} as CharacterConfig);
-    const images = Array.isArray(config.referenceImages) ? config.referenceImages : [];
-    const primary = images[0];
+    const coverUrl = config?.coverUrl || config?.sheetUrl || config?.referenceImages?.[0];
 
     return (
         <BaseNode
@@ -33,17 +32,12 @@ function CharacterNode({ data, id, selected }: NodeProps<CharacterNodeData>) {
         >
             <div className="flex flex-col gap-2">
                 <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-white/5 border border-white/10">
-                    {primary ? (
-                        <BlurryImage src={primary} alt={config.name || 'Character'} className="w-full h-full object-cover max-w-none max-h-none" />
+                    {coverUrl ? (
+                        <BlurryImage src={coverUrl} alt={config.name || 'Character'} className="w-full h-full object-cover max-w-none max-h-none" />
                     ) : (
                         <div className="absolute inset-0 flex items-center justify-center text-content-tertiary">
                             <UserCircle className="w-10 h-10" />
                         </div>
-                    )}
-                    {images.length > 1 && (
-                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-medium">
-                            +{images.length - 1}
-                        </span>
                     )}
                 </div>
                 <div className="px-1">

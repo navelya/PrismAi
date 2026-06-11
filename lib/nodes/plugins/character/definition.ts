@@ -1,17 +1,24 @@
 import { NodeSharedDef } from '../../core/types';
 
 /**
- * Character Node — a snapshot of a reusable character.
+ * Character Node — a frozen snapshot of a reusable character.
  * Config is a frozen copy (not a live DB reference) so saved workflows render
  * even after the source character is edited or deleted. `characterId` is kept
  * for a future opt-in "character changed — refresh node?" affordance.
+ *
+ * New snapshots carry a `sheetUrl` (the single character-sheet image that the
+ * node outputs) and an optional `coverUrl` (display-only portrait shown in the
+ * canvas node). Legacy saved-workflow snapshots may only have `referenceImages`;
+ * the executor falls back to that array when `sheetUrl` is absent.
  */
 export interface CharacterConfig {
     characterId: string;
     name: string;
-    referenceImages: string[]; // snapshot URLs, 1-5; index 0 = primary
+    sheetUrl?: string;          // present on new snapshots — the character sheet
+    coverUrl?: string;          // display-only cover portrait
+    referenceImages?: string[]; // legacy snapshots only
     description?: string;
-    weight?: number;           // 0-100
+    weight?: number;            // 0-100
 }
 
 export const characterSharedDef: NodeSharedDef<CharacterConfig> = {
@@ -31,6 +38,8 @@ export const characterSharedDef: NodeSharedDef<CharacterConfig> = {
     defaultConfig: {
         characterId: '',
         name: '',
+        sheetUrl: undefined,
+        coverUrl: undefined,
         referenceImages: [],
         description: '',
         weight: 70,
