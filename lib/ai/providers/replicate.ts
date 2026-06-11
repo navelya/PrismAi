@@ -13,7 +13,7 @@ export const replicateAsyncAdapter: AsyncProviderAdapter = {
   mode: 'async',
 
   async submit(model, inputs, ctx, opts) {
-    const modelRef = (model as any).replicate_model_id as string;
+    const modelRef = ((model as any).provider_model_id || (model as any).replicate_model_id) as string;
     if (!modelRef) throw new Error('replicate adapter: model has no replicate_model_id');
     const version = modelRef.includes(':') ? modelRef.split(':').pop() : undefined;
     const prediction = await replicate.predictions.create({
