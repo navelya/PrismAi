@@ -3,7 +3,11 @@
 import { memo, useEffect, useRef } from 'react';
 import { useReactFlow, useStore } from 'reactflow';
 import { useAppStore } from '@/lib/store/app-store';
-import { layoutPatchAsync } from '@/lib/workflow/layout-incremental';
+import {
+    layoutPatchAsync,
+    interactiveRelayout,
+    collectAffectedComponentIds,
+} from '@/lib/workflow/layout-incremental';
 import type { WorkflowNode, WorkflowEdge } from '@/lib/nodes/types';
 
 const DURING_STREAM_DURATION = 400;
@@ -206,14 +210,80 @@ function AiAddedZoomInner({ edges, updatePositions }: AiAddedZoomProps) {
     }, [aiTurn?.active]);
 
     /**
-     * Re-run the incremental ELK layout for the nodes the AI created this turn,
+     * Component-scoped interactive re-layout for the nodes the AI created this
+     * turn, using React Flow's measured sizes. We collect the connected
+     * component(s) the AI touched and lay them out together so existing
+     * (surviving) nodes stay roughly in place while the new nodes find sensible
+     * spots among them — untouched parts of the canvas never move. Falls back to
+     * the isolated-cluster far-right dock (`relayoutAddedNodesDock`) for fresh
+     * canvases, disconnected adds, ELK failures, or excessive survivor drift.
+     */
+    async function relayoutAddedNodes(addedIds: string[]) {
+        const updateFn = updatePositionsRef.current;
+        if (!updateFn || addedIds.length === 0) return;
+
+        const addedSet = new Set(addedIds);
+        const rfNodes = getNodes();
+        const allNodes = rfNodes as unknown as WorkflowNode[];
+        const allEdges = edgesRef.current;
+
+        // Scope to the connected component(s) the AI touched. Untouched parts of
+        // the canvas are never relaid-out and never move.
+        const componentIds = collectAffectedComponentIds(allNodes, allEdges, addedSet);
+        const componentNodes = allNodes.filter((n) => componentIds.has(n.id));
+        const componentEdges = allEdges.filter(
+            (e) => componentIds.has(e.source) && componentIds.has(e.target),
+        );
+
+        const survivors = componentNodes.filter((n) => !addedSet.has(n.id) && !(n as any).parentNode);
+
+        // Fresh canvas / no surviving anchor / disconnected add: fall back to the
+        // existing isolated-cluster dock (handles the empty-canvas no-jump case).
+        if (survivors.length === 0) {
+            return relayoutAddedNodesDock(addedIds);
+        }
+
+        let positions: Map<string, { x: number; y: number }>;
+        try {
+            positions = await interactiveRelayout({
+                componentNodes,
+                componentEdges,
+                addedIds: addedSet,
+            });
+        } catch (err) {
+            console.error('[AiAddedZoom] interactive relayout failed, docking:', err);
+            return relayoutAddedNodesDock(addedIds);
+        }
+        if (positions.size === 0) return;
+
+        // Safety: if surviving nodes were displaced too far, the interactive pass
+        // disrupted the layout — dock instead so we never make placement worse.
+        const MAX_SURVIVOR_DISPLACEMENT = 400;
+        for (const n of survivors) {
+            const np = positions.get(n.id);
+            if (!np || !n.position) continue;
+            if (Math.hypot(np.x - n.position.x, np.y - n.position.y) > MAX_SURVIVOR_DISPLACEMENT) {
+                console.warn('[AiAddedZoom] survivor displacement too large, docking');
+                return relayoutAddedNodesDock(addedIds);
+            }
+        }
+
+        updateFn(positions);
+    }
+
+    /**
+     * Fallback: isolated-cluster ELK + far-right dock (the pre-incremental
+     * behavior). Used for fresh canvas, disconnected adds, and on any
+     * interactive-relayout failure or excessive displacement.
+     *
+     * Re-runs the incremental ELK layout for the nodes the AI created this turn,
      * using React Flow's measured sizes. Existing nodes are passed as fixed
      * anchors (never moved). When the canvas had no prior nodes,
      * `layoutPatchAsync` docks the result at the origin — we translate it back
      * onto the new nodes' current top-left so they refine spacing in place
      * instead of teleporting toward (0,0).
      */
-    async function relayoutAddedNodes(addedIds: string[]) {
+    async function relayoutAddedNodesDock(addedIds: string[]) {
         const updateFn = updatePositionsRef.current;
         if (!updateFn || addedIds.length === 0) return;
 
