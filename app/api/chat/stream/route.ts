@@ -572,26 +572,23 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
     if (sessionOwner?.user_id) {
       const { data: rows } = await supabase
         .from('characters')
-        .select('id, name, description, reference_images, weight')
+        .select('id, name, description, sheet_url, cover_url, reference_images, weight')
         .or(`user_id.eq.${sessionOwner.user_id},is_shared.eq.true`)
-        .is('deleted_at', null)
-        .eq('is_draft', false)
-        .in('id', mentionedCharacterIds);
+        .is('deleted_at', null).eq('is_draft', false).in('id', mentionedCharacterIds);
       characterRefs = (rows ?? []).map((r: any) => {
-        const refs = Array.isArray(r.reference_images) ? r.reference_images : [];
-        const referenceImages = refs
-          .map((img: any) => (typeof img === 'string' ? img : img?.url))
-          .filter((u: any): u is string => typeof u === 'string');
-        const faceRef = refs.find((img: any) => img && typeof img === 'object' && img.role === 'face')?.url;
+        const legacy = Array.isArray(r.reference_images) ? r.reference_images : [];
+        const sheetUrl: string =
+          r.sheet_url || (typeof legacy[0] === 'string' ? legacy[0] : legacy[0]?.url) || '';
         return {
           characterId: r.id,
           name: r.name,
           description: r.description ?? null,
-          referenceImages,
-          faceImage: typeof faceRef === 'string' ? faceRef : undefined,
+          sheetUrl,
+          coverUrl: r.cover_url ?? undefined,
+          referenceImages: sheetUrl ? [sheetUrl] : [],
           weight: typeof r.weight === 'number' ? r.weight : 70,
         };
-      });
+      }).filter((s: any) => s.sheetUrl);
 
       const ids = characterRefs.map((c) => c.characterId);
       if (ids.length > 0) {
