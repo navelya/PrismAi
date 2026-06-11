@@ -2,12 +2,13 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Upload, Sparkles, Loader2, Wand2, ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { X, Upload, Sparkles, Loader2, Wand2, ArrowLeft, ArrowRight, Check, Coins } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import {
     charactersApi,
     generateCharacterStream,
     CHARACTER_TIER_COST,
+    CHARACTER_SHEET_COUNT,
     type Character,
     type CharacterRefImage,
     type CharacterInput,
@@ -178,6 +179,8 @@ export default function CharacterModal({
         setSelectedIndex(null);
         setSelectedSheet(null);
         goTo('candidates');
+        // Show the skeleton grid immediately — don't wait for the server 'start'.
+        setSlots(Array.from({ length: CHARACTER_SHEET_COUNT }, () => null));
 
         const localSlots: SheetSlot[] = [];
         try {
@@ -196,7 +199,9 @@ export default function CharacterModal({
                         localSlots[index] = 'failed';
                     setSlots([...localSlots]);
                 },
-                onError: (m) => setErrorMsg(m),
+                // Fatal/pre-stream error (e.g. insufficient credits): drop the
+                // skeletons so they don't pulse forever beneath the message.
+                onError: (m) => { setErrorMsg(m); setSlots([]); },
             });
         } catch (e) {
             setErrorMsg(e instanceof Error ? e.message : 'Generation failed');
@@ -544,7 +549,7 @@ export default function CharacterModal({
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <Wand2 className="w-4 h-4" />
-                                        Generate sheets · {CHARACTER_TIER_COST[tier]} cr
+                                        <span className="inline-flex items-center gap-1">Generate sheets · {CHARACTER_TIER_COST[tier]}<Coins className="w-3.5 h-3.5" /></span>
                                     </button>
                                 )}
 

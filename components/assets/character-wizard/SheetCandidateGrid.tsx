@@ -108,7 +108,8 @@ export default function SheetCandidateGrid({
                     <span className="text-[10px]">failed</span>
                   </div>
                 ) : (
-                  <div className="w-full h-full bg-surface-tertiary animate-pulse" />
+                  // Same loading look as the chat result-grid skeletons.
+                  <div className="w-full h-full bg-surface-tertiary/40 animate-pulse" />
                 )}
               </div>
             );

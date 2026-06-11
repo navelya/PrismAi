@@ -367,6 +367,10 @@ export type SheetSetEvent =
  *  Mirrors CHARACTER_GEN_COST in lib/characters/reference-set.ts (server). */
 export const CHARACTER_TIER_COST = { pro: 35, flash: 5 } as const;
 
+/** Number of candidate sheets produced per run. Mirrors SHEET_CANDIDATES (server).
+ *  Used client-side to render the skeleton grid immediately, before the stream. */
+export const CHARACTER_SHEET_COUNT = 4;
+
 export interface GenerateCharacterParams {
     /** Text description — used to generate the base when no photo is supplied. */
     description?: string;

@@ -2,12 +2,13 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, Wand2, ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { X, Loader2, Wand2, ArrowLeft, ArrowRight, Check, Coins } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import {
     charactersApi,
     generateCharacterVariantStream,
     CHARACTER_TIER_COST,
+    CHARACTER_SHEET_COUNT,
     type Character,
     type CharacterRefImage,
     type CharacterInput,
@@ -107,6 +108,8 @@ export default function CharacterVariantModal({
         setSelectedIndex(null);
         setSelectedSheet(null);
         goTo('candidates');
+        // Show the skeleton grid immediately — don't wait for the server 'start'.
+        setSlots(Array.from({ length: CHARACTER_SHEET_COUNT }, () => null));
 
         const localSlots: SheetSlot[] = [];
         try {
@@ -125,7 +128,7 @@ export default function CharacterVariantModal({
                         localSlots[index] = 'failed';
                     setSlots([...localSlots]);
                 },
-                onError: (m) => setErrorMsg(m),
+                onError: (m) => { setErrorMsg(m); setSlots([]); },
             });
         } catch (e) {
             setErrorMsg(e instanceof Error ? e.message : 'Variant generation failed');
@@ -392,7 +395,7 @@ export default function CharacterVariantModal({
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <Wand2 className="w-4 h-4" />
-                                        Generate variants · {CHARACTER_TIER_COST[tier]} cr
+                                        <span className="inline-flex items-center gap-1">Generate variants · {CHARACTER_TIER_COST[tier]}<Coins className="w-3.5 h-3.5" /></span>
                                     </button>
                                 )}
 
