@@ -285,6 +285,8 @@ async function dispatchReplicateNode(
         node_id: nodeId,
         prediction_index: i,
         replicate_id: r.status === 'pending' ? ((r.data as any)?.id ?? null) : null,
+        provider_id: 'replicate',
+        provider_job_id: r.status === 'pending' ? ((r.data as any)?.id ?? null) : null,
         status: r.status === 'pending' ? 'pending' : 'failed',
         error: r.status === 'pending' ? null : (r.error || 'Prediction create failed'),
         updated_at: new Date().toISOString(),
@@ -364,6 +366,8 @@ async function updateNodeState(
           result_data: resolvedResultData,
           error: state.error,
           replicate_id: state.replicate_prediction_id,
+          provider_id: state.replicate_prediction_id ? 'replicate' : undefined,
+          provider_job_id: state.replicate_prediction_id,
           updated_at: new Date().toISOString(),
         }, {
           onConflict: 'execution_id,node_id'
