@@ -112,7 +112,9 @@ function ModalRoot({
                                 >
                                     <motion.div
                                         className={cn(
-                                            'pointer-events-auto relative w-full my-auto bg-bg-primary/80 backdrop-blur-2xl rounded-2xl shadow-premium border border-white/10',
+                                            // Near-opaque so inner text stays legible over a busy canvas;
+                                            // light blur keeps a hint of glass. Plain deep shadow (no accent glow).
+                                            'pointer-events-auto relative w-full my-auto bg-bg-primary/95 backdrop-blur-md rounded-2xl shadow-2xl shadow-black/40 border border-white/10',
                                             SIZE_MAX_WIDTH[size],
                                             contentClassName,
                                         )}
