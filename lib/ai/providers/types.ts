@@ -31,3 +31,40 @@ export interface ProviderAdapter {
   mode: 'sync' | 'async-webhook';
   execute(args: ProviderAdapterArgs): Promise<NodeExecutionResult>;
 }
+
+/**
+ * Normalized failure classes the orchestrator acts on, independent of how each
+ * provider spells its errors. `transient` = capacity/outage/timeout (failover or
+ * retry); `validation` = bad input (terminal); `moderation` = content rejected
+ * (terminal, no retry/failover).
+ */
+export type ErrorClass = 'transient' | 'validation' | 'moderation';
+
+/** Normalized poll result from an async provider. `outputs` are RAW provider URLs
+ *  (the completion pipeline mirrors them — adapters never mirror). */
+export interface ProviderPollResult {
+  status: 'pending' | 'completed' | 'failed';
+  outputs?: any;            // raw provider output (URLs/strings/objects), pre-normalization
+  error?: string | null;
+}
+
+/**
+ * Async provider adapter. Separate from the sync `ProviderAdapter` so the sync
+ * path (ElevenLabs) never carries dead submit/poll branches. `submit` creates the
+ * job and returns its provider id; `poll` is the authoritative completion source;
+ * `classifyError` is operation-aware (a 429 on a POLL is back-off, not failover).
+ */
+export interface AsyncProviderAdapter {
+  key: string;                       // matches providers.adapter_key; 'replicate' for the default
+  mode: 'async';
+  submit(
+    model: ProviderAdapterModel,
+    inputs: Record<string, any>,
+    ctx: ExecutionContext,
+    opts?: { webhookUrl?: string }
+  ): Promise<{ providerJobId: string; status: 'pending' | 'completed'; outputs?: any }>;
+  poll(providerJobId: string): Promise<ProviderPollResult>;
+  classifyError(op: 'submit' | 'poll', httpStatus: number | null, body: unknown): ErrorClass;
+  fetchSchema?(modelSlug: string): Promise<any>;       // optional; Phase B
+  parseWebhook?(req: Request): { providerJobId: string } | null;  // optional; Phase B
+}
