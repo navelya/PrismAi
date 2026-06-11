@@ -44,7 +44,7 @@ export async function completeJob(args: {
 
   // ── Failure ──────────────────────────────────────────────────────────────
   if (outcome.status === 'failed') {
-    const won = await supabase.rpc('claim_node_completion', {
+    const { data: won, error: claimErr } = await supabase.rpc('claim_node_completion', {
       p_execution_id: executionId,
       p_node_id: nodeId,
       p_status: 'failed',
@@ -53,8 +53,11 @@ export async function completeJob(args: {
       p_error: outcome.error || 'Generation failed',
       p_provider_id: providerId,
       p_provider_job_id: providerJobId,
+      p_session_id: executionCtx?.session_id ?? null,
+      p_user_id: (executionCtx?.sessions as any)?.user_id ?? null,
     });
-    if (won.data === true) {
+    if (claimErr) throw new Error(`claim_node_completion failed: ${claimErr.message}`);
+    if (won === true) {
       await checkAndDispatchChildren(executionId, nodeId, baseUrl);
     }
     return;
@@ -90,7 +93,7 @@ export async function completeJob(args: {
     failError = 'Media could not be permanently stored. Please re-run the node.';
   }
 
-  const won = await supabase.rpc('claim_node_completion', {
+  const { data: won, error: claimErr } = await supabase.rpc('claim_node_completion', {
     p_execution_id: executionId,
     p_node_id: nodeId,
     p_status: failError ? 'failed' : 'completed',
@@ -99,9 +102,12 @@ export async function completeJob(args: {
     p_error: failError,
     p_provider_id: providerId,
     p_provider_job_id: providerJobId,
+    p_session_id: executionCtx?.session_id ?? null,
+    p_user_id: (executionCtx?.sessions as any)?.user_id ?? null,
   });
+  if (claimErr) throw new Error(`claim_node_completion failed: ${claimErr.message}`);
 
-  if (won.data === true) {
+  if (won === true) {
     await checkAndDispatchChildren(executionId, nodeId, baseUrl);
   }
 }

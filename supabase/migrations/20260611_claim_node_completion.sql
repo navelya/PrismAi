@@ -21,7 +21,9 @@ CREATE OR REPLACE FUNCTION public.claim_node_completion(
   p_result_data  JSONB,         -- NULL allowed for 'failed'
   p_error        TEXT,          -- NULL for 'completed'
   p_provider_id  TEXT,          -- serving provider (e.g. 'replicate')
-  p_provider_job_id TEXT
+  p_provider_job_id TEXT,
+  p_session_id   UUID DEFAULT NULL,
+  p_user_id      UUID DEFAULT NULL
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -48,10 +50,10 @@ BEGIN
 
   INSERT INTO public.node_results AS nr
     (execution_id, node_id, status, result_type, result_data, error,
-     provider_id, provider_job_id, updated_at)
+     provider_id, provider_job_id, session_id, user_id, updated_at)
   VALUES
     (p_execution_id, p_node_id, p_status, p_result_type, p_result_data, p_error,
-     p_provider_id, p_provider_job_id, NOW())
+     p_provider_id, p_provider_job_id, p_session_id, p_user_id, NOW())
   ON CONFLICT (execution_id, node_id) DO UPDATE
     SET status          = EXCLUDED.status,
         result_type     = EXCLUDED.result_type,
@@ -59,15 +61,17 @@ BEGIN
         error           = EXCLUDED.error,
         provider_id     = EXCLUDED.provider_id,
         provider_job_id = EXCLUDED.provider_job_id,
+        session_id      = COALESCE(EXCLUDED.session_id, nr.session_id),
+        user_id         = COALESCE(EXCLUDED.user_id, nr.user_id),
         updated_at      = NOW();
 
   RETURN TRUE;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.claim_node_completion(UUID, TEXT, TEXT, TEXT, JSONB, TEXT, TEXT, TEXT)
+REVOKE ALL ON FUNCTION public.claim_node_completion(UUID, TEXT, TEXT, TEXT, JSONB, TEXT, TEXT, TEXT, UUID, UUID)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.claim_node_completion(UUID, TEXT, TEXT, TEXT, JSONB, TEXT, TEXT, TEXT)
+GRANT EXECUTE ON FUNCTION public.claim_node_completion(UUID, TEXT, TEXT, TEXT, JSONB, TEXT, TEXT, TEXT, UUID, UUID)
   TO service_role;
 
 COMMENT ON FUNCTION public.claim_node_completion IS
