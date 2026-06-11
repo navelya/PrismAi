@@ -3,102 +3,182 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, Wand2, ScanFace, Star } from 'lucide-react';
-import { generateCharacterVariantStream, type Character, type CharacterRefImage, type CharacterInput } from '@/lib/api/client';
-import ImageLightbox from '@/components/ui/ImageLightbox';
-
-type GenSlot = CharacterRefImage | null | 'failed';
+import { X, Loader2, Wand2 } from 'lucide-react';
+import {
+    charactersApi,
+    generateCharacterVariantStream,
+    type Character,
+    type CharacterRefImage,
+    type CharacterInput,
+} from '@/lib/api/client';
+import SheetCandidateGrid from '@/components/assets/character-wizard/SheetCandidateGrid';
+import CharacterConfirmStep from '@/components/assets/character-wizard/CharacterConfirmStep';
+import type { SheetSlot } from '@/components/assets/character-wizard/types';
 
 interface CharacterVariantModalProps {
     open: boolean;
     source: Character | null;
     onClose: () => void;
     onSave: (input: CharacterInput) => Promise<void>;
-    /** Called when the variant is dismissed without Cancel and has generated
-     *  images — persists it as a draft. */
+    /** Called when the variant is dismissed without Cancel and has a sheet
+     *  picked — persists it as a draft. */
     onSaveDraft?: (input: CharacterInput) => Promise<void>;
 }
 
-const MAX_IMAGES = 6;
+type WizardStep = 'changes' | 'candidates' | 'confirm';
 
-export default function CharacterVariantModal({ open, source, onClose, onSave, onSaveDraft }: CharacterVariantModalProps) {
-    const [style, setStyle] = useState('');
+export default function CharacterVariantModal({
+    open,
+    source,
+    onClose,
+    onSave,
+    onSaveDraft,
+}: CharacterVariantModalProps) {
+    // Wizard navigation
+    const [step, setStep] = useState<WizardStep>('changes');
+
+    // Changes step
+    const [changes, setChanges] = useState('');
+
+    // Character metadata
     const [name, setName] = useState('');
-    const [images, setImages] = useState<CharacterRefImage[]>([]);
-    const dismissingRef = useRef(false);
-    const [genSlots, setGenSlots] = useState<GenSlot[]>([]);
+    const [weight, setWeight] = useState(70);
+
+    // Candidate grid
+    const [slots, setSlots] = useState<SheetSlot[]>([]);
     const [generating, setGenerating] = useState(false);
+    const [selectedSheet, setSelectedSheet] = useState<CharacterRefImage | null>(null);
+    const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+
+    // Confirm step
+    const [cover, setCover] = useState<CharacterRefImage | null>(null);
+    const [coverLoading, setCoverLoading] = useState(false);
+    const [description, setDescription] = useState('');
+
+    // UI state
+    const [describing, setDescribing] = useState(false);
     const [saving, setSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
-    const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
+    const dismissingRef = useRef(false);
+
+    // Portal to <body> so the fixed-inset overlay centers on the viewport even
+    // when a parent has a CSS transform that would otherwise become the
+    // containing block for `fixed`.
     const [mounted, setMounted] = useState(false);
     useEffect(() => setMounted(true), []);
 
+    // Reset all state on open
     useEffect(() => {
-        if (open) {
-            setStyle('');
-            setName(source ? `${source.name} (variant)` : '');
-            setImages([]);
-            setGenSlots([]);
-            setGenerating(false);
-            setSaving(false);
-            setErrorMsg(null);
-            setLightboxIndex(null);
-            dismissingRef.current = false;
-        }
+        if (!open) return;
+        dismissingRef.current = false;
+        setStep('changes');
+        setChanges('');
+        setName(source ? `${source.name} (variant)` : '');
+        setWeight(source?.weight ?? 70);
+        setSlots([]);
+        setGenerating(false);
+        setSelectedSheet(null);
+        setSelectedIndex(null);
+        setCover(null);
+        setCoverLoading(false);
+        setDescription('');
+        setDescribing(false);
+        setSaving(false);
+        setErrorMsg(null);
     }, [open, source]);
+
+    // --- Generation ---
 
     const runGeneration = async () => {
         if (!source) return;
-        if (style.trim().length < 3) { setErrorMsg('Describe the new style first (at least a few words)'); return; }
+        if (changes.trim().length < 3) { setErrorMsg('Describe the changes first (a few words)'); return; }
         setGenerating(true);
         setErrorMsg(null);
-        setImages([]);
-        setGenSlots([]);
+        setStep('candidates');
+        setSelectedIndex(null);
+        setSelectedSheet(null);
 
-        const slots: GenSlot[] = [];
+        const localSlots: SheetSlot[] = [];
         try {
-            await generateCharacterVariantStream(source.id, { style: style.trim() }, {
+            await generateCharacterVariantStream(source.id, { changes: changes.trim() }, {
                 onStart: (total) => {
-                    slots.length = 0;
-                    for (let i = 0; i < total; i++) slots.push(null);
-                    setGenSlots([...slots]);
+                    localSlots.length = 0;
+                    for (let i = 0; i < total; i++) localSlots.push(null);
+                    setSlots([...localSlots]);
                 },
-                onImage: ({ index, url, path, role }) => {
-                    if (index >= 0 && index < slots.length) slots[index] = role ? { url, path, role } : { url, path };
-                    setGenSlots([...slots]);
+                onSheet: ({ index, url, path }) => {
+                    if (index >= 0 && index < localSlots.length) localSlots[index] = { url, path };
+                    setSlots([...localSlots]);
                 },
-                onPoseFailed: (index) => {
-                    if (index >= 0 && index < slots.length && slots[index] === null) slots[index] = 'failed';
-                    setGenSlots([...slots]);
+                onSheetFailed: (index) => {
+                    if (index >= 0 && index < localSlots.length && localSlots[index] === null)
+                        localSlots[index] = 'failed';
+                    setSlots([...localSlots]);
                 },
-                onError: (message) => { setErrorMsg(message); },
-                onDone: () => {
-                    const final = slots.filter((s): s is CharacterRefImage => !!s && s !== 'failed');
-                    if (final.length > 0) setImages(final.slice(0, MAX_IMAGES));
-                },
+                onError: (m) => setErrorMsg(m),
             });
-        } catch (err) {
-            setErrorMsg(err instanceof Error ? err.message : 'Variant generation failed');
+        } catch (e) {
+            setErrorMsg(e instanceof Error ? e.message : 'Variant generation failed');
         } finally {
             setGenerating(false);
-            setGenSlots([]);
         }
     };
 
+    // --- Sheet selection / cover generation ---
+
+    const handleSelectSheet = async (index: number) => {
+        const slot = slots[index];
+        if (!slot || slot === 'failed') return;
+        setSelectedSheet(slot);
+        setSelectedIndex(index);
+        setCover(null);
+        setDescription((d) => d || changes.trim());
+        setStep('confirm');
+        setCoverLoading(true);
+        try {
+            const c = await charactersApi.generateCover(slot.url);
+            setCover({ url: c.url, path: c.path });
+        } catch {
+            // Fall back to using the sheet as the cover
+            setCover(slot);
+        } finally {
+            setCoverLoading(false);
+        }
+    };
+
+    // --- Auto-describe ---
+
+    const handleAutoDescribe = async () => {
+        if (!selectedSheet) { setErrorMsg('No sheet selected'); return; }
+        setDescribing(true);
+        setErrorMsg(null);
+        try {
+            const result = await charactersApi.autoDescribe(selectedSheet.url);
+            setDescription(result.description);
+        } catch (err) {
+            setErrorMsg(err instanceof Error ? err.message : 'Auto-describe failed');
+        } finally {
+            setDescribing(false);
+        }
+    };
+
+    // --- Save ---
+
     const handleSave = async () => {
         if (!name.trim()) { setErrorMsg('Name is required'); return; }
-        if (images.length === 0) { setErrorMsg('Generate the variant first'); return; }
+        if (!selectedSheet) { setErrorMsg('Pick a sheet first'); return; }
         setSaving(true);
         setErrorMsg(null);
         try {
             await onSave({
                 name: name.trim(),
-                description: style.trim() || null,
-                referenceImages: images,
-                thumbnailUrl: images[0].url,
-                weight: source?.weight ?? 70,
+                description: description.trim() || null,
+                sheetUrl: selectedSheet.url,
+                sheetPath: selectedSheet.path,
+                coverUrl: (cover ?? selectedSheet).url,
+                coverPath: (cover ?? selectedSheet).path,
+                weight,
             });
             onClose();
         } catch (err) {
@@ -108,19 +188,21 @@ export default function CharacterVariantModal({ open, source, onClose, onSave, o
         }
     };
 
-    // Dismiss WITHOUT Cancel (X/backdrop/Escape). A variant exists only after
-    // generation, so persist as a draft when there are images.
+    // --- Dismiss / draft ---
+
     const handleDismiss = async () => {
         if (dismissingRef.current) return;
         dismissingRef.current = true;
-        if (onSaveDraft && images.length > 0) {
+        if (onSaveDraft && selectedSheet) {
             try {
                 await onSaveDraft({
                     name: name.trim(),
-                    description: style.trim() || null,
-                    referenceImages: images,
-                    thumbnailUrl: images[0].url,
-                    weight: source?.weight ?? 70,
+                    description: description.trim() || null,
+                    sheetUrl: selectedSheet.url,
+                    sheetPath: selectedSheet.path,
+                    coverUrl: (cover ?? selectedSheet).url,
+                    coverPath: (cover ?? selectedSheet).path,
+                    weight,
                 });
             } catch {
                 // Best-effort: never block closing on a failed draft save.
@@ -129,19 +211,26 @@ export default function CharacterVariantModal({ open, source, onClose, onSave, o
         onClose();
     };
 
+    // Escape key handling
     useEffect(() => {
         if (!open) return;
-        // Don't dismiss on Escape while the image lightbox is open — Escape there
-        // should only close the lightbox (which also listens on window).
-        // handleDismiss closes over current field state; re-bind when it changes.
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && lightboxIndex === null) void handleDismiss(); };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void handleDismiss(); };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [open, onSaveDraft, name, style, images, source, lightboxIndex]);
+        // handleDismiss closes over current field state; re-bind when it changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, onSaveDraft, name, description, selectedSheet, cover, weight]);
 
     if (!mounted) return null;
 
-    const sourceThumb = source?.thumbnail_url || source?.reference_images?.[0]?.url;
+    // Widen the dialog for the multi-column candidate/confirm steps
+    const dialogMaxW = step === 'changes' ? 'max-w-md' : 'max-w-3xl';
+
+    const sourceThumb =
+        source?.cover_url ||
+        source?.sheet_url ||
+        source?.thumbnail_url ||
+        source?.reference_images?.[0]?.url;
 
     return createPortal(
         <AnimatePresence>
@@ -155,121 +244,144 @@ export default function CharacterVariantModal({ open, source, onClose, onSave, o
                     transition={{ duration: 0.18, ease: 'easeOut' }}
                 >
                     <motion.div
-                        className="w-full max-w-md rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl p-5 space-y-4"
+                        className={`w-full ${dialogMaxW} rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl p-5 space-y-4`}
                         onClick={(e) => e.stopPropagation()}
                         initial={{ opacity: 0, scale: 0.96, y: 12 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.96, y: 12 }}
                         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                     >
+                        {/* Header */}
                         <div className="flex items-center justify-between">
                             <h2 className="text-lg font-bold text-content-primary">Create variant</h2>
-                            <button onClick={() => void handleDismiss()} className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary">
+                            <button
+                                onClick={() => void handleDismiss()}
+                                className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary"
+                            >
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
 
-                        <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-lg overflow-hidden border border-stroke-subtle bg-white/5 shrink-0">
-                                {sourceThumb && <img src={sourceThumb} alt={source.name} className="w-full h-full object-cover" />}
-                            </div>
-                            <p className="text-xs text-content-tertiary">
-                                Restyle <span className="text-content-secondary font-medium">{source.name}</span> with a new look —
-                                same person, new outfit/art-style. All positions are regenerated.
-                            </p>
-                        </div>
+                        {/* Step: changes */}
+                        {step === 'changes' && (
+                            <div className="space-y-4">
+                                {/* Source character chip */}
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-stroke-subtle bg-white/5 shrink-0">
+                                        {sourceThumb && (
+                                            <img src={sourceThumb} alt={source.name} className="w-full h-full object-cover" />
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-content-tertiary">
+                                        Restyle{' '}
+                                        <span className="text-content-secondary font-medium">{source.name}</span>
+                                        {' '}— same person, your changes applied.
+                                    </p>
+                                </div>
 
-                        {generating ? (
-                            <div className="flex flex-wrap gap-2">
-                                {genSlots.map((slot, index) => (
-                                    <div key={index} className="relative w-16 h-16 rounded-lg overflow-hidden border border-stroke-subtle">
-                                        {slot && slot !== 'failed' ? (
-                                            <>
-                                                <img src={slot.url} alt="" className="w-full h-full object-cover animate-in fade-in duration-300" />
-                                                {slot.role === 'face' && (
-                                                    <span className="absolute top-0.5 right-0.5 text-sky-300"><ScanFace className="w-3.5 h-3.5" /></span>
-                                                )}
-                                            </>
-                                        ) : slot === 'failed' ? (
-                                            <div className="w-full h-full flex items-center justify-center bg-surface-tertiary text-content-tertiary">
-                                                <X className="w-4 h-4" />
-                                            </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-content-secondary mb-1">
+                                        Changes *
+                                    </label>
+                                    <textarea
+                                        value={changes}
+                                        onChange={(e) => setChanges(e.target.value)}
+                                        rows={4}
+                                        placeholder="cyberpunk streetwear, neon palette, glossy jacket; change hair to white…"
+                                        className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[5rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                                    />
+                                </div>
+
+                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
+
+                                <button
+                                    type="button"
+                                    onClick={() => void runGeneration()}
+                                    disabled={changes.trim().length < 3}
+                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                >
+                                    <Wand2 className="w-4 h-4" />
+                                    Generate variants
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Step: candidates */}
+                        {step === 'candidates' && (
+                            <div className="space-y-4">
+                                <SheetCandidateGrid
+                                    slots={slots}
+                                    selectedIndex={selectedIndex}
+                                    onSelect={handleSelectSheet}
+                                    generating={generating}
+                                />
+
+                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
+
+                                <div className="flex items-center justify-between pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setStep('changes')}
+                                        className="px-3 py-2 rounded-lg text-sm text-content-secondary hover:bg-interactive-hover"
+                                    >
+                                        ← Back
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => void runGeneration()}
+                                        disabled={generating}
+                                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-stroke-subtle text-content-secondary hover:bg-interactive-hover disabled:opacity-50"
+                                    >
+                                        {generating ? (
+                                            <Loader2 className="w-4 h-4 animate-spin" />
                                         ) : (
-                                            <div className="w-full h-full bg-surface-tertiary animate-pulse" />
+                                            <Wand2 className="w-4 h-4" />
                                         )}
-                                    </div>
-                                ))}
+                                        Regenerate
+                                    </button>
+                                </div>
                             </div>
-                        ) : images.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                                {images.map((img, index) => (
-                                    <div key={img.path || img.url} className="relative w-16 h-16 rounded-lg overflow-hidden border border-stroke-subtle">
-                                        <img src={img.url} alt="" onClick={() => setLightboxIndex(index)} className="w-full h-full object-cover cursor-zoom-in" />
-                                        {index === 0 && (
-                                            <span className="absolute top-0.5 left-0.5 text-amber-300 pointer-events-none"><Star className="w-3 h-3 fill-current" /></span>
-                                        )}
-                                        {img.role === 'face' && (
-                                            <span className="absolute top-0.5 right-0.5 text-sky-300 pointer-events-none"><ScanFace className="w-3.5 h-3.5" /></span>
-                                        )}
-                                    </div>
-                                ))}
+                        )}
+
+                        {/* Step: confirm */}
+                        {step === 'confirm' && selectedSheet && (
+                            <div className="space-y-4">
+                                <CharacterConfirmStep
+                                    sheet={selectedSheet}
+                                    cover={cover}
+                                    coverLoading={coverLoading}
+                                    name={name}
+                                    onName={setName}
+                                    description={description}
+                                    onDescription={setDescription}
+                                    weight={weight}
+                                    onWeight={setWeight}
+                                    onAutoDescribe={handleAutoDescribe}
+                                    describing={describing}
+                                    onBack={() => setStep('candidates')}
+                                />
+
+                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
+
+                                <div className="flex justify-end gap-2 pt-1">
+                                    <button
+                                        onClick={onClose}
+                                        className="px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={() => void handleSave()}
+                                        disabled={saving}
+                                        className="px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 flex items-center gap-2"
+                                    >
+                                        {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                                        Save variant
+                                    </button>
+                                </div>
                             </div>
-                        ) : null}
-
-                        <div>
-                            <label className="block text-xs font-medium text-content-secondary mb-1">New style *</label>
-                            <textarea
-                                value={style}
-                                onChange={(e) => setStyle(e.target.value)}
-                                rows={4}
-                                placeholder="cyberpunk streetwear, neon palette, glossy jacket..."
-                                className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[5rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
-                            />
-                        </div>
-
-                        <button
-                            type="button"
-                            onClick={runGeneration}
-                            disabled={generating || saving}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-accent-primary/30 bg-accent-primary/10 text-sm text-accent-primary hover:bg-accent-primary/20 disabled:opacity-60"
-                        >
-                            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                            {generating ? 'Generating…' : images.length > 0 ? 'Regenerate' : 'Generate variant'}
-                        </button>
-
-                        <div>
-                            <label className="block text-xs font-medium text-content-secondary mb-1">Name *</label>
-                            <input
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                placeholder="Alice (cyberpunk)"
-                                className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
-                            />
-                        </div>
-
-                        {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
-
-                        <div className="flex justify-end gap-2 pt-1">
-                            <button onClick={onClose} className="px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover">Cancel</button>
-                            <button
-                                onClick={handleSave}
-                                disabled={saving || generating || images.length === 0}
-                                className="px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                                Save variant
-                            </button>
-                        </div>
+                        )}
                     </motion.div>
-
-                    {lightboxIndex !== null && images.length > 0 && (
-                        <ImageLightbox
-                            media={images.map((i) => i.url)}
-                            type="any"
-                            initialIndex={Math.min(lightboxIndex, images.length - 1)}
-                            onClose={() => setLightboxIndex(null)}
-                        />
-                    )}
                 </motion.div>
             )}
         </AnimatePresence>,
