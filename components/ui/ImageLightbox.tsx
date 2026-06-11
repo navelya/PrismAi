@@ -116,7 +116,14 @@ export default function ImageLightbox({ media, type, initialIndex, onClose, cssF
 
     const lightbox = (
         <div
-            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center placeholder-media-lightbox"
+            // Marks this portal as a nested overlay so an enclosing Radix Dialog
+            // (the shared Modal) does NOT treat clicks here as an outside-dismiss
+            // and close the whole window. See Modal's onPointerDownOutside veto.
+            data-radix-dismiss-ignore
+            // `pointer-events-auto` re-enables interaction: a Radix modal Dialog sets
+            // body `pointer-events: none`, which this body-portaled overlay would
+            // otherwise inherit — making the close/nav buttons unclickable.
+            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center placeholder-media-lightbox pointer-events-auto"
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onClose(); }}

@@ -205,15 +205,18 @@ export default function CharacterVariantModal({
     const handleDismiss = async () => {
         if (dismissingRef.current) return;
         dismissingRef.current = true;
-        if (onSaveDraft && selectedSheet) {
+        // Persist a draft as soon as there is ANY generated sheet — selected or not.
+        const draftSheet =
+            selectedSheet ?? slots.find((s): s is CharacterRefImage => s !== null && s !== 'failed') ?? null;
+        if (onSaveDraft && draftSheet) {
             try {
                 await onSaveDraft({
                     name: name.trim(),
                     description: description.trim() || null,
-                    sheetUrl: selectedSheet.url,
-                    sheetPath: selectedSheet.path,
-                    coverUrl: (cover ?? selectedSheet).url,
-                    coverPath: (cover ?? selectedSheet).path,
+                    sheetUrl: draftSheet.url,
+                    sheetPath: draftSheet.path,
+                    coverUrl: (cover ?? draftSheet).url,
+                    coverPath: (cover ?? draftSheet).path,
                     weight,
                 });
             } catch {
