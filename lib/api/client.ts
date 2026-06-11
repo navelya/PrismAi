@@ -363,6 +363,10 @@ export type SheetSetEvent =
     | { type: 'error'; message: string }
     | { type: 'done' };
 
+/** Client-safe credit cost per character-sheet generation run, by quality tier.
+ *  Mirrors CHARACTER_GEN_COST in lib/characters/reference-set.ts (server). */
+export const CHARACTER_TIER_COST = { pro: 35, flash: 5 } as const;
+
 export interface GenerateCharacterParams {
     /** Text description — used to generate the base when no photo is supplied. */
     description?: string;
@@ -370,6 +374,8 @@ export interface GenerateCharacterParams {
     baseImage?: { mimeType: string; data: string };
     /** Specific changes to apply (used when refining an existing sheet). */
     changes?: string;
+    /** Quality tier: 'pro' (Gemini 3 Pro, 35 cr) or 'flash' (2.5 Flash, 5 cr). Default pro. */
+    tier?: 'pro' | 'flash';
 }
 
 export interface GenerateCharacterHandlers {
@@ -394,7 +400,7 @@ async function consumeCharacterStream(res: Response, handlers: GenerateCharacter
         let message = res.status === 413
             ? 'That image is too large. Please use a smaller photo.'
             : `Generation failed (${res.status})`;
-        try { const j = await res.json(); if (j?.error) message = j.error; } catch { /* not json */ }
+        try { const j = await res.json(); if (j?.message) message = j.message; else if (j?.error) message = j.error; } catch { /* not json */ }
         handlers.onError?.(message);
         return;
     }
@@ -445,7 +451,7 @@ export async function generateCharacterStream(
     const res = await fetch('/api/characters/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: params.description, baseImage: params.baseImage, changes: params.changes }),
+        body: JSON.stringify({ description: params.description, baseImage: params.baseImage, changes: params.changes, tier: params.tier }),
     });
     await consumeCharacterStream(res, handlers);
 }
@@ -456,13 +462,13 @@ export async function generateCharacterStream(
  */
 export async function generateCharacterVariantStream(
     characterId: string,
-    params: { changes: string },
+    params: { changes: string; tier?: 'pro' | 'flash' },
     handlers: GenerateCharacterHandlers,
 ): Promise<void> {
     const res = await fetch(`/api/characters/${characterId}/variant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ changes: params.changes }),
+        body: JSON.stringify({ changes: params.changes, tier: params.tier }),
     });
     await consumeCharacterStream(res, handlers);
 }

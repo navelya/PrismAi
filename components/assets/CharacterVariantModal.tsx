@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import {
     charactersApi,
     generateCharacterVariantStream,
+    CHARACTER_TIER_COST,
     type Character,
     type CharacterRefImage,
     type CharacterInput,
@@ -44,6 +45,7 @@ export default function CharacterVariantModal({
 
     // Changes step
     const [changes, setChanges] = useState('');
+    const [tier, setTier] = useState<'pro' | 'flash'>('pro');
 
     // Character metadata
     const [name, setName] = useState('');
@@ -74,6 +76,7 @@ export default function CharacterVariantModal({
         setStep('changes');
         setDirection(1);
         setChanges('');
+        setTier('pro');
         setName(source ? `${source?.name} (variant)` : '');
         setWeight(source?.weight ?? 70);
         setSlots([]);
@@ -107,7 +110,7 @@ export default function CharacterVariantModal({
 
         const localSlots: SheetSlot[] = [];
         try {
-            await generateCharacterVariantStream(source.id, { changes: changes.trim() }, {
+            await generateCharacterVariantStream(source.id, { changes: changes.trim(), tier }, {
                 onStart: (total) => {
                     localSlots.length = 0;
                     for (let i = 0; i < total; i++) localSlots.push(null);
@@ -296,6 +299,31 @@ export default function CharacterVariantModal({
                                                         className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[7rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
                                                     />
                                                 </div>
+
+                                                {/* Quality / cost selector */}
+                                                <div className="pt-1">
+                                                    <span className="block text-xs font-medium text-content-secondary mb-1.5">Quality</span>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        {([
+                                                            { key: 'pro' as const, label: 'Pro', hint: 'Best quality' },
+                                                            { key: 'flash' as const, label: 'Flash', hint: 'Faster' },
+                                                        ]).map((opt) => (
+                                                            <button
+                                                                key={opt.key}
+                                                                type="button"
+                                                                onClick={() => setTier(opt.key)}
+                                                                className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border text-left transition-colors ${
+                                                                    tier === opt.key
+                                                                        ? 'border-accent-primary bg-accent-primary/10 ring-1 ring-accent-primary'
+                                                                        : 'border-stroke-subtle hover:bg-interactive-hover'
+                                                                }`}
+                                                            >
+                                                                <span className="text-sm font-medium text-content-primary">{opt.label}</span>
+                                                                <span className="text-[11px] text-content-tertiary">{opt.hint} · {CHARACTER_TIER_COST[opt.key]} credits</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -361,7 +389,7 @@ export default function CharacterVariantModal({
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <Wand2 className="w-4 h-4" />
-                                        Generate variants
+                                        Generate variants · {CHARACTER_TIER_COST[tier]} cr
                                     </button>
                                 )}
 

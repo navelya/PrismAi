@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/api/auth';
+import { createServiceClient } from '@/lib/supabase/service';
 import { GoogleGenAI } from '@google/genai';
 import {
-  type GenImage, type SheetSetEvent, SHEET_CANDIDATES,
-  sheetVariantPrompt, fetchImageAsBase64, makeCharacterImageUploader, streamSheetCandidates,
+  type GenImage, type SheetSetEvent, type ModelTier, SHEET_CANDIDATES,
+  sheetVariantPrompt, sheetModelForTier, characterGenCost,
+  fetchImageAsBase64, makeCharacterImageUploader, streamSheetCandidates,
 } from '@/lib/characters/reference-set';
+import { getTokenBalance, debitCharacterGeneration } from '@/lib/characters/billing';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -26,6 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const changes = typeof body?.changes === 'string' ? body.changes.trim() : '';
   if (changes.length < 3) return NextResponse.json({ error: 'Describe the changes first (a few words).' }, { status: 400 });
+  const tier: ModelTier = body?.tier === 'flash' ? 'flash' : 'pro';
 
   const { data: character, error } = await supabase
     .from('characters')
@@ -37,7 +41,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     (character as any).sheet_url || (Array.isArray((character as any).reference_images) ? (character as any).reference_images[0]?.url : undefined);
   if (!sheetUrl) return NextResponse.json({ error: 'Source character has no sheet to restyle.' }, { status: 400 });
 
+  // Credit pre-check — same model as /generate (debit after a sheet succeeds).
+  const cost = characterGenCost(tier);
+  const service = createServiceClient();
+  if (cost > 0) {
+    const balance = await getTokenBalance(service, user.id);
+    if (balance < cost) {
+      return NextResponse.json(
+        { error: 'INSUFFICIENT_TOKENS', message: `Not enough credits — this needs ${cost}.` },
+        { status: 402 },
+      );
+    }
+  }
+
   const ai = new GoogleGenAI({ apiKey });
+  const model = sheetModelForTier(tier);
   const uploadImage = makeCharacterImageUploader(supabase, user.id);
 
   const stream = new ReadableStream<Uint8Array>({
@@ -49,7 +67,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         let source: GenImage;
         try { source = await fetchImageAsBase64(sheetUrl); }
         catch { send({ type: 'error', message: 'Could not load the source sheet.' }); controller.close(); return; }
-        await streamSheetCandidates({ ai, prompt: sheetVariantPrompt(changes), source, uploadImage, send });
+        const succeeded = await streamSheetCandidates({ ai, model, prompt: sheetVariantPrompt(changes), source, uploadImage, send });
+        if (succeeded > 0) {
+          await debitCharacterGeneration(service, user.id, cost, { tier, model, sheets: succeeded, flow: 'variant', sourceId: id });
+        }
         send({ type: 'done' });
         controller.close();
       } catch (err: any) {

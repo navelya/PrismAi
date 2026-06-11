@@ -1,10 +1,26 @@
 import { GoogleGenAI, Modality } from '@google/genai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-// "Nano Banana" — Gemini 2.5 Flash Image (GA). If this id ever 404s, the
-// preview alias is 'gemini-2.5-flash-image-preview'.
-export const IMAGE_MODEL = 'gemini-2.5-flash-image';
+// Image models. Sheets default to Gemini 3 Pro Image (higher fidelity, slower);
+// the front-face cover and the cheap "Flash" sheet tier use Gemini 2.5 Flash
+// Image ("Nano Banana"). If the flash id 404s, the alias is
+// 'gemini-2.5-flash-image-preview'.
+export const IMAGE_MODEL_FLASH = 'gemini-2.5-flash-image';
+export const IMAGE_MODEL_PRO = 'gemini-3-pro-image-preview';
+// Back-compat alias — the fast Flash model (cover + legacy callers).
+export const IMAGE_MODEL = IMAGE_MODEL_FLASH;
 export const STORAGE_BUCKET = 'chat-assets';
+
+/** Quality tier the user picks when generating sheets. */
+export type ModelTier = 'pro' | 'flash';
+export function sheetModelForTier(tier: ModelTier): string {
+  return tier === 'flash' ? IMAGE_MODEL_FLASH : IMAGE_MODEL_PRO;
+}
+/** Credit cost for ONE character-sheet generation run (a batch of candidates). */
+export const CHARACTER_GEN_COST: Record<ModelTier, number> = { pro: 35, flash: 5 };
+export function characterGenCost(tier: ModelTier): number {
+  return CHARACTER_GEN_COST[tier] ?? CHARACTER_GEN_COST.pro;
+}
 
 export type GenImage = { mimeType: string; data: string };
 
@@ -24,14 +40,18 @@ export const SHEET_CANDIDATES = 4;
 // space), and character-sheet mastery tutorials (exact same face/body/outfit
 // repeated across every panel; professional turnaround sheet style).
 const SHEET_LAYOUT =
-  'Lay it out as a clean photographic contact sheet with TWO horizontal rows on a plain solid neutral background. ' +
-  'TOP ROW: four full-body photographs of the SAME person, head-to-toe, evenly spaced — ' +
-  '(1) facing the camera, (2) left-facing profile, (3) right-facing profile, (4) facing away from the camera. ' +
-  'BOTTOM ROW: three close-up photographic head-and-shoulders portraits of the SAME person — ' +
-  '(1) facing the camera, (2) left-facing profile, (3) right-facing profile. ' +
-  'Identical face, hair, body, outfit, and colors in every frame. ' +
-  'Exact same age, ethnicity, bone structure, and proportions across all seven views. ' +
-  'Photorealistic, soft even studio lighting, sharp focus on the subject, ' +
+  'Place the character on a plain, empty, solid neutral background with nothing else in the scene. ' +
+  'Lay the sheet out as a clean photographic contact sheet with EXACTLY two horizontal rows. ' +
+  'TOP ROW — four DIFFERENT full-body photographs of the SAME person, head-to-toe, evenly spaced, in this exact ' +
+  'left-to-right order: (1) front view facing the camera straight on, (2) left side profile turned 90° to the left, ' +
+  '(3) right side profile turned 90° to the right, (4) back view facing fully away. ' +
+  'BOTTOM ROW — three DIFFERENT close-up head-and-shoulders portraits of the SAME person, in this exact left-to-right ' +
+  'order: (1) front portrait facing the camera straight on, (2) left side profile portrait, (3) right side profile portrait. ' +
+  'Every one of the seven panels must be a distinct, different angle: do NOT repeat, mirror, or duplicate any pose, ' +
+  'and never place a front-facing view where a profile is required or a profile where a front view is required. ' +
+  'Keep identical face, hair, body, outfit, and colors in every panel; exact same age, ethnicity, bone structure, ' +
+  'and proportions across all seven views; consistent scale and head height within each row. ' +
+  'Photorealistic, soft even studio lighting (same direction and intensity in every panel), sharp focus on the subject, ' +
   'no text, no labels, no watermark, no props, no borders.';
 
 export function sheetFromDescriptionPrompt(description: string): string {
@@ -45,22 +65,12 @@ export function sheetFromDescriptionPrompt(description: string): string {
 export function sheetFromImagePrompt(changes?: string): string {
   const edit =
     changes && changes.trim()
-      ? ` Additionally, apply these requested changes to the character while keeping them clearly the same person: ${changes.trim()}.`
+      ? ` Apply these changes to the character while keeping them clearly the same person: ${changes.trim()}.`
       : '';
   return (
-    `Create a professional character reference sheet based strictly on the uploaded reference image. ` +
-    `Use a clean, neutral plain background and present the sheet as a technical model turnaround while matching ` +
-    `the exact visual style of the reference (same realism level, rendering approach, texture, color treatment, ` +
-    `and overall aesthetic). Arrange the composition into two horizontal rows. Top row: four full-body standing ` +
-    `views placed side-by-side in this order: front view, left profile view (facing left), right profile view ` +
-    `(facing right), back view. Bottom row: three highly detailed close-up portraits aligned beneath the full-body ` +
-    `row in this order: front portrait, left profile portrait (facing left), right profile portrait (facing right). ` +
-    `Maintain perfect identity consistency across every panel. Keep the subject in a relaxed A-pose and with ` +
-    `consistent scale and alignment between views, accurate anatomy, and clear silhouette; ensure even spacing and ` +
-    `clean panel separation, with uniform framing and consistent head height across the full-body lineup and ` +
-    `consistent facial scale across the portraits. Lighting should be consistent across all panels (same direction, ` +
-    `intensity, and softness), with natural, controlled shadows that preserve detail without dramatic mood shifts. ` +
-    `Output a crisp, print-ready reference sheet look, sharp details.${edit}`
+    `Create a professional character reference sheet of the EXACT SAME person shown in the provided image — ` +
+    `identical face, hair, skin tone, and body. No changes to identity, age, ethnicity, or proportions.${edit} ` +
+    `${SHEET_LAYOUT}`
   );
 }
 
@@ -127,34 +137,39 @@ export function makeCharacterImageUploader(supabase: SupabaseClient, userId: str
  *  omit it for text→image (describe). */
 export async function streamSheetCandidates(opts: {
   ai: GoogleGenAI;
+  model: string;
   prompt: string;
   source?: GenImage;
   uploadImage: (img: GenImage, index: number) => Promise<{ url: string; path: string } | null>;
   send: (e: SheetSetEvent) => void;
-}): Promise<void> {
-  const { ai, prompt, source, uploadImage, send } = opts;
+}): Promise<number> {
+  const { ai, model, prompt, source, uploadImage, send } = opts;
   const genConfig = { responseModalities: [Modality.IMAGE] };
   const contents = source
     ? [{ inlineData: { mimeType: source.mimeType, data: source.data } }, { text: prompt }]
     : prompt;
 
-  await Promise.all(
+  const results = await Promise.all(
     Array.from({ length: SHEET_CANDIDATES }, (_, index) =>
-      (async () => {
+      (async (): Promise<boolean> => {
         try {
-          const resp = await ai.models.generateContent({ model: IMAGE_MODEL, contents, config: genConfig });
+          const resp = await ai.models.generateContent({ model, contents, config: genConfig });
           const img = firstImagePart(resp);
-          if (!img) { send({ type: 'sheet_failed', index }); return; }
+          if (!img) { send({ type: 'sheet_failed', index }); return false; }
           const up = await uploadImage(img, index);
-          if (up) send({ type: 'sheet', index, url: up.url, path: up.path });
-          else send({ type: 'sheet_failed', index });
+          if (up) { send({ type: 'sheet', index, url: up.url, path: up.path }); return true; }
+          send({ type: 'sheet_failed', index });
+          return false;
         } catch (e: any) {
           console.error('[reference-set] sheet failed:', e?.message);
           send({ type: 'sheet_failed', index });
+          return false;
         }
       })(),
     ),
   );
+  // Number of candidates that successfully generated + uploaded (drives billing).
+  return results.filter(Boolean).length;
 }
 
 /** Chosen sheet → one cover image. Returns null on failure. */

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/api/auth';
+import { createServiceClient } from '@/lib/supabase/service';
 import { GoogleGenAI } from '@google/genai';
 import {
-  type GenImage, type SheetSetEvent, SHEET_CANDIDATES,
-  sheetFromDescriptionPrompt, sheetFromImagePrompt,
+  type GenImage, type SheetSetEvent, type ModelTier, SHEET_CANDIDATES,
+  sheetFromDescriptionPrompt, sheetFromImagePrompt, sheetModelForTier, characterGenCost,
   makeCharacterImageUploader, streamSheetCandidates,
 } from '@/lib/characters/reference-set';
+import { getTokenBalance, debitCharacterGeneration } from '@/lib/characters/billing';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -24,6 +26,7 @@ export async function POST(request: NextRequest) {
 
   const description = typeof body?.description === 'string' ? body.description.trim() : '';
   const changes = typeof body?.changes === 'string' ? body.changes.trim() : '';
+  const tier: ModelTier = body?.tier === 'flash' ? 'flash' : 'pro';
   const rawBase = body?.baseImage;
   const uploadedBase: GenImage | null =
     rawBase && typeof rawBase.data === 'string' && rawBase.data.length > 0
@@ -34,7 +37,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Please describe the character (a few words), or upload a photo.' }, { status: 400 });
   }
 
+  // Credit pre-check — fail clearly BEFORE doing any work. We debit only after a
+  // sheet actually succeeds (see lib/characters/billing.ts for why).
+  const cost = characterGenCost(tier);
+  const service = createServiceClient();
+  if (cost > 0) {
+    const balance = await getTokenBalance(service, user.id);
+    if (balance < cost) {
+      return NextResponse.json(
+        { error: 'INSUFFICIENT_TOKENS', message: `Not enough credits — this needs ${cost}.` },
+        { status: 402 },
+      );
+    }
+  }
+
   const ai = new GoogleGenAI({ apiKey });
+  const model = sheetModelForTier(tier);
   const uploadImage = makeCharacterImageUploader(supabase, user.id);
   const prompt = uploadedBase ? sheetFromImagePrompt(changes || undefined) : sheetFromDescriptionPrompt(description);
 
@@ -44,7 +62,10 @@ export async function POST(request: NextRequest) {
       const send = (obj: SheetSetEvent) => controller.enqueue(enc.encode(JSON.stringify(obj) + '\n'));
       try {
         send({ type: 'start', total: SHEET_CANDIDATES });
-        await streamSheetCandidates({ ai, prompt, source: uploadedBase ?? undefined, uploadImage, send });
+        const succeeded = await streamSheetCandidates({ ai, model, prompt, source: uploadedBase ?? undefined, uploadImage, send });
+        if (succeeded > 0) {
+          await debitCharacterGeneration(service, user.id, cost, { tier, model, sheets: succeeded, flow: 'generate' });
+        }
         send({ type: 'done' });
         controller.close();
       } catch (err: any) {

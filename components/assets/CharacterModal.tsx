@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import {
     charactersApi,
     generateCharacterStream,
+    CHARACTER_TIER_COST,
     type Character,
     type CharacterRefImage,
     type CharacterInput,
@@ -47,6 +48,7 @@ export default function CharacterModal({
     const [step, setStep] = useState<WizardStep>('method');
     const [direction, setDirection] = useState(1); // 1 = forward, -1 = back (drives the slide)
     const [method, setMethod] = useState<MethodTab>('describe');
+    const [tier, setTier] = useState<'pro' | 'flash'>('pro'); // generation quality / cost
 
     // Method step fields
     const [description, setDescription] = useState('');
@@ -90,6 +92,7 @@ export default function CharacterModal({
         setDescribing(false);
         setCoverLoading(false);
         setDirection(1);
+        setTier('pro');
 
         if (initial) {
             // Edit mode: jump straight to confirm with existing data
@@ -177,7 +180,7 @@ export default function CharacterModal({
 
         const localSlots: SheetSlot[] = [];
         try {
-            await generateCharacterStream(params, {
+            await generateCharacterStream({ ...params, tier }, {
                 onStart: (total) => {
                     localSlots.length = 0;
                     for (let i = 0; i < total; i++) localSlots.push(null);
@@ -465,6 +468,31 @@ export default function CharacterModal({
                                                         />
                                                     </div>
                                                 )}
+
+                                                {/* Quality / cost selector */}
+                                                <div className="pt-1">
+                                                    <span className="block text-xs font-medium text-content-secondary mb-1.5">Quality</span>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        {([
+                                                            { key: 'pro' as const, label: 'Pro', hint: 'Best quality' },
+                                                            { key: 'flash' as const, label: 'Flash', hint: 'Faster' },
+                                                        ]).map((opt) => (
+                                                            <button
+                                                                key={opt.key}
+                                                                type="button"
+                                                                onClick={() => setTier(opt.key)}
+                                                                className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border text-left transition-colors ${
+                                                                    tier === opt.key
+                                                                        ? 'border-accent-primary bg-accent-primary/10 ring-1 ring-accent-primary'
+                                                                        : 'border-stroke-subtle hover:bg-interactive-hover'
+                                                                }`}
+                                                            >
+                                                                <span className="text-sm font-medium text-content-primary">{opt.label}</span>
+                                                                <span className="text-[11px] text-content-tertiary">{opt.hint} · {CHARACTER_TIER_COST[opt.key]} credits</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -530,7 +558,7 @@ export default function CharacterModal({
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <Wand2 className="w-4 h-4" />
-                                        Generate sheets
+                                        Generate sheets · {CHARACTER_TIER_COST[tier]} cr
                                     </button>
                                 )}
 
