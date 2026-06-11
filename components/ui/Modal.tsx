@@ -112,9 +112,9 @@ function ModalRoot({
                                 >
                                     <motion.div
                                         className={cn(
-                                            // Original glass look (translucent + blur). Only change from the
-                                            // first version: plain deep shadow instead of the accent neon glow.
-                                            'pointer-events-auto relative w-full my-auto bg-bg-primary/80 backdrop-blur-2xl rounded-2xl shadow-2xl shadow-black/40 border border-white/10',
+                                            // Solid surface, matching the old Account window — opaque so inner
+                                            // content is fully legible. No blur, no accent glow.
+                                            'pointer-events-auto relative w-full my-auto bg-surface-primary rounded-2xl shadow-2xl border border-stroke-strong/30',
                                             SIZE_MAX_WIDTH[size],
                                             contentClassName,
                                         )}
