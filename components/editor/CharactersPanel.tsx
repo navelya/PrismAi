@@ -14,10 +14,18 @@ import type { Character, CharacterInput } from '@/lib/api/client';
 /** Frozen snapshot seeded into a character node's config — see
  *  lib/nodes/plugins/character/definition.ts → CharacterConfig. */
 function characterNodeConfig(character: Character) {
+    // The node outputs the character sheet and displays the cover. New characters
+    // carry sheet_url/cover_url; fall back to the legacy reference_images for rows
+    // created before the sheet/cover migration so old characters still resolve.
+    const sheetUrl = character.sheet_url ?? character.reference_images?.[0]?.url;
     return {
         characterId: character.id,
         name: character.name,
-        referenceImages: (character.reference_images ?? []).map((r) => r.url),
+        sheetUrl,
+        coverUrl: character.cover_url ?? undefined,
+        // Keep a non-empty array so the in-node resolved-value preview (which reads
+        // referenceImages) and any legacy consumer still have something to show.
+        referenceImages: sheetUrl ? [sheetUrl] : (character.reference_images ?? []).map((r) => r.url),
         description: character.description ?? undefined,
         weight: character.weight,
     };
