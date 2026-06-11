@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, Wand2 } from 'lucide-react';
+import { X, Loader2, Wand2, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import {
     charactersApi,
     generateCharacterVariantStream,
@@ -13,6 +13,7 @@ import {
 } from '@/lib/api/client';
 import SheetCandidateGrid from '@/components/assets/character-wizard/SheetCandidateGrid';
 import CharacterConfirmStep from '@/components/assets/character-wizard/CharacterConfirmStep';
+import WizardStepper, { stepSlideVariants } from '@/components/assets/character-wizard/WizardStepper';
 import type { SheetSlot } from '@/components/assets/character-wizard/types';
 
 interface CharacterVariantModalProps {
@@ -27,6 +28,9 @@ interface CharacterVariantModalProps {
 
 type WizardStep = 'changes' | 'candidates' | 'confirm';
 
+const STEPS: WizardStep[] = ['changes', 'candidates', 'confirm'];
+const STEP_LABELS = ['Changes', 'Choose', 'Details'];
+
 export default function CharacterVariantModal({
     open,
     source,
@@ -36,6 +40,7 @@ export default function CharacterVariantModal({
 }: CharacterVariantModalProps) {
     // Wizard navigation
     const [step, setStep] = useState<WizardStep>('changes');
+    const [direction, setDirection] = useState(1);
 
     // Changes step
     const [changes, setChanges] = useState('');
@@ -73,6 +78,7 @@ export default function CharacterVariantModal({
         if (!open) return;
         dismissingRef.current = false;
         setStep('changes');
+        setDirection(1);
         setChanges('');
         setName(source ? `${source.name} (variant)` : '');
         setWeight(source?.weight ?? 70);
@@ -88,6 +94,12 @@ export default function CharacterVariantModal({
         setErrorMsg(null);
     }, [open, source]);
 
+    // --- Step navigation ---
+    const goTo = (to: WizardStep) => {
+        setDirection(STEPS.indexOf(to) >= STEPS.indexOf(step) ? 1 : -1);
+        setStep(to);
+    };
+
     // --- Generation ---
 
     const runGeneration = async () => {
@@ -95,9 +107,9 @@ export default function CharacterVariantModal({
         if (changes.trim().length < 3) { setErrorMsg('Describe the changes first (a few words)'); return; }
         setGenerating(true);
         setErrorMsg(null);
-        setStep('candidates');
         setSelectedIndex(null);
         setSelectedSheet(null);
+        goTo('candidates');
 
         const localSlots: SheetSlot[] = [];
         try {
@@ -125,23 +137,26 @@ export default function CharacterVariantModal({
         }
     };
 
-    // --- Sheet selection / cover generation ---
+    // --- Sheet selection (mark only — Continue advances) ---
 
-    const handleSelectSheet = async (index: number) => {
+    const handleSelectSheet = (index: number) => {
         const slot = slots[index];
         if (!slot || slot === 'failed') return;
         setSelectedSheet(slot);
         setSelectedIndex(index);
-        setCover(null);
+    };
+
+    const handleContinueToConfirm = async () => {
+        if (!selectedSheet) return;
         setDescription((d) => d || changes.trim());
-        setStep('confirm');
+        goTo('confirm');
+        setCover(null);
         setCoverLoading(true);
         try {
-            const c = await charactersApi.generateCover(slot.url);
+            const c = await charactersApi.generateCover(selectedSheet.url);
             setCover({ url: c.url, path: c.path });
         } catch {
-            // Fall back to using the sheet as the cover
-            setCover(slot);
+            setCover(selectedSheet); // fall back to the sheet as the cover
         } finally {
             setCoverLoading(false);
         }
@@ -223,9 +238,7 @@ export default function CharacterVariantModal({
 
     if (!mounted) return null;
 
-    // Widen the dialog per step: widest for the 2×2 candidate grid.
-    const dialogMaxW = step === 'changes' ? 'max-w-md' : step === 'candidates' ? 'max-w-5xl' : 'max-w-4xl';
-
+    const stepIndex = STEPS.indexOf(step);
     const sourceThumb =
         source?.cover_url ||
         source?.sheet_url ||
@@ -243,8 +256,9 @@ export default function CharacterVariantModal({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.18, ease: 'easeOut' }}
                 >
+                    {/* Fixed-size dialog — same size on every step. */}
                     <motion.div
-                        className={`w-full ${dialogMaxW} rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl p-5 space-y-4`}
+                        className="w-full max-w-4xl h-[min(88vh,820px)] rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl flex flex-col overflow-hidden"
                         onClick={(e) => e.stopPropagation()}
                         initial={{ opacity: 0, scale: 0.96, y: 12 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -252,7 +266,7 @@ export default function CharacterVariantModal({
                         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between p-5 pb-3 shrink-0">
                             <h2 className="text-lg font-bold text-content-primary">Create variant</h2>
                             <button
                                 onClick={() => void handleDismiss()}
@@ -262,125 +276,156 @@ export default function CharacterVariantModal({
                             </button>
                         </div>
 
-                        {/* Step: changes */}
-                        {step === 'changes' && (
-                            <div className="space-y-4">
-                                {/* Source character chip */}
-                                <div className="flex items-center gap-3">
-                                    <div className="w-12 h-12 rounded-lg overflow-hidden border border-stroke-subtle bg-white/5 shrink-0">
-                                        {sourceThumb && (
-                                            <img src={sourceThumb} alt={source.name} className="w-full h-full object-cover" />
-                                        )}
-                                    </div>
-                                    <p className="text-xs text-content-tertiary">
-                                        Restyle{' '}
-                                        <span className="text-content-secondary font-medium">{source.name}</span>
-                                        {' '}— same person, your changes applied.
-                                    </p>
-                                </div>
+                        {/* Stepper */}
+                        <div className="px-5 pb-4 shrink-0">
+                            <WizardStepper steps={STEP_LABELS} current={stepIndex} />
+                        </div>
 
-                                <div>
-                                    <label className="block text-xs font-medium text-content-secondary mb-1">
-                                        Changes *
-                                    </label>
-                                    <textarea
-                                        value={changes}
-                                        onChange={(e) => setChanges(e.target.value)}
-                                        rows={4}
-                                        placeholder="cyberpunk streetwear, neon palette, glossy jacket; change hair to white…"
-                                        className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[5rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
-                                    />
-                                </div>
-
-                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
-
-                                <button
-                                    type="button"
-                                    onClick={() => void runGeneration()}
-                                    disabled={changes.trim().length < 3}
-                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        {/* Sliding content area (fixed height) */}
+                        <div className="relative flex-1 min-h-0 overflow-hidden">
+                            <AnimatePresence custom={direction} initial={false}>
+                                <motion.div
+                                    key={step}
+                                    custom={direction}
+                                    variants={stepSlideVariants}
+                                    initial="enter"
+                                    animate="center"
+                                    exit="exit"
+                                    transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                                    className="absolute inset-0 px-5"
                                 >
-                                    <Wand2 className="w-4 h-4" />
-                                    Generate variants
-                                </button>
-                            </div>
-                        )}
+                                    {/* Step: changes */}
+                                    {step === 'changes' && (
+                                        <div className="h-full flex items-center justify-center">
+                                            <div className="w-full max-w-lg space-y-4">
+                                                {/* Source character chip */}
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-14 h-14 rounded-lg overflow-hidden border border-stroke-subtle bg-white/5 shrink-0">
+                                                        {sourceThumb && (
+                                                            <img src={sourceThumb} alt={source.name} className="w-full h-full object-cover" />
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs text-content-tertiary">
+                                                        Restyle{' '}
+                                                        <span className="text-content-secondary font-medium">{source.name}</span>
+                                                        {' '}— same person, your changes applied.
+                                                    </p>
+                                                </div>
 
-                        {/* Step: candidates */}
-                        {step === 'candidates' && (
-                            <div className="space-y-4">
-                                <SheetCandidateGrid
-                                    slots={slots}
-                                    selectedIndex={selectedIndex}
-                                    onSelect={handleSelectSheet}
-                                    generating={generating}
-                                />
+                                                <div>
+                                                    <label className="block text-xs font-medium text-content-secondary mb-1">
+                                                        Changes *
+                                                    </label>
+                                                    <textarea
+                                                        value={changes}
+                                                        onChange={(e) => setChanges(e.target.value)}
+                                                        rows={5}
+                                                        placeholder="cyberpunk streetwear, neon palette, glossy jacket; change hair to white…"
+                                                        className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[7rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
 
-                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
+                                    {/* Step: candidates */}
+                                    {step === 'candidates' && (
+                                        <div className="h-full">
+                                            <SheetCandidateGrid
+                                                slots={slots}
+                                                selectedIndex={selectedIndex}
+                                                onSelect={handleSelectSheet}
+                                                generating={generating}
+                                            />
+                                        </div>
+                                    )}
 
-                                <div className="flex items-center justify-between pt-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => setStep('changes')}
-                                        className="px-3 py-2 rounded-lg text-sm text-content-secondary hover:bg-interactive-hover"
-                                    >
-                                        ← Back
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => void runGeneration()}
-                                        disabled={generating}
-                                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-stroke-subtle text-content-secondary hover:bg-interactive-hover disabled:opacity-50"
-                                    >
-                                        {generating ? (
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                        ) : (
-                                            <Wand2 className="w-4 h-4" />
-                                        )}
-                                        Regenerate
-                                    </button>
-                                </div>
-                            </div>
-                        )}
+                                    {/* Step: confirm */}
+                                    {step === 'confirm' && selectedSheet && (
+                                        <div className="h-full">
+                                            <CharacterConfirmStep
+                                                sheet={selectedSheet}
+                                                cover={cover}
+                                                coverLoading={coverLoading}
+                                                name={name}
+                                                onName={setName}
+                                                description={description}
+                                                onDescription={setDescription}
+                                                weight={weight}
+                                                onWeight={setWeight}
+                                                onAutoDescribe={handleAutoDescribe}
+                                                describing={describing}
+                                            />
+                                        </div>
+                                    )}
+                                </motion.div>
+                            </AnimatePresence>
+                        </div>
 
-                        {/* Step: confirm */}
-                        {step === 'confirm' && selectedSheet && (
-                            <div className="space-y-4">
-                                <CharacterConfirmStep
-                                    sheet={selectedSheet}
-                                    cover={cover}
-                                    coverLoading={coverLoading}
-                                    name={name}
-                                    onName={setName}
-                                    description={description}
-                                    onDescription={setDescription}
-                                    weight={weight}
-                                    onWeight={setWeight}
-                                    onAutoDescribe={handleAutoDescribe}
-                                    describing={describing}
-                                    onBack={() => setStep('candidates')}
-                                />
-
-                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
-
-                                <div className="flex justify-end gap-2 pt-1">
-                                    <button
-                                        onClick={onClose}
-                                        className="px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover"
-                                    >
+                        {/* Error + footer (fixed) */}
+                        <div className="shrink-0 px-5 pb-5 pt-3 border-t border-stroke-subtle/60">
+                            {errorMsg && <p className="text-xs text-red-400 mb-2">{errorMsg}</p>}
+                            <div className="flex items-center justify-between gap-2">
+                                {/* Left: Cancel (step 0) or Back */}
+                                {step === 'changes' ? (
+                                    <button onClick={onClose} className="px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover">
                                         Cancel
                                     </button>
+                                ) : (
+                                    <button
+                                        onClick={() => goTo(step === 'confirm' ? 'candidates' : 'changes')}
+                                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover"
+                                    >
+                                        <ArrowLeft className="w-4 h-4" />
+                                        Back
+                                    </button>
+                                )}
+
+                                {/* Right: primary action per step */}
+                                {step === 'changes' && (
+                                    <button
+                                        onClick={() => void runGeneration()}
+                                        disabled={changes.trim().length < 3}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <Wand2 className="w-4 h-4" />
+                                        Generate variants
+                                    </button>
+                                )}
+
+                                {step === 'candidates' && (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => void runGeneration()}
+                                            disabled={generating}
+                                            className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-stroke-subtle text-content-secondary hover:bg-interactive-hover disabled:opacity-50"
+                                        >
+                                            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                                            Regenerate
+                                        </button>
+                                        <button
+                                            onClick={() => void handleContinueToConfirm()}
+                                            disabled={!selectedSheet}
+                                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Continue
+                                            <ArrowRight className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                )}
+
+                                {step === 'confirm' && (
                                     <button
                                         onClick={() => void handleSave()}
-                                        disabled={saving}
-                                        className="px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 flex items-center gap-2"
+                                        disabled={saving || !name.trim() || !selectedSheet}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                                        Save variant
+                                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                        Finish
                                     </button>
-                                </div>
+                                )}
                             </div>
-                        )}
+                        </div>
                     </motion.div>
                 </motion.div>
             )}

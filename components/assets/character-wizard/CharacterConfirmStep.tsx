@@ -15,7 +15,7 @@ interface CharacterConfirmStepProps {
   onWeight: (v: number) => void;
   onAutoDescribe: () => void;
   describing: boolean;
-  onBack: () => void;                  // back to the candidate grid
+  onBack?: () => void;                 // optional inline back; omit when a footer owns navigation
 }
 
 export default function CharacterConfirmStep({
@@ -33,9 +33,9 @@ export default function CharacterConfirmStep({
   onBack,
 }: CharacterConfirmStepProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-full">
       {/* LEFT: selected sheet */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 min-h-0">
         <span className="text-xs font-medium text-content-secondary">Selected sheet</span>
         <div className="rounded-lg overflow-hidden bg-surface-tertiary border border-stroke-subtle flex-1 min-h-[10rem]">
           <img
@@ -44,18 +44,20 @@ export default function CharacterConfirmStep({
             className="w-full h-full object-contain"
           />
         </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-xs text-content-tertiary hover:text-content-secondary mt-1 self-start"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to options
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-xs text-content-tertiary hover:text-content-secondary mt-1 self-start"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to options
+          </button>
+        )}
       </div>
 
       {/* RIGHT: cover + fields */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 min-h-0 overflow-y-auto">
         {/* Cover preview */}
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-content-secondary">Cover</span>

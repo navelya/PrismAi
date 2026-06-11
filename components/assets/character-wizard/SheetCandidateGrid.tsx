@@ -15,6 +15,12 @@ function isImage(slot: SheetSlot): slot is CharacterRefImage {
   return slot !== null && slot !== 'failed';
 }
 
+/**
+ * Fills its parent's height: a 2×2 grid of large candidate tiles that grows to
+ * the available space (the wizard gives it a fixed-height content area), plus a
+ * status line below. Clicking a ready tile only MARKS it selected — the wizard's
+ * Continue button drives advancing.
+ */
 export default function SheetCandidateGrid({
   slots,
   selectedIndex,
@@ -22,8 +28,8 @@ export default function SheetCandidateGrid({
   generating,
 }: SheetCandidateGridProps) {
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-4">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="grid grid-cols-2 grid-rows-2 gap-4 flex-1 min-h-0">
         {slots.map((slot, index) => {
           const selected = selectedIndex === index;
           const borderClass = selected
@@ -33,7 +39,7 @@ export default function SheetCandidateGrid({
           return (
             <div
               key={index}
-              className={`relative aspect-square rounded-xl overflow-hidden border bg-surface-tertiary ${borderClass}`}
+              className={`relative min-h-0 rounded-xl overflow-hidden border bg-surface-tertiary ${borderClass}`}
             >
               {isImage(slot) ? (
                 <button
@@ -48,8 +54,8 @@ export default function SheetCandidateGrid({
                     className="w-full h-full object-contain"
                   />
                   {selected && (
-                    <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5 rounded-full bg-accent-primary text-white shadow-sm">
-                      <Check className="w-3 h-3" />
+                    <span className="absolute top-2 right-2 flex items-center justify-center w-6 h-6 rounded-full bg-accent-primary text-white shadow-sm">
+                      <Check className="w-3.5 h-3.5" />
                     </span>
                   )}
                 </button>
@@ -67,9 +73,9 @@ export default function SheetCandidateGrid({
       </div>
 
       {generating && (
-        <p className="flex items-center gap-1.5 text-xs text-content-tertiary">
+        <p className="flex items-center gap-1.5 text-xs text-content-tertiary pt-3 shrink-0">
           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-          Generating sheets… you can pick one as soon as it appears.
+          Generating sheets… click one to select as soon as it appears.
         </p>
       )}
     </div>

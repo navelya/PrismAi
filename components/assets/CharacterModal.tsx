@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Upload, Sparkles, Loader2, Wand2 } from 'lucide-react';
+import { X, Upload, Sparkles, Loader2, Wand2, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import {
     charactersApi,
     generateCharacterStream,
@@ -14,6 +14,7 @@ import {
 import { downscaleImageToBase64 } from '@/lib/utils/image-processing';
 import SheetCandidateGrid from '@/components/assets/character-wizard/SheetCandidateGrid';
 import CharacterConfirmStep from '@/components/assets/character-wizard/CharacterConfirmStep';
+import WizardStepper, { stepSlideVariants } from '@/components/assets/character-wizard/WizardStepper';
 import type { SheetSlot } from '@/components/assets/character-wizard/types';
 
 interface CharacterModalProps {
@@ -31,6 +32,9 @@ interface CharacterModalProps {
 type WizardStep = 'method' | 'candidates' | 'confirm';
 type MethodTab = 'describe' | 'upload';
 
+const STEPS: WizardStep[] = ['method', 'candidates', 'confirm'];
+const STEP_LABELS = ['Create', 'Choose', 'Details'];
+
 export default function CharacterModal({
     open,
     initial,
@@ -41,6 +45,7 @@ export default function CharacterModal({
 }: CharacterModalProps) {
     // Wizard navigation
     const [step, setStep] = useState<WizardStep>('method');
+    const [direction, setDirection] = useState(1); // 1 = forward, -1 = back (drives the slide)
     const [method, setMethod] = useState<MethodTab>('describe');
 
     // Method step fields
@@ -90,6 +95,7 @@ export default function CharacterModal({
         setSaving(false);
         setDescribing(false);
         setCoverLoading(false);
+        setDirection(1);
 
         if (initial) {
             // Edit mode: jump straight to confirm with existing data
@@ -155,6 +161,12 @@ export default function CharacterModal({
         }
     }, [open, initial, seedImages]);
 
+    // --- Step navigation ---
+    const goTo = (to: WizardStep) => {
+        setDirection(STEPS.indexOf(to) >= STEPS.indexOf(step) ? 1 : -1);
+        setStep(to);
+    };
+
     // --- Generation ---
 
     const runGeneration = async (params: {
@@ -165,9 +177,9 @@ export default function CharacterModal({
         lastGenParams.current = params;
         setGenerating(true);
         setErrorMsg(null);
-        setStep('candidates');
         setSelectedIndex(null);
         setSelectedSheet(null);
+        goTo('candidates');
 
         const localSlots: SheetSlot[] = [];
         try {
@@ -195,6 +207,13 @@ export default function CharacterModal({
         }
     };
 
+    const handleGenerate = () => {
+        if (method === 'describe') void runGeneration({ description: description.trim() });
+        else if (uploadedBase) void runGeneration({ baseImage: uploadedBase, changes: changes.trim() || undefined });
+    };
+
+    const canGenerate = method === 'describe' ? description.trim().length >= 3 : !!uploadedBase;
+
     const handleRegenerate = () => {
         if (lastGenParams.current) void runGeneration(lastGenParams.current);
     };
@@ -216,22 +235,27 @@ export default function CharacterModal({
         }
     };
 
-    // --- Sheet selection / cover generation ---
+    // --- Sheet selection (mark only — Continue advances) ---
 
-    const handleSelectSheet = async (index: number) => {
+    const handleSelectSheet = (index: number) => {
         const slot = slots[index];
         if (!slot || slot === 'failed') return;
         setSelectedSheet(slot);
         setSelectedIndex(index);
+    };
+
+    // Continue from the candidate grid → generate the cover in the background and
+    // advance to the confirm step.
+    const handleContinueToConfirm = async () => {
+        if (!selectedSheet) return;
+        goTo('confirm');
         setCover(null);
-        setStep('confirm');
         setCoverLoading(true);
         try {
-            const c = await charactersApi.generateCover(slot.url);
+            const c = await charactersApi.generateCover(selectedSheet.url);
             setCover({ url: c.url, path: c.path });
         } catch {
-            // Fall back to using the sheet as the cover
-            setCover(slot);
+            setCover(selectedSheet); // fall back to the sheet as the cover
         } finally {
             setCoverLoading(false);
         }
@@ -316,9 +340,7 @@ export default function CharacterModal({
 
     if (!mounted) return null;
 
-    // Widen the dialog per step: compact for method, widest for the 2×2 candidate
-    // grid (so each square sheet is large), roomy for the confirm split view.
-    const dialogMaxW = step === 'method' ? 'max-w-md' : step === 'candidates' ? 'max-w-5xl' : 'max-w-4xl';
+    const stepIndex = STEPS.indexOf(step);
 
     return createPortal(
         <AnimatePresence>
@@ -331,8 +353,9 @@ export default function CharacterModal({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.18, ease: 'easeOut' }}
                 >
+                    {/* Fixed-size dialog — the window stays the same across every step. */}
                     <motion.div
-                        className={`w-full ${dialogMaxW} rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl p-5 space-y-4`}
+                        className="w-full max-w-4xl h-[min(88vh,820px)] rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl flex flex-col overflow-hidden"
                         onClick={(e) => e.stopPropagation()}
                         initial={{ opacity: 0, scale: 0.96, y: 12 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -340,7 +363,7 @@ export default function CharacterModal({
                         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between p-5 pb-3 shrink-0">
                             <h2 className="text-lg font-bold text-content-primary">
                                 {initial ? 'Edit Character' : 'New Character'}
                             </h2>
@@ -352,217 +375,225 @@ export default function CharacterModal({
                             </button>
                         </div>
 
-                        {/* Step: method */}
-                        {step === 'method' && (
-                            <div className="space-y-4">
-                                {/* Tab switcher */}
-                                <div className="flex gap-1 p-0.5 rounded-lg bg-surface-tertiary border border-stroke-subtle w-fit">
-                                    <button
-                                        type="button"
-                                        onClick={() => setMethod('describe')}
-                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                                            method === 'describe'
-                                                ? 'bg-surface-primary text-content-primary shadow-sm'
-                                                : 'text-content-tertiary hover:text-content-secondary'
-                                        }`}
-                                    >
-                                        <span className="flex items-center gap-1.5">
-                                            <Sparkles className="w-3.5 h-3.5" />
-                                            Describe
-                                        </span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setMethod('upload')}
-                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                                            method === 'upload'
-                                                ? 'bg-surface-primary text-content-primary shadow-sm'
-                                                : 'text-content-tertiary hover:text-content-secondary'
-                                        }`}
-                                    >
-                                        <span className="flex items-center gap-1.5">
-                                            <Upload className="w-3.5 h-3.5" />
-                                            Upload image
-                                        </span>
-                                    </button>
-                                </div>
+                        {/* Stepper */}
+                        <div className="px-5 pb-4 shrink-0">
+                            <WizardStepper steps={STEP_LABELS} current={stepIndex} />
+                        </div>
 
-                                {/* Describe tab */}
-                                {method === 'describe' && (
-                                    <div className="space-y-3">
-                                        <textarea
-                                            value={description}
-                                            onChange={(e) => setDescription(e.target.value)}
-                                            rows={5}
-                                            placeholder="red hair, freckles, green eyes, leather jacket…"
-                                            className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[6rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
-                                        />
+                        {/* Sliding content area (fixed height) */}
+                        <div className="relative flex-1 min-h-0 overflow-hidden">
+                            <AnimatePresence custom={direction} initial={false}>
+                                <motion.div
+                                    key={step}
+                                    custom={direction}
+                                    variants={stepSlideVariants}
+                                    initial="enter"
+                                    animate="center"
+                                    exit="exit"
+                                    transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                                    className="absolute inset-0 px-5"
+                                >
+                                    {/* Step: method */}
+                                    {step === 'method' && (
+                                        <div className="h-full flex items-center justify-center">
+                                            <div className="w-full max-w-lg space-y-4">
+                                                {/* Tab switcher */}
+                                                <div className="flex gap-1 p-0.5 rounded-lg bg-surface-tertiary border border-stroke-subtle w-fit mx-auto">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMethod('describe')}
+                                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                                                            method === 'describe'
+                                                                ? 'bg-surface-primary text-content-primary shadow-sm'
+                                                                : 'text-content-tertiary hover:text-content-secondary'
+                                                        }`}
+                                                    >
+                                                        <span className="flex items-center gap-1.5">
+                                                            <Sparkles className="w-3.5 h-3.5" />
+                                                            Describe
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMethod('upload')}
+                                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                                                            method === 'upload'
+                                                                ? 'bg-surface-primary text-content-primary shadow-sm'
+                                                                : 'text-content-tertiary hover:text-content-secondary'
+                                                        }`}
+                                                    >
+                                                        <span className="flex items-center gap-1.5">
+                                                            <Upload className="w-3.5 h-3.5" />
+                                                            Upload image
+                                                        </span>
+                                                    </button>
+                                                </div>
+
+                                                {method === 'describe' && (
+                                                    <textarea
+                                                        value={description}
+                                                        onChange={(e) => setDescription(e.target.value)}
+                                                        rows={5}
+                                                        placeholder="red hair, freckles, green eyes, leather jacket…"
+                                                        className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[8rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                                                    />
+                                                )}
+
+                                                {method === 'upload' && (
+                                                    <div className="space-y-3">
+                                                        {uploadPreview ? (
+                                                            <div className="flex items-start gap-3">
+                                                                <div className="w-24 h-24 rounded-lg overflow-hidden border border-stroke-subtle shrink-0">
+                                                                    <img src={uploadPreview} alt="Uploaded reference" className="w-full h-full object-cover" />
+                                                                </div>
+                                                                <div className="flex-1 space-y-1">
+                                                                    <p className="text-xs text-content-secondary">Reference photo ready.</p>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => uploadInputRef.current?.click()}
+                                                                        className="text-xs text-accent-primary hover:underline"
+                                                                    >
+                                                                        Change photo
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => uploadInputRef.current?.click()}
+                                                                className="flex flex-col items-center justify-center gap-2 w-full py-10 rounded-lg border-2 border-dashed border-stroke-subtle text-content-tertiary hover:text-accent-primary hover:border-accent-primary/50 transition-colors"
+                                                            >
+                                                                <Upload className="w-6 h-6" />
+                                                                <span className="text-sm">Choose a photo</span>
+                                                            </button>
+                                                        )}
+
+                                                        {uploadPreview && (
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-content-secondary mb-1">
+                                                                    Changes <span className="text-content-tertiary font-normal">(optional)</span>
+                                                                </label>
+                                                                <textarea
+                                                                    value={changes}
+                                                                    onChange={(e) => setChanges(e.target.value)}
+                                                                    rows={3}
+                                                                    placeholder="make the pants high-waisted, change hair color to auburn…"
+                                                                    className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[4rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                                                                />
+                                                            </div>
+                                                        )}
+
+                                                        <input
+                                                            ref={uploadInputRef}
+                                                            type="file"
+                                                            accept="image/*"
+                                                            onChange={(e) => void handleUploadFile(e.target.files)}
+                                                            className="hidden"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Step: candidates */}
+                                    {step === 'candidates' && (
+                                        <div className="h-full">
+                                            <SheetCandidateGrid
+                                                slots={slots}
+                                                selectedIndex={selectedIndex}
+                                                onSelect={handleSelectSheet}
+                                                generating={generating}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Step: confirm */}
+                                    {step === 'confirm' && selectedSheet && (
+                                        <div className="h-full">
+                                            <CharacterConfirmStep
+                                                sheet={selectedSheet}
+                                                cover={cover}
+                                                coverLoading={coverLoading}
+                                                name={name}
+                                                onName={setName}
+                                                description={description}
+                                                onDescription={setDescription}
+                                                weight={weight}
+                                                onWeight={setWeight}
+                                                onAutoDescribe={handleAutoDescribe}
+                                                describing={describing}
+                                            />
+                                        </div>
+                                    )}
+                                </motion.div>
+                            </AnimatePresence>
+                        </div>
+
+                        {/* Error + footer (fixed) */}
+                        <div className="shrink-0 px-5 pb-5 pt-3 border-t border-stroke-subtle/60">
+                            {errorMsg && <p className="text-xs text-red-400 mb-2">{errorMsg}</p>}
+                            <div className="flex items-center justify-between gap-2">
+                                {/* Left: Cancel (step 0) or Back */}
+                                {step === 'method' ? (
+                                    <button onClick={onClose} className="px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover">
+                                        Cancel
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => goTo(step === 'confirm' ? 'candidates' : 'method')}
+                                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover"
+                                    >
+                                        <ArrowLeft className="w-4 h-4" />
+                                        Back
+                                    </button>
+                                )}
+
+                                {/* Right: primary action per step */}
+                                {step === 'method' && (
+                                    <button
+                                        onClick={handleGenerate}
+                                        disabled={!canGenerate}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <Wand2 className="w-4 h-4" />
+                                        Generate sheets
+                                    </button>
+                                )}
+
+                                {step === 'candidates' && (
+                                    <div className="flex items-center gap-2">
                                         <button
-                                            type="button"
-                                            onClick={() => void runGeneration({ description: description.trim() })}
-                                            disabled={description.trim().length < 3}
-                                            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                            onClick={handleRegenerate}
+                                            disabled={generating}
+                                            className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-stroke-subtle text-content-secondary hover:bg-interactive-hover disabled:opacity-50"
                                         >
-                                            <Wand2 className="w-4 h-4" />
-                                            Generate sheets
+                                            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                                            Regenerate
+                                        </button>
+                                        <button
+                                            onClick={() => void handleContinueToConfirm()}
+                                            disabled={!selectedSheet}
+                                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Continue
+                                            <ArrowRight className="w-4 h-4" />
                                         </button>
                                     </div>
                                 )}
 
-                                {/* Upload tab */}
-                                {method === 'upload' && (
-                                    <div className="space-y-3">
-                                        {uploadPreview ? (
-                                            <div className="flex items-start gap-3">
-                                                <div className="w-20 h-20 rounded-lg overflow-hidden border border-stroke-subtle shrink-0">
-                                                    <img
-                                                        src={uploadPreview}
-                                                        alt="Uploaded reference"
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                </div>
-                                                <div className="flex-1 space-y-1">
-                                                    <p className="text-xs text-content-secondary">Reference photo ready.</p>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => uploadInputRef.current?.click()}
-                                                        className="text-xs text-accent-primary hover:underline"
-                                                    >
-                                                        Change photo
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => uploadInputRef.current?.click()}
-                                                className="flex flex-col items-center justify-center gap-2 w-full py-8 rounded-lg border-2 border-dashed border-stroke-subtle text-content-tertiary hover:text-accent-primary hover:border-accent-primary/50 transition-colors"
-                                            >
-                                                <Upload className="w-6 h-6" />
-                                                <span className="text-sm">Choose a photo</span>
-                                            </button>
-                                        )}
-
-                                        {uploadPreview && (
-                                            <>
-                                                <div>
-                                                    <label className="block text-xs font-medium text-content-secondary mb-1">
-                                                        Changes <span className="text-content-tertiary font-normal">(optional)</span>
-                                                    </label>
-                                                    <textarea
-                                                        value={changes}
-                                                        onChange={(e) => setChanges(e.target.value)}
-                                                        rows={3}
-                                                        placeholder="make the pants high-waisted, change hair color to auburn…"
-                                                        className="w-full px-3 py-2 rounded-lg bg-surface-tertiary border border-stroke-subtle text-content-primary resize-y min-h-[4rem] focus:outline-none focus:ring-2 focus:ring-accent-primary"
-                                                    />
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    disabled={!uploadedBase}
-                                                    onClick={() =>
-                                                        void runGeneration({
-                                                            baseImage: uploadedBase!,
-                                                            changes: changes.trim() || undefined,
-                                                        })
-                                                    }
-                                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                                                >
-                                                    <Wand2 className="w-4 h-4" />
-                                                    Generate sheets
-                                                </button>
-                                            </>
-                                        )}
-
-                                        <input
-                                            ref={uploadInputRef}
-                                            type="file"
-                                            accept="image/*"
-                                            onChange={(e) => void handleUploadFile(e.target.files)}
-                                            className="hidden"
-                                        />
-                                    </div>
-                                )}
-
-                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
-                            </div>
-                        )}
-
-                        {/* Step: candidates */}
-                        {step === 'candidates' && (
-                            <div className="space-y-4">
-                                <SheetCandidateGrid
-                                    slots={slots}
-                                    selectedIndex={selectedIndex}
-                                    onSelect={handleSelectSheet}
-                                    generating={generating}
-                                />
-
-                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
-
-                                <div className="flex items-center justify-between pt-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => setStep('method')}
-                                        className="px-3 py-2 rounded-lg text-sm text-content-secondary hover:bg-interactive-hover"
-                                    >
-                                        ← Back
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleRegenerate}
-                                        disabled={generating}
-                                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-stroke-subtle text-content-secondary hover:bg-interactive-hover disabled:opacity-50"
-                                    >
-                                        {generating ? (
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                        ) : (
-                                            <Wand2 className="w-4 h-4" />
-                                        )}
-                                        Regenerate
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Step: confirm */}
-                        {step === 'confirm' && selectedSheet && (
-                            <div className="space-y-4">
-                                <CharacterConfirmStep
-                                    sheet={selectedSheet}
-                                    cover={cover}
-                                    coverLoading={coverLoading}
-                                    name={name}
-                                    onName={setName}
-                                    description={description}
-                                    onDescription={setDescription}
-                                    weight={weight}
-                                    onWeight={setWeight}
-                                    onAutoDescribe={handleAutoDescribe}
-                                    describing={describing}
-                                    onBack={() => setStep('candidates')}
-                                />
-
-                                {errorMsg && <p className="text-xs text-red-400">{errorMsg}</p>}
-
-                                <div className="flex justify-end gap-2 pt-1">
-                                    <button
-                                        onClick={onClose}
-                                        className="px-4 py-2 rounded-lg text-content-secondary hover:bg-interactive-hover"
-                                    >
-                                        Cancel
-                                    </button>
+                                {step === 'confirm' && (
                                     <button
                                         onClick={() => void handleSave()}
-                                        disabled={saving}
-                                        className="px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 flex items-center gap-2"
+                                        disabled={saving || !name.trim() || !selectedSheet}
+                                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-primary text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                                        Save Character
+                                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                        Finish
                                     </button>
-                                </div>
+                                )}
                             </div>
-                        )}
+                        </div>
                     </motion.div>
                 </motion.div>
             )}
