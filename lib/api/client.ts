@@ -281,6 +281,10 @@ export interface Character {
     description: string | null;
     reference_images: CharacterRefImage[];
     thumbnail_url: string | null;
+    sheet_url: string | null;
+    sheet_path: string | null;
+    cover_url: string | null;
+    cover_path: string | null;
     weight: number;
     created_at: string;
     updated_at: string;
@@ -292,7 +296,11 @@ export interface Character {
 export interface CharacterInput {
     name: string;
     description?: string | null;
-    referenceImages: CharacterRefImage[];
+    sheetUrl: string;
+    sheetPath?: string;
+    coverUrl?: string;
+    coverPath?: string;
+    referenceImages?: CharacterRefImage[]; // legacy; no longer required
     thumbnailUrl?: string;
     weight?: number;
 }
@@ -335,23 +343,43 @@ export const charactersApi = {
             method: 'POST',
             body: JSON.stringify({ imageUrl }),
         }),
+
+    generateCover: async (sheetUrl: string): Promise<{ url: string; path: string }> => {
+        const res = await fetch('/api/characters/cover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sheetUrl }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Cover generation failed');
+        return res.json();
+    },
 };
+
+/** NDJSON event shape streamed by the character-sheet generation routes. */
+export type SheetSetEvent =
+    | { type: 'start'; total: number }
+    | { type: 'sheet'; index: number; url: string; path: string }
+    | { type: 'sheet_failed'; index: number }
+    | { type: 'error'; message: string }
+    | { type: 'done' };
 
 export interface GenerateCharacterParams {
     /** Text description — used to generate the base when no photo is supplied. */
     description?: string;
     /** Uploaded photo (base64) to build the character FROM; becomes the base. */
     baseImage?: { mimeType: string; data: string };
+    /** Specific changes to apply (used when refining an existing sheet). */
+    changes?: string;
 }
 
 export interface GenerateCharacterHandlers {
-    /** Total number of poses that will be generated (fires once, first). */
+    /** Total number of sheets that will be generated (fires once, first). */
     onStart?: (total: number) => void;
-    /** A pose finished and uploaded — fill slot `index` (0 = primary). */
-    onImage: (img: { index: number; url: string; path: string; role?: 'face' }) => void;
-    /** A non-base pose failed to generate (its slot will stay empty). */
-    onPoseFailed?: (index: number) => void;
-    /** Fatal error (no images, or a pre-stream 4xx/5xx). */
+    /** A sheet finished and uploaded — fill slot `index`. */
+    onSheet: (img: { index: number; url: string; path: string }) => void;
+    /** A sheet failed to generate (its slot will stay empty). */
+    onSheetFailed?: (index: number) => void;
+    /** Fatal error (no sheets, or a pre-stream 4xx/5xx). */
     onError?: (message: string) => void;
     /** Stream finished. */
     onDone?: () => void;
@@ -382,8 +410,8 @@ async function consumeCharacterStream(res: Response, handlers: GenerateCharacter
         try { evt = JSON.parse(trimmed); } catch { return; }
         switch (evt.type) {
             case 'start': handlers.onStart?.(typeof evt.total === 'number' ? evt.total : 0); break;
-            case 'image': handlers.onImage({ index: evt.index, url: evt.url, path: evt.path, role: evt.role === 'face' ? 'face' : undefined }); break;
-            case 'pose_failed': handlers.onPoseFailed?.(evt.index); break;
+            case 'sheet': handlers.onSheet({ index: evt.index, url: evt.url, path: evt.path }); break;
+            case 'sheet_failed': handlers.onSheetFailed?.(evt.index); break;
             case 'error': handlers.onError?.(evt.message || 'Generation failed'); break;
             case 'done': handlers.onDone?.(); break;
         }
@@ -403,8 +431,8 @@ async function consumeCharacterStream(res: Response, handlers: GenerateCharacter
 }
 
 /**
- * Stream character-reference generation. The server emits NDJSON, one line per
- * event, so each pose can fill its slot the moment it's ready.
+ * Stream character-sheet generation. The server emits NDJSON, one line per
+ * event, so each sheet can fill its slot the moment it's ready.
  */
 export async function generateCharacterStream(
     params: GenerateCharacterParams,
@@ -413,24 +441,24 @@ export async function generateCharacterStream(
     const res = await fetch('/api/characters/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: params.description, baseImage: params.baseImage }),
+        body: JSON.stringify({ description: params.description, baseImage: params.baseImage, changes: params.changes }),
     });
     await consumeCharacterStream(res, handlers);
 }
 
 /**
- * Stream a character VARIANT: restyle an existing character into a new look.
+ * Stream a character VARIANT: generate new sheets from an existing character.
  * Same NDJSON event protocol as generateCharacterStream.
  */
 export async function generateCharacterVariantStream(
     characterId: string,
-    params: { style: string },
+    params: { changes: string },
     handlers: GenerateCharacterHandlers,
 ): Promise<void> {
     const res = await fetch(`/api/characters/${characterId}/variant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ style: params.style }),
+        body: JSON.stringify({ changes: params.changes }),
     });
     await consumeCharacterStream(res, handlers);
 }
