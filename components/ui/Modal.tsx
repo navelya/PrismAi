@@ -35,8 +35,16 @@ interface ModalProps {
     level?: ModalLevel;
     /** Show the built-in top-right close button. Default true. */
     showClose?: boolean;
-    /** Allow ESC / outside-click to close. Default true. */
+    /** Master switch: allow ESC / outside-interaction to close. Default true.
+     *  Also the default for `closeOnEscape` / `closeOnBackdropClick`. */
     dismissable?: boolean;
+    /** Close on Escape. Defaults to `dismissable`. */
+    closeOnEscape?: boolean;
+    /** Close when the dim backdrop itself is clicked. Defaults to `dismissable`.
+     *  Independent of Radix outside-interaction (which `dismissable` gates) so a
+     *  non-modal popup can keep backdrop-close while ignoring clicks on nested
+     *  body-portaled layers. */
+    closeOnBackdropClick?: boolean;
     /** Radix `modal` passthrough — set false for non-modal stacking. Default true. */
     modal?: boolean;
     /** Sizing/layout escape hatch for the panel (e.g. max-w / max-h / flex). */
@@ -63,12 +71,16 @@ function ModalRoot({
     level = 'base',
     showClose = true,
     dismissable = true,
+    closeOnEscape,
+    closeOnBackdropClick,
     modal = true,
     contentClassName,
     srTitle,
     onOpenAutoFocus,
 }: ModalProps) {
     const z = LEVEL_Z[level];
+    const escCloses = closeOnEscape ?? dismissable;
+    const backdropCloses = closeOnBackdropClick ?? dismissable;
     return (
         <ModalContext.Provider value={{ onOpenChange }}>
             <RadixDialog.Root open={open} onOpenChange={onOpenChange} modal={modal}>
@@ -82,6 +94,7 @@ function ModalRoot({
                                     animate={{ opacity: 1 }}
                                     exit={{ opacity: 0 }}
                                     transition={{ duration: 0.15 }}
+                                    onClick={backdropCloses ? () => onOpenChange(false) : undefined}
                                 />
                             </RadixDialog.Overlay>
 
@@ -93,7 +106,7 @@ function ModalRoot({
                                     asChild
                                     forceMount
                                     onOpenAutoFocus={onOpenAutoFocus}
-                                    onEscapeKeyDown={(e) => { if (!dismissable) e.preventDefault(); }}
+                                    onEscapeKeyDown={(e) => { if (!escCloses) e.preventDefault(); }}
                                     onPointerDownOutside={(e) => { if (!dismissable) e.preventDefault(); }}
                                     onInteractOutside={(e) => { if (!dismissable) e.preventDefault(); }}
                                 >

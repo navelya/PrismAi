@@ -1,8 +1,6 @@
 'use client';
 
 import React, { useCallback, useEffect } from 'react';
-import * as RadixDialog from '@radix-ui/react-dialog';
-import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import {
     X,
     User,
@@ -13,6 +11,7 @@ import {
     Users,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
+import { Modal } from '@/components/ui/Modal';
 import { Logo } from '@/components/ui/Logo';
 import type { AccountTab } from '@/lib/store/types';
 import { ProfileTab } from './ProfileTab';
@@ -117,33 +116,25 @@ export default function AccountModal() {
     };
 
     return (
-        <RadixDialog.Root open={open} onOpenChange={(o) => !o && close()} modal={false}>
-            <RadixDialog.Portal>
-                {/* Plain backdrop (not RadixDialog.Overlay): with modal={false}
-                    Radix doesn't lock the body or guarantee an overlay, so we own
-                    the dim + click-to-close. Non-modal is deliberate — it keeps
-                    nested body-portaled layers (PlansModal, Paddle's checkout
-                    iframe) interactive, which a modal dialog's pointer-events lock
-                    would otherwise kill. */}
-                <div
-                    onClick={close}
-                    className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm animate-in fade-in-0"
-                />
-                <RadixDialog.Content
-                    className="fixed left-1/2 top-1/2 z-[80] w-full max-w-5xl h-[86vh] max-h-[720px] -translate-x-1/2 -translate-y-1/2 m-4 flex flex-col sm:flex-row overflow-hidden rounded-2xl border border-stroke-strong/30 bg-surface-primary shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
-                    // Closing is driven only by the X button, the backdrop's own
-                    // onClick, and Escape. We suppress Radix's auto-close on
-                    // outside interaction because the Plan tab can open nested
-                    // billing modals (z-9998+) that portal OUTSIDE this content —
-                    // clicking them would otherwise dismiss this modal and unmount
-                    // the very dialog being clicked.
-                    onPointerDownOutside={(e) => e.preventDefault()}
-                    onInteractOutside={(e) => e.preventDefault()}
-                >
-                    <VisuallyHidden.Root>
-                        <RadixDialog.Title>Your account</RadixDialog.Title>
-                    </VisuallyHidden.Root>
-
+        // Non-modal is deliberate — it keeps nested body-portaled layers
+        // (PlansModal, Paddle's checkout iframe) interactive, which a modal
+        // dialog's pointer-events lock would otherwise kill. We suppress Radix's
+        // outside-interaction close (`dismissable={false}`) because the Plan tab
+        // opens nested billing modals that portal OUTSIDE this content — clicking
+        // them would otherwise dismiss this modal. The dim backdrop + Escape
+        // still close it.
+        <Modal
+            open={open}
+            onOpenChange={(o) => !o && close()}
+            modal={false}
+            dismissable={false}
+            closeOnBackdropClick
+            closeOnEscape
+            showClose={false}
+            srTitle="Your account"
+            size="full"
+            contentClassName="max-w-5xl h-[86vh] max-h-[720px] flex flex-col sm:flex-row overflow-hidden"
+        >
                     {/* Sidebar nav */}
                     <aside className="flex-shrink-0 sm:w-60 border-b sm:border-b-0 sm:border-r border-stroke-subtle bg-white/[0.012] sm:overflow-y-auto">
                         <div className="hidden sm:flex items-center gap-2 px-5 pt-5 pb-3">
@@ -189,21 +180,18 @@ export default function AccountModal() {
                     <section className="flex-1 min-w-0 flex flex-col">
                         <header className="flex items-center justify-between px-6 sm:px-8 pt-6 pb-4">
                             <h2 className="text-xl font-bold text-content-primary">{activeItem.label}</h2>
-                            <RadixDialog.Close asChild>
-                                <button
-                                    className="p-2 -mr-1 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary transition-colors"
-                                    aria-label="Close"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </RadixDialog.Close>
+                            <button
+                                onClick={close}
+                                className="p-2 -mr-1 rounded-lg text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary transition-colors"
+                                aria-label="Close"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
                         </header>
                         <div className="flex-1 overflow-y-auto custom-scrollbar px-6 sm:px-8 pb-8">
                             {renderContent()}
                         </div>
                     </section>
-                </RadixDialog.Content>
-            </RadixDialog.Portal>
-        </RadixDialog.Root>
+        </Modal>
     );
 }
