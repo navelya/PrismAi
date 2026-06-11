@@ -2,7 +2,12 @@
 // Creates a tiny real Replicate prediction, polls it to completion via the same
 // SDK calls the adapter uses, and prints the normalized status transitions.
 // Run: node scripts/probe-replicate-poll.js
-require('dotenv').config({ path: '.env.local' });
+const fs = require('fs');
+// Lightweight .env.local loader (this repo does not depend on dotenv).
+for (const line of fs.readFileSync('.env.local', 'utf8').split('\n')) {
+  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+  if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+}
 const Replicate = require('replicate');
 
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
