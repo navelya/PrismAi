@@ -3,6 +3,8 @@ import { replicate, normalizeReplicateOutput } from '@/lib/ai/replicate-client';
 import { isOutputEnvelope } from '@/lib/workflow/result-format';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getProviderAdapter } from '@/lib/ai/providers/registry';
+import { getAsyncAdapter } from '@/lib/ai/providers/async-registry';
+import { resolvePrimaryProvider, applyInputOverrides } from '@/lib/workflow/resolve-provider';
 
 /**
  * AI Generator Executor
@@ -160,25 +162,64 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             throw new Error(`Missing required input(s): ${missingRequired.join(', ')}`);
         }
 
-        // ── External provider adapter fork ──────────────────────────────────
-        // If this model's provider has a registered code adapter (ElevenLabs,
-        // etc.), run it instead of the Replicate path. The inputs map built above
-        // (`replicateInputs`, keyed by api_mapping_key) is the provider-agnostic
-        // payload. Sync adapters upload their bytes and return a hosted { url };
-        // the dispatcher completes the node via its sync-success path.
-        const adapterKey = (model as any)?.providers?.adapter_key as string | undefined;
-        const adapter = getProviderAdapter(adapterKey);
-        if (adapter) {
-            return await adapter.execute({
-                model: model as any,
-                inputs: replicateInputs,
+        // ── Resolve the model's primary provider binding (Phase B) ───────────
+        // One ai_models row can be bound to several providers; the primary
+        // (priority 0, active) decides who runs it and with which slug. Failover
+        // over the rest is Phase C.
+        const primary = await resolvePrimaryProvider(model_id);
+        const providerInputs = applyInputOverrides(replicateInputs, primary.inputOverrides);
+
+        // Sync adapter (e.g. ElevenLabs): unchanged behavior — returns hosted bytes
+        // in-request. Keyed off the resolved provider, not the legacy column.
+        const syncAdapter = getProviderAdapter(primary.providerKey);
+        if (syncAdapter) {
+            return await syncAdapter.execute({
+                model: { ...(model as any), provider_model_id: primary.providerModelId },
+                inputs: providerInputs,
                 iterationIndex: typeof context.predictionIndex === 'number' ? context.predictionIndex : 0,
                 ctx: context,
             });
         }
-        // ── End adapter fork; below is the unchanged Replicate path ──────────
 
-        if (!model.replicate_model_id) {
+        // New async providers (FAL, …) go through the generic submit+poll path.
+        // Replicate is NOT handled here — it falls through to its existing path
+        // below (webhook fast-path in prod, replicate.run in local dev), unchanged.
+        if (primary.providerKey !== 'replicate') {
+            const asyncAdapter = getAsyncAdapter(primary.providerKey);
+            const modelForAdapter = { ...(model as any), provider_model_id: primary.providerModelId };
+            const isLocalEnv = (() => {
+                const u = process.env.NEXT_PUBLIC_APP_URL || '';
+                return u.startsWith('http://localhost') || u.startsWith('http://127.0.0.1') || !u;
+            })();
+            const { providerJobId } = await asyncAdapter.submit(modelForAdapter, providerInputs, context);
+            if (isLocalEnv) {
+                // Local dev has no public webhook + no cron sweep — poll inline to
+                // completion, mirroring replicate.run()'s synchronous local behavior.
+                let poll = await asyncAdapter.poll(providerJobId);
+                for (let i = 0; i < 150 && poll.status === 'pending'; i++) {
+                    await new Promise((r) => setTimeout(r, 2000));
+                    poll = await asyncAdapter.poll(providerJobId);
+                }
+                if (poll.status !== 'completed') {
+                    throw new Error(poll.error || `${primary.providerKey} generation did not complete`);
+                }
+                return { success: true, status: 'success', data: poll.outputs };
+            }
+            // Prod: node goes 'running'; the Phase A sweep polls provider_job_id to
+            // completion (and mirrors). Carry provider identity to the dispatcher.
+            return {
+                success: true,
+                status: 'pending',
+                data: { id: providerJobId },
+                providerId: primary.providerKey,
+                providerJobId,
+            };
+        }
+        // ── Below: the unchanged Replicate path ──────────────────────────────
+        // Prefer the resolved binding slug; fall back to the legacy column.
+        const replicateSlug = primary.providerModelId || model.replicate_model_id;
+
+        if (!replicateSlug) {
             throw new Error(`Model ${model_id} has no replicate_model_id and no provider adapter`);
         }
 
@@ -233,7 +274,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         // Robust model/version extraction
         // Handles: "owner/name", "owner/name:version", "name"
-        const modelParts = model.replicate_model_id.split(/[:\/]/);
+        const modelParts = replicateSlug.split(/[:\/]/);
         let modelOwner: string | undefined;
         let modelName: string;
         let modelVersion: string | undefined;
@@ -241,7 +282,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         if (modelParts.length === 3) {
             [modelOwner, modelName, modelVersion] = modelParts;
         } else if (modelParts.length === 2) {
-            if (model.replicate_model_id.includes(':')) {
+            if (replicateSlug.includes(':')) {
                 // assume name:version or owner/name (if no colon)
                 [modelName, modelVersion] = modelParts;
             } else {
@@ -251,12 +292,12 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             modelName = modelParts[0];
         }
 
-        console.log(`[WorkflowExecutor] Starting AI model: ${model.replicate_model_id}`, { isLocal, replicateInputs });
+        console.log(`[WorkflowExecutor] Starting AI model: ${replicateSlug}`, { isLocal, replicateInputs });
 
         if (isLocal) {
             // FALLBACK: Synchronous execution for localhost (no webhooks)
             const output = await replicate.run(
-                model.replicate_model_id as any,
+                replicateSlug as any,
                 { input: replicateInputs }
             );
 
@@ -271,7 +312,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             // PRODUCTION: Asynchronous execution with Webhooks
             const prediction = await replicate.predictions.create({
                 // Replicate SDK prefers version if available, otherwise model
-                ...(modelVersion ? { version: modelVersion } : { model: model.replicate_model_id }),
+                ...(modelVersion ? { version: modelVersion } : { model: replicateSlug }),
                 input: replicateInputs,
                 webhook: webhookUrl,
                 webhook_events_filter: ['completed'],
