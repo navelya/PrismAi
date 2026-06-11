@@ -44,7 +44,7 @@ Hardcoded status strings, the `replicate.delivery` domain check, `replicate.pred
 
 **Error signals** (feed `classifyError`): transient/capacity (→ failover): FAL 429/503/504 (+ `X-Fal-Retryable`); WaveSpeed HTTP 429 / app `5xxx`; KIE 429/455/500/501; Kinovi 429/5xx. Validation (→ terminal): 422/400 param errors. Moderation (→ terminal): per table above.
 
-**Flagged "verify against live API"** (Phase A gating live-probe per provider): FAL `X-Fal-Retryable` value; WaveSpeed webhook-attachment (query vs body) + exact poll path (use returned `urls.get`); KIE per-family callback payloads + whether a model-list/schema endpoint exists; Kinovi result-URL TTL + the moderation-vs-failure `error.code` taxonomy. **Confirm "KNOVI" = kinovi.ai** (~85%; Novita AI is the alternative) before building that adapter.
+**Flagged "verify against live API"** (Phase A gating live-probe per provider): FAL `X-Fal-Retryable` value; WaveSpeed webhook-attachment (query vs body) + exact poll path (use returned `urls.get`); KIE per-family callback payloads + whether a model-list/schema endpoint exists; Kinovi result-URL TTL + the moderation-vs-failure `error.code` taxonomy. **"KNOVI" is confirmed = kinovi.ai** (base `https://kinovi.ai/api/v1`, Bearer auth, `createTask`/`recordInfo` poll, optional unsigned callback, schema via the `x-kinovi-public-models` block in `openapi.json`).
 
 ## 4. Key Decisions (locked, incl. panel revisions)
 
@@ -201,11 +201,9 @@ Safety nets: pending > max-age → terminal-fail + refund;  nightly credits reco
 - **`api_mapping_key` drift across providers** → optional `input_overrides` column; admin shows bindings side-by-side.
 - **KIE ~10-min media TTL** → webhook-primary + short stale threshold for KIE.
 - **Unconfirmed provider facts (§3)** → Phase A gating live-probe per provider before it's trusted in prod.
-- **Kinovi identity** → confirm kinovi.ai vs Novita before building that adapter.
 - **`replicate_id` fossilization** → hard-scheduled alias-then-drop in Phase A.
 
 ## 11. Open Items to Confirm During Implementation
 - Exact sweep stale-threshold (Δ), per-job backoff schedule, and max batch size.
 - Whether any provider's verified webhook body is trusted directly vs always re-polled (per-provider latency call).
-- Kinovi platform confirmation (kinovi.ai vs Novita AI).
 - Pending-job deadline value (e.g. 15 min) per provider.
