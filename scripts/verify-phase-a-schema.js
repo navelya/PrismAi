@@ -26,7 +26,7 @@ const supabase = createClient(
   // 2. RPC exists: calling with a non-existent execution returns TRUE/FALSE, not a
   //    "function does not exist" error. Use a random uuid + a status of 'failed'
   //    so even if it inserts, it's a harmless orphan row we immediately delete.
-  const fakeExec = '00000000-0000-0000-0000-0000000000aa';
+  const fakeExec = '00000000-0000-0000-0000-00000000aaaa';
   const { data, error } = await supabase.rpc('claim_node_completion', {
     p_execution_id: fakeExec,
     p_node_id: '__phase_a_probe__',

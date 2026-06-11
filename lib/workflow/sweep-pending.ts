@@ -13,7 +13,12 @@ import { clampIterations } from '@/lib/billing/cost';
 const STALE_MS = 90_000;
 // A job that never reaches a terminal status is failed + refunded past this age,
 // so a submitted-but-dropped job can't be swept forever or strand the execution.
-const DEADLINE_MS = 15 * 60_000;
+// Set generously ABOVE the slowest model's worst-case wall-clock: Replicate
+// predictions self-terminate (poll() catches their failed/canceled), so this is
+// only a backstop for a vanished/dropped job — not a timeout for slow generation.
+// Too low would force-fail a still-processing long video and refund it, then a
+// later success webhook would lose the claim and the real result would be lost.
+const DEADLINE_MS = 60 * 60_000;
 // Bound per-tick work so one invocation never exceeds the function timeout.
 const MAX_PER_SWEEP = 50;
 
