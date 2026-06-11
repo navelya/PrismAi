@@ -130,8 +130,21 @@ export default function CharacterModal({
             if (seed) {
                 // A seed image was provided — pre-populate the upload tab
                 setMethod('upload');
-                setUploadedBase(null); // We don't have base64; user can swap
                 setUploadPreview(seed.url);
+                setUploadedBase(null);
+                // Load the seed URL into base64 so "Generate sheets" is enabled
+                // without the user needing to re-pick the file. Best-effort.
+                void (async () => {
+                    try {
+                        const resp = await fetch(seed.url);
+                        const blob = await resp.blob();
+                        const file = new File([blob], 'seed', { type: blob.type || 'image/png' });
+                        const b = await downscaleImageToBase64(file);
+                        setUploadedBase(b);
+                    } catch {
+                        // Leave uploadedBase null; user can re-pick if needed.
+                    }
+                })();
             } else {
                 setMethod('describe');
                 setUploadedBase(null);

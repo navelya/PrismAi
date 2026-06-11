@@ -130,7 +130,7 @@ export function CharactersPanel({ onClose }: CharactersPanelProps) {
 }
 
 function CharacterCard({ character, index, onVariant }: { character: Character; index: number; onVariant: (c: Character) => void }) {
-    const thumb = character.thumbnail_url || character.reference_images?.[0]?.url;
+    const thumb = character.cover_url || character.sheet_url || character.thumbnail_url || character.reference_images?.[0]?.url;
     const extra = Math.max(0, (character.reference_images?.length ?? 0) - 1);
 
     const handleDragStart = (e: React.DragEvent) => {

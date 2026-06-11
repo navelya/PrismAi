@@ -14,7 +14,7 @@ interface CharacterCardProps {
 }
 
 export default function CharacterCard({ character, isAdmin, onEdit, onDelete, onVariant, onToggleShare }: CharacterCardProps) {
-    const thumb = character.thumbnail_url || character.reference_images?.[0]?.url;
+    const thumb = character.cover_url || character.sheet_url || character.thumbnail_url || character.reference_images?.[0]?.url;
 
     return (
         <div className="group relative rounded-2xl overflow-hidden border border-stroke-subtle bg-surface-tertiary hover:border-accent-primary/40 transition-all">
