@@ -186,10 +186,15 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         // below (webhook fast-path in prod, replicate.run in local dev), unchanged.
         if (primary.providerKey !== 'replicate') {
             const asyncAdapter = getAsyncAdapter(primary.providerKey);
+            if (asyncAdapter.key !== primary.providerKey) {
+                throw new Error(`No async adapter registered for provider '${primary.providerKey}'`);
+            }
             const modelForAdapter = { ...(model as any), provider_model_id: primary.providerModelId };
             const isLocalEnv = (() => {
-                const u = process.env.NEXT_PUBLIC_APP_URL || '';
-                return u.startsWith('http://localhost') || u.startsWith('http://127.0.0.1') || !u;
+                const u = process.env.NEXT_PUBLIC_APP_URL
+                    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+                if (!u) return true; // nothing configured → true local dev
+                return u.startsWith('http://localhost') || u.startsWith('http://127.0.0.1');
             })();
             const { providerJobId } = await asyncAdapter.submit(modelForAdapter, providerInputs, context);
             if (isLocalEnv) {
@@ -298,7 +303,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             // FALLBACK: Synchronous execution for localhost (no webhooks)
             const output = await replicate.run(
                 replicateSlug as any,
-                { input: replicateInputs }
+                { input: providerInputs }
             );
 
             const normalizedResult = normalizeReplicateOutput(output);
@@ -313,7 +318,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
             const prediction = await replicate.predictions.create({
                 // Replicate SDK prefers version if available, otherwise model
                 ...(modelVersion ? { version: modelVersion } : { model: replicateSlug }),
-                input: replicateInputs,
+                input: providerInputs,
                 webhook: webhookUrl,
                 webhook_events_filter: ['completed'],
             });

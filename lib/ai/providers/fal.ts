@@ -53,6 +53,9 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
                error: (statusBody && (statusBody.detail || statusBody.error)) || `FAL status ${statusRes.status}` };
     }
     const s = statusBody.status;
+    if (s === 'FAILED' || s === 'ERROR' || s === 'CANCELED' || s === 'CANCELLED') {
+      return { status: 'failed', error: (statusBody && (statusBody.error || statusBody.detail)) || `FAL job ${s}` };
+    }
     if (s !== 'COMPLETED') return { status: 'pending' };
     const respRes = await fetch(`${base}`, { headers: falHeaders() });
     const out = await respRes.json().catch(() => ({}));
