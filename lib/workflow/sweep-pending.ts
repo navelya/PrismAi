@@ -17,8 +17,8 @@ const DEADLINE_MS = 15 * 60_000;
 // Bound per-tick work so one invocation never exceeds the function timeout.
 const MAX_PER_SWEEP = 50;
 
-function isStale(lastPolledAt: string | null, dispatchedAt: string | null): boolean {
-  const ref = lastPolledAt || dispatchedAt;
+function isStale(lastPolledAt: string | null, fallbackAt: string | null): boolean {
+  const ref = lastPolledAt || fallbackAt;
   if (!ref) return true;
   return Date.now() - new Date(ref).getTime() >= STALE_MS;
 }
@@ -58,6 +58,7 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
   for (const row of singles || []) {
     report.scanned++;
     if (!isStale(row.last_polled_at, row.updated_at)) { report.stillPending++; continue; }
+    if (!row.provider_id) { report.errors++; continue; }
     try {
       const adapter = getAsyncAdapter(row.provider_id);
       const poll = await adapter.poll(row.provider_job_id as string);
@@ -107,6 +108,7 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
   for (const row of preds || []) {
     report.scanned++;
     if (!isStale(row.last_polled_at, row.updated_at)) { report.stillPending++; continue; }
+    if (!row.provider_id) { report.errors++; continue; }
     try {
       const adapter = getAsyncAdapter(row.provider_id);
       const poll = await adapter.poll(row.provider_job_id as string);
@@ -118,7 +120,7 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
       if (poll.status === 'pending' && !pastDeadline(row.updated_at)) { report.stillPending++; continue; }
 
       const { data: execCtx } = await supabase
-        .from('executions').select('graph_json').eq('id', row.execution_id).single();
+        .from('executions').select('graph_json, session_id, sessions(user_id)').eq('id', row.execution_id).single();
       const outputType: NodeResultType = await resolveNodeOutputWireTypeFromGraph(
         supabase, execCtx?.graph_json, row.node_id
       );
@@ -129,14 +131,12 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
       if (poll.status === 'completed') {
         let resultData = toResultDataForType(outputType, poll.outputs);
         if (isMediaResultType(outputType)) {
-          const { data: ses } = await supabase
-            .from('executions').select('session_id, sessions(user_id)').eq('id', row.execution_id).single();
           resultData = await mirrorMediaToStorage(
             supabase,
             resultData.filter((i): i is string => typeof i === 'string'),
             outputType,
-            (ses?.sessions as any)?.user_id || 'unknown_user',
-            (ses as any)?.session_id || 'unknown_session',
+            (execCtx?.sessions as any)?.user_id || 'unknown_user',
+            (execCtx as any)?.session_id || 'unknown_session',
             row.node_id
           );
         }
@@ -158,7 +158,11 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
         p_execution_id: row.execution_id, p_node_id: row.node_id,
         p_output_type: outputType, p_expected_count: expectedCount,
       });
-      if (claimed === true) await checkAndDispatchChildren(row.execution_id, row.node_id, baseUrl);
+      if (claimed === true) {
+        await checkAndDispatchChildren(row.execution_id, row.node_id, baseUrl);
+      } else {
+        console.log(`[Sweep] fanout ${row.execution_id}/${row.node_id} finalize did not claim (not all iterations resolved or parent not running)`);
+      }
     } catch (err) {
       report.errors++;
       console.error(`[Sweep] fanout ${row.execution_id}/${row.node_id}#${row.prediction_index} poll failed:`, err);
