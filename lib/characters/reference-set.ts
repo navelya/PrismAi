@@ -6,71 +6,70 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export const IMAGE_MODEL = 'gemini-2.5-flash-image';
 export const STORAGE_BUCKET = 'chat-assets';
 
-export const BASE_POSE = 'front view, facing the camera, neutral A-pose';
-export const CONDITIONED_POSES = [
-  'three-quarter left view',
-  'left side profile view',
-  'three-quarter right view',
-  'back view, facing away',
-];
-
 export type GenImage = { mimeType: string; data: string };
 
-export type RefSetEvent =
+export type SheetSetEvent =
   | { type: 'start'; total: number }
-  | { type: 'image'; index: number; url: string; path: string; role?: 'face' }
-  | { type: 'pose_failed'; index: number }
+  | { type: 'sheet'; index: number; url: string; path: string }
+  | { type: 'sheet_failed'; index: number }
   | { type: 'error'; message: string }
   | { type: 'done' };
 
-export function basePrompt(description: string): string {
+export const SHEET_CANDIDATES = 4;
+
+// The exact contact-sheet layout every sheet prompt enforces.
+// Phrasing informed by: Google Gemini prompting guide (describe the scene,
+// not keywords), multi-view identity-lock research (front view alone is not
+// enough — profiles + full-body force the identity to become coherent in 3D
+// space), and character-sheet mastery tutorials (exact same face/body/outfit
+// repeated across every panel; professional turnaround sheet style).
+const SHEET_LAYOUT =
+  'Lay it out as a clean photographic contact sheet with TWO horizontal rows on a plain solid neutral background. ' +
+  'TOP ROW: four full-body photographs of the SAME person, head-to-toe, evenly spaced — ' +
+  '(1) facing the camera, (2) left-facing profile, (3) right-facing profile, (4) facing away from the camera. ' +
+  'BOTTOM ROW: three close-up photographic head-and-shoulders portraits of the SAME person — ' +
+  '(1) facing the camera, (2) left-facing profile, (3) right-facing profile. ' +
+  'Identical face, hair, body, outfit, and colors in every frame. ' +
+  'Exact same age, ethnicity, bone structure, and proportions across all seven views. ' +
+  'Photorealistic, soft even studio lighting, sharp focus on the subject, ' +
+  'no text, no labels, no watermark, no props, no borders.';
+
+export function sheetFromDescriptionPrompt(description: string): string {
   return (
-    `Full-body character reference image of: ${description}. ` +
-    `${BASE_POSE}. A single character only, centered, head to toe in frame, ` +
-    `plain solid white background, soft even studio lighting, no text, no watermark, no props.`
+    `Create a professional character reference sheet — a photographic model turnaround — for this person: ${description}. ` +
+    `Lock all identity-defining attributes (face geometry, hair, skin tone, body proportions, outfit) ` +
+    `identically across every view. ${SHEET_LAYOUT}`
   );
 }
 
-export function conditionedPrompt(pose: string): string {
+export function sheetFromImagePrompt(changes?: string): string {
+  const edit =
+    changes && changes.trim()
+      ? ` Apply these changes to the character while keeping them clearly the same person: ${changes.trim()}.`
+      : '';
   return (
-    `Generate the EXACT SAME character as in the provided image — identical face, ` +
-    `hair, body, outfit, and colors — but now in a ${pose}. ` +
-    `Full body, head to toe, centered, plain solid white background, soft even studio lighting, ` +
-    `no text, no watermark, no props.`
+    `Create a professional character reference sheet of the EXACT SAME person shown in the provided image — ` +
+    `identical face, hair, skin tone, and body. No changes to identity, age, ethnicity, or proportions.${edit} ` +
+    `${SHEET_LAYOUT}`
   );
 }
 
-export function facePrompt(): string {
+export function sheetVariantPrompt(changes: string): string {
   return (
-    `Generate a tight head-and-shoulders close-up PORTRAIT of the EXACT SAME character ` +
-    `as in the provided image — identical face, hair, and skin tone — looking straight at ` +
-    `the camera. Sharp focus on the face, plain solid white background, soft even studio ` +
-    `lighting, no text, no watermark, no props.`
+    `The provided image is a reference sheet of a character. Create a NEW reference sheet of the EXACT SAME ` +
+    `person — identical facial features, bone structure, and body proportions. ` +
+    `Exact same age, gender, skin tone, and hair from the reference. Apply these changes: ${changes.trim()}. ` +
+    `Keep them clearly recognizable as the same person. ${SHEET_LAYOUT}`
   );
 }
 
-// Variant: restyle the FULL-BODY base from the source character's own base
-// image. Keeps the same person (face/body) but changes outfit, art-style, and
-// palette to match the new style.
-export function restyleBasePrompt(style: string): string {
+export function coverPrompt(): string {
   return (
-    `Generate the EXACT SAME character as in the provided image — identical face, hair, and ` +
-    `body proportions — but restyled: ${style}. Change the outfit, art-style, and color ` +
-    `palette to match this new style while keeping the same person clearly recognizable. ` +
-    `${BASE_POSE}. Full body, head to toe, centered, plain solid white background, ` +
-    `soft even studio lighting, no text, no watermark, no props.`
-  );
-}
-
-// Variant: restyle the face close-up from the source character's face image,
-// preserving facial identity while applying the new style's art direction.
-export function restyleFacePrompt(style: string): string {
-  return (
-    `Generate a tight head-and-shoulders close-up PORTRAIT of the EXACT SAME character as in ` +
-    `the provided image — identical facial features, bone structure, and hair — restyled: ${style}. ` +
-    `Apply the new style's art direction and color treatment while keeping the same person clearly ` +
-    `recognizable, looking straight at the camera. Sharp focus on the face, plain solid white ` +
-    `background, soft even studio lighting, no text, no watermark, no props.`
+    `From the character shown in this reference sheet, create ONE clean hero portrait — a single ` +
+    `three-quarter upper-body shot of the EXACT SAME person facing the camera, centered. ` +
+    `Identical face, hair, skin tone, and outfit as shown in the reference sheet. ` +
+    `Plain solid neutral background, soft studio lighting, photorealistic, sharp focus, ` +
+    `no text, no watermark, no contact-sheet grid, no multiple frames.`
   );
 }
 
@@ -113,49 +112,54 @@ export function makeCharacterImageUploader(supabase: SupabaseClient, userId: str
   };
 }
 
-/**
- * Generate the 4 conditioned poses + the face close-up in parallel, streaming
- * each as it settles. Poses condition on `base` (so they inherit its outfit/
- * style); the face conditions on `faceSrc`. The caller produces + uploads +
- * streams the base (index 0) BEFORE calling this.
- */
-export async function streamPosesAndFace(opts: {
+/** Generate SHEET_CANDIDATES sheets in parallel, streaming each as it settles.
+ *  `source` is the conditioning image for image→image flows (upload / variant);
+ *  omit it for text→image (describe). */
+export async function streamSheetCandidates(opts: {
   ai: GoogleGenAI;
-  base: GenImage;
-  faceSrc: GenImage;
-  faceIndex: number;
-  facePromptText: string;
+  prompt: string;
+  source?: GenImage;
   uploadImage: (img: GenImage, index: number) => Promise<{ url: string; path: string } | null>;
-  send: (e: RefSetEvent) => void;
+  send: (e: SheetSetEvent) => void;
 }): Promise<void> {
-  const { ai, base, faceSrc, faceIndex, facePromptText, uploadImage, send } = opts;
+  const { ai, prompt, source, uploadImage, send } = opts;
   const genConfig = { responseModalities: [Modality.IMAGE] };
-
-  const conditioned: { index: number; prompt: string; role?: 'face'; src: GenImage }[] = [
-    ...CONDITIONED_POSES.map((pose, i) => ({ index: i + 1, prompt: conditionedPrompt(pose), src: base })),
-    { index: faceIndex, prompt: facePromptText, role: 'face' as const, src: faceSrc },
-  ];
+  const contents = source
+    ? [{ inlineData: { mimeType: source.mimeType, data: source.data } }, { text: prompt }]
+    : prompt;
 
   await Promise.all(
-    conditioned.map(async ({ index, prompt, role, src }) => {
-      try {
-        const resp = await ai.models.generateContent({
-          model: IMAGE_MODEL,
-          contents: [{ inlineData: { mimeType: src.mimeType, data: src.data } }, { text: prompt }],
-          config: genConfig,
-        });
-        const img = firstImagePart(resp);
-        if (!img) {
-          send({ type: 'pose_failed', index });
-          return;
+    Array.from({ length: SHEET_CANDIDATES }, (_, index) =>
+      (async () => {
+        try {
+          const resp = await ai.models.generateContent({ model: IMAGE_MODEL, contents, config: genConfig });
+          const img = firstImagePart(resp);
+          if (!img) { send({ type: 'sheet_failed', index }); return; }
+          const up = await uploadImage(img, index);
+          if (up) send({ type: 'sheet', index, url: up.url, path: up.path });
+          else send({ type: 'sheet_failed', index });
+        } catch (e: any) {
+          console.error('[reference-set] sheet failed:', e?.message);
+          send({ type: 'sheet_failed', index });
         }
-        const up = await uploadImage(img, index);
-        if (up) send({ type: 'image', index, url: up.url, path: up.path, ...(role ? { role } : {}) });
-        else send({ type: 'pose_failed', index });
-      } catch (e: any) {
-        console.error('[reference-set] pose failed:', e?.message);
-        send({ type: 'pose_failed', index });
-      }
-    }),
+      })(),
+    ),
   );
+}
+
+/** Chosen sheet → one cover image. Returns null on failure. */
+export async function generateCover(opts: {
+  ai: GoogleGenAI;
+  sheet: GenImage;
+  uploadImage: (img: GenImage, index: number) => Promise<{ url: string; path: string } | null>;
+}): Promise<{ url: string; path: string } | null> {
+  const { ai, sheet, uploadImage } = opts;
+  const resp = await ai.models.generateContent({
+    model: IMAGE_MODEL,
+    contents: [{ inlineData: { mimeType: sheet.mimeType, data: sheet.data } }, { text: coverPrompt() }],
+    config: { responseModalities: [Modality.IMAGE] },
+  });
+  const img = firstImagePart(resp);
+  if (!img) return null;
+  return uploadImage(img, 0);
 }
