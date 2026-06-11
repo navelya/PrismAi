@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const scope = request.nextUrl.searchParams.get('scope') === 'shared' ? 'shared' : 'mine';
 
     const COLUMNS =
-        'id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared';
+        'id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared, sheet_url, sheet_path, cover_url, cover_path';
 
     let query = supabase.from('characters').select(COLUMNS).is('deleted_at', null);
 
@@ -68,15 +68,17 @@ export async function POST(request: NextRequest) {
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
     if (!isDraft && !name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
 
-    const referenceImages = sanitizeRefImages(body?.referenceImages);
-    if (referenceImages.length === 0) {
-        return NextResponse.json({ error: 'At least one reference image is required' }, { status: 400 });
-    }
+    const sheetUrl = typeof body?.sheetUrl === 'string' ? body.sheetUrl : '';
+    if (!sheetUrl) return NextResponse.json({ error: 'A character sheet is required' }, { status: 400 });
+    const sheetPath = typeof body?.sheetPath === 'string' ? body.sheetPath : null;
+    const coverUrl  = typeof body?.coverUrl === 'string' ? body.coverUrl : sheetUrl;
+    const coverPath = typeof body?.coverPath === 'string' ? body.coverPath : null;
+    const referenceImages = sanitizeRefImages(body?.referenceImages); // legacy, may be []
 
     const description = typeof body?.description === 'string' ? body.description : null;
     const weightRaw = Number(body?.weight);
     const weight = Number.isFinite(weightRaw) ? Math.min(100, Math.max(0, Math.round(weightRaw))) : 70;
-    const thumbnailUrl = typeof body?.thumbnailUrl === 'string' ? body.thumbnailUrl : referenceImages[0].url;
+    const thumbnailUrl = typeof body?.thumbnailUrl === 'string' ? body.thumbnailUrl : coverUrl;
 
     const { data, error } = await supabase
         .from('characters')
@@ -88,8 +90,12 @@ export async function POST(request: NextRequest) {
             thumbnail_url: thumbnailUrl,
             weight,
             is_draft: isDraft,
+            sheet_url: sheetUrl,
+            sheet_path: sheetPath,
+            cover_url: coverUrl,
+            cover_path: coverPath,
         })
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared')
+        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared, sheet_url, sheet_path, cover_url, cover_path')
         .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

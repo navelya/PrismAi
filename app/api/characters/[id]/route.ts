@@ -50,6 +50,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         if (Number.isFinite(w)) update.weight = Math.min(100, Math.max(0, Math.round(w)));
     }
     if (typeof body?.thumbnailUrl === 'string') update.thumbnail_url = body.thumbnailUrl;
+    if (typeof body?.sheetUrl === 'string') update.sheet_url = body.sheetUrl;
+    if (typeof body?.sheetPath === 'string') update.sheet_path = body.sheetPath;
+    if (typeof body?.coverUrl === 'string') { update.cover_url = body.coverUrl; update.thumbnail_url = body.coverUrl; }
+    if (typeof body?.coverPath === 'string') update.cover_path = body.coverPath;
 
     // Sharing is admin-only. Only run the admin check when the client is actually
     // changing the share flag, so ordinary owner edits stay non-admin.
@@ -75,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         .eq('id', id)
         .eq('user_id', user.id)
         .is('deleted_at', null)
-        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared')
+        .select('id, name, description, reference_images, thumbnail_url, weight, created_at, updated_at, last_used_at, is_draft, is_shared, sheet_url, sheet_path, cover_url, cover_path')
         .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -96,7 +100,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
     // Fetch the character (owner-scoped) to collect its storage paths first.
     const { data: character, error: fetchErr } = await supabase
         .from('characters')
-        .select('id, reference_images')
+        .select('id, reference_images, sheet_path, cover_path')
         .eq('id', id)
         .eq('user_id', user.id)
         .single();
@@ -112,6 +116,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
     const paths: string[] = refs
         .map((img: any) => (typeof img === 'string' ? '' : img?.path))
         .filter((p: any): p is string => typeof p === 'string' && p.startsWith(`${user.id}/`));
+    for (const p of [(character as any).sheet_path, (character as any).cover_path]) {
+        if (typeof p === 'string' && p.startsWith(`${user.id}/`)) paths.push(p);
+    }
     if (paths.length > 0) {
         const { error: rmErr } = await supabase.storage.from('chat-assets').remove(paths);
         if (rmErr) console.error('[characters/delete] storage cleanup failed:', rmErr.message);
