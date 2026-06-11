@@ -16,6 +16,7 @@ import { downscaleImageToBase64 } from '@/lib/utils/image-processing';
 import SheetCandidateGrid from '@/components/assets/character-wizard/SheetCandidateGrid';
 import CharacterConfirmStep from '@/components/assets/character-wizard/CharacterConfirmStep';
 import WizardStepper, { stepSlideVariants } from '@/components/assets/character-wizard/WizardStepper';
+import SegmentedTabs from '@/components/ui/SegmentedTabs';
 import type { SheetSlot } from '@/components/assets/character-wizard/types';
 
 interface CharacterModalProps {
@@ -377,36 +378,17 @@ export default function CharacterModal({
                                     {step === 'method' && (
                                         <div className="h-full flex items-center justify-center">
                                             <div className="w-full max-w-lg space-y-4">
-                                                {/* Tab switcher */}
-                                                <div className="flex gap-1 p-0.5 rounded-lg bg-surface-tertiary border border-stroke-subtle w-fit mx-auto">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setMethod('describe')}
-                                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                                                            method === 'describe'
-                                                                ? 'bg-surface-primary text-content-primary shadow-sm'
-                                                                : 'text-content-tertiary hover:text-content-secondary'
-                                                        }`}
-                                                    >
-                                                        <span className="flex items-center gap-1.5">
-                                                            <Sparkles className="w-3.5 h-3.5" />
-                                                            Describe
-                                                        </span>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setMethod('upload')}
-                                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                                                            method === 'upload'
-                                                                ? 'bg-surface-primary text-content-primary shadow-sm'
-                                                                : 'text-content-tertiary hover:text-content-secondary'
-                                                        }`}
-                                                    >
-                                                        <span className="flex items-center gap-1.5">
-                                                            <Upload className="w-3.5 h-3.5" />
-                                                            Upload image
-                                                        </span>
-                                                    </button>
+                                                {/* Method toggle — glass sliding-pill segmented control */}
+                                                <div className="flex justify-center">
+                                                    <SegmentedTabs
+                                                        layoutId="char-method-tabs"
+                                                        value={method}
+                                                        onChange={setMethod}
+                                                        options={[
+                                                            { key: 'describe', label: 'Describe', icon: Sparkles },
+                                                            { key: 'upload', label: 'Upload image', icon: Upload },
+                                                        ]}
+                                                    />
                                                 </div>
 
                                                 {method === 'describe' && (
