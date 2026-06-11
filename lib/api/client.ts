@@ -408,6 +408,10 @@ async function consumeCharacterStream(res: Response, handlers: GenerateCharacter
         if (!trimmed) return;
         let evt: any;
         try { evt = JSON.parse(trimmed); } catch { return; }
+        // TEMP DIAGNOSTIC (character sheet generation): logs every event reaching
+        // the browser so we can see whether `sheet` events arrive. Remove once the
+        // "skeleton then no result" issue is root-caused.
+        try { console.debug('[char-stream] event', evt?.type, evt); } catch {}
         switch (evt.type) {
             case 'start': handlers.onStart?.(typeof evt.total === 'number' ? evt.total : 0); break;
             case 'sheet': handlers.onSheet({ index: evt.index, url: evt.url, path: evt.path }); break;

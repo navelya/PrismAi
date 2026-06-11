@@ -23,7 +23,7 @@ export default function SheetCandidateGrid({
 }: SheetCandidateGridProps) {
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         {slots.map((slot, index) => {
           const selected = selectedIndex === index;
           const borderClass = selected
@@ -33,7 +33,7 @@ export default function SheetCandidateGrid({
           return (
             <div
               key={index}
-              className={`relative aspect-[4/3] rounded-lg overflow-hidden border bg-surface-tertiary ${borderClass}`}
+              className={`relative aspect-square rounded-xl overflow-hidden border bg-surface-tertiary ${borderClass}`}
             >
               {isImage(slot) ? (
                 <button

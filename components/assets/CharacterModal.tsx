@@ -316,8 +316,9 @@ export default function CharacterModal({
 
     if (!mounted) return null;
 
-    // Widen the dialog for the multi-column candidate/confirm steps
-    const dialogMaxW = step === 'method' ? 'max-w-md' : 'max-w-3xl';
+    // Widen the dialog per step: compact for method, widest for the 2×2 candidate
+    // grid (so each square sheet is large), roomy for the confirm split view.
+    const dialogMaxW = step === 'method' ? 'max-w-md' : step === 'candidates' ? 'max-w-5xl' : 'max-w-4xl';
 
     return createPortal(
         <AnimatePresence>
