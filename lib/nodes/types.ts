@@ -219,6 +219,14 @@ export interface NodeExecutionResult {
      * from item shape alone — a video URL string would otherwise be mis-typed.
      */
     result_type?: 'image' | 'video' | 'audio' | '3d' | 'text' | 'json';
+    /**
+     * Async provider identity for a 'pending' result. Lets the dispatcher record
+     * which provider owns the job (provider_id) and its job id (provider_job_id)
+     * so the Phase A poll-backstop can complete it. Omitted for Replicate (the
+     * dispatcher defaults to 'replicate' + the prediction id) and sync results.
+     */
+    providerId?: string;
+    providerJobId?: string;
 }
 
 /**
