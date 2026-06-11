@@ -201,8 +201,10 @@ async function dispatchReplicateNode(
             await updateNodeState(executionId, nodeId, {
                 status: 'running',
                 replicate_prediction_id: (result.data as any)?.id,
+                provider_id: (result as any).providerId || 'replicate',
+                provider_job_id: (result as any).providerJobId || (result.data as any)?.id,
                 dispatched_at: new Date().toISOString(),
-            }, sessionId, baseUrl);
+            } as any, sessionId, baseUrl);
         }
         return { success: true, data: result.data };
     }
@@ -285,8 +287,10 @@ async function dispatchReplicateNode(
         node_id: nodeId,
         prediction_index: i,
         replicate_id: r.status === 'pending' ? ((r.data as any)?.id ?? null) : null,
-        provider_id: 'replicate',
-        provider_job_id: r.status === 'pending' ? ((r.data as any)?.id ?? null) : null,
+        provider_id: (r as any).providerId || 'replicate',
+        provider_job_id: r.status === 'pending'
+            ? ((r as any).providerJobId ?? (r.data as any)?.id ?? null)
+            : null,
         status: r.status === 'pending' ? 'pending' : 'failed',
         error: r.status === 'pending' ? null : (r.error || 'Prediction create failed'),
         updated_at: new Date().toISOString(),
@@ -366,8 +370,8 @@ async function updateNodeState(
           result_data: resolvedResultData,
           error: state.error,
           replicate_id: state.replicate_prediction_id,
-          provider_id: state.replicate_prediction_id ? 'replicate' : undefined,
-          provider_job_id: state.replicate_prediction_id,
+          provider_id: (state as any).provider_id ?? (state.replicate_prediction_id ? 'replicate' : undefined),
+          provider_job_id: (state as any).provider_job_id ?? state.replicate_prediction_id,
           updated_at: new Date().toISOString(),
         }, {
           onConflict: 'execution_id,node_id'
