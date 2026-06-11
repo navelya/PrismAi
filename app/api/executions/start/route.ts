@@ -23,6 +23,7 @@ import { dispatchNode } from '@/lib/workflow/dispatch-v2';
 import { isEphemeralNode } from '@/lib/nodes/core/server-registry';
 import { coerceResultDataArray, getPrimaryInputValue, normalizeNodeResultType } from '@/lib/workflow/result-format';
 import { getAiArrayInputKeys } from '@/lib/workflow/orchestrator';
+import { countCharacterParents } from '@/lib/workflow/character-framing';
 import { getAuthenticatedUser } from '@/lib/api/auth';
 import { computeExecutionCost, MAX_EXECUTION_COST, type CostNode } from '@/lib/billing/cost';
 import { validateExecution } from '@/lib/workflow/validate-execution';
@@ -643,8 +644,21 @@ export async function POST(request: NextRequest) {
     //        - Pre-seeded from generative ancestors (fetched in Step 3), or
     //        - Empty (node has no upstream dependencies at all)
     // ─────────────────────────────────────────────────────────────────────────
+    // Map id -> type across the FULL graph (not just the target set) so we can
+    // detect character parents that live outside the execution set on a partial
+    // "run from this node".
+    const nodeTypeById = new Map<string, string | undefined>(
+      allNodes.map((n: NodeConfig) => [n.id, n.type])
+    );
+
     for (const node of rootNodes) {
       const inputs = preseedInputs.get(node.id) || {};
+      // Hidden signal for the ai_generator executor (see character-framing.ts):
+      // count distinct character nodes wired into this root node.
+      const characterRefCount = countCharacterParents(allEdges, node.id, nodeTypeById);
+      if (characterRefCount > 0) {
+        inputs.__characterRefCount = characterRefCount;
+      }
       console.log(`[Execution/Start] Dispatching root node ${node.id} (type: ${node.type}) with inputs: [${Object.keys(inputs).join(', ')}]`);
       await dispatchNode(execution.id, node.id, node, inputs, origin, session_id);
     }

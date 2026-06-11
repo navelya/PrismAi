@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { getProviderAdapter } from '@/lib/ai/providers/registry';
 import { getAsyncAdapter } from '@/lib/ai/providers/async-registry';
 import { resolvePrimaryProvider, applyInputOverrides } from '@/lib/workflow/resolve-provider';
+import { buildCharacterFraming } from '@/lib/workflow/character-framing';
 
 /**
  * AI Generator Executor
@@ -160,6 +161,37 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
 
         if (missingRequired.length > 0) {
             throw new Error(`Missing required input(s): ${missingRequired.join(', ')}`);
+        }
+
+        // ── Character-reference framing (hidden) ─────────────────────────────
+        // When character node(s) are wired in, the orchestrator/start-route
+        // stash the count under the reserved `__characterRefCount` key in the
+        // inputs bag (never a model field). Prepend framing so the model reads
+        // each character sheet as ONE consistent person, not a group photo.
+        // Constraints-first: framing goes BEFORE the user's request.
+        const characterRefCount =
+            input && typeof input === 'object' && typeof input.__characterRefCount === 'number'
+                ? input.__characterRefCount
+                : 0;
+        if (characterRefCount >= 1) {
+            // Prefer the conventional `prompt` field; fall back to the first
+            // text-like control if a model renamed it.
+            const promptKey =
+                controlByKey.has('prompt') || handleByKey.has('prompt')
+                    ? 'prompt'
+                    : (controls.find((c: any) =>
+                          ['text', 'textarea', 'string', 'prompt'].includes(
+                              (c.type || '').toLowerCase()
+                          )
+                      )?.api_mapping_key as string | undefined);
+            if (promptKey) {
+                const framing = buildCharacterFraming(characterRefCount);
+                const existing = replicateInputs[promptKey];
+                const userPrompt = typeof existing === 'string' ? existing.trim() : '';
+                replicateInputs[promptKey] = userPrompt
+                    ? `${framing}\n\n${userPrompt}`
+                    : framing;
+            }
         }
 
         // ── Resolve the model's primary provider binding (Phase B) ───────────

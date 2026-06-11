@@ -466,6 +466,13 @@ async function buildInputsFromParents(
     }
   }
 
+  // Hidden signal for the ai_generator executor: how many distinct character
+  // nodes feed this node. The executor prepends framing so each character sheet
+  // is read as one consistent person. Reserved key, never sent to the model.
+  if (characterParentIds.size > 0) {
+    inputs.__characterRefCount = characterParentIds.size;
+  }
+
   return inputs;
 }
 
