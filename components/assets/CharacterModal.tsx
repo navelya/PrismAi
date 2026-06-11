@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Upload, Sparkles, Loader2, Wand2, ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 import {
     charactersApi,
     generateCharacterStream,
@@ -79,12 +79,6 @@ export default function CharacterModal({
     // File input for upload method
     const uploadInputRef = useRef<HTMLInputElement>(null);
     const dismissingRef = useRef(false);
-
-    // Portal to <body> so the fixed-inset overlay centers on the viewport even
-    // when a parent (e.g. the framer-motion slide-in side panel) has a CSS
-    // transform that would otherwise become the containing block for `fixed`.
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => setMounted(true), []);
 
     // Seed state on open
     useEffect(() => {
@@ -328,45 +322,24 @@ export default function CharacterModal({
         onClose();
     };
 
-    // Escape key handling (no lightbox, so no guard needed)
-    useEffect(() => {
-        if (!open) return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void handleDismiss(); };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-        // handleDismiss closes over current field state; re-bind when it changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, initial, onSaveDraft, name, description, selectedSheet, cover, weight]);
-
-    if (!mounted) return null;
-
     const stepIndex = STEPS.indexOf(step);
 
-    return createPortal(
-        <AnimatePresence>
-            {open && (
-                <motion.div
-                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-                    onClick={() => void handleDismiss()}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                >
-                    {/* Fixed-size dialog — the window stays the same across every step. */}
-                    <motion.div
-                        className="w-full max-w-4xl h-[min(88vh,820px)] rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl flex flex-col overflow-hidden"
-                        onClick={(e) => e.stopPropagation()}
-                        initial={{ opacity: 0, scale: 0.96, y: 12 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.96, y: 12 }}
-                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                    >
+    return (
+        <Modal
+            open={open}
+            // X / backdrop / Escape all route through handleDismiss, which
+            // persists a draft for an unsaved NEW character. The footer "Cancel"
+            // button calls onClose directly (no draft) instead.
+            onOpenChange={(o) => { if (!o) void handleDismiss(); }}
+            size="full"
+            contentClassName="max-w-4xl h-[min(88vh,820px)] flex flex-col overflow-hidden"
+            showClose={false}
+        >
                         {/* Header */}
                         <div className="flex items-center justify-between p-5 pb-3 shrink-0">
-                            <h2 className="text-lg font-bold text-content-primary">
+                            <Modal.Title className="text-lg font-bold">
                                 {initial ? 'Edit Character' : 'New Character'}
-                            </h2>
+                            </Modal.Title>
                             <button
                                 onClick={() => void handleDismiss()}
                                 className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary"
@@ -594,10 +567,6 @@ export default function CharacterModal({
                                 )}
                             </div>
                         </div>
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>,
-        document.body,
+        </Modal>
     );
 }

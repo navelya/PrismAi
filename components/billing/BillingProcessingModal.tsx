@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import React from 'react';
+import { motion } from 'framer-motion';
 import { AlertCircle, Check, Loader2 } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 /**
  * Modal that bridges the gap between an asynchronous billing action and the
@@ -40,74 +40,47 @@ export default function BillingProcessingModal({
     errorMessage,
     onClose,
 }: BillingProcessingModalProps) {
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => { setMounted(true); }, []);
+    // Closing mid-processing would strand the user with no idea whether the
+    // change went through — so it's only dismissable once we're done.
+    const processing = status === 'processing';
 
-    // ESC closes — but only when we're done. Closing mid-processing would
-    // strand the user with no idea whether the change went through.
-    useEffect(() => {
-        if (!status || status === 'processing') return;
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
-    }, [status, onClose]);
-
-    if (!mounted) return null;
-
-    const overlay = (
-        <AnimatePresence>
+    return (
+        <Modal
+            open={status !== null}
+            onOpenChange={(o) => { if (!o && !processing) onClose(); }}
+            // Must sit above the plans modal it's launched from.
+            level="top"
+            size="sm"
+            dismissable={!processing}
+            showClose={false}
+            srTitle="Billing status"
+        >
             {status && (
-                <motion.div
-                    key="billing-processing-overlay"
-                    className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-4"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={() => {
-                        // Block backdrop dismiss while processing.
-                        if (status !== 'processing') onClose();
-                    }}
-                >
-                    <motion.div
-                        key="billing-processing-card"
-                        className="relative w-full max-w-sm bg-surface-elevated border border-stroke-subtle rounded-2xl shadow-2xl overflow-hidden"
-                        initial={{ opacity: 0, scale: 0.9, y: 16 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 8 }}
-                        transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="px-7 py-9 flex flex-col items-center text-center">
-                            <StatusIcon status={status} />
-                            <h2 className="mt-5 text-lg font-bold font-display text-content-primary tracking-tight">
-                                {status === 'processing' && processingTitle}
-                                {status === 'success' && successTitle}
-                                {status === 'error' && errorTitle}
-                            </h2>
-                            <p className="mt-2 text-sm text-content-secondary leading-relaxed max-w-[18rem]">
-                                {status === 'processing' && processingDescription}
-                                {status === 'success' && successDescription}
-                                {status === 'error' && (errorMessage || 'Please try again. If this keeps happening, contact support.')}
-                            </p>
+                <div className="px-7 py-9 flex flex-col items-center text-center">
+                    <StatusIcon status={status} />
+                    <h2 className="mt-5 text-lg font-bold font-display text-content-primary tracking-tight">
+                        {status === 'processing' && processingTitle}
+                        {status === 'success' && successTitle}
+                        {status === 'error' && errorTitle}
+                    </h2>
+                    <p className="mt-2 text-sm text-content-secondary leading-relaxed max-w-[18rem]">
+                        {status === 'processing' && processingDescription}
+                        {status === 'success' && successDescription}
+                        {status === 'error' && (errorMessage || 'Please try again. If this keeps happening, contact support.')}
+                    </p>
 
-                            {status === 'error' && (
-                                <button
-                                    onClick={onClose}
-                                    className="mt-6 px-4 py-2 rounded-xl bg-surface-tertiary hover:bg-surface-tertiary/70 text-content-primary text-sm font-semibold transition-colors"
-                                >
-                                    Dismiss
-                                </button>
-                            )}
-                        </div>
-                    </motion.div>
-                </motion.div>
+                    {status === 'error' && (
+                        <button
+                            onClick={onClose}
+                            className="mt-6 px-4 py-2 rounded-xl bg-surface-tertiary hover:bg-surface-tertiary/70 text-content-primary text-sm font-semibold transition-colors"
+                        >
+                            Dismiss
+                        </button>
+                    )}
+                </div>
             )}
-        </AnimatePresence>
+        </Modal>
     );
-
-    return createPortal(overlay, document.body);
 }
 
 function StatusIcon({ status }: { status: BillingStatus }) {

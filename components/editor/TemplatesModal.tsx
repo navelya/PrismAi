@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { templatesApi } from '@/lib/api/client';
 import { useAppStore } from '@/lib/store/app-store';
+import { Modal } from '@/components/ui/Modal';
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -29,15 +30,6 @@ export function TemplatesModal({ isOpen, onClose, onLoad }: TemplatesModalProps)
     useEffect(() => {
         if (isOpen) fetchTemplates(); // no-op when already loaded
     }, [isOpen, fetchTemplates]);
-
-    // Close on Escape
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        if (isOpen) document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
-    }, [isOpen, onClose]);
 
     const handleConfirmLoad = useCallback(async (templateId: string) => {
         setLoadingId(templateId);
@@ -62,98 +54,75 @@ export function TemplatesModal({ isOpen, onClose, onLoad }: TemplatesModalProps)
     );
 
     return (
-        <AnimatePresence>
-            {isOpen && (
-                <>
-                    {/* Backdrop */}
-                    <motion.div
-                        key="templates-backdrop"
-                        className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={onClose}
+        <Modal
+            open={isOpen}
+            onOpenChange={(o) => !o && onClose()}
+            size="full"
+            contentClassName="max-w-3xl max-h-[80vh] flex flex-col overflow-hidden"
+            showClose={false}
+        >
+            {/* Modal header */}
+            <div className="flex items-center justify-between p-5 border-b border-white/10 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center">
+                        <BookOpen className="w-4 h-4 text-accent-primary" />
+                    </div>
+                    <div>
+                        <Modal.Title className="font-bold text-base">Templates</Modal.Title>
+                        <p className="text-xs text-content-tertiary">Start from a proven workflow</p>
+                    </div>
+                </div>
+                <button
+                    onClick={onClose}
+                    className="p-2 hover:bg-surface-tertiary rounded-lg transition-colors"
+                >
+                    <X className="w-4 h-4 text-content-tertiary" />
+                </button>
+            </div>
+
+            {/* Search */}
+            <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-white/5">
+                <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-content-tertiary" />
+                    <input
+                        type="text"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search templates…"
+                        className="w-full bg-surface-primary border border-stroke-subtle rounded-lg pl-9 pr-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-accent-primary/50 transition-colors"
                     />
+                </div>
+            </div>
 
-                    {/* Modal */}
-                    <motion.div
-                        key="templates-modal"
-                        className="fixed inset-0 z-[81] flex items-center justify-center p-6 pointer-events-none"
-                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-                    >
-                        <div
-                            className="relative w-full max-w-3xl max-h-[80vh] bg-surface-elevated border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Modal header */}
-                            <div className="flex items-center justify-between p-5 border-b border-stroke-subtle flex-shrink-0">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center">
-                                        <BookOpen className="w-4 h-4 text-accent-primary" />
-                                    </div>
-                                    <div>
-                                        <h2 className="font-bold text-content-primary text-base">Templates</h2>
-                                        <p className="text-xs text-content-tertiary">Start from a proven workflow</p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={onClose}
-                                    className="p-2 hover:bg-surface-tertiary rounded-lg transition-colors"
-                                >
-                                    <X className="w-4 h-4 text-content-tertiary" />
-                                </button>
-                            </div>
-
-                            {/* Search */}
-                            <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-stroke-subtle/50">
-                                <div className="flex-1 relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-content-tertiary" />
-                                    <input
-                                        type="text"
-                                        value={search}
-                                        onChange={(e) => setSearch(e.target.value)}
-                                        placeholder="Search templates…"
-                                        className="w-full bg-surface-primary border border-stroke-subtle rounded-lg pl-9 pr-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-accent-primary/50 transition-colors"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Template grid */}
-                            <div className="flex-1 overflow-y-auto p-5">
-                                {loading ? (
-                                    <div className="flex items-center justify-center h-40 gap-2 text-content-tertiary">
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span className="text-sm">Loading templates…</span>
-                                    </div>
-                                ) : filtered.length > 0 ? (
-                                    <div className="grid grid-cols-2 gap-4">
-                                        {filtered.map((tpl) => (
-                                            <TemplateCard
-                                                key={tpl.id}
-                                                name={tpl.name}
-                                                description={tpl.description || 'Workflow template'}
-                                                nodeCount={(tpl.nodes_used || []).length}
-                                                tags={tpl.tags || []}
-                                                isConfirming={confirmId === tpl.id}
-                                                isLoading={loadingId === tpl.id}
-                                                onSelect={() => setConfirmId(tpl.id)}
-                                                onConfirm={() => handleConfirmLoad(tpl.id)}
-                                                onCancel={() => setConfirmId(null)}
-                                            />
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <NoResults hasSearch={!!search} />
-                                )}
-                            </div>
-                        </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
+            {/* Template grid */}
+            <div className="flex-1 overflow-y-auto p-5">
+                {loading ? (
+                    <div className="flex items-center justify-center h-40 gap-2 text-content-tertiary">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-sm">Loading templates…</span>
+                    </div>
+                ) : filtered.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-4">
+                        {filtered.map((tpl) => (
+                            <TemplateCard
+                                key={tpl.id}
+                                name={tpl.name}
+                                description={tpl.description || 'Workflow template'}
+                                nodeCount={(tpl.nodes_used || []).length}
+                                tags={tpl.tags || []}
+                                isConfirming={confirmId === tpl.id}
+                                isLoading={loadingId === tpl.id}
+                                onSelect={() => setConfirmId(tpl.id)}
+                                onConfirm={() => handleConfirmLoad(tpl.id)}
+                                onCancel={() => setConfirmId(null)}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <NoResults hasSearch={!!search} />
+                )}
+            </div>
+        </Modal>
     );
 }
 

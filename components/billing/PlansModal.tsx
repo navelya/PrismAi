@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { Modal } from '@/components/ui/Modal';
 import { type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
 import { usePricing } from '@/lib/billing/use-pricing';
 import { useSubscription } from '@/lib/billing/use-subscription';
@@ -39,70 +38,29 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
         if (isOpen) setSelectedCycle(currentCycle);
     }, [isOpen, currentCycle]);
 
-    // Portal mount guard — prevents SSR mismatch and lets the modal escape
-    // any ancestor with `transform`/`will-change`/`filter`, which would
-    // otherwise re-anchor `position: fixed` and let workspace panels (chat,
-    // tool rail, side panel) render on top of the backdrop.
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => { setMounted(true); }, []);
+    return (
+        <Modal
+            open={isOpen}
+            onOpenChange={(o) => !o && onClose()}
+            // Opens over the account modal.
+            level="elevated"
+            size="full"
+            contentClassName="overflow-hidden"
+        >
+            {/* Decorative gradient */}
+            <div className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-accent-primary/10 blur-3xl" />
 
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        if (isOpen) document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
-    }, [isOpen, onClose]);
-
-    const overlay = (
-        <AnimatePresence>
-            {isOpen && (
-                <>
-                    {/* Single full-viewport layer that owns BOTH the blurred
-                        backdrop and the modal content. Using one layer (and
-                        catching clicks on the wrapper) guarantees that every
-                        pixel outside the card closes the modal — and that no
-                        stray sibling can render above the blur. */}
-                    <motion.div
-                        key="plans-overlay"
-                        className="fixed inset-0 z-[9998] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 overflow-y-auto"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={onClose}
-                    >
-                        <motion.div
-                            key="plans-card-wrap"
-                            className="relative w-full max-w-6xl my-auto"
-                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                        <div
-                            className="relative w-full bg-surface-elevated border border-stroke-subtle rounded-3xl shadow-2xl flex flex-col overflow-hidden"
-                        >
-                            {/* Decorative gradient */}
-                            <div className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-accent-primary/10 blur-3xl" />
-
-                            {/* Header */}
-                            <div className="relative flex items-start justify-between px-8 pt-8 pb-2 flex-shrink-0">
-                                <div>
-                                    <h2 className="text-2xl sm:text-3xl font-bold font-display text-content-primary tracking-tight">
-                                        Choose your plan
-                                    </h2>
-                                    <p className="text-sm text-content-secondary mt-1">
-                                        Cancel anytime. Unused credits never expire.
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={onClose}
-                                    className="p-2 hover:bg-surface-tertiary rounded-lg transition-colors"
-                                >
-                                    <X className="w-5 h-5 text-content-tertiary" />
-                                </button>
-                            </div>
+            {/* Header */}
+            <div className="relative flex items-start justify-between px-8 pt-8 pb-2 flex-shrink-0 pr-14">
+                <div>
+                    <Modal.Title className="text-2xl sm:text-3xl font-bold font-display tracking-tight">
+                        Choose your plan
+                    </Modal.Title>
+                    <p className="text-sm text-content-secondary mt-1">
+                        Cancel anytime. Unused credits never expire.
+                    </p>
+                </div>
+            </div>
 
                             {/* Billing cycle toggle */}
                             <div className="relative flex justify-center px-8 pt-4">
@@ -149,20 +107,12 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                 </div>
                             </div>
 
-                            {/* Footer */}
-                            <div className="relative px-8 pt-6 pb-6 mt-6 text-center text-xs text-content-tertiary border-t border-stroke-subtle">
-                                Prices in USD. Sales tax / VAT calculated at checkout by Paddle, our Merchant of Record.
-                            </div>
-                        </div>
-                        </motion.div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
+            {/* Footer */}
+            <div className="relative px-8 pt-6 pb-6 mt-6 text-center text-xs text-content-tertiary border-t border-white/10">
+                Prices in USD. Sales tax / VAT calculated at checkout by Paddle, our Merchant of Record.
+            </div>
+        </Modal>
     );
-
-    if (!mounted) return null;
-    return createPortal(overlay, document.body);
 }
 
 function CycleToggle({
