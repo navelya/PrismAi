@@ -37,6 +37,98 @@ export interface LayoutPatchInput {
 }
 
 /**
+ * Returns the set of node ids belonging to the connected component(s) that
+ * contain any `touchedIds`. Components are computed over UNDIRECTED edges.
+ * Group children are collapsed to their parent group for component purposes,
+ * then expanded back, so a whole group travels with its component.
+ */
+export function collectAffectedComponentIds(
+    nodes: WorkflowNode[],
+    edges: WorkflowEdge[],
+    touchedIds: Set<string>,
+): Set<string> {
+    const parentOf = new Map<string, string>();
+    for (const n of nodes) if (n.parentNode) parentOf.set(n.id, n.parentNode);
+    const rootId = (id: string): string => parentOf.get(id) ?? id;
+
+    const adj = new Map<string, Set<string>>();
+    const link = (a: string, b: string) => {
+        if (!adj.has(a)) adj.set(a, new Set());
+        adj.get(a)!.add(b);
+    };
+    for (const n of nodes) {
+        const r = rootId(n.id);
+        if (!adj.has(r)) adj.set(r, new Set());
+    }
+    for (const e of edges) {
+        const s = rootId(e.source);
+        const t = rootId(e.target);
+        if (s === t) continue;
+        link(s, t);
+        link(t, s);
+    }
+
+    const visitedRoots = new Set<string>();
+    const queue: string[] = [];
+    for (const id of touchedIds) {
+        const r = rootId(id);
+        if (!visitedRoots.has(r)) {
+            visitedRoots.add(r);
+            queue.push(r);
+        }
+    }
+    while (queue.length) {
+        const cur = queue.shift()!;
+        for (const nb of adj.get(cur) ?? []) {
+            if (!visitedRoots.has(nb)) {
+                visitedRoots.add(nb);
+                queue.push(nb);
+            }
+        }
+    }
+
+    const result = new Set<string>();
+    for (const n of nodes) {
+        if (visitedRoots.has(rootId(n.id))) result.add(n.id);
+    }
+    return result;
+}
+
+/**
+ * Translate a laid-out set of TOP-LEVEL absolute positions so the surviving
+ * (non-added) node that drifted least returns to its original coordinates.
+ * Keeps the component visually anchored; only internal spacing changes.
+ * Returns the laidOut map unchanged when there is no surviving node to anchor
+ * to (fresh canvas) — the caller handles that case.
+ */
+export function anchorTranslate(
+    original: Map<string, { x: number; y: number }>,
+    laidOut: Map<string, { x: number; y: number }>,
+    addedIds: Set<string>,
+): Map<string, { x: number; y: number }> {
+    let bestId: string | null = null;
+    let bestDrift = Infinity;
+    for (const [id, np] of laidOut) {
+        if (addedIds.has(id)) continue;
+        const op = original.get(id);
+        if (!op) continue;
+        const d = Math.hypot(np.x - op.x, np.y - op.y);
+        if (d < bestDrift) {
+            bestDrift = d;
+            bestId = id;
+        }
+    }
+    if (bestId == null) return laidOut;
+    const op = original.get(bestId)!;
+    const np = laidOut.get(bestId)!;
+    const dx = op.x - np.x;
+    const dy = op.y - np.y;
+    const out = new Map<string, { x: number; y: number }>();
+    for (const [id, p] of laidOut) out.set(id, { x: p.x + dx, y: p.y + dy });
+    return out;
+}
+
+/**
  * Compute positions for `newNodes` so they land near the existing canvas
  * with proper internal layout. Existing nodes are NEVER passed to ELK,
  * so their positions cannot be moved by the algorithm.
