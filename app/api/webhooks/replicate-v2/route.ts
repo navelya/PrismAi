@@ -17,6 +17,7 @@ import { resolveNodeOutputWireTypeFromGraph } from '@/lib/workflow/output-type';
 import { clampIterations } from '@/lib/billing/cost';
 import { mirrorMediaToStorage } from '@/lib/workflow/media-mirror';
 import { refundFailedIteration } from '@/lib/workflow/refund';
+import { completeJob } from '@/lib/workflow/complete-job';
 
 /**
  * Finalize a fan-out node via the atomic `finalize_fan_out` RPC. The RPC, under a
@@ -165,22 +166,22 @@ export async function POST(request: NextRequest) {
 
     if (status === 'succeeded') {
       const normalizedOutput = normalizeReplicateOutput(output);
-      const outputType = await resolveNodeOutputWireTypeFromGraph(supabase, executionCtx?.graph_json, nodeId);
-      let resultData = toResultDataForType(outputType, normalizedOutput);
 
-      try {
-        if (isMediaResultType(outputType)) {
-          resultData = await mirrorMediaToStorage(
-            supabase,
-            resultData.filter((item): item is string => typeof item === 'string'),
-            outputType,
-            userId,
-            storageSessionId,
-            nodeId
-          );
-        }
-      } catch (uploadJobError) {
-        if (isFanOut) {
+      if (isFanOut) {
+        const outputType = await resolveNodeOutputWireTypeFromGraph(supabase, executionCtx?.graph_json, nodeId);
+        let resultData = toResultDataForType(outputType, normalizedOutput);
+        try {
+          if (isMediaResultType(outputType)) {
+            resultData = await mirrorMediaToStorage(
+              supabase,
+              resultData.filter((item): item is string => typeof item === 'string'),
+              outputType,
+              userId,
+              storageSessionId,
+              nodeId
+            );
+          }
+        } catch (uploadJobError) {
           await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
             status: 'failed',
             error: `Media upload to storage failed: ${uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'}`,
@@ -190,30 +191,7 @@ export async function POST(request: NextRequest) {
           await finalizeFanOut(supabase, executionId, nodeId, outputType, expectedCount, origin);
           return NextResponse.json({ success: true });
         }
-
-        await supabase.from('node_results').upsert(
-          {
-            execution_id: executionId,
-            node_id: nodeId,
-            session_id: sessionId,
-            user_id: userUuid,
-            status: 'failed',
-            error: `Media upload to storage failed: ${
-              uploadJobError instanceof Error ? uploadJobError.message : 'Unknown error'
-            }`,
-            replicate_id: predictionId,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'execution_id,node_id' }
-        );
-
-        const { origin } = new URL(request.url);
-        await checkAndDispatchChildren(executionId, nodeId, origin);
-        return NextResponse.json({ success: true });
-      }
-
-      if (resultData.some((item) => typeof item === 'string' && isReplicateHostedUrl(item))) {
-        if (isFanOut) {
+        if (resultData.some((item) => typeof item === 'string' && isReplicateHostedUrl(item))) {
           await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
             status: 'failed',
             error: 'Media could not be permanently stored. Please re-run the node.',
@@ -223,27 +201,6 @@ export async function POST(request: NextRequest) {
           await finalizeFanOut(supabase, executionId, nodeId, outputType, expectedCount, origin);
           return NextResponse.json({ success: true });
         }
-
-        await supabase.from('node_results').upsert(
-          {
-            execution_id: executionId,
-            node_id: nodeId,
-            session_id: sessionId,
-            user_id: userUuid,
-            status: 'failed',
-            error: 'Media could not be permanently stored. Please re-run the node.',
-            replicate_id: predictionId,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'execution_id,node_id' }
-        );
-
-        const { origin } = new URL(request.url);
-        await checkAndDispatchChildren(executionId, nodeId, origin);
-        return NextResponse.json({ success: true });
-      }
-
-      if (isFanOut) {
         await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
           status: 'completed',
           resultData,
@@ -254,27 +211,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true });
       }
 
-      const { error: updateError } = await supabase.from('node_results').upsert(
-        {
-          execution_id: executionId,
-          node_id: nodeId,
-          session_id: sessionId,
-          user_id: userUuid,
-          status: 'completed',
-          result_type: outputType,
-          result_data: resultData,
-          replicate_id: predictionId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'execution_id,node_id' }
-      );
-
-      if (updateError) {
-        return NextResponse.json({ error: 'Failed to update node_results' }, { status: 500 });
-      }
-
+      // Single run: idempotent shared pipeline (claim-gated). Safe against a
+      // concurrent cron-sweep poll of the same prediction.
       const { origin } = new URL(request.url);
-      await checkAndDispatchChildren(executionId, nodeId, origin);
+      await completeJob({
+        executionId,
+        nodeId,
+        providerId: 'replicate',
+        providerJobId: predictionId,
+        outcome: { status: 'completed', outputs: normalizedOutput },
+        baseUrl: origin,
+      });
+      return NextResponse.json({ success: true });
     } else if (status === 'failed' || status === 'canceled') {
       if (isFanOut) {
         await upsertPredictionRow(supabase, executionId, nodeId, predictionIndex, {
@@ -288,21 +236,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true });
       }
 
-      await supabase.from('node_results').upsert(
-        {
-          execution_id: executionId,
-          node_id: nodeId,
-          session_id: sessionId,
-          status: 'failed',
-          error: predictionError || `Prediction ${status}`,
-          replicate_id: predictionId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'execution_id,node_id' }
-      );
-
+      // Single run: shared claim-gated failure path.
       const { origin } = new URL(request.url);
-      await checkAndDispatchChildren(executionId, nodeId, origin);
+      await completeJob({
+        executionId,
+        nodeId,
+        providerId: 'replicate',
+        providerJobId: predictionId,
+        outcome: { status: 'failed', error: predictionError || `Prediction ${status}` },
+        baseUrl: origin,
+      });
+      return NextResponse.json({ success: true });
     } else {
       console.log(`[Webhook/Replicate-v2] Ignoring intermediate status: ${status}`);
     }
