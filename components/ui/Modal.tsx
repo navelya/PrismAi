@@ -112,9 +112,9 @@ function ModalRoot({
                                 >
                                     <motion.div
                                         className={cn(
-                                            // Near-opaque so inner text stays legible over a busy canvas;
-                                            // light blur keeps a hint of glass. Plain deep shadow (no accent glow).
-                                            'pointer-events-auto relative w-full my-auto bg-bg-primary/95 backdrop-blur-md rounded-2xl shadow-2xl shadow-black/40 border border-white/10',
+                                            // Solid surface (like the old profile window) so inner text is
+                                            // fully legible. Plain deep shadow — no accent glow.
+                                            'pointer-events-auto relative w-full my-auto bg-surface-primary backdrop-blur-2xl rounded-2xl shadow-2xl shadow-black/40 border border-white/10',
                                             SIZE_MAX_WIDTH[size],
                                             contentClassName,
                                         )}
