@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { Play, Pause, X, Check, User, Tag, Mic, Heart, Flame, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { languageFlag, KNOWN_LANGUAGES } from '@/lib/voices/language-flags';
@@ -283,10 +283,6 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
     }
   };
 
-  // Render via a portal to <body> so the fixed overlay escapes the properties
-  // panel's backdrop-filter ancestor (which would otherwise trap `position:fixed`).
-  if (!open || typeof document === 'undefined') return null;
-
   const TABS: { id: Tab; label: string; icon: typeof Flame }[] = [
     { id: 'popular', label: 'Popular', icon: Flame },
     { id: 'all', label: 'All voices', icon: Mic },
@@ -295,15 +291,15 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
 
   const showSkeletons = loading && voices.length === 0;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-150"
-      onClick={onClose}
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(o) => !o && onClose()}
+      size="full"
+      contentClassName="max-w-4xl h-[85vh] flex flex-col overflow-hidden"
+      showClose={false}
+      srTitle="Find the right voice"
     >
-      <div
-        className="w-full max-w-4xl h-[85vh] flex flex-col bg-surface-elevated border border-stroke-subtle rounded-3xl shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-stroke-subtle/70 space-y-4 shrink-0">
           <div className="flex items-center justify-between">
@@ -558,8 +554,6 @@ export function VoicePickerModal({ open, onClose, selectedExternalId, onSelect }
             {loading && voices.length === 0 ? 'Loading…' : `${voices.length} voice${voices.length === 1 ? '' : 's'}${hasMore ? '+' : ''}`}
           </span>
         </div>
-      </div>
-    </div>,
-    document.body
+    </Modal>
   );
 }

@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2, Wand2, ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 import {
     charactersApi,
     generateCharacterVariantStream,
@@ -67,12 +67,6 @@ export default function CharacterVariantModal({
 
     const dismissingRef = useRef(false);
 
-    // Portal to <body> so the fixed-inset overlay centers on the viewport even
-    // when a parent has a CSS transform that would otherwise become the
-    // containing block for `fixed`.
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => setMounted(true), []);
-
     // Reset all state on open
     useEffect(() => {
         if (!open) return;
@@ -80,7 +74,7 @@ export default function CharacterVariantModal({
         setStep('changes');
         setDirection(1);
         setChanges('');
-        setName(source ? `${source.name} (variant)` : '');
+        setName(source ? `${source?.name} (variant)` : '');
         setWeight(source?.weight ?? 70);
         setSlots([]);
         setGenerating(false);
@@ -226,18 +220,6 @@ export default function CharacterVariantModal({
         onClose();
     };
 
-    // Escape key handling
-    useEffect(() => {
-        if (!open) return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void handleDismiss(); };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-        // handleDismiss closes over current field state; re-bind when it changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, onSaveDraft, name, description, selectedSheet, cover, weight]);
-
-    if (!mounted) return null;
-
     const stepIndex = STEPS.indexOf(step);
     const sourceThumb =
         source?.cover_url ||
@@ -245,29 +227,19 @@ export default function CharacterVariantModal({
         source?.thumbnail_url ||
         source?.reference_images?.[0]?.url;
 
-    return createPortal(
-        <AnimatePresence>
-            {open && source && (
-                <motion.div
-                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-                    onClick={() => void handleDismiss()}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                >
-                    {/* Fixed-size dialog — same size on every step. */}
-                    <motion.div
-                        className="w-full max-w-4xl h-[min(88vh,820px)] rounded-2xl bg-surface-primary border border-stroke-subtle shadow-2xl flex flex-col overflow-hidden"
-                        onClick={(e) => e.stopPropagation()}
-                        initial={{ opacity: 0, scale: 0.96, y: 12 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.96, y: 12 }}
-                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                    >
+    return (
+        <Modal
+            open={open && !!source}
+            // X / backdrop / Escape route through handleDismiss (persists a draft);
+            // the footer Cancel button calls onClose directly.
+            onOpenChange={(o) => { if (!o) void handleDismiss(); }}
+            size="full"
+            contentClassName="max-w-4xl h-[min(88vh,820px)] flex flex-col overflow-hidden"
+            showClose={false}
+        >
                         {/* Header */}
                         <div className="flex items-center justify-between p-5 pb-3 shrink-0">
-                            <h2 className="text-lg font-bold text-content-primary">Create variant</h2>
+                            <Modal.Title className="text-lg font-bold">Create variant</Modal.Title>
                             <button
                                 onClick={() => void handleDismiss()}
                                 className="p-1.5 rounded-lg hover:bg-interactive-hover text-content-tertiary"
@@ -302,12 +274,12 @@ export default function CharacterVariantModal({
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-14 h-14 rounded-lg overflow-hidden border border-stroke-subtle bg-white/5 shrink-0">
                                                         {sourceThumb && (
-                                                            <img src={sourceThumb} alt={source.name} className="w-full h-full object-cover" />
+                                                            <img src={sourceThumb} alt={source?.name} className="w-full h-full object-cover" />
                                                         )}
                                                     </div>
                                                     <p className="text-xs text-content-tertiary">
                                                         Restyle{' '}
-                                                        <span className="text-content-secondary font-medium">{source.name}</span>
+                                                        <span className="text-content-secondary font-medium">{source?.name}</span>
                                                         {' '}— same person, your changes applied.
                                                     </p>
                                                 </div>
@@ -426,10 +398,6 @@ export default function CharacterVariantModal({
                                 )}
                             </div>
                         </div>
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>,
-        document.body,
+        </Modal>
     );
 }

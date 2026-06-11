@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
+import { Modal } from '@/components/ui/Modal';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { Slider } from '@/components/ui/Slider';
 import { formatCredits } from '@/lib/billing/cost';
@@ -36,12 +36,6 @@ function AutoRunIntroDialog() {
     const [saving, setSaving] = useState(false);
 
     const willRun = !configOnly && intro!.cost <= limit;
-
-    // Portal to <body> so the fixed-inset overlay centers on the viewport even
-    // when a parent (the chat panel) has a CSS transform/backdrop that would
-    // otherwise become the containing block for `fixed`.
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => setMounted(true), []);
 
     const finish = async (patch: Record<string, any>, run: boolean) => {
         setSaving(true);
@@ -91,28 +85,16 @@ function AutoRunIntroDialog() {
         void finish({ seenAutoRunIntro: true }, false);
     };
 
-    // Esc closes (counts as dismiss).
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') handleDismiss();
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [saving]);
-
-    if (!mounted) return null;
-
-    return createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-                onClick={handleDismiss}
-            />
-
+    return (
+        <Modal
+            open
+            onOpenChange={(o) => { if (!o) handleDismiss(); }}
+            dismissable={!saving}
+            size="md"
+            showClose={false}
+        >
             {/* Dialog */}
-            <div className="relative w-full max-w-md rounded-3xl border border-stroke-subtle bg-surface-elevated shadow-2xl shadow-black/40 p-6 sm:p-7 animate-in fade-in zoom-in-95 duration-200">
+            <div className="relative p-6 sm:p-7">
                 <button
                     type="button"
                     onClick={handleDismiss}
@@ -122,9 +104,9 @@ function AutoRunIntroDialog() {
                     <X className="w-4 h-4" />
                 </button>
 
-                <h2 className="text-lg font-bold text-content-primary pr-8">
+                <Modal.Title className="text-lg font-bold pr-8">
                     {configOnly ? 'Auto-run' : 'Auto-run is ready'}
-                </h2>
+                </Modal.Title>
                 <p className="text-sm text-content-secondary leading-relaxed mt-2">
                     When the chat builds a workflow, it can run it for you automatically — as
                     long as the run costs up to your auto-run limit. If a run would cost more,
@@ -201,7 +183,6 @@ function AutoRunIntroDialog() {
                     </button>
                 </div>
             </div>
-        </div>,
-        document.body
+        </Modal>
     );
 }
