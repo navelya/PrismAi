@@ -19,6 +19,30 @@ const ELK_LAYERED_OPTIONS = {
     'elk.separateConnectedComponents': 'true',
 };
 
+// Interactive (incremental) layout: existing node x/y are fed as pseudo-
+// positions so ELK re-derives layers from x and row-order from y, keeping
+// the arrangement close to current while admitting new nodes. Confirmed
+// viable by scripts/proto-interactive-layout.mjs.
+const ELK_INTERACTIVE_OPTIONS = {
+    'elk.algorithm': 'layered',
+    'elk.direction': 'RIGHT',
+    'elk.layered.cycleBreaking.strategy': 'INTERACTIVE',
+    'elk.layered.layering.strategy': 'INTERACTIVE',
+    'elk.layered.crossingMinimization.semiInteractive': 'true',
+    'elk.separateConnectedComponents': 'false',
+    'elk.spacing.nodeNode': '60',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '120',
+};
+
+export interface InteractiveRelayoutInput {
+    // All nodes in the affected component(s), carrying CURRENT absolute
+    // positions (top-level) / parent-relative positions (children) and
+    // measured width/height where available.
+    componentNodes: WorkflowNode[];
+    componentEdges: WorkflowEdge[];
+    addedIds: Set<string>;
+}
+
 // Padding inside a group container: top has room for the group's header,
 // sides and bottom hug the children.
 const GROUP_PAD_TOP = 56;
@@ -126,6 +150,154 @@ export function anchorTranslate(
     const out = new Map<string, { x: number; y: number }>();
     for (const [id, p] of laidOut) out.set(id, { x: p.x + dx, y: p.y + dy });
     return out;
+}
+
+// Seed added TOP-LEVEL nodes with an x/y derived from their connected
+// EXISTING neighbors so interactive layering assigns the right column.
+// Downstream of an existing node => to its right; upstream => to its left.
+function seedAddedTopLevel(
+    topLevel: WorkflowNode[],
+    edges: WorkflowEdge[],
+    addedIds: Set<string>,
+    sizeOfNode: (n: WorkflowNode) => { width: number; height: number },
+): Map<string, { x: number; y: number }> {
+    const LAYER_GAP = 120;
+    const byId = new Map(topLevel.map((n) => [n.id, n]));
+    const seeded = new Map<string, { x: number; y: number }>();
+    for (const n of topLevel) {
+        seeded.set(n.id, { x: n.position?.x ?? 0, y: n.position?.y ?? 0 });
+    }
+    for (const n of topLevel) {
+        if (!addedIds.has(n.id)) continue;
+        const w = sizeOfNode(n).width;
+        const ups = edges
+            .filter((e) => e.target === n.id)
+            .map((e) => byId.get(e.source))
+            .filter((x): x is WorkflowNode => !!x && !addedIds.has(x.id));
+        const downs = edges
+            .filter((e) => e.source === n.id)
+            .map((e) => byId.get(e.target))
+            .filter((x): x is WorkflowNode => !!x && !addedIds.has(x.id));
+        if (ups.length) {
+            const ref = ups[0];
+            seeded.set(n.id, {
+                x: Math.max(...ups.map((u) => seeded.get(u.id)!.x)) + LAYER_GAP + sizeOfNode(ref).width,
+                y: seeded.get(ref.id)!.y,
+            });
+        } else if (downs.length) {
+            const ref = downs[0];
+            seeded.set(n.id, {
+                x: Math.min(...downs.map((d) => seeded.get(d.id)!.x)) - LAYER_GAP - w,
+                y: seeded.get(ref.id)!.y,
+            });
+        }
+    }
+    return seeded;
+}
+
+/**
+ * Re-lay-out the affected connected component using ELK's interactive
+ * (pseudo-position) layered layout, then anchor-pin the result so the
+ * least-drifted surviving node returns to its original coordinates.
+ *
+ * Returns Map<nodeId, {x,y}> for ALL component nodes. Top-level nodes get
+ * absolute positions; group children get parent-relative positions (and are
+ * NOT anchor-translated — they ride with their parent).
+ *
+ * Throws on ELK failure so the caller can fall back to layoutPatchAsync.
+ */
+export async function interactiveRelayout(
+    input: InteractiveRelayoutInput,
+): Promise<Map<string, { x: number; y: number }>> {
+    const { componentNodes, componentEdges, addedIds } = input;
+    if (componentNodes.length === 0) return new Map();
+
+    const ids = new Set(componentNodes.map((n) => n.id));
+    const childOfGroup = new Map<string, WorkflowNode[]>(); // group id -> its children in the component
+    const topLevel: WorkflowNode[] = [];
+    for (const n of componentNodes) {
+        if (n.parentNode && ids.has(n.parentNode)) {
+            const arr = childOfGroup.get(n.parentNode) ?? [];
+            arr.push(n);
+            childOfGroup.set(n.parentNode, arr);
+        } else {
+            topLevel.push(n);
+        }
+    }
+
+    const result = new Map<string, { x: number; y: number }>();
+
+    // Group interiors: re-use existing per-group interior layout for groups
+    // that gained new children; groups with only existing children keep their
+    // current child positions (not added to result, so the store leaves them).
+    const groupSizes = new Map<string, { width: number; height: number }>();
+    for (const [groupId, kids] of childOfGroup) {
+        const hasNewChild = kids.some((k) => addedIds.has(k.id));
+        if (hasNewChild) {
+            const { childPositions, groupSize } = await layoutGroupInterior(groupId, kids, componentEdges);
+            for (const [id, pos] of childPositions) result.set(id, pos);
+            groupSizes.set(groupId, groupSize);
+        } else {
+            groupSizes.set(groupId, effectiveSize(componentNodes.find((n) => n.id === groupId)!));
+        }
+    }
+
+    // Top-level interactive pass.
+    const sizeFor = (n: WorkflowNode) => groupSizes.get(n.id) ?? effectiveSize(n);
+    const seeded = seedAddedTopLevel(topLevel, componentEdges, addedIds, sizeFor);
+
+    const topIds = new Set(topLevel.map((n) => n.id));
+    const childToParent = new Map<string, string>();
+    for (const n of componentNodes) if (n.parentNode) childToParent.set(n.id, n.parentNode);
+    const remap = (id: string): string | null => {
+        let cur: string | undefined = id;
+        const guard = new Set<string>();
+        while (cur && !topIds.has(cur)) {
+            if (guard.has(cur)) return null;
+            guard.add(cur);
+            cur = childToParent.get(cur);
+        }
+        return cur ?? null;
+    };
+
+    const seen = new Set<string>();
+    const elkEdges: any[] = [];
+    componentEdges.forEach((e, i) => {
+        const s = remap(e.source);
+        const t = remap(e.target);
+        if (!s || !t || s === t) return;
+        const key = `${s}→${t}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        elkEdges.push({ id: e.id ?? `__elk_int_${i}`, sources: [s], targets: [t] });
+    });
+
+    const graph: any = {
+        id: 'root',
+        layoutOptions: ELK_INTERACTIVE_OPTIONS,
+        children: topLevel.map((n) => {
+            const { width, height } = sizeFor(n);
+            const p = seeded.get(n.id)!;
+            return { id: n.id, x: p.x, y: p.y, width, height };
+        }),
+        edges: elkEdges,
+    };
+
+    const laidOut = await elk.layout(graph);
+    const topPositions = new Map<string, { x: number; y: number }>();
+    for (const c of laidOut.children ?? []) {
+        if (typeof c.x === 'number' && typeof c.y === 'number') {
+            topPositions.set(c.id, { x: c.x, y: c.y });
+        }
+    }
+
+    // Anchor-pin against the ORIGINAL top-level positions.
+    const originalTop = new Map<string, { x: number; y: number }>();
+    for (const n of topLevel) originalTop.set(n.id, { x: n.position?.x ?? 0, y: n.position?.y ?? 0 });
+    const anchored = anchorTranslate(originalTop, topPositions, addedIds);
+
+    for (const [id, p] of anchored) result.set(id, p);
+    return result;
 }
 
 /**
