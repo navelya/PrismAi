@@ -21,6 +21,12 @@ A separate Python background-removal service runs on port 8000 (see [STARTUP.md]
 
 Required env (in `.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY` (chat brain), `GEMINI_API_KEY` (used by session-title generation and other Gemini features), `REPLICATE_API_TOKEN`, `REPLICATE_WEBHOOK_SIGNING_SECRET`, `NEXT_PUBLIC_APP_URL` (used as the Replicate webhook base URL — must be publicly reachable), `ELEVENLABS_API_KEY` (direct ElevenLabs API — speech/audio provider adapter), `CRON_SECRET`, `RESEND_API_KEY` (admin alert emails for billing exceptions), `ADMIN_ALERT_EMAIL` (destination for billing alerts), `ADMIN_ALERT_FROM` (optional, defaults to `alerts@prismai.local`). Billing (Paddle): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENVIRONMENT`, `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT`.
 
+## UI components — reuse first
+
+- **Reuse a shared primitive before building anything new.** Before writing UI, check [components/ui/](components/ui/) for a primitive that fits and use it.
+- **All popups go through the shared Modal.** For **any** overlay/popup — modal, dialog, confirmation, info/message, wizard — use [components/ui/Modal.tsx](components/ui/Modal.tsx) (or `ConfirmationModal` for confirms). **Never** hand-roll a Radix Dialog shell or a `createPortal` + overlay + `motion.div` popup; that is exactly how the app drifted into ~15 divergent popup styles (backdrops `black/60…/80`, radii `2xl/3xl`, a `z-50…z-[9999]` ladder). `Modal` owns the house glass style, the spring animation, the close button, and the `level` z-scale (`base`/`elevated`/`top`). Centered modals only — right-side drawers (`UserDetailDrawer`) and bottom sheets (`MobileActionSheet`) are a separate not-yet-built `Modal` variant; match the existing one until then.
+- **Shared vs. one-off.** If a piece of UI will be reused across the app, build it as a shared component in `components/ui/` rather than inline, and extend an existing primitive rather than duplicating its styling. A bespoke one-off component is a last resort, for genuinely single-use UI.
+
 ## Things that bite
 
 - **Service-role Supabase client** ([lib/supabase/service.ts](lib/supabase/service.ts)) bypasses RLS. Use ONLY in webhooks / cron / background workers. Never in user-facing handlers.
