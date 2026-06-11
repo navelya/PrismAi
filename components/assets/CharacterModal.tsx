@@ -381,7 +381,11 @@ export default function CharacterModal({
                                 >
                                     {/* Step: method */}
                                     {step === 'method' && (
-                                        <div className="h-full flex items-center justify-center">
+                                        // Top-aligned (not vertically centered): the Describe vs Upload
+                                        // panels differ in height, and centering would shift the whole
+                                        // block — making the sliding-pill tab animation jump vertically.
+                                        // Pinning the row keeps the pill a clean horizontal slide.
+                                        <div className="h-full flex flex-col items-center pt-8">
                                             <div className="w-full max-w-lg space-y-4">
                                                 {/* Method toggle — glass sliding-pill segmented control */}
                                                 <div className="flex justify-center">
