@@ -22,7 +22,7 @@ import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 import CompositorAudio from './CompositorAudio';
 import Timeline from './Timeline';
-import { detectSourceKind, LayerSourceKind, computeTimelineDuration, layerAABB, rectsIntersect, resolveCompositeBaseFill } from '../shared';
+import { detectSourceKind, LayerSourceKind, computeTimelineDuration, getEffectiveDuration, splitLayerAtPlayhead, layerAABB, rectsIntersect, resolveCompositeBaseFill } from '../shared';
 import { useInertBackground } from '@/lib/hooks/use-inert-background';
 import MultiLayerProperties from './MultiLayerProperties';
 
@@ -734,6 +734,73 @@ export default function CompositorEditorModal({
     const handleUpdateLayer = useCallback((layerId: string, patch: Partial<CompositorLayer>) => {
         updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, ...patch } : l));
     }, [updateLayers]);
+
+    /** Blade-cut the clip at the current playhead into two clips on the same row. */
+    const handleSplitLayer = useCallback((layerId: string) => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = (node?.data?.config as CompositorConfig) || initialConfig;
+        const list = cfg.layers || [];
+        const layer = list.find((l) => l.id === layerId);
+        if (!layer) return;
+        const kind = sourceKindByLayerId[layerId] ?? 'unknown';
+        const intrinsic = intrinsicDurations[layerId] ?? null;
+        const total = computeTimelineDuration(list, cfg.timelineDuration ?? null, intrinsicDurations);
+        const eff = getEffectiveDuration(layer, kind, intrinsic, total);
+        const [left, right] = splitLayerAtPlayhead(layer, playhead, eff);
+        if (!right) return; // playhead outside the clip — nothing to cut
+        updateLayers((prev) => {
+            const i = prev.findIndex((l) => l.id === layerId);
+            if (i < 0) return prev;
+            const copy = [...prev];
+            copy.splice(i, 1, left, right);
+            return copy;
+        });
+    }, [nodeId, initialConfig, sourceKindByLayerId, intrinsicDurations, playhead, updateLayers]);
+
+    /**
+     * Delete a single clip. If other clips still share its source row, drop
+     * just this layer (the edge/connection survives). If it is the LAST clip
+     * on the row, remove the edge — the store cascade drops the layer and the
+     * "row" disappears entirely (the "remove only when row completely deleted"
+     * rule).
+     */
+    const handleDeleteClip = useCallback((layerId: string) => {
+        const node = useAppStore.getState().currentWorkflow?.nodes.find((n) => n.id === nodeId);
+        const cfg = (node?.data?.config as CompositorConfig) || initialConfig;
+        const list = cfg.layers || [];
+        const layer = list.find((l) => l.id === layerId);
+        if (!layer) return;
+        const siblings = list.filter((l) => l.sourceHandleId === layer.sourceHandleId);
+        if (siblings.length > 1) {
+            updateLayers((prev) => prev.filter((l) => l.id !== layerId));
+            setSelectedLayerIds((prev) => prev.filter((id) => id !== layerId));
+        } else {
+            deleteSelectedLayer(layerId); // removes the edge; store strips the layer
+        }
+    }, [nodeId, initialConfig, updateLayers, deleteSelectedLayer]);
+
+    /** Toggle a boolean flag across every clip sharing a source row. */
+    const handleToggleRow = useCallback((sourceHandleId: string, field: 'visible' | 'locked' | 'muted') => {
+        updateLayers((prev) => {
+            const rowLayers = prev.filter((l) => l.sourceHandleId === sourceHandleId);
+            if (rowLayers.length === 0) return prev;
+            // Drive all clips to the negation of the FIRST clip's value, so the
+            // row toggles as a unit even if clips drifted out of sync.
+            const next = !rowLayers[0][field];
+            return prev.map((l) => l.sourceHandleId === sourceHandleId ? { ...l, [field]: next } : l);
+        });
+    }, [updateLayers]);
+
+    /** Remove an entire row (drops the upstream edge → all its clips). */
+    const handleRemoveRow = useCallback((sourceHandleId: string) => {
+        useAppStore.getState().onEdgesChange([{ id: sourceHandleId, type: 'remove' } as any]);
+        setSelectedLayerIds([]);
+    }, []);
+
+    /** Commit a left-edge trim-in (startTime + duration + trimIn move together). */
+    const handleTrimStart = useCallback((layerId: string, startTime: number, duration: number, trimIn: number) => {
+        handleUpdateLayer(layerId, { startTime, duration, trimIn });
+    }, [handleUpdateLayer]);
 
     // Lock aspect ratio for the Transformer's edge (middle) anchors. Corner
     // anchors already keep ratio via Konva's default `keepRatio`, but the
