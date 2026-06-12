@@ -198,10 +198,13 @@ async function dispatchReplicateNode(
                 completed_at: new Date().toISOString(),
             }, sessionId, baseUrl);
         } else {
+            const providerId = (result as any).providerId || 'replicate';
             await updateNodeState(executionId, nodeId, {
                 status: 'running',
-                replicate_prediction_id: (result.data as any)?.id,
-                provider_id: (result as any).providerId || 'replicate',
+                // replicate_id is Replicate-only legacy: other providers leave it
+                // null — the generic provider_job_id column carries their job id.
+                replicate_prediction_id: providerId === 'replicate' ? (result.data as any)?.id : undefined,
+                provider_id: providerId,
                 provider_job_id: (result as any).providerJobId || (result.data as any)?.id,
                 dispatched_at: new Date().toISOString(),
             } as any, sessionId, baseUrl);
@@ -282,19 +285,26 @@ async function dispatchReplicateNode(
     }, sessionId, baseUrl);
 
     const supabase = createServiceClient();
-    const rows = results.map((r, i) => ({
-        execution_id: executionId,
-        node_id: nodeId,
-        prediction_index: i,
-        replicate_id: r.status === 'pending' ? ((r.data as any)?.id ?? null) : null,
-        provider_id: (r as any).providerId || 'replicate',
-        provider_job_id: r.status === 'pending'
-            ? ((r as any).providerJobId ?? (r.data as any)?.id ?? null)
-            : null,
-        status: r.status === 'pending' ? 'pending' : 'failed',
-        error: r.status === 'pending' ? null : (r.error || 'Prediction create failed'),
-        updated_at: new Date().toISOString(),
-    }));
+    const rows = results.map((r, i) => {
+        const providerId = (r as any).providerId || 'replicate';
+        return {
+            execution_id: executionId,
+            node_id: nodeId,
+            prediction_index: i,
+            // replicate_id is Replicate-only legacy: other providers leave it
+            // null — the generic provider_job_id column carries their job id.
+            replicate_id: r.status === 'pending' && providerId === 'replicate'
+                ? ((r.data as any)?.id ?? null)
+                : null,
+            provider_id: providerId,
+            provider_job_id: r.status === 'pending'
+                ? ((r as any).providerJobId ?? (r.data as any)?.id ?? null)
+                : null,
+            status: r.status === 'pending' ? 'pending' : 'failed',
+            error: r.status === 'pending' ? null : (r.error || 'Prediction create failed'),
+            updated_at: new Date().toISOString(),
+        };
+    });
     // Insert-ONLY (ignoreDuplicates): a fast prediction's webhook may have already
     // upserted its row to 'completed'/'failed' before this batch runs. The webhook
     // is the authoritative resolver — dispatch must register the initial rows
@@ -354,29 +364,56 @@ async function updateNodeState(
   const resolvedResultType = state.result_type ?? (state.result_url ? inferResultTypeFromValue(state.result_url) : undefined);
   const resolvedResultData = state.result_data ?? (state.result_url ? [state.result_url] : undefined);
   
+  const status = state.status || 'running';
+  const isTerminal = status === 'completed' || status === 'failed';
+  const row = {
+    execution_id: executionId,
+    node_id: nodeId,
+    session_id: sessionId,
+    status,
+    result_type: resolvedResultType,
+    result_data: resolvedResultData,
+    error: state.error,
+    replicate_id: state.replicate_prediction_id,
+    provider_id: (state as any).provider_id ?? (state.replicate_prediction_id ? 'replicate' : undefined),
+    provider_job_id: (state as any).provider_job_id ?? state.replicate_prediction_id,
+    updated_at: new Date().toISOString(),
+  };
+
   // 1. Update node_results table (Engine source of truth). Retried because a
   // transient `fetch failed` here would otherwise orphan the node in a
   // non-terminal status and hang the whole execution in 'running'.
   try {
     await withRetry(async () => {
-      const { error: upsertError } = await supabase
+      if (isTerminal) {
+        // Terminal writes keep the blind upsert (unchanged behavior — the claim
+        // RPC / orchestrator is the authoritative gate on the async path).
+        const { error: upsertError } = await supabase
+          .from('node_results')
+          .upsert(row, { onConflict: 'execution_id,node_id' });
+        if (upsertError) throw new Error(upsertError.message);
+        return;
+      }
+      // Non-terminal ('pending'/'running') writes must NEVER overwrite a
+      // terminal row: an early webhook/sweep claim can land before the
+      // dispatcher's 'running' write, and regressing a completed/failed row
+      // re-opens it for the sweep → double child dispatch / double refund.
+      const { execution_id: _e, node_id: _n, ...updateFields } = row;
+      const { data: updated, error: updateError } = await supabase
         .from('node_results')
-        .upsert({
-          execution_id: executionId,
-          node_id: nodeId,
-          session_id: sessionId,
-          status: state.status || 'running',
-          result_type: resolvedResultType,
-          result_data: resolvedResultData,
-          error: state.error,
-          replicate_id: state.replicate_prediction_id,
-          provider_id: (state as any).provider_id ?? (state.replicate_prediction_id ? 'replicate' : undefined),
-          provider_job_id: (state as any).provider_job_id ?? state.replicate_prediction_id,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'execution_id,node_id'
-        });
-      if (upsertError) throw new Error(upsertError.message);
+        .update(updateFields)
+        .eq('execution_id', executionId)
+        .eq('node_id', nodeId)
+        .not('status', 'in', '("completed","failed")')
+        .select('node_id');
+      if (updateError) throw new Error(updateError.message);
+      if (updated && updated.length > 0) return;
+      // 0 rows touched: either the row doesn't exist yet (insert it) or it is
+      // already terminal (ignoreDuplicates leaves it untouched).
+      const { error: insertError } = await supabase
+        .from('node_results')
+        .upsert(row, { onConflict: 'execution_id,node_id', ignoreDuplicates: true });
+      if (insertError) throw new Error(insertError.message);
     }, `node_results upsert for ${nodeId}`);
   } catch (err) {
     throw new Error(`Failed to update node state for ${nodeId}: ${err instanceof Error ? err.message : String(err)}`);
