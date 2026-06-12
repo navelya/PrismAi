@@ -35,8 +35,12 @@ interface TimelineProps {
     onRemoveRow: (sourceHandleId: string) => void;
 }
 
-/** Pixels per second of the ruler. Stage 1 fixed; zoom slider is Stage 2. */
+/** Default pixels-per-second for the ruler — the seed for the session-only
+ *  zoom state. Live scale lives in component state (`pixelsPerSecond`). */
 const PIXELS_PER_SECOND = 40;
+/** Zoom slider bounds (pixels per second). */
+const PPS_MIN = 10;
+const PPS_MAX = 120;
 /** Per-row height — kept in sync with TimelineTrack visuals. */
 const ROW_HEIGHT = 36;
 /** Width of the fixed label column on the left. */
@@ -116,8 +120,6 @@ const Timeline = memo(function Timeline({
     // Timeline zoom — pixels per second. Session-only view state (never
     // persisted to node config). Default matches the historical fixed value.
     const [pixelsPerSecond, setPixelsPerSecond] = useState(PIXELS_PER_SECOND);
-    const PPS_MIN = 10;
-    const PPS_MAX = 120;
 
     const tickStep = useMemo(() => {
         // Smallest "nice" step whose on-screen gap is >= 48px, so labels never crowd.
