@@ -218,7 +218,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         // below (webhook fast-path in prod, replicate.run in local dev), unchanged.
         if (primary.providerKey !== 'replicate') {
             const asyncAdapter = getAsyncAdapter(primary.providerKey);
-            if (asyncAdapter.key !== primary.providerKey) {
+            if (!asyncAdapter) {
                 throw new Error(`No async adapter registered for provider '${primary.providerKey}'`);
             }
             const modelForAdapter = { ...(model as any), provider_model_id: primary.providerModelId };

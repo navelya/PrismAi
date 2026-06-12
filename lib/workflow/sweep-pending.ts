@@ -66,6 +66,7 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
     if (!row.provider_id) { report.errors++; continue; }
     try {
       const adapter = getAsyncAdapter(row.provider_id);
+      if (!adapter) { report.errors++; continue; }
       const poll = await adapter.poll(row.provider_job_id as string);
       await supabase.from('node_results')
         .update({ last_polled_at: new Date().toISOString() })
@@ -116,6 +117,7 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
     if (!row.provider_id) { report.errors++; continue; }
     try {
       const adapter = getAsyncAdapter(row.provider_id);
+      if (!adapter) { report.errors++; continue; }
       const poll = await adapter.poll(row.provider_job_id as string);
       await supabase.from('node_predictions')
         .update({ last_polled_at: new Date().toISOString() })

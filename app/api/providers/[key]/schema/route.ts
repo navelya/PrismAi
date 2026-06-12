@@ -16,7 +16,7 @@ export async function GET(request: NextRequest, { params }: { params: { key: str
   if (!slug) return NextResponse.json({ error: 'Missing model slug (?model=)' }, { status: 400 });
 
   const adapter = getAsyncAdapter(params.key);
-  if (typeof adapter.fetchSchema !== 'function') {
+  if (!adapter || typeof adapter.fetchSchema !== 'function') {
     return NextResponse.json({ error: `Provider '${params.key}' has no schema API; enter inputs manually.` }, { status: 501 });
   }
   try {
