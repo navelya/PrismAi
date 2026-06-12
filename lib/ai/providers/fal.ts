@@ -9,6 +9,12 @@ function falHeaders(): Record<string, string> {
   return { Authorization: `Key ${key}`, 'Content-Type': 'application/json' };
 }
 
+/** AbortSignal.timeout fires a TimeoutError (undici may surface AbortError). */
+function isAbortError(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 /**
  * FAL (fal.ai) async adapter. Queue model: POST to queue.fal.run/{slug} returns a
  * request_id + status_url + response_url; poll status_url until COMPLETED then GET
@@ -23,11 +29,20 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
   async submit(model, inputs, _ctx, _opts) {
     const slug = (model as any).provider_model_id as string;
     if (!slug) throw new Error('FAL adapter: model has no provider_model_id (slug)');
-    const res = await fetch(`${FAL_QUEUE}/${slug}`, {
-      method: 'POST',
-      headers: falHeaders(),
-      body: JSON.stringify(inputs ?? {}),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${FAL_QUEUE}/${slug}`, {
+        method: 'POST',
+        headers: falHeaders(),
+        body: JSON.stringify(inputs ?? {}),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      // A timed-out submit is transient — the dispatcher's error handling can
+      // retry it; don't classify it as a validation failure.
+      if (isAbortError(err)) (err as any).errorClass = 'transient';
+      throw err;
+    }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       const cls = falAsyncAdapter.classifyError('submit', res.status, body);
@@ -46,7 +61,14 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
     const slug = providerJobId.slice(0, sep);
     const requestId = providerJobId.slice(sep + 2);
     const base = `${FAL_QUEUE}/${slug}/requests/${requestId}`;
-    const statusRes = await fetch(`${base}/status`, { headers: falHeaders() });
+    let statusRes: Response;
+    try {
+      statusRes = await fetch(`${base}/status`, { headers: falHeaders(), signal: AbortSignal.timeout(15_000) });
+    } catch (err) {
+      // Timed-out poll is transient — report pending; the sweep retries.
+      if (isAbortError(err)) return { status: 'pending' };
+      throw err;
+    }
     const statusBody = await statusRes.json().catch(() => ({}));
     if (!statusRes.ok) {
       return { status: statusRes.status >= 500 || statusRes.status === 429 ? 'pending' : 'failed',
@@ -57,10 +79,27 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
       return { status: 'failed', error: (statusBody && (statusBody.error || statusBody.detail)) || `FAL job ${s}` };
     }
     if (s !== 'COMPLETED') return { status: 'pending' };
-    const respRes = await fetch(`${base}`, { headers: falHeaders() });
+    let respRes: Response;
+    try {
+      respRes = await fetch(`${base}`, { headers: falHeaders(), signal: AbortSignal.timeout(15_000) });
+    } catch (err) {
+      if (isAbortError(err)) return { status: 'pending' };
+      throw err;
+    }
     const out = await respRes.json().catch(() => ({}));
-    if (!respRes.ok) return { status: 'failed', error: (out && (out.detail || out.error)) || 'FAL response fetch failed' };
-    return { status: 'completed', outputs: extractFalUrls(out), error: null };
+    if (!respRes.ok) {
+      // The job genuinely COMPLETED — a transient error fetching its result must
+      // not terminal-fail (and refund) it; report pending so the sweep retries.
+      return { status: respRes.status >= 500 || respRes.status === 429 ? 'pending' : 'failed',
+               error: (out && (out.detail || out.error)) || `FAL response fetch failed (${respRes.status})` };
+    }
+    const outputs = extractFalUrls(out);
+    if (outputs.length === 0) {
+      // An empty success would persist as a blank result and still charge the
+      // user — treat unrecognized output shapes as a failure (refundable).
+      return { status: 'failed', error: 'FAL returned no recognizable media outputs: ' + JSON.stringify(out).slice(0, 500) };
+    }
+    return { status: 'completed', outputs, error: null };
   },
 
   classifyError(_op, httpStatus, body): ErrorClass {
@@ -75,6 +114,7 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
   async fetchSchema(modelSlug) {
     const res = await fetch(`${FAL_REST}/models?endpoint_id=${encodeURIComponent(modelSlug)}&expand=openapi-3.0`, {
       headers: falHeaders(),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`FAL fetchSchema failed (${res.status})`);
     const body = await res.json();
