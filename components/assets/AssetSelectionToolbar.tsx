@@ -1,17 +1,19 @@
 'use client';
 
 import React from 'react';
-import { X, Download, UserPlus, Loader2 } from 'lucide-react';
+import { X, Download, UserPlus, Trash2, Loader2 } from 'lucide-react';
 
 interface AssetSelectionToolbarProps {
     count: number;
     imageCount: number;
     downloading: boolean;
     adding: boolean;
+    deleting: boolean;
     error?: string | null;
     onClear: () => void;
     onDownload: () => void;
     onAddToCharacter: () => void;
+    onDelete: () => void;
 }
 
 /**
@@ -24,12 +26,14 @@ export default function AssetSelectionToolbar({
     imageCount,
     downloading,
     adding,
+    deleting,
     error,
     onClear,
     onDownload,
     onAddToCharacter,
+    onDelete,
 }: AssetSelectionToolbarProps) {
-    const busy = downloading || adding;
+    const busy = downloading || adding || deleting;
     return (
         <div className="flex items-center gap-2 pl-3 ml-1 border-l border-stroke-subtle">
             <span className="text-sm font-medium text-content-primary whitespace-nowrap">{count} selected</span>
@@ -62,6 +66,15 @@ export default function AssetSelectionToolbar({
             >
                 {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
                 <span>Add to character</span>
+            </button>
+
+            <button
+                onClick={onDelete}
+                disabled={busy}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-accent-error/10 border border-accent-error/20 text-accent-error text-xs font-medium hover:bg-accent-error/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>Delete</span>
             </button>
         </div>
     );

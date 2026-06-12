@@ -11,6 +11,7 @@ import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
 import { Slider } from '@/components/ui/Slider';
 import AssetSelectionToolbar from '@/components/assets/AssetSelectionToolbar';
 import CharacterModal from '@/components/assets/CharacterModal';
+import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { unpackAssets, type AssetItem, type AssetType, type TypeFilter } from '@/lib/assets/unpack';
 import { uploadApi, charactersApi, type CharacterRefImage } from '@/lib/api/client';
 
@@ -69,6 +70,8 @@ export default function AssetsGallery() {
 
     const [downloading, setDownloading] = useState(false);
     const [addingToCharacter, setAddingToCharacter] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
     const [characterModalOpen, setCharacterModalOpen] = useState(false);
     const [seedImages, setSeedImages] = useState<CharacterRefImage[] | null>(null);
@@ -82,16 +85,23 @@ export default function AssetsGallery() {
         // No session filter — RLS scopes node_results to the current user's
         // sessions. Exclude `character` rows (re-published reference images,
         // not deliverable assets); keep NULL-typed rows visible.
-        const { data, error } = await supabase
-            .from('node_results')
-            .select('id, node_id, result_type, result_data, created_at, execution_id, session_id')
-            .eq('status', 'completed')
-            .in('result_type', ['image', 'video', 'audio', '3d'])
-            .or('node_type.is.null,node_type.neq.character')
-            .order('created_at', { ascending: false })
-            .limit(200);
+        const [{ data, error }, { data: hidden }] = await Promise.all([
+            supabase
+                .from('node_results')
+                .select('id, node_id, result_type, result_data, created_at, execution_id, session_id')
+                .eq('status', 'completed')
+                .in('result_type', ['image', 'video', 'audio', '3d'])
+                .or('node_type.is.null,node_type.neq.character')
+                .order('created_at', { ascending: false })
+                .limit(200),
+            // The user's per-tile soft-delete flags (RLS scopes to auth.uid()).
+            supabase.from('hidden_assets').select('asset_url'),
+        ]);
 
-        if (!error && data) setAssets(unpackAssets(data));
+        if (!error && data) {
+            const hiddenUrls = new Set<string>((hidden ?? []).map((h: { asset_url: string }) => h.asset_url));
+            setAssets(unpackAssets(data).filter((a) => !hiddenUrls.has(a.result_url)));
+        }
         setIsLoading(false);
     }, [supabase]);
 
@@ -321,6 +331,47 @@ export default function AssetsGallery() {
         }
     }, [selectedImageItems]);
 
+    // Soft-delete: flag the selected tiles as hidden for THIS user only. The
+    // node_results rows are never touched. Tiles vanish optimistically; on a
+    // persistence failure we re-add them and surface an error.
+    const handleDelete = useCallback(async () => {
+        const items = visibleAssets.filter((a) => selectedIds.has(a.id));
+        if (items.length === 0) return;
+        setDeleting(true);
+        setActionError(null);
+        const removedUrls = new Set(items.map((a) => a.result_url));
+
+        // Optimistic removal + clear selection (no refresh).
+        setAssets((prev) => prev.filter((a) => !removedUrls.has(a.result_url)));
+        clearSelection();
+
+        try {
+            const { data: userData, error: userErr } = await supabase.auth.getUser();
+            const userId = userData?.user?.id;
+            if (userErr || !userId) throw new Error('not authenticated');
+
+            const rows = items.map((a) => ({
+                user_id: userId,
+                asset_url: a.result_url,
+                node_result_id: a.source_result_id,
+            }));
+            const { error } = await supabase
+                .from('hidden_assets')
+                .upsert(rows, { onConflict: 'user_id,asset_url', ignoreDuplicates: true });
+            if (error) throw error;
+        } catch {
+            // Roll back the optimistic removal.
+            setAssets((prev) => {
+                const present = new Set(prev.map((a) => a.id));
+                const restored = items.filter((a) => !present.has(a.id));
+                return [...restored, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at));
+            });
+            setActionError('Could not delete — please try again');
+        } finally {
+            setDeleting(false);
+        }
+    }, [visibleAssets, selectedIds, clearSelection, supabase]);
+
     const gridTemplate = { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` };
 
     return (
@@ -336,10 +387,12 @@ export default function AssetsGallery() {
                             imageCount={selectedImageItems.length}
                             downloading={downloading}
                             adding={addingToCharacter}
+                            deleting={deleting}
                             error={actionError}
                             onClear={clearSelection}
                             onDownload={handleDownload}
                             onAddToCharacter={handleAddToCharacter}
+                            onDelete={() => setConfirmDeleteOpen(true)}
                         />
                     )}
                 </div>
@@ -422,6 +475,16 @@ export default function AssetsGallery() {
                 onClose={() => { setCharacterModalOpen(false); setSeedImages(null); }}
                 onSave={async (input) => { await charactersApi.create(input); clearSelection(); }}
                 onSaveDraft={async (input) => { await charactersApi.create(input, { draft: true }); }}
+            />
+
+            <ConfirmationModal
+                isOpen={confirmDeleteOpen}
+                onClose={() => setConfirmDeleteOpen(false)}
+                onConfirm={handleDelete}
+                title={`Delete ${selectedIds.size} ${selectedIds.size === 1 ? 'asset' : 'assets'}?`}
+                message="They'll be removed from your assets. This only hides them from your gallery — the original generations aren't deleted."
+                confirmText="Delete"
+                variant="danger"
             />
         </div>
     );
