@@ -307,62 +307,102 @@ export function ModelForm({
     // -------------------------------------------------------------------------
     // HANDLERS
     // -------------------------------------------------------------------------
+    // Fetch the model's input/output schema from the DEFAULT provider binding
+    // (row 0): Replicate via the existing route (owner auto-match + display-name
+    // autofill preserved), other providers via the generic per-provider route.
     const fetchSchema = async () => {
-        if (!form.replicate_model_id) return;
+        const binding = bindings[0];
+        const slug = binding?.provider_model_id.trim() || '';
+        if (!binding || !slug) return;
         setIsFetchingSchema(true);
         try {
-            const response = await fetch(`/api/replicate/schema?model_id=${form.replicate_model_id}`);
-            if (!response.ok) throw new Error('Failed to fetch schema');
-            const data = await response.json();
-            
-            const parsed = parseReplicateSchema(data.openapi_schema);
-            
-            // Map parsed to state
-            setVisualInputWires(parsed.inputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
-            setVisualControls(parsed.inputs.controls.map((c: any) => ({ ...c, id: Math.random().toString() })));
-            setVisualOutputWires(parsed.outputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
+            if (binding.provider_id === 'replicate') {
+                const response = await fetch(`/api/replicate/schema?model_id=${slug}`);
+                if (!response.ok) throw new Error('Failed to fetch schema');
+                const data = await response.json();
 
-            // Auto-match provider
-            const ownerName = data.owner || '';
-            const matchedProvider = providers.find(p => p.name.toLowerCase().includes(ownerName.toLowerCase()));
-            
-            if (matchedProvider) {
-                setForm(prev => ({ ...prev, provider_id: matchedProvider.id }));
-            } else if (ownerName) {
-                // Prompt to add provider if it doesn't exist
-                const confirmAdd = window.confirm(`AI Provider "${ownerName}" not found. Would you like to add it automatically?`);
-                if (confirmAdd) {
-                    try {
-                        const createRes = await fetch('/api/admin/providers', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name: ownerName, is_active: true })
-                        });
-                        if (createRes.ok) {
-                            const newProvider = await createRes.json();
-                            // Note: In a real app, we might need to refresh the providers list from the parent
-                            // or optimismically add it here. For now, we assume the user might need to re-fetch 
-                            // or the parent handles the update.
-                            setForm(prev => ({ ...prev, provider_id: newProvider.id }));
-                            alert(`Provider "${ownerName}" added successfully.`);
+                const parsed = parseReplicateSchema(data.openapi_schema);
+
+                // Map parsed to state
+                setVisualInputWires(parsed.inputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
+                setVisualControls(parsed.inputs.controls.map((c: any) => ({ ...c, id: Math.random().toString() })));
+                setVisualOutputWires(parsed.outputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
+
+                // Auto-match provider
+                const ownerName = data.owner || '';
+                const matchedProvider = providers.find(p => p.name.toLowerCase().includes(ownerName.toLowerCase()));
+
+                if (matchedProvider) {
+                    setForm(prev => ({ ...prev, provider_id: matchedProvider.id }));
+                } else if (ownerName) {
+                    // Prompt to add provider if it doesn't exist
+                    const confirmAdd = window.confirm(`AI Provider "${ownerName}" not found. Would you like to add it automatically?`);
+                    if (confirmAdd) {
+                        try {
+                            const createRes = await fetch('/api/admin/providers', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name: ownerName, is_active: true })
+                            });
+                            if (createRes.ok) {
+                                const newProvider = await createRes.json();
+                                // Note: In a real app, we might need to refresh the providers list from the parent
+                                // or optimismically add it here. For now, we assume the user might need to re-fetch
+                                // or the parent handles the update.
+                                setForm(prev => ({ ...prev, provider_id: newProvider.id }));
+                                alert(`Provider "${ownerName}" added successfully.`);
+                            }
+                        } catch (e) {
+                             console.error("Failed to create provider", e);
                         }
-                    } catch (e) {
-                         console.error("Failed to create provider", e);
                     }
                 }
-            }
-            
-            if (!form.display_name) {
-                const rawName = form.replicate_model_id.split('/')[1]?.split(':')[0] || form.replicate_model_id;
-                setForm(prev => ({ ...prev, display_name: formatDisplayName(rawName) }));
-            }
 
-            if (data.description) {
-                setForm(prev => ({ ...prev, description: data.description }));
+                if (!form.display_name) {
+                    const rawName = slug.split('/')[1]?.split(':')[0] || slug;
+                    setForm(prev => ({ ...prev, display_name: formatDisplayName(rawName) }));
+                }
+
+                if (data.description) {
+                    setForm(prev => ({ ...prev, description: data.description }));
+                }
+            } else {
+                const response = await fetch(`/api/providers/${encodeURIComponent(binding.provider_id)}/schema?model=${encodeURIComponent(slug)}`);
+                const data = await response.json().catch(() => null);
+                if (response.status === 501) {
+                    throw new Error("This provider doesn't support schema fetch — define inputs manually.");
+                }
+                if (!response.ok) {
+                    throw new Error(data?.error || `Schema fetch failed (${response.status}) — define inputs manually.`);
+                }
+
+                // FAL (and friends) return an OpenAPI doc with an Input component
+                // too — the Replicate parser handles it; fail gracefully if not.
+                let parsed;
+                try {
+                    parsed = parseReplicateSchema(data.openapi_schema);
+                } catch (parseError) {
+                    console.error(parseError);
+                    throw new Error("Couldn't parse this provider's schema — define inputs manually.");
+                }
+
+                setVisualInputWires(parsed.inputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
+                setVisualControls(parsed.inputs.controls.map((c: any) => ({ ...c, id: Math.random().toString() })));
+                setVisualOutputWires(parsed.outputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
+
+                if (!form.display_name) {
+                    const segments = slug.split('/').filter(Boolean);
+                    const rawName = segments[segments.length - 1] || slug;
+                    setForm(prev => ({ ...prev, display_name: formatDisplayName(rawName) }));
+                }
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            alert('Error fetching schema. Please check the Model ID and try again.');
+            if (binding.provider_id === 'replicate') {
+                alert('Error fetching schema. Please check the Model ID and try again.');
+            } else {
+                alert(error?.message || "This provider doesn't support schema fetch — define inputs manually.");
+            }
         } finally {
             setIsFetchingSchema(false);
         }
@@ -483,7 +523,6 @@ export function ModelForm({
     const unboundAdapterKeys = adapterKeyOptions.filter(key => !bindings.some(b => b.provider_id === key));
 
     const defaultBinding = bindings[0];
-    const isAdapterDefault = !!defaultBinding && defaultBinding.provider_id !== 'replicate';
 
     const updateBinding = (id: string, patch: Partial<ProviderBindingRow>) => {
         setBindings(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b));
@@ -594,27 +633,9 @@ export function ModelForm({
         <form onSubmit={handleSubmit} className="space-y-4">
             <FormSection
                 title="Model Identification"
-                description="Core identifiers for the Replicate mapping."
+                description="How this model appears across the app. Provider slugs live in the Providers section below."
             >
                 <div className="flex flex-col sm:flex-row gap-4 items-end">
-                    <div className="flex-1">
-                        <Input
-                            label="Replicate Model ID"
-                            name="replicate_model_id"
-                            value={form.replicate_model_id}
-                            onChange={e => setForm({ ...form, replicate_model_id: e.target.value })}
-                            placeholder="stability-ai/sdxl:39ed..."
-                            required={!isAdapterDefault}
-                        />
-                    </div>
-                    <button
-                        type="button"
-                        onClick={fetchSchema}
-                        disabled={isFetchingSchema || !form.replicate_model_id || isAdapterDefault}
-                        className="mb-0.5 px-4 py-3 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary border border-accent-primary/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 h-[48px]"
-                    >
-                        {isFetchingSchema ? 'Fetching...' : 'Fetch Schema'}
-                    </button>
                     <div className="flex-1">
                         <Input
                             label="Display Name"
@@ -724,6 +745,15 @@ export function ModelForm({
                             }}
                         />
                     </div>
+                    <button
+                        type="button"
+                        onClick={fetchSchema}
+                        disabled={isFetchingSchema || !defaultBinding?.provider_model_id.trim()}
+                        className="px-4 py-3 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary border border-accent-primary/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 h-[48px]"
+                        title="Import the default provider's input/output schema"
+                    >
+                        {isFetchingSchema ? 'Fetching...' : 'Fetch Schema'}
+                    </button>
                     {defaultBinding?.provider_id === 'elevenlabs' && (
                         <button type="button" onClick={applyElevenLabsPreset} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg bg-accent-primary/10 text-accent-primary border border-accent-primary/30 hover:bg-accent-primary/20 transition-all">
                             Apply ElevenLabs speech preset
