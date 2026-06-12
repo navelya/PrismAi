@@ -703,26 +703,27 @@ export function ModelForm({
                                             placeholder={BINDING_SLUG_PLACEHOLDERS[binding.provider_id] || 'provider model id'}
                                         />
                                     </div>
-                                    {index === 0 ? (
-                                        <span className="shrink-0 px-2.5 py-1 rounded-full bg-accent-primary/10 border border-accent-primary/30 text-accent-primary text-[9px] font-black uppercase tracking-widest">
-                                            Default
+                                    {/* Single-select default: exactly one provider is the
+                                        default (it sits at index 0). Picking another moves it
+                                        to the front, so the radio + position always agree. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => makeBindingDefault(binding.id)}
+                                        disabled={index === 0}
+                                        title={index === 0 ? 'Default provider' : 'Set as default'}
+                                        className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest transition-all ${
+                                            index === 0
+                                                ? 'bg-accent-primary/10 border-accent-primary/30 text-accent-primary cursor-default'
+                                                : 'bg-white/5 border-white/10 text-content-tertiary hover:text-content-primary hover:bg-white/10'
+                                        }`}
+                                    >
+                                        <span className={`w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center ${
+                                            index === 0 ? 'border-accent-primary' : 'border-content-tertiary'
+                                        }`}>
+                                            {index === 0 && <span className="w-1 h-1 rounded-full bg-accent-primary" />}
                                         </span>
-                                    ) : (
-                                        <button
-                                            type="button"
-                                            onClick={() => makeBindingDefault(binding.id)}
-                                            className="shrink-0 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-content-tertiary hover:text-content-primary hover:bg-white/10 text-[9px] font-black uppercase tracking-widest transition-all"
-                                        >
-                                            Make default
-                                        </button>
-                                    )}
-                                    <div className="shrink-0" title={binding.is_active ? 'Active' : 'Inactive'}>
-                                        <Switch
-                                            size="sm"
-                                            checked={binding.is_active}
-                                            onCheckedChange={(checked) => updateBinding(binding.id, { is_active: checked })}
-                                        />
-                                    </div>
+                                        Default
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => setBindings(prev => prev.filter(b => b.id !== binding.id))}
