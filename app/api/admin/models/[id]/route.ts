@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
 import { invalidateRegistryCache } from '@/lib/chat/registry-cache';
+import { mirrorModelProviderBinding } from '@/lib/admin/model-provider-binding';
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
     try {
@@ -49,6 +50,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             .single();
 
         if (error) throw error;
+
+        // Slug edits must reach the ai_model_providers binding table too —
+        // provider resolution prefers it over the legacy ai_models columns.
+        await mirrorModelProviderBinding(auth.supabase, data);
 
         // Model edits (inputs_schema/handles, is_active, etc.) must reach the
         // chat brain faster than the 5-min TTL.

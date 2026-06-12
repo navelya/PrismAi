@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
 import { invalidateRegistryCache } from '@/lib/chat/registry-cache';
+import { mirrorModelProviderBinding } from '@/lib/admin/model-provider-binding';
 
 export async function POST(req: Request) {
     try {
@@ -53,6 +54,10 @@ export async function POST(req: Request) {
             .single();
 
         if (error) throw error;
+
+        // Register the new model's slug in the ai_model_providers binding table —
+        // provider resolution prefers it over the legacy ai_models columns.
+        await mirrorModelProviderBinding(auth.supabase, data);
 
         // New model must surface to the chat brain faster than the 5-min TTL.
         invalidateRegistryCache();

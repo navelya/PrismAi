@@ -6,6 +6,11 @@ export interface ResolvedProvider {
   inputOverrides: Record<string, any> | null;
 }
 
+/** PostgREST error signature for a table that doesn't exist yet (pre-migration). */
+export const MISSING_TABLE_RE = /does not exist|could not find|schema cache/i;
+
+let warnedMissingBindingsTable = false;
+
 /**
  * Resolve a model's PRIMARY active provider binding (lowest priority). Falls back
  * to the legacy single-provider columns on ai_models if no binding rows exist yet
@@ -15,13 +20,33 @@ export interface ResolvedProvider {
 export async function resolvePrimaryProvider(modelId: number | string): Promise<ResolvedProvider> {
   const supabase = createServiceClient();
 
-  const { data: bindings } = await supabase
+  const { data: bindings, error: bindingsError } = await supabase
     .from('ai_model_providers')
     .select('provider_id, provider_model_id, input_overrides, priority, is_active')
     .eq('model_id', modelId)
     .eq('is_active', true)
     .order('priority', { ascending: true })
+    // Deterministic tiebreak when two bindings share a priority.
+    .order('id', { ascending: true })
     .limit(1);
+
+  if (bindingsError) {
+    if (MISSING_TABLE_RE.test(bindingsError.message || '')) {
+      // Pre-migration grace: the bindings table doesn't exist yet — fall back
+      // to the legacy ai_models columns below.
+      if (!warnedMissingBindingsTable) {
+        warnedMissingBindingsTable = true;
+        console.warn(
+          '[ResolveProvider] ai_model_providers table missing — falling back to legacy ai_models columns (apply migration 20260612_ai_model_providers.sql).'
+        );
+      }
+    } else {
+      // Any OTHER error (transient DB blip, RLS, network) must fail the run
+      // retryably — silently switching providers mid-fan-out would split one
+      // node's iterations across providers.
+      throw new Error(`Failed to resolve provider bindings for model ${modelId}: ${bindingsError.message}`);
+    }
+  }
 
   if (bindings && bindings.length > 0) {
     const b = bindings[0];
