@@ -106,6 +106,50 @@ const COMPONENT_DICTIONARY = [
 const WIRE_TYPES = ['image', 'video', 'text', 'audio', 'any'];
 
 // =============================================================================
+// PROVIDER BINDINGS
+// =============================================================================
+
+/** One row of the ordered Providers list (index 0 = default/primary). Mirrors
+ * ai_model_providers: provider_id is the ADAPTER KEY ('replicate' | 'fal' |
+ * 'elevenlabs' | ...), provider_model_id is the per-provider slug. */
+interface ProviderBindingRow {
+    id: string;
+    provider_id: string;
+    provider_model_id: string;
+    is_active: boolean;
+}
+
+const BINDING_SLUG_PLACEHOLDERS: Record<string, string> = {
+    replicate: 'owner/name:version',
+    fal: 'fal-ai/flux/schnell',
+    elevenlabs: 'eleven_v3',
+};
+
+function newBindingRow(provider_id: string, provider_model_id = '', is_active = true): ProviderBindingRow {
+    return { id: Math.random().toString(), provider_id, provider_model_id, is_active };
+}
+
+/** Seed the form's binding rows: DB bindings first (already priority-sorted by
+ * the admin API), else synthesize one row from the legacy ai_models columns
+ * (replicate_model_id → replicate row; else the model's provider's adapter_key
+ * + provider_model_id), else a blank replicate row for brand-new models. */
+function synthesizeBindingRows(data: any, providers: any[]): ProviderBindingRow[] {
+    const fromDb = Array.isArray(data?.provider_bindings) ? data.provider_bindings : [];
+    if (fromDb.length > 0) {
+        return fromDb.map((b: any) => newBindingRow(b.provider_id || '', b.provider_model_id || '', b.is_active ?? true));
+    }
+    if (data?.replicate_model_id) {
+        return [newBindingRow('replicate', data.replicate_model_id)];
+    }
+    const legacyProvider = providers.find((p: any) => p.id === data?.provider_id);
+    if (legacyProvider?.adapter_key && data?.provider_model_id) {
+        return [newBindingRow(legacyProvider.adapter_key, data.provider_model_id)];
+    }
+    // New model: start with an empty Replicate row (the common case).
+    return data ? [] : [newBindingRow('replicate')];
+}
+
+// =============================================================================
 // COMPONENT
 // =============================================================================
 
@@ -147,6 +191,9 @@ export function ModelForm({
         description: initialData?.inputs_schema?.description || '',
     });
 
+    // Ordered provider bindings (index 0 = default; the rest are fallbacks).
+    const [bindings, setBindings] = useState<ProviderBindingRow[]>(() => synthesizeBindingRows(initialData, providers));
+
     const [isFetchingSchema, setIsFetchingSchema] = useState(false);
     const [previewConfig, setPreviewConfig] = useState<any>({
         control_values: {}
@@ -178,7 +225,9 @@ export function ModelForm({
                 node_type_id: initialData.node_type_id || '',
                 description: initialData.inputs_schema?.description || '',
             });
+            setBindings(synthesizeBindingRows(initialData, providers));
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- providers is only a lookup table for legacy synthesis
     }, [initialData]);
 
     // Handle default selections when data arrives
@@ -408,8 +457,48 @@ export function ModelForm({
         return JSON.stringify(ctrl.default_value ?? (normalizedControlType(ctrl) === 'array' ? [] : {}), null, 2);
     };
 
-    const selectedProvider = providers.find((p: any) => p.id === form.provider_id);
-    const isExternalProvider = !!selectedProvider?.adapter_key;
+    // -------------------------------------------------------------------------
+    // PROVIDER BINDINGS (ordered, index 0 = default)
+    // -------------------------------------------------------------------------
+
+    /** The providers-table row backing an adapter key — for logos/names and the
+     * legacy ai_models.provider_id display chip. Replicate usually has no
+     * adapter-keyed row, so fall back to a name match. */
+    const providerRowForAdapterKey = (key: string) => {
+        const normalized = (key || '').trim().toLowerCase();
+        if (!normalized) return undefined;
+        const byAdapterKey = providers.find((p: any) => (p.adapter_key || '').trim().toLowerCase() === normalized);
+        if (byAdapterKey) return byAdapterKey;
+        if (normalized !== 'replicate') return undefined;
+        return providers.find((p: any) => (p.name || '').trim().toLowerCase() === 'replicate')
+            || providers.find((p: any) => !p.adapter_key && (p.name || '').toLowerCase().includes('replicate'));
+    };
+
+    // Adapter keys available in the "Add provider" dropdown: always replicate,
+    // plus every distinct adapter-keyed provider, minus already-bound keys.
+    const adapterKeyOptions = Array.from(new Set([
+        'replicate',
+        ...providers.map((p: any) => (p.adapter_key || '').trim().toLowerCase()).filter(Boolean),
+    ]));
+    const unboundAdapterKeys = adapterKeyOptions.filter(key => !bindings.some(b => b.provider_id === key));
+
+    const defaultBinding = bindings[0];
+    const isAdapterDefault = !!defaultBinding && defaultBinding.provider_id !== 'replicate';
+
+    const updateBinding = (id: string, patch: Partial<ProviderBindingRow>) => {
+        setBindings(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b));
+    };
+
+    const makeBindingDefault = (id: string) => {
+        setBindings(prev => {
+            const idx = prev.findIndex(b => b.id === id);
+            if (idx <= 0) return prev;
+            const next = prev.slice();
+            const [row] = next.splice(idx, 1);
+            next.unshift(row);
+            return next;
+        });
+    };
 
     const applyElevenLabsPreset = () => {
         // Wholesale overwrite — guard against clobbering hand-built controls/inputs.
@@ -462,13 +551,38 @@ export function ModelForm({
             }))
         };
 
+        // Ordered bindings payload (index 0 = default) — incomplete rows are
+        // dropped here AND skipped server-side. Sending the field (even [])
+        // replaces ALL of the model's bindings.
+        const orderedBindings = bindings
+            .filter(b => b.provider_id && b.provider_model_id.trim())
+            .map(b => ({
+                provider_id: b.provider_id,
+                provider_model_id: b.provider_model_id.trim(),
+                is_active: b.is_active,
+            }));
+        const submitDefault = orderedBindings[0];
+        const replicateRow = orderedBindings.find(b => b.provider_id === 'replicate');
+
+        // Legacy display-chip FK (ai_models.provider_id): the providers row
+        // matching the default binding's adapter key. The server back-syncs the
+        // other legacy columns from bindings but NOT this one. If no providers
+        // row matches, leave whatever the form/owner-auto-match already set.
+        let legacyProviderId = form.provider_id;
+        if (submitDefault) {
+            const matched = providerRowForAdapterKey(submitDefault.provider_id);
+            if (matched) legacyProviderId = matched.id;
+        }
+
         await onSubmit({
             ...form,
-            // External (adapter) models have no Replicate id; clear any stale one
-            // left over from switching a Replicate model to an external provider.
-            replicate_model_id: isExternalProvider ? null : (form.replicate_model_id || null),
-            // Normalize blank → null so the column is never an empty string.
-            provider_model_id: form.provider_model_id || null,
+            provider_id: legacyProviderId || null,
+            // Legacy columns derived from the bindings list (behind the scenes).
+            replicate_model_id: replicateRow?.provider_model_id ?? '',
+            provider_model_id: submitDefault && submitDefault.provider_id !== 'replicate'
+                ? submitDefault.provider_model_id
+                : null,
+            provider_bindings: orderedBindings,
             inputs_schema: compiledInputs,
             outputs_schema: compiledOutputs,
             credit_cost: Number(form.credit_cost),
@@ -490,13 +604,13 @@ export function ModelForm({
                             value={form.replicate_model_id}
                             onChange={e => setForm({ ...form, replicate_model_id: e.target.value })}
                             placeholder="stability-ai/sdxl:39ed..."
-                            required={!isExternalProvider}
+                            required={!isAdapterDefault}
                         />
                     </div>
                     <button
                         type="button"
                         onClick={fetchSchema}
-                        disabled={isFetchingSchema || !form.replicate_model_id || isExternalProvider}
+                        disabled={isFetchingSchema || !form.replicate_model_id || isAdapterDefault}
                         className="mb-0.5 px-4 py-3 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary border border-accent-primary/30 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 h-[48px]"
                     >
                         {isFetchingSchema ? 'Fetching...' : 'Fetch Schema'}
@@ -521,6 +635,100 @@ export function ModelForm({
                         placeholder="Describe what this model does..."
                         className="max-w-2xl"
                     />
+                </div>
+            </FormSection>
+
+            <FormSection
+                title="Providers"
+                description="Where this model runs. The first provider is the default; the rest are fallbacks in order. Each slug is the model's id on that provider."
+            >
+                {bindings.length === 0 && (
+                    <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
+                        No providers bound — add one below
+                    </div>
+                )}
+                {bindings.length > 0 && (
+                    <div className="space-y-3">
+                        {bindings.map((binding, index) => {
+                            const providerRow = providerRowForAdapterKey(binding.provider_id);
+                            const displayName = providerRow?.name || formatDisplayName(binding.provider_id);
+                            return (
+                                <div key={binding.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3">
+                                    <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                                        {providerRow?.logo_url ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img src={providerRow.logo_url} alt="" className="w-full h-full object-contain p-1" />
+                                        ) : (
+                                            <span className="text-[10px] font-black uppercase text-content-tertiary">{displayName.slice(0, 2)}</span>
+                                        )}
+                                    </div>
+                                    <div className="w-28 shrink-0 min-w-0">
+                                        <p className="text-xs font-bold text-content-primary truncate">{displayName}</p>
+                                        <p className="text-[9px] text-content-tertiary font-mono opacity-60 truncate">{binding.provider_id}</p>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <Input
+                                            value={binding.provider_model_id}
+                                            onChange={e => updateBinding(binding.id, { provider_model_id: e.target.value })}
+                                            placeholder={BINDING_SLUG_PLACEHOLDERS[binding.provider_id] || 'provider model id'}
+                                        />
+                                    </div>
+                                    {index === 0 ? (
+                                        <span className="shrink-0 px-2.5 py-1 rounded-full bg-accent-primary/10 border border-accent-primary/30 text-accent-primary text-[9px] font-black uppercase tracking-widest">
+                                            Default
+                                        </span>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => makeBindingDefault(binding.id)}
+                                            className="shrink-0 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-content-tertiary hover:text-content-primary hover:bg-white/10 text-[9px] font-black uppercase tracking-widest transition-all"
+                                        >
+                                            Make default
+                                        </button>
+                                    )}
+                                    <div className="shrink-0" title={binding.is_active ? 'Active' : 'Inactive'}>
+                                        <Switch
+                                            size="sm"
+                                            checked={binding.is_active}
+                                            onCheckedChange={(checked) => updateBinding(binding.id, { is_active: checked })}
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBindings(prev => prev.filter(b => b.id !== binding.id))}
+                                        className="shrink-0 p-1.5 rounded-lg text-content-tertiary hover:text-red-400 hover:bg-white/5 transition-colors"
+                                        title="Remove provider"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                <div className="flex items-center gap-4">
+                    <div className="max-w-[240px] flex-1">
+                        <Select
+                            value=""
+                            placeholder="Add provider..."
+                            options={unboundAdapterKeys.map(key => {
+                                const row = providerRowForAdapterKey(key);
+                                return {
+                                    id: key,
+                                    display_name: row?.name || formatDisplayName(key),
+                                    icon_url: row?.logo_url || null,
+                                };
+                            })}
+                            onChange={e => {
+                                if (e.target.value) setBindings(prev => [...prev, newBindingRow(e.target.value)]);
+                            }}
+                        />
+                    </div>
+                    {defaultBinding?.provider_id === 'elevenlabs' && (
+                        <button type="button" onClick={applyElevenLabsPreset} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg bg-accent-primary/10 text-accent-primary border border-accent-primary/30 hover:bg-accent-primary/20 transition-all">
+                            Apply ElevenLabs speech preset
+                        </button>
+                    )}
                 </div>
             </FormSection>
 
@@ -551,33 +759,7 @@ export function ModelForm({
                         ]}
                         onChange={e => setForm({ ...form, archetype_id: e.target.value === 'none' ? '' : e.target.value })}
                     />
-                    <Select
-                        label="AI Provider"
-                        value={form.provider_id || 'none'}
-                        options={[
-                            { id: 'none', display_name: 'None (Default)' },
-                            ...providers.map(p => ({ id: p.id, display_name: p.name }))
-                        ]}
-                        onChange={e => setForm({ ...form, provider_id: e.target.value === 'none' ? '' : e.target.value })}
-                    />
-                    {isExternalProvider && (
-                        <Input
-                            label="Provider model id (e.g. eleven_v3)"
-                            name="provider_model_id"
-                            value={form.provider_model_id}
-                            onChange={e => setForm({ ...form, provider_model_id: e.target.value })}
-                            placeholder="eleven_v3"
-                            required
-                        />
-                    )}
                 </div>
-                {isExternalProvider && (
-                    <div className="mt-3">
-                        <button type="button" onClick={applyElevenLabsPreset} className="text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg bg-accent-primary/10 text-accent-primary border border-accent-primary/30 hover:bg-accent-primary/20 transition-all">
-                            Apply ElevenLabs speech preset
-                        </button>
-                    </div>
-                )}
             </FormSection>
 
             <FormSection
