@@ -748,6 +748,7 @@ export default function CompositorEditorModal({
         const eff = getEffectiveDuration(layer, kind, intrinsic, total);
         const [left, right] = splitLayerAtPlayhead(layer, playhead, eff);
         if (!right) return; // playhead outside the clip — nothing to cut
+        pushSnapshot();
         updateLayers((prev) => {
             const i = prev.findIndex((l) => l.id === layerId);
             if (i < 0) return prev;
@@ -755,7 +756,7 @@ export default function CompositorEditorModal({
             copy.splice(i, 1, left, right);
             return copy;
         });
-    }, [nodeId, initialConfig, sourceKindByLayerId, intrinsicDurations, playhead, updateLayers]);
+    }, [nodeId, initialConfig, sourceKindByLayerId, intrinsicDurations, playhead, updateLayers, pushSnapshot]);
 
     /**
      * Delete a single clip. If other clips still share its source row, drop
@@ -772,15 +773,17 @@ export default function CompositorEditorModal({
         if (!layer) return;
         const siblings = list.filter((l) => l.sourceHandleId === layer.sourceHandleId);
         if (siblings.length > 1) {
+            pushSnapshot();
             updateLayers((prev) => prev.filter((l) => l.id !== layerId));
             setSelectedLayerIds((prev) => prev.filter((id) => id !== layerId));
         } else {
             deleteSelectedLayer(layerId); // removes the edge; store strips the layer
         }
-    }, [nodeId, initialConfig, updateLayers, deleteSelectedLayer]);
+    }, [nodeId, initialConfig, updateLayers, deleteSelectedLayer, pushSnapshot]);
 
     /** Toggle a boolean flag across every clip sharing a source row. */
     const handleToggleRow = useCallback((sourceHandleId: string, field: 'visible' | 'locked' | 'muted') => {
+        pushSnapshot();
         updateLayers((prev) => {
             const rowLayers = prev.filter((l) => l.sourceHandleId === sourceHandleId);
             if (rowLayers.length === 0) return prev;
@@ -789,7 +792,7 @@ export default function CompositorEditorModal({
             const next = !rowLayers[0][field];
             return prev.map((l) => l.sourceHandleId === sourceHandleId ? { ...l, [field]: next } : l);
         });
-    }, [updateLayers]);
+    }, [updateLayers, pushSnapshot]);
 
     /** Remove an entire row (drops the upstream edge → all its clips). */
     const handleRemoveRow = useCallback((sourceHandleId: string) => {
