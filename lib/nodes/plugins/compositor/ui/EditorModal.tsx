@@ -1371,6 +1371,11 @@ export default function CompositorEditorModal({
                             onToggleAudioMute={() => setAudioMuted((m) => !m)}
                             onSelectLayer={(id) => selectLayer(id, false)}
                             onUpdateLayer={handleUpdateLayer}
+                            onTrimStart={handleTrimStart}
+                            onSplitLayer={handleSplitLayer}
+                            onDeleteClip={handleDeleteClip}
+                            onToggleRow={handleToggleRow}
+                            onRemoveRow={handleRemoveRow}
                         />
                     </div>
                 )}

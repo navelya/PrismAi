@@ -7,6 +7,8 @@ import { CompositorLayer } from '../definition';
 import { LayerSourceKind, computeTimelineDuration, getEffectiveDuration } from '../shared';
 import Transport from './Transport';
 import ClipBlock from './ClipBlock';
+import * as ContextMenu from '@radix-ui/react-context-menu';
+import { Scissors, Trash2 } from 'lucide-react';
 
 interface TimelineProps {
     /** Array order: array[0] = bottom of visual stack. We display TOP of stack
@@ -26,6 +28,11 @@ interface TimelineProps {
     onToggleAudioMute: () => void;
     onSelectLayer: (layerId: string) => void;
     onUpdateLayer: (layerId: string, patch: Partial<CompositorLayer>) => void;
+    onTrimStart: (layerId: string, startTime: number, duration: number, trimIn: number) => void;
+    onSplitLayer: (layerId: string) => void;
+    onDeleteClip: (layerId: string) => void;
+    onToggleRow: (sourceHandleId: string, field: 'visible' | 'locked' | 'muted') => void;
+    onRemoveRow: (sourceHandleId: string) => void;
 }
 
 /** Pixels per second of the ruler. Stage 1 fixed; zoom slider is Stage 2. */
@@ -72,6 +79,11 @@ const Timeline = memo(function Timeline({
     onToggleAudioMute,
     onSelectLayer,
     onUpdateLayer,
+    onTrimStart,
+    onSplitLayer,
+    onDeleteClip,
+    onToggleRow,
+    onRemoveRow,
 }: TimelineProps) {
     const total = useMemo(
         () => computeTimelineDuration(layers, configuredTotalDuration, intrinsicDurations),
@@ -81,6 +93,30 @@ const Timeline = memo(function Timeline({
     const rulerLengthSeconds = Math.max(total, 5);
 
     const displayLayers = useMemo(() => [...layers].reverse(), [layers]);
+
+    // Group display layers into rows by sourceHandleId. One row = all clips
+    // fed by the same upstream connection. Order follows displayLayers, so
+    // z-order and the contiguity invariant are preserved.
+    const rows = useMemo(() => {
+        const out: { sourceHandleId: string; layers: CompositorLayer[] }[] = [];
+        const indexByHandle = new Map<string, number>();
+        for (const layer of displayLayers) {
+            const key = layer.sourceHandleId;
+            let i = indexByHandle.get(key);
+            if (i === undefined) {
+                i = out.length;
+                indexByHandle.set(key, i);
+                out.push({ sourceHandleId: key, layers: [] });
+            }
+            out[i].layers.push(layer);
+        }
+        return out;
+    }, [displayLayers]);
+
+    // Timeline zoom — pixels per second. (Promoted to state in a later task;
+    // for now this aliases the module constant so render math reads from one
+    // name.)
+    const pixelsPerSecond = PIXELS_PER_SECOND;
 
     const tickMarks = useMemo(() => {
         const marks: number[] = [];
@@ -237,49 +273,64 @@ const Timeline = memo(function Timeline({
                         className="flex-1 overflow-y-auto custom-scrollbar"
                         onScroll={onLabelScroll}
                     >
-                        {displayLayers.map((layer) => {
-                            const kind = sourceKindByLayerId[layer.id] ?? 'unknown';
-                            const isSelected = selectedLayerId === layer.id;
+                        {rows.map((row) => {
+                            const head = row.layers[0];
+                            const kind = sourceKindByLayerId[head.id] ?? 'unknown';
+                            const rowSelected = row.layers.some((l) => l.id === selectedLayerId);
+                            const clipCount = row.layers.length;
                             return (
-                                <div
-                                    key={layer.id}
-                                    className={cn(
-                                        'flex items-center gap-1.5 px-2 border-b border-white/[0.03]',
-                                        isSelected && 'bg-white/[0.04]',
-                                    )}
-                                    style={{ height: ROW_HEIGHT }}
-                                    onClick={() => onSelectLayer(layer.id)}
-                                >
-                                    <Play className="w-3 h-3 text-white/40 flex-shrink-0" />
-                                    <span className="text-[11px] text-white/70 truncate flex-1 cursor-default select-none">
-                                        {layer.name}
-                                    </span>
-                                    {(kind === 'video' || kind === 'audio') && (
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { muted: !layer.muted }); }}
-                                            className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
-                                            title={layer.muted ? 'Unmute layer' : 'Mute layer'}
+                                <ContextMenu.Root key={row.sourceHandleId}>
+                                    <ContextMenu.Trigger asChild>
+                                        <div
+                                            className={cn(
+                                                'flex items-center gap-1.5 px-2 border-b border-white/[0.03]',
+                                                rowSelected && 'bg-white/[0.04]',
+                                            )}
+                                            style={{ height: ROW_HEIGHT }}
+                                            onClick={() => onSelectLayer(head.id)}
                                         >
-                                            {layer.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                                        </button>
-                                    )}
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { visible: !layer.visible }); }}
-                                        className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
-                                        title={layer.visible ? 'Hide layer' : 'Show layer'}
-                                    >
-                                        {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                    </button>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { locked: !layer.locked }); }}
-                                        className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
-                                        title={layer.locked ? 'Unlock layer' : 'Lock layer'}
-                                    >
-                                        {layer.locked
-                                            ? <Lock className="w-3 h-3 text-amber-500" />
-                                            : <Unlock className="w-3 h-3" />}
-                                    </button>
-                                </div>
+                                            <Play className="w-3 h-3 text-white/40 flex-shrink-0" />
+                                            <span className="text-[11px] text-white/70 truncate flex-1 cursor-default select-none">
+                                                {head.name}{clipCount > 1 ? ` (${clipCount})` : ''}
+                                            </span>
+                                            {(kind === 'video' || kind === 'audio') && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); onToggleRow(row.sourceHandleId, 'muted'); }}
+                                                    className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
+                                                    title={head.muted ? 'Unmute row' : 'Mute row'}
+                                                >
+                                                    {head.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); onToggleRow(row.sourceHandleId, 'visible'); }}
+                                                className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
+                                                title={head.visible ? 'Hide row' : 'Show row'}
+                                            >
+                                                {head.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); onToggleRow(row.sourceHandleId, 'locked'); }}
+                                                className="p-0.5 text-white/40 hover:text-white/80 transition-colors"
+                                                title={head.locked ? 'Unlock row' : 'Lock row'}
+                                            >
+                                                {head.locked
+                                                    ? <Lock className="w-3 h-3 text-amber-500" />
+                                                    : <Unlock className="w-3 h-3" />}
+                                            </button>
+                                        </div>
+                                    </ContextMenu.Trigger>
+                                    <ContextMenu.Portal>
+                                        <ContextMenu.Content className="z-[200] min-w-[160px] rounded-lg border border-white/10 bg-surface-elevated/95 backdrop-blur-md p-1 shadow-xl">
+                                            <ContextMenu.Item
+                                                onSelect={() => onRemoveRow(row.sourceHandleId)}
+                                                className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-white/80 rounded-md cursor-pointer outline-none data-[highlighted]:bg-white/10"
+                                            >
+                                                <Trash2 className="w-3 h-3" /> Remove row
+                                            </ContextMenu.Item>
+                                        </ContextMenu.Content>
+                                    </ContextMenu.Portal>
+                                </ContextMenu.Root>
                             );
                         })}
                     </div>
@@ -313,46 +364,70 @@ const Timeline = memo(function Timeline({
                             ))}
                         </div>
 
-                        {/* Clip rows — one per layer, height-matched to label rows */}
+                        {/* Clip rows — one per source row; clips share the row */}
                         <div className="relative">
-                            {displayLayers.map((layer) => {
-                                const kind = sourceKindByLayerId[layer.id] ?? 'unknown';
-                                const intrinsic = intrinsicDurations[layer.id] ?? null;
-                                const eff = getEffectiveDuration(layer, kind, intrinsic, total);
-                                const isSelected = selectedLayerId === layer.id;
-                                // Cap right-edge resize at the source's available material.
-                                // Video/audio: intrinsic length minus any trim-in. Image/text:
-                                // unbounded (null) — they can display for arbitrary durations.
-                                const maxDuration = (kind === 'video' || kind === 'audio') && intrinsic !== null
-                                    ? Math.max(0.1, intrinsic - (layer.trimIn || 0))
-                                    : null;
+                            {rows.map((row) => {
+                                const rowSelected = row.layers.some((l) => l.id === selectedLayerId);
                                 return (
                                     <div
-                                        key={layer.id}
+                                        key={row.sourceHandleId}
                                         className={cn(
                                             'relative border-b border-white/[0.03]',
-                                            isSelected && 'bg-white/[0.04]',
+                                            rowSelected && 'bg-white/[0.04]',
                                         )}
                                         style={{ height: ROW_HEIGHT }}
-                                        onClick={() => onSelectLayer(layer.id)}
                                     >
-                                        <ClipBlock
-                                            layer={layer}
-                                            sourceKind={kind}
-                                            effectiveDuration={eff}
-                                            pixelsPerSecond={PIXELS_PER_SECOND}
-                                            maxDuration={maxDuration}
-                                            isSelected={isSelected}
-                                            onSelect={() => onSelectLayer(layer.id)}
-                                            onMove={(startTime) => onUpdateLayer(layer.id, { startTime })}
-                                            onResizeRight={(duration) => onUpdateLayer(layer.id, { duration })}
-                                            snapTargets={snapTargetsByLayerId[layer.id] || [0]}
-                                            onSnapChange={setActiveSnap}
-                                        />
+                                        {row.layers.map((layer) => {
+                                            const kind = sourceKindByLayerId[layer.id] ?? 'unknown';
+                                            const intrinsic = intrinsicDurations[layer.id] ?? null;
+                                            const eff = getEffectiveDuration(layer, kind, intrinsic, total);
+                                            const isSelected = selectedLayerId === layer.id;
+                                            const maxDuration = (kind === 'video' || kind === 'audio') && intrinsic !== null
+                                                ? Math.max(0.1, intrinsic - (layer.trimIn || 0))
+                                                : null;
+                                            return (
+                                                <ContextMenu.Root key={layer.id}>
+                                                    <ContextMenu.Trigger asChild>
+                                                        <div className="contents">
+                                                            <ClipBlock
+                                                                layer={layer}
+                                                                sourceKind={kind}
+                                                                effectiveDuration={eff}
+                                                                pixelsPerSecond={pixelsPerSecond}
+                                                                maxDuration={maxDuration}
+                                                                isSelected={isSelected}
+                                                                onSelect={() => onSelectLayer(layer.id)}
+                                                                onMove={(startTime) => onUpdateLayer(layer.id, { startTime })}
+                                                                onResizeRight={(duration) => onUpdateLayer(layer.id, { duration })}
+                                                                onTrimStart={(startTime, duration, trimIn) => onTrimStart(layer.id, startTime, duration, trimIn)}
+                                                                snapTargets={snapTargetsByLayerId[layer.id] || [0]}
+                                                                onSnapChange={setActiveSnap}
+                                                            />
+                                                        </div>
+                                                    </ContextMenu.Trigger>
+                                                    <ContextMenu.Portal>
+                                                        <ContextMenu.Content className="z-[200] min-w-[160px] rounded-lg border border-white/10 bg-surface-elevated/95 backdrop-blur-md p-1 shadow-xl">
+                                                            <ContextMenu.Item
+                                                                onSelect={() => onSplitLayer(layer.id)}
+                                                                className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-white/80 rounded-md cursor-pointer outline-none data-[highlighted]:bg-white/10"
+                                                            >
+                                                                <Scissors className="w-3 h-3" /> Split at playhead
+                                                            </ContextMenu.Item>
+                                                            <ContextMenu.Item
+                                                                onSelect={() => onDeleteClip(layer.id)}
+                                                                className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-white/80 rounded-md cursor-pointer outline-none data-[highlighted]:bg-white/10"
+                                                            >
+                                                                <Trash2 className="w-3 h-3" /> Delete clip
+                                                            </ContextMenu.Item>
+                                                        </ContextMenu.Content>
+                                                    </ContextMenu.Portal>
+                                                </ContextMenu.Root>
+                                            );
+                                        })}
                                     </div>
                                 );
                             })}
-                            {displayLayers.length === 0 && (
+                            {rows.length === 0 && (
                                 <div className="h-12 flex items-center justify-center text-[10px] text-white/30">
                                     Connect layers to see them on the timeline.
                                 </div>
