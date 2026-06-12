@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { isMissingTableError } from '@/lib/admin/model-provider-binding';
 
 export const modelsAdminApi = {
     /** Fetch all categories */
@@ -13,7 +14,11 @@ export const modelsAdminApi = {
         return data;
     },
 
-    /** Fetch all AI models */
+    /** Fetch all AI models, each with a `provider_bindings` array (sorted by
+     * priority, index 0 = default). Bindings come from a SEPARATE query — not
+     * a relation embed — so the whole models list keeps working before the
+     * 20260612 ai_model_providers migration is applied (only the missing-table
+     * error is swallowed; bindings just come back empty). */
     listModels: async () => {
         const supabase = createClient();
         const { data, error } = await supabase
@@ -22,7 +27,31 @@ export const modelsAdminApi = {
             .order('display_name');
 
         if (error) throw error;
-        return data;
+
+        const { data: bindings, error: bindingsError } = await supabase
+            .from('ai_model_providers')
+            .select('model_id, provider_id, provider_model_id, priority, is_active')
+            .order('priority');
+
+        if (bindingsError && !isMissingTableError(bindingsError)) throw bindingsError;
+        if (bindingsError) {
+            console.warn(
+                '[modelsAdminApi] ai_model_providers table missing — models have no provider_bindings (apply migration 20260612_ai_model_providers.sql).'
+            );
+        }
+
+        const bindingsByModel = new Map<string, any[]>();
+        for (const binding of bindings || []) {
+            const key = String((binding as any).model_id);
+            const list = bindingsByModel.get(key) || [];
+            list.push(binding);
+            bindingsByModel.set(key, list);
+        }
+
+        return (data || []).map((model: any) => ({
+            ...model,
+            provider_bindings: bindingsByModel.get(String(model.id)) || [],
+        }));
     },
 
     /** Fetch all providers */

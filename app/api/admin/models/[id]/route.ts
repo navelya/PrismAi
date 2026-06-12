@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/auth';
 import { invalidateRegistryCache } from '@/lib/chat/registry-cache';
-import { mirrorModelProviderBinding } from '@/lib/admin/model-provider-binding';
+import {
+    mirrorModelProviderBinding,
+    reconcileModelProviderBindings,
+} from '@/lib/admin/model-provider-binding';
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
     try {
@@ -23,7 +26,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             outputs_schema,
             provider_id,
             provider_model_id,
-            description
+            description,
+            // Optional ordered bindings array (index 0 = default). Reconciled
+            // into ai_model_providers below — NOT an ai_models column.
+            provider_bindings
         } = body;
 
         const { data, error } = await auth.supabase
@@ -53,7 +59,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
         // Slug edits must reach the ai_model_providers binding table too —
         // provider resolution prefers it over the legacy ai_models columns.
-        await mirrorModelProviderBinding(auth.supabase, data);
+        // Clients sending the full ordered bindings array get a reconcile
+        // (replace-all); legacy clients keep the single-row mirror.
+        if (Array.isArray(provider_bindings)) {
+            await reconcileModelProviderBindings(auth.supabase, data.id, provider_bindings);
+        } else {
+            await mirrorModelProviderBinding(auth.supabase, data);
+        }
 
         // Model edits (inputs_schema/handles, is_active, etc.) must reach the
         // chat brain faster than the 5-min TTL.
