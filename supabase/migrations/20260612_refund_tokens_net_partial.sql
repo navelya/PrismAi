@@ -63,3 +63,17 @@ BEGIN
   UPDATE profiles SET token_balance = v_new_balance, topup_balance = v_new_topup WHERE id = v_user_id;
   RETURN v_new_balance;
 END; $$;
+
+-- ── Allow the partial-refund reason in the ledger ──────────────────────────────
+-- refundFailedIteration writes reason 'execution_partial_refund', but the CHECK
+-- constraint (last set in 20260523) never included it — every per-iteration
+-- refund insert has been silently rejected (refund.ts logs and continues).
+-- Add it so partial refunds actually land; the netting above then keeps the
+-- combined partial+full refund capped at the original debit.
+ALTER TABLE public.token_ledger DROP CONSTRAINT IF EXISTS token_ledger_reason_valid;
+ALTER TABLE public.token_ledger ADD CONSTRAINT token_ledger_reason_valid CHECK (reason IN (
+  'signup_bonus','monthly_topup','monthly_reset','execution_debit','execution_refund',
+  'execution_partial_refund',
+  'purchase','subscription_grant','admin_adjustment','stripe_refund','stripe_chargeback',
+  'paddle_pack_purchase','paddle_subscription_grant','paddle_refund','paddle_chargeback'
+));
