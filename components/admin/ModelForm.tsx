@@ -390,10 +390,16 @@ export function ModelForm({
                 setVisualControls(parsed.inputs.controls.map((c: any) => ({ ...c, id: Math.random().toString() })));
                 setVisualOutputWires(parsed.outputs.handles.map((h: any) => ({ ...h, id: Math.random().toString() })));
 
+                // Prefer the provider's own metadata (e.g. FAL's "FLUX.1 [schnell]")
+                // over guessing from the slug's last segment.
                 if (!form.display_name) {
+                    const fromProvider = (data.display_name || '').trim();
                     const segments = slug.split('/').filter(Boolean);
-                    const rawName = segments[segments.length - 1] || slug;
-                    setForm(prev => ({ ...prev, display_name: formatDisplayName(rawName) }));
+                    const fallback = formatDisplayName(segments[segments.length - 1] || slug);
+                    setForm(prev => ({ ...prev, display_name: fromProvider || fallback }));
+                }
+                if (data.description && !form.description) {
+                    setForm(prev => ({ ...prev, description: data.description }));
                 }
             }
         } catch (error: any) {

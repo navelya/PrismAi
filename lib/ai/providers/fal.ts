@@ -118,12 +118,76 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
     });
     if (!res.ok) throw new Error(`FAL fetchSchema failed (${res.status})`);
     const body = await res.json();
-    const entry = Array.isArray(body?.models) ? body.models[0] : (body?.[0] ?? body);
-    const openapi = entry?.openapi ?? entry?.openapi_schema;
-    if (!openapi) throw new Error('FAL fetchSchema: no openapi spec in response');
-    return openapi;
+    const models = Array.isArray(body?.models) ? body.models : [];
+    const entry = models.find((m: any) => m.endpoint_id === modelSlug) || models[0] || body;
+    const doc = entry?.openapi ?? entry?.openapi_schema ?? entry;
+    if (!doc?.components?.schemas && !doc?.paths) throw new Error('FAL fetchSchema: no openapi doc in response');
+    return {
+      openapi_schema: normalizeFalOpenApi(doc),
+      display_name: entry?.metadata?.display_name || undefined,
+      description: entry?.metadata?.description || undefined,
+    };
   },
 };
+
+/**
+ * FAL's OpenAPI names the input/output schemas per-endpoint (e.g. FluxSchnellInput,
+ * not "Input"), expresses nullable/union props via `anyOf`, and marks file inputs
+ * only by name/description (no `format: uri`). Rewrite it into the Replicate-style
+ * doc the shared parseReplicateSchema() expects: components.schemas.Input/Output
+ * with props flattened and file inputs tagged `format: uri`. Other component
+ * schemas (Image, ImageSize, …) are kept so their $refs still resolve.
+ */
+function normalizeFalOpenApi(doc: any): any {
+  const schemas: Record<string, any> = { ...(doc?.components?.schemas || {}) };
+
+  // Locate the Input schema: the primary POST path's requestBody $ref (the path
+  // without `{request_id}`), else the lone *Input component.
+  let inputName: string | undefined;
+  for (const [p, ops] of Object.entries<any>(doc?.paths || {})) {
+    if (p.includes('{request_id}')) continue;
+    const ref = ops?.post?.requestBody?.content?.['application/json']?.schema?.$ref;
+    if (ref) { inputName = ref.split('/').pop(); break; }
+  }
+  if (!inputName || !schemas[inputName]) {
+    inputName = Object.keys(schemas).find((k) => k.endsWith('Input'));
+  }
+  const rawInput = inputName ? schemas[inputName] : undefined;
+  if (!rawInput?.properties) throw new Error('FAL schema: could not locate the Input schema');
+
+  const normProps: Record<string, any> = {};
+  for (const [key, rawProp] of Object.entries<any>(rawInput.properties)) {
+    normProps[key] = normalizeFalProp(key, rawProp);
+  }
+  schemas.Input = { type: 'object', required: rawInput.required || [], properties: normProps };
+
+  const outputName = Object.keys(schemas).find((k) => k.endsWith('Output'));
+  if (outputName) schemas.Output = schemas[outputName];
+
+  return { components: { schemas } };
+}
+
+function normalizeFalProp(key: string, prop: any): any {
+  let p = { ...prop };
+  // Flatten anyOf: drop the null branch, lift an enum/typed branch up.
+  if (Array.isArray(p.anyOf)) {
+    const nonNull = p.anyOf.filter((v: any) => v?.type !== 'null');
+    const enumBranch = nonNull.find((v: any) => Array.isArray(v.enum));
+    const typed = nonNull.find((v: any) => v.type) || nonNull[0] || {};
+    p = { ...typed, ...p };
+    delete p.anyOf;
+    if (enumBranch) { p.enum = enumBranch.enum; p.type = 'string'; }
+    else if (!p.type && nonNull.some((v: any) => v.$ref)) { p.type = 'string'; }
+  }
+  // File inputs: FAL gives them only a name/description, no format. Tag them so
+  // the shared parser routes them to input handles with the right media type.
+  const looksFile =
+    /(^|_)(image|images|img|video|audio|mask|file|url)s?$/i.test(key) ||
+    /_url$/i.test(key) ||
+    /\burl of (the|an|a|your)\b/i.test(String(p.description || ''));
+  if (looksFile && p.type === 'string' && !p.enum) p.format = 'uri';
+  return p;
+}
 
 /**
  * FAL output is model-specific JSON. Pull every hosted media URL out of the common

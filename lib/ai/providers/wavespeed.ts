@@ -94,7 +94,40 @@ export const wavespeedAsyncAdapter: AsyncProviderAdapter = {
     if (typeof code === 'number' && code >= 5000) return 'transient'; // app-level server codes
     return 'validation';
   },
+
+  async fetchSchema(modelSlug) {
+    // WaveSpeed exposes per-model JSON Schemas via the models list; each entry's
+    // api_schema.api_schemas[0].request_schema is a standard JSON Schema.
+    const res = await fetch(`${WAVESPEED_BASE}/models`, {
+      headers: wsHeaders(), signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`WaveSpeed fetchSchema failed (${res.status})`);
+    const body = await res.json();
+    const list: any[] = Array.isArray(body?.data) ? body.data : [];
+    const entry = list.find((m) => m.model_id === modelSlug);
+    if (!entry) throw new Error(`WaveSpeed: model '${modelSlug}' not found in /models`);
+    const reqSchema = entry?.api_schema?.api_schemas?.[0]?.request_schema;
+    if (!reqSchema?.properties) throw new Error(`WaveSpeed: no request_schema for '${modelSlug}'`);
+    const Input = {
+      type: 'object',
+      required: reqSchema.required || [],
+      properties: reqSchema.properties,
+    };
+    return {
+      openapi_schema: { components: { schemas: { Input, Output: wavespeedOutputSchema(entry.type) } } },
+      display_name: entry.name || undefined,
+      description: entry.description || undefined,
+    };
+  },
 };
+
+/** Synthesize a media output handle from WaveSpeed's coarse `type` (e.g. "image",
+ *  "text-to-video"); the description hint lets inferWireType pick the wire type. */
+function wavespeedOutputSchema(type?: string) {
+  const t = String(type || '').toLowerCase();
+  const hint = t.includes('video') ? 'video' : t.includes('audio') ? 'audio' : 'image';
+  return { type: 'array', items: { type: 'string', format: 'uri', description: hint } };
+}
 
 /** WaveSpeed `data.outputs` is an array of URL strings; handle {url} objects defensively. */
 function extractWaveSpeedUrls(outputs: any): { url: string }[] {

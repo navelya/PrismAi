@@ -65,6 +65,19 @@ export interface AsyncProviderAdapter {
   ): Promise<{ providerJobId: string; status: 'pending' | 'completed'; outputs?: any }>;
   poll(providerJobId: string): Promise<ProviderPollResult>;
   classifyError(op: 'submit' | 'poll', httpStatus: number | null, body: unknown): ErrorClass;
-  fetchSchema?(modelSlug: string): Promise<any>;       // optional; Phase B
+  fetchSchema?(modelSlug: string): Promise<ProviderSchemaResult>;   // optional; per-provider schema fetch
   parseWebhook?(req: Request): { providerJobId: string } | null;  // optional; Phase B
+}
+
+/**
+ * Result of a provider schema fetch, normalized for the admin model form. The
+ * `openapi_schema` is shaped so the shared parseReplicateSchema() can read it:
+ * `components.schemas.Input` (+ optional `Output`). `display_name`/`description`
+ * are the provider's own metadata when available (so the form doesn't guess from
+ * the slug).
+ */
+export interface ProviderSchemaResult {
+  openapi_schema: any;
+  display_name?: string;
+  description?: string;
 }
