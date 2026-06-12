@@ -23,7 +23,7 @@
 
 import { memo, useEffect, useRef } from 'react';
 import { CompositorLayer } from '../definition';
-import { detectSourceKindFromUrl } from '../shared';
+import { detectSourceKindFromUrl, isLayerActiveAt } from '../shared';
 import { RenderableLayer } from './Renderer';
 
 function safeAudioUrl(url: string): string {
@@ -124,17 +124,10 @@ const AudioTrack = memo(function AudioTrack({
     const start = Math.max(0, layer.startTime || 0);
     const trimIn = Math.max(0, layer.trimIn || 0);
     const local = playhead - start;
-    // Active window is timeline-space: a finite configured `duration` wins
-    // (set by right-trim or split); else fall back to the source's intrinsic
-    // length. `trimIn` shifts only the SOURCE seek, never this gate.
-    const withinDuration =
-        typeof layer.duration === 'number' && layer.duration > 0
-            ? local < layer.duration
-            : intrinsicDuration && intrinsicDuration > 0
-                ? local < intrinsicDuration
-                : true;
-    const within = local >= 0 && withinDuration;
-    const active = !!layer.visible && within;
+    // Active window is timeline-space (folds in visible + start + duration/
+    // intrinsic, with trimIn subtracted from the intrinsic fallback). `trimIn`
+    // shifts only the SOURCE seek (target below), never this gate.
+    const active = isLayerActiveAt(layer, 'audio', intrinsicDuration ?? null, playhead);
     // Mute outside the active window so a clip can't leak sound when the
     // playhead is parked before/after it.
     const effectiveMuted = muted || !active;

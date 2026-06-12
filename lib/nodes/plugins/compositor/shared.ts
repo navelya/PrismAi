@@ -147,7 +147,7 @@ export function getEffectiveDuration(
     // span its real running time on the timeline rather than the image/text
     // "full timeline" fallback.
     if ((sourceKind === 'video' || sourceKind === 'audio') && intrinsicDuration && intrinsicDuration > 0) {
-        return intrinsicDuration;
+        return Math.max(0.1, intrinsicDuration - Math.max(0, layer.trimIn || 0));
     }
     return Math.max(0.1, fallbackTimeline);
 }
@@ -183,7 +183,7 @@ export function computeTimelineDuration(
         if (typeof l.duration === 'number' && l.duration > 0) {
             dur = l.duration;
         } else if (intrinsic && intrinsic > 0) {
-            dur = intrinsic;
+            dur = Math.max(0.1, intrinsic - Math.max(0, l.trimIn || 0));
         }
         const end = start + dur;
         if (end > maxEnd) maxEnd = end;
@@ -215,9 +215,10 @@ export function isLayerActiveAt(
     if (typeof layer.duration === 'number' && layer.duration > 0) {
         return t < start + layer.duration;
     }
-    // Video/audio with known intrinsic length and no overridden duration
+    // Video/audio with known intrinsic length and no overridden duration.
+    // Subtract trimIn so a trimmed clip's window ends at its remaining source.
     if ((sourceKind === 'video' || sourceKind === 'audio') && intrinsicDuration && intrinsicDuration > 0) {
-        return t < start + intrinsicDuration;
+        return t < start + Math.max(0.1, intrinsicDuration - Math.max(0, layer.trimIn || 0));
     }
     // Image/text with null duration → always on after startTime
     return true;
