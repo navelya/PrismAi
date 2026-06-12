@@ -387,6 +387,7 @@ interface ProcessedLayer {
     intrinsicDuration: number; // seconds; 0 if unknown
     effectiveDuration: number; // seconds; what we actually render
     startTime: number;         // seconds
+    trimIn: number;            // seconds trimmed from the source's start
     hasAudio: boolean;         // video has at least one audio stream
     intrinsicWidth: number;    // source pixel width; 0 if unknown
     intrinsicHeight: number;   // source pixel height; 0 if unknown
@@ -485,6 +486,7 @@ export async function renderCompositorVideo(
                     intrinsicDuration: 0,
                     effectiveDuration: 0, // filled below once we know the timeline total
                     startTime: Math.max(0, layer.startTime || 0),
+                    trimIn: Math.max(0, layer.trimIn || 0),
                     hasAudio: false,
                     intrinsicWidth: 0, // text has no intrinsic size — never drives canvas fit
                     intrinsicHeight: 0,
@@ -544,6 +546,7 @@ export async function renderCompositorVideo(
                     intrinsicDuration: probe.duration,
                     effectiveDuration: 0, // filled below once we know the timeline total
                     startTime: Math.max(0, layer.startTime || 0),
+                    trimIn: Math.max(0, layer.trimIn || 0),
                     hasAudio: probe.hasAudio,
                     intrinsicWidth: 0, // audio has no visual — never drives canvas fit
                     intrinsicHeight: 0,
@@ -622,6 +625,7 @@ export async function renderCompositorVideo(
                 intrinsicDuration,
                 effectiveDuration: 0, // filled below once we know the timeline total
                 startTime: Math.max(0, layer.startTime || 0),
+                trimIn: Math.max(0, layer.trimIn || 0),
                 hasAudio,
                 intrinsicWidth,
                 intrinsicHeight,
@@ -738,11 +742,12 @@ export async function renderCompositorVideo(
             const { width: w, height: h } = effTransform(p);
             const eff = p.effectiveDuration;
             const startT = p.startTime;
+            const inT = p.trimIn;
             const setpts = `setpts=PTS-STARTPTS+${startT.toFixed(3)}/TB`;
 
             const layerLabel = `L${idx}`;
             filters.push(
-                `[${idx}:v]trim=duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
+                `[${idx}:v]trim=start=${inT.toFixed(3)}:duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
             );
         });
 
@@ -795,7 +800,7 @@ export async function renderCompositorVideo(
                     const delays = new Array(8).fill(startMs).join('|');
                     const label = `A${idx}`;
                     filters.push(
-                        `[${idx}:a]atrim=duration=${p.effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${delays}[${label}]`,
+                        `[${idx}:a]atrim=start=${p.trimIn.toFixed(3)}:duration=${p.effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,adelay=${delays}[${label}]`,
                     );
                     audioLabels.push(label);
                 });

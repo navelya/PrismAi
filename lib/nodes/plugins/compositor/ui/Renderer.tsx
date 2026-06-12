@@ -963,7 +963,7 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                 if (kind === 'video' && url) {
                     const localTime =
                         typeof playhead === 'number'
-                            ? Math.max(0, playhead - (layer.startTime || 0))
+                            ? Math.max(0, playhead - (layer.startTime || 0)) + Math.max(0, layer.trimIn || 0)
                             : undefined;
                     // Mute inactive clips even when the surface wants audio,
                     // so a paused-by-time-gating clip doesn't leak a frame of

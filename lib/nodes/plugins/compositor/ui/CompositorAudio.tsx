@@ -122,10 +122,18 @@ const AudioTrack = memo(function AudioTrack({
     }, []);
 
     const start = Math.max(0, layer.startTime || 0);
+    const trimIn = Math.max(0, layer.trimIn || 0);
     const local = playhead - start;
-    const within =
-        local >= 0 &&
-        (intrinsicDuration && intrinsicDuration > 0 ? local < intrinsicDuration : true);
+    // Active window is timeline-space: a finite configured `duration` wins
+    // (set by right-trim or split); else fall back to the source's intrinsic
+    // length. `trimIn` shifts only the SOURCE seek, never this gate.
+    const withinDuration =
+        typeof layer.duration === 'number' && layer.duration > 0
+            ? local < layer.duration
+            : intrinsicDuration && intrinsicDuration > 0
+                ? local < intrinsicDuration
+                : true;
+    const within = local >= 0 && withinDuration;
     const active = !!layer.visible && within;
     // Mute outside the active window so a clip can't leak sound when the
     // playhead is parked before/after it.
@@ -137,7 +145,7 @@ const AudioTrack = memo(function AudioTrack({
         if (!a) return;
         a.muted = effectiveMuted;
 
-        const target = Math.max(0, local);
+        const target = Math.max(0, local) + trimIn;
         if (isPlaying && active) {
             if (Math.abs(a.currentTime - target) > SEEK_THRESHOLD_SEC) {
                 try { a.currentTime = target; } catch { /* not ready */ }
@@ -151,7 +159,7 @@ const AudioTrack = memo(function AudioTrack({
                 try { a.currentTime = target; } catch { /* not ready */ }
             }
         }
-    }, [isPlaying, active, local, effectiveMuted]);
+    }, [isPlaying, active, local, effectiveMuted, trimIn]);
 
     return null;
 });
