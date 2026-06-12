@@ -610,14 +610,23 @@ export function ModelForm({
         let legacyProviderId = form.provider_id;
         if (submitDefault) {
             const matched = providerRowForAdapterKey(submitDefault.provider_id);
-            if (matched) legacyProviderId = matched.id;
+            if (matched) {
+                legacyProviderId = matched.id;
+            } else if (submitDefault.provider_id === 'replicate') {
+                // No providers row represents Replicate. If the chip still
+                // points at an adapter-keyed provider (model retargeted to a
+                // replicate default), the pre-migration legacy fallback would
+                // route the run to that adapter with an empty slug — clear it.
+                const current = providers.find(p => p.id === legacyProviderId);
+                if (current?.adapter_key) legacyProviderId = '';
+            }
         }
 
         await onSubmit({
             ...form,
             provider_id: legacyProviderId || null,
             // Legacy columns derived from the bindings list (behind the scenes).
-            replicate_model_id: replicateRow?.provider_model_id ?? '',
+            replicate_model_id: replicateRow?.provider_model_id ?? null,
             provider_model_id: submitDefault && submitDefault.provider_id !== 'replicate'
                 ? submitDefault.provider_model_id
                 : null,
