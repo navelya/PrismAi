@@ -534,9 +534,29 @@ export default function CompositorEditorModal({
     const groupDragRef = useRef<{ start: Map<string, { x: number; y: number }>; nodes: Map<string, any> } | null>(null);
 
     const [stageZoom, setStageZoom] = useState(1);
+    // Timeline panel height — session-only; drag the top border to resize.
+    const [timelineHeight, setTimelineHeight] = useState(260);
+    const TIMELINE_MIN_H = 140;
+    const TIMELINE_MAX_H = 560;
     const [stagePan, setStagePan] = useState({ x: VIEWPORT_PADDING, y: VIEWPORT_PADDING });
     const [isPanning, setIsPanning] = useState(false);
     const [spaceHeld, setSpaceHeld] = useState(false);
+
+    const startTimelineResize = useCallback((e: React.PointerEvent) => {
+        e.preventDefault();
+        const startY = e.clientY;
+        const startH = timelineHeight;
+        const onMove = (ev: PointerEvent) => {
+            const next = Math.max(TIMELINE_MIN_H, Math.min(TIMELINE_MAX_H, startH + (startY - ev.clientY)));
+            setTimelineHeight(next);
+        };
+        const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+    }, [timelineHeight]);
 
     // Stage pixel size, measured via ResizeObserver and held in state. Reading
     // `stageContainerRef.current.clientWidth` inline in the Stage props forced a
@@ -1355,7 +1375,17 @@ export default function CompositorEditorModal({
                     audio) is on the canvas. Image/text-only compositions don't
                     need a transport bar. */}
                 {hasTransport && (
-                    <div className="h-[260px] flex-shrink-0 border-t border-white/10">
+                    <div
+                        className="flex-shrink-0 border-t border-white/10 relative"
+                        style={{ height: timelineHeight }}
+                    >
+                        <div
+                            className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-30 group"
+                            onPointerDown={startTimelineResize}
+                            title="Drag to resize timeline"
+                        >
+                            <div className="absolute top-1 left-0 right-0 h-px bg-transparent group-hover:bg-accent-primary/60 transition-colors" />
+                        </div>
                         <Timeline
                             layers={layers}
                             sourceKindByLayerId={sourceKindByLayerId}
