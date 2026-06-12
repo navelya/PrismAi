@@ -5,12 +5,13 @@ import { NodeProps, useStore, useUpdateNodeInternals } from 'reactflow';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
-import { LayoutGrid, Square, Check, Upload, Plus, X, Play } from 'lucide-react';
+import { LayoutGrid, Square, Check, Upload, Plus, X, Play, Music } from 'lucide-react';
 import GlassyLoader from '@/components/ui/GlassyLoader';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import BlurryImage from '@/components/ui/BlurryImage';
 import BlurryVideo from '@/components/ui/BlurryVideo';
+import AudioPlayer from '@/components/ui/AudioPlayer';
 
 interface MediaInputNodeData {
     label: string;
@@ -115,7 +116,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             const { uploadApi } = await import('@/lib/api/client');
 
             const uploadPromises = Array.from(files).map(async (file) => {
-                if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+                if (file.type.startsWith('image/') || file.type.startsWith('video/') || file.type.startsWith('audio/')) {
                     const result = await uploadApi.upload(file, {
                         sessionId: activeSessionId,
                         nodeId: id
@@ -215,6 +216,16 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         return detectMediaTypeFromUrl(url) === 'video';
     };
 
+    const isAudio = (url: string) => {
+        return detectMediaTypeFromUrl(url) === 'audio';
+    };
+
+    // An audio-only node renders the compact, fixed-size transport-strip layout
+    // (matching the ai_generator audio preview) instead of the resizable image
+    // frame. Mixed media (audio + images) falls back to the framed single/grid
+    // views, which render audio items as a player/icon tile.
+    const allAudio = images.length > 0 && images.every((img) => isAudio(getMediaUrl(img)));
+
     return (
         <BaseNode
             id={id}
@@ -229,11 +240,49 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             onDrop={handleDrop}
             renderInputs={false}
             hideStatus={true}
-            resizable
-            minWidth={240}
+            resizable={!allAudio}
+            minWidth={allAudio ? undefined : 240}
             width=""
-            style={{ width: 360 }}
+            style={{ width: allAudio ? 300 : 360 }}
         >
+            {allAudio ? (
+                <div
+                    className={cn(
+                        "relative w-full flex flex-col gap-1.5 rounded-xl border-2 border-dashed p-1.5 bg-white/5 group/audio",
+                        isDragOver ? "border-accent-primary bg-accent-primary/10" : "border-white/10 hover:border-white/20",
+                        "transition-all duration-500"
+                    )}
+                >
+                    {images.map((img, index) => (
+                        <div
+                            key={index}
+                            className="relative flex items-center h-[56px] px-2 rounded-xl border border-white/10 bg-white/5 shadow-inner"
+                        >
+                            <AudioPlayer src={getMediaUrl(img)} />
+                            {!isViewer && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => removeImage(e, index)}
+                                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                    className="absolute top-1 right-1 p-0.5 rounded bg-black/50 text-white opacity-0 hover:bg-red-500 group-hover/audio:opacity-100 transition-opacity z-10"
+                                >
+                                    <X className="w-2.5 h-2.5" />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                    {!isViewer && (
+                        <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-white/10 text-white/30 hover:border-white/20 hover:text-white/50 transition-colors text-xs font-medium"
+                        >
+                            <Plus className="w-3.5 h-3.5" /> Add audio
+                        </button>
+                    )}
+                    {(isUploading || (data.config as any)?._isUploading === true) && <GlassyLoader label="Uploading" />}
+                </div>
+            ) : (
             <div
                 className={cn(
                     "relative w-full h-full min-h-[160px] rounded-xl overflow-hidden border-2 border-dashed bg-white/5",
@@ -261,8 +310,8 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                 ) : (
                     <>
                         {previewMode === 'single' ? (
-                            <div 
-                                className="w-full h-full group/preview relative cursor-zoom-in"
+                            <div
+                                className={cn("w-full h-full group/preview relative", !isAudio(getMediaUrl(images[activeImageIndex])) && "cursor-zoom-in")}
                                 onMouseEnter={() => videoRef.current?.play()}
                                 onMouseLeave={() => {
                                     if (videoRef.current) {
@@ -270,9 +319,13 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                         videoRef.current.currentTime = 0;
                                     }
                                 }}
-                                onClick={() => setLightboxOpen(true)}
+                                onClick={() => { if (!isAudio(getMediaUrl(images[activeImageIndex]))) setLightboxOpen(true); }}
                             >
-                                {isVideo(getMediaUrl(images[activeImageIndex])) ? (
+                                {isAudio(getMediaUrl(images[activeImageIndex])) ? (
+                                    <div className="w-full h-full min-h-[160px] flex items-center px-3" onClick={(e) => e.stopPropagation()}>
+                                        <AudioPlayer src={getMediaUrl(images[activeImageIndex])} />
+                                    </div>
+                                ) : isVideo(getMediaUrl(images[activeImageIndex])) ? (
                                     <>
                                         <BlurryVideo
                                             ref={videoRef}
@@ -313,6 +366,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                     {images.map((img, index) => {
                                         const url = getMediaUrl(img);
                                         const isVid = isVideo(url);
+                                        const isAud = isAudio(url);
                                         return (
                                             <button
                                                 key={index}
@@ -323,7 +377,11 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                                     activeImageIndex === index ? "border-accent-primary ring-2 ring-accent-primary/20" : "border-white/5"
                                                 )}
                                             >
-                                                {isVid ? (
+                                                {isAud ? (
+                                                    <div className="w-full h-full flex items-center justify-center bg-white/5 text-content-tertiary">
+                                                        <Music className="w-5 h-5" />
+                                                    </div>
+                                                ) : isVid ? (
                                                     <BlurryVideo
                                                         src={url}
                                                         className="w-full h-full object-cover max-w-none max-h-none"
@@ -391,19 +449,20 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                 {/* Modern Glassy Loading Effect */}
                 {(isUploading || (data.config as any)?._isUploading === true) && <GlassyLoader label="Uploading" />}
             </div>
+            )}
 
             {/* Hidden file input */}
             <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*,video/*,audio/*"
                 multiple
                 onChange={handleInputChange}
                 className="hidden"
             />
 
-            {/* Image Lightbox */}
-            {lightboxOpen && images.length > 0 && (
+            {/* Image Lightbox — images/video only; audio uses its own player */}
+            {lightboxOpen && !allAudio && images.length > 0 && (
                 <ImageLightbox
                     media={images.map(getMediaUrl)}
                     type="any"

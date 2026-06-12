@@ -81,6 +81,16 @@ function ModalRoot({
     const z = LEVEL_Z[level];
     const escCloses = closeOnEscape ?? dismissable;
     const backdropCloses = closeOnBackdropClick ?? dismissable;
+
+    // A nested overlay rendered in its own body-portal (e.g. ImageLightbox) sits
+    // outside this Dialog's content, so Radix reads a click there as an
+    // outside-interaction and would dismiss the whole modal. Layers that opt out
+    // mark their root with `data-radix-dismiss-ignore`; we veto the dismiss so
+    // closing the inner overlay leaves the modal open.
+    const startedInIgnoredLayer = (e: { detail?: { originalEvent?: Event } }) => {
+        const target = e.detail?.originalEvent?.target as HTMLElement | null;
+        return !!target?.closest?.('[data-radix-dismiss-ignore]');
+    };
     return (
         <ModalContext.Provider value={{ onOpenChange }}>
             <RadixDialog.Root open={open} onOpenChange={onOpenChange} modal={modal}>
@@ -107,8 +117,8 @@ function ModalRoot({
                                     forceMount
                                     onOpenAutoFocus={onOpenAutoFocus}
                                     onEscapeKeyDown={(e) => { if (!escCloses) e.preventDefault(); }}
-                                    onPointerDownOutside={(e) => { if (!dismissable) e.preventDefault(); }}
-                                    onInteractOutside={(e) => { if (!dismissable) e.preventDefault(); }}
+                                    onPointerDownOutside={(e) => { if (!dismissable || startedInIgnoredLayer(e)) e.preventDefault(); }}
+                                    onInteractOutside={(e) => { if (!dismissable || startedInIgnoredLayer(e)) e.preventDefault(); }}
                                 >
                                     <motion.div
                                         className={cn(

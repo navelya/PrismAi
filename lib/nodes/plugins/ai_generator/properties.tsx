@@ -508,7 +508,11 @@ function ControlRenderer({
             return (
                 <VoicePickerControl
                     label={label}
-                    value={value}
+                    // Fall back to the admin-configured default voice (control.default_value)
+                    // when the node has no explicitly-picked voice yet — same display-fallback
+                    // pattern every other control uses, and matches what the executor runs
+                    // (executor.server.ts: control_values?.[key] ?? ctrl.default_value).
+                    value={value ?? control.default_value}
                     onChange={val => onChange(control.api_mapping_key, val)}
                 />
             );

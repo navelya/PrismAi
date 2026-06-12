@@ -32,15 +32,24 @@ export async function POST(request: NextRequest) {
         let ext = 'jpg';
 
         if (file) {
-            if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-                return NextResponse.json({ error: 'Only image and video files are allowed' }, { status: 400 });
+            if (!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/')) {
+                return NextResponse.json({ error: 'Only image, video, and audio files are allowed' }, { status: 400 });
             }
             const MAX_SIZE = 50 * 1024 * 1024; // Increased to 50MB for video support
             if (file.size > MAX_SIZE) {
                 return NextResponse.json({ error: 'File too large (max 50MB)' }, { status: 400 });
             }
             mimeType = file.type;
-            ext = mimeType.split('/')[1]?.split('+')[0] || 'webp';
+            // Prefer the original filename's extension. The MIME-derived fallback
+            // is unreliable for audio (audio/mpeg→".mpeg", audio/mp4→".mp4",
+            // audio/webm→".webm"), which breaks URL-based media-type detection
+            // (an mp3 reads as a broken image, an m4a reads as video). Keeping the
+            // real extension makes detectMediaTypeFromUrl resolve it correctly.
+            const originalName = (file as File).name || '';
+            const nameExt = originalName.includes('.')
+                ? originalName.split('.').pop()!.toLowerCase().replace(/[^a-z0-9]/g, '')
+                : '';
+            ext = nameExt || mimeType.split('/')[1]?.split('+')[0] || 'webp';
             const arrayBuffer = await file.arrayBuffer();
             buffer = Buffer.from(arrayBuffer);
         } else if (urlToFetch) {

@@ -1642,12 +1642,12 @@ const EditorCanvasInner = ({
             } catch (e) { /* fallback to file-drop handling */ }
         }
 
-        // OS-file drop: mirror the assets-panel UX. Filter to image/video,
+        // OS-file drop: mirror the assets-panel UX. Filter to image/video/audio,
         // spawn an empty media_input at the drop point with a transient
         // _isUploading flag that drives the in-node GlassyLoader, then upload
         // in the background and populate config.images on success.
         const mediaFiles = Array.from(event.dataTransfer.files || []).filter(
-            (f) => f.type.startsWith('image/') || f.type.startsWith('video/'),
+            (f) => f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/'),
         );
         if (mediaFiles.length === 0) return;
 

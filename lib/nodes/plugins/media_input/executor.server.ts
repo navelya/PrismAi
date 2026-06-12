@@ -1,5 +1,6 @@
 import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types';
 import { MediaInputConfig } from './definition';
+import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 
 export const mediaInputExecutor = async (
     config: MediaInputConfig,
@@ -36,9 +37,17 @@ export const mediaInputExecutor = async (
             };
         });
 
+        // When every uploaded item is audio, declare the result type explicitly so
+        // the engine stamps `audio` (the default inference keys off the `.url`
+        // shape and would mis-stamp it as `image`). Mixed/image/video uploads keep
+        // the legacy path untouched.
+        const urls = images.map((img: any) => (typeof img === 'string' ? img : img?.url));
+        const allAudio = urls.length > 0 && urls.every((url: any) => detectMediaTypeFromUrl(url) === 'audio');
+
         return {
             success: true,
             data: imageObjects,
+            ...(allAudio ? { result_type: 'audio' as const } : {}),
         };
     } catch (error) {
         return {
