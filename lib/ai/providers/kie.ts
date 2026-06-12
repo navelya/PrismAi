@@ -86,7 +86,7 @@ export const kieAsyncAdapter: AsyncProviderAdapter = {
   classifyError(_op, httpStatus, body): ErrorClass {
     const code = (body as any)?.code ?? httpStatus;
     const msg = JSON.stringify((body as any)?.msg ?? (body as any)?.message ?? '').toLowerCase();
-    if (code === 400 && /flag|policy|inappropriate|violat|sensitive/.test(msg)) return 'moderation';
+    if (code === 400 && /flag|policy|inappropriate|violat|sensitive|prohibit|reject|nsfw|content/.test(msg)) return 'moderation';
     if (code === 408 || code === 429 || code === 455 || code === 500) return 'transient';
     if (httpStatus === 429 || (httpStatus !== null && httpStatus >= 500)) return 'transient';
     return 'validation';
