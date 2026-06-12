@@ -943,14 +943,22 @@ export default function CompositorEditorModal({
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
-                ids.forEach((lid) => deleteSelectedLayer(lid));
+                // Route through handleDeleteClip (NOT deleteSelectedLayer): the
+                // latter removes the upstream edge, which the store cascades into
+                // dropping EVERY clip sharing that sourceHandleId — so deleting one
+                // half of a split clip wiped both. handleDeleteClip removes just the
+                // selected clip while siblings remain, and only drops the edge when
+                // it's the last clip on the row. Each call re-reads fresh store state,
+                // so multi-select on one row deletes clips one at a time correctly
+                // (last call sees a single sibling → removes the edge).
+                ids.forEach((lid) => handleDeleteClip(lid));
             }
         };
         const onKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') { setSpaceHeld(false); setIsPanning(false); } };
         window.addEventListener('keydown', onKeyDown, true);
         window.addEventListener('keyup', onKeyUp);
         return () => { window.removeEventListener('keydown', onKeyDown, true); window.removeEventListener('keyup', onKeyUp); };
-    }, [localUndo, localRedo, deleteSelectedLayer]);
+    }, [localUndo, localRedo, handleDeleteClip]);
 
     // Snapshot once at the start of an interaction (drag/transform). The
     // checkpoint goes to LOCAL history only — outside-the-modal Ctrl+Z is

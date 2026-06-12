@@ -997,7 +997,15 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             localTime={localTime}
                             isPlaying={isPlaying && isActive}
                             visible={isActive}
-                            poolKey={poolKey}
+                            // Per-LAYER pool key: two split clips share one URL
+                            // and one sourceHandleId but are independent clips
+                            // (non-overlapping in time). Suffixing layer.id gives
+                            // each its own pooled <video> decoder + currentTime,
+                            // so the inactive half's seek effect can't thrash the
+                            // active half's shared element. The pool releases the
+                            // entry when this layer unmounts (effect cleanup keyed
+                            // on poolKey), so distinct keys don't leak.
+                            poolKey={`${poolKey || '_global_'}:${layer.id}`}
                             muted={layerMuted}
                         />
                     );
