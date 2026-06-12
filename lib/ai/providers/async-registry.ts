@@ -1,6 +1,9 @@
 import { AsyncProviderAdapter } from './types';
 import { replicateAsyncAdapter } from './replicate';
 import { falAsyncAdapter } from './fal';
+import { wavespeedAsyncAdapter } from './wavespeed';
+import { kieAsyncAdapter } from './kie';
+import { kinoviAsyncAdapter } from './kinovi';
 
 /**
  * Maps a provider key to its async adapter. New async providers are added here.
@@ -11,6 +14,9 @@ import { falAsyncAdapter } from './fal';
 const asyncAdapters: Record<string, AsyncProviderAdapter> = {
   replicate: replicateAsyncAdapter,
   fal: falAsyncAdapter,
+  wavespeed: wavespeedAsyncAdapter,
+  kie: kieAsyncAdapter,
+  kinovi: kinoviAsyncAdapter,
 };
 
 export function getAsyncAdapter(key: string | null | undefined): AsyncProviderAdapter | undefined {
