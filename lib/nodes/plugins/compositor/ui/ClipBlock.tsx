@@ -23,6 +23,8 @@ interface ClipBlockProps {
     onSelect: () => void;
     onMove: (newStartTime: number) => void;
     onResizeRight: (newDuration: number) => void;
+    /** Commit a left-edge trim: new startTime, new duration, new trimIn. */
+    onTrimStart: (newStartTime: number, newDuration: number, newTrimIn: number) => void;
     /**
      * Other layers' edge times (start and end) the user can snap to when
      * dragging this clip. Always includes `0` (timeline start). Snap fires
@@ -79,6 +81,7 @@ const ClipBlock = memo(function ClipBlock({
     onSelect,
     onMove,
     onResizeRight,
+    onTrimStart,
     snapTargets = [],
     onSnapChange,
 }: ClipBlockProps) {
@@ -96,6 +99,10 @@ const ClipBlock = memo(function ClipBlock({
     onMoveRef.current = onMove;
     const onResizeRightRef = useRef(onResizeRight);
     onResizeRightRef.current = onResizeRight;
+    const onTrimStartRef = useRef(onTrimStart);
+    onTrimStartRef.current = onTrimStart;
+    const sourceKindRef = useRef(sourceKind);
+    sourceKindRef.current = sourceKind;
     const onSelectRef = useRef(onSelect);
     onSelectRef.current = onSelect;
     const maxDurationRef = useRef(maxDuration);
@@ -108,30 +115,35 @@ const ClipBlock = memo(function ClipBlock({
     const width = Math.max(8, effectiveDuration * pixelsPerSecond);
 
     const dragRef = useRef<{
-        kind: 'move' | 'resize';
+        kind: 'move' | 'resize' | 'trim-start';
         startX: number;
         startTime: number;
         duration: number;
+        trimIn: number;
         lastStartTime: number;
         lastDuration: number;
+        lastTrimIn: number;
     } | null>(null);
 
-    const onPointerDown = useCallback((e: React.PointerEvent, kind: 'move' | 'resize') => {
+    const onPointerDown = useCallback((e: React.PointerEvent, kind: 'move' | 'resize' | 'trim-start') => {
         if (layer.locked) return;
         e.preventDefault();
         e.stopPropagation();
         const target = e.target as HTMLElement;
         target.setPointerCapture?.(e.pointerId);
         const start = Math.max(0, layer.startTime || 0);
+        const inT = Math.max(0, layer.trimIn || 0);
         dragRef.current = {
             kind,
             startX: e.clientX,
             startTime: start,
             duration: effectiveDuration,
+            trimIn: inT,
             lastStartTime: start,
             lastDuration: effectiveDuration,
+            lastTrimIn: inT,
         };
-        if (kind === 'move') onSelectRef.current?.();
+        if (kind === 'move' || kind === 'trim-start') onSelectRef.current?.();
 
         const onMoveEvt = (ev: PointerEvent) => {
             const drag = dragRef.current;
@@ -172,6 +184,28 @@ const ClipBlock = memo(function ClipBlock({
                 }
                 drag.lastStartTime = finalStart;
                 node.style.left = `${finalStart * pps}px`;
+            } else if (drag.kind === 'trim-start') {
+                const MIN = 0.1;
+                const rightEdge = drag.startTime + drag.duration; // pinned
+                const isAV = sourceKindRef.current === 'video' || sourceKindRef.current === 'audio';
+                // Left bound: video/audio can't trim before source 0 (startTime - trimIn);
+                // image/text have no source limit (only >= 0).
+                const minStart = isAV ? Math.max(0, drag.startTime - drag.trimIn) : 0;
+                let rawStart = drag.startTime + deltaT;
+                rawStart = Math.min(rawStart, rightEdge - MIN);
+                rawStart = Math.max(minStart, rawStart);
+                const snapped = snap(rawStart, targets, pps);
+                if (snapped !== rawStart && snapped >= minStart && snapped <= rightEdge - MIN) {
+                    rawStart = snapped;
+                    activeSnap = snapped;
+                }
+                const newDuration = rightEdge - rawStart;
+                const newTrimIn = isAV ? drag.trimIn + (rawStart - drag.startTime) : drag.trimIn;
+                drag.lastStartTime = rawStart;
+                drag.lastDuration = newDuration;
+                drag.lastTrimIn = Math.max(0, newTrimIn);
+                node.style.left = `${rawStart * pps}px`;
+                node.style.width = `${Math.max(8, newDuration * pps)}px`;
             } else {
                 let raw = Math.max(0.1, drag.duration + deltaT);
                 if (max !== null) raw = Math.min(raw, max);
@@ -199,6 +233,8 @@ const ClipBlock = memo(function ClipBlock({
             dragRef.current = null;
             if (drag.kind === 'move') {
                 onMoveRef.current?.(drag.lastStartTime);
+            } else if (drag.kind === 'trim-start') {
+                onTrimStartRef.current?.(drag.lastStartTime, drag.lastDuration, drag.lastTrimIn);
             } else {
                 onResizeRightRef.current?.(drag.lastDuration);
             }
@@ -206,7 +242,7 @@ const ClipBlock = memo(function ClipBlock({
 
         window.addEventListener('pointermove', onMoveEvt);
         window.addEventListener('pointerup', onUp);
-    }, [layer.locked, layer.startTime, effectiveDuration]);
+    }, [layer.locked, layer.startTime, layer.trimIn, effectiveDuration]);
 
     const colorClass =
         sourceKind === 'video' ? 'bg-rose-400/70 border-rose-300/40' :
@@ -230,6 +266,12 @@ const ClipBlock = memo(function ClipBlock({
             <span className="text-[10px] font-medium text-black/80 truncate pointer-events-none">
                 {layer.name}
             </span>
+            {!layer.locked && (
+                <div
+                    className="absolute top-0 left-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-white/30 z-10"
+                    onPointerDown={(e) => onPointerDown(e, 'trim-start')}
+                />
+            )}
             {!layer.locked && (
                 <div
                     className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-white/30"
