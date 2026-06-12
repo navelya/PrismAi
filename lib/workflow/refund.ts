@@ -23,6 +23,17 @@ export async function refundFailedIteration(
     .maybeSingle();
   if (!debitRow?.user_id) return; // nothing was charged (cost 0) → nothing to refund
 
+  // If the execution was already refunded as a whole (failure refund or cancel
+  // refund), a late iteration refund would stack on top of it — refund_tokens
+  // nets out PRIOR partial refunds, but nothing nets a LATER one. Skip.
+  const { data: fullRefund } = await supabase
+    .from('token_ledger')
+    .select('id')
+    .in('idempotency_key', [`refund:${executionId}`, `cancel_refund:${executionId}`])
+    .limit(1)
+    .maybeSingle();
+  if (fullRefund) return;
+
   const costByNode = (debitRow.metadata as any)?.cost_by_node ?? {};
   const nodeTotal = Number(costByNode[nodeId]);
   if (!Number.isFinite(nodeTotal) || nodeTotal <= 0) return;
