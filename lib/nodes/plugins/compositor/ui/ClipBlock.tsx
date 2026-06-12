@@ -126,6 +126,7 @@ const ClipBlock = memo(function ClipBlock({
     } | null>(null);
 
     const onPointerDown = useCallback((e: React.PointerEvent, kind: 'move' | 'resize' | 'trim-start') => {
+        if (e.button !== 0) return;
         if (layer.locked) return;
         e.preventDefault();
         e.stopPropagation();

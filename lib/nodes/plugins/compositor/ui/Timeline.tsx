@@ -321,7 +321,7 @@ const Timeline = memo(function Timeline({
                                         </div>
                                     </ContextMenu.Trigger>
                                     <ContextMenu.Portal>
-                                        <ContextMenu.Content className="z-[200] min-w-[160px] rounded-lg border border-white/10 bg-surface-elevated/95 backdrop-blur-md p-1 shadow-xl">
+                                        <ContextMenu.Content className="z-[100001] min-w-[160px] rounded-lg border border-white/10 bg-surface-elevated/95 backdrop-blur-md p-1 shadow-xl">
                                             <ContextMenu.Item
                                                 onSelect={() => onRemoveRow(row.sourceHandleId)}
                                                 className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-white/80 rounded-md cursor-pointer outline-none data-[highlighted]:bg-white/10"
@@ -406,7 +406,7 @@ const Timeline = memo(function Timeline({
                                                         </div>
                                                     </ContextMenu.Trigger>
                                                     <ContextMenu.Portal>
-                                                        <ContextMenu.Content className="z-[200] min-w-[160px] rounded-lg border border-white/10 bg-surface-elevated/95 backdrop-blur-md p-1 shadow-xl">
+                                                        <ContextMenu.Content className="z-[100001] min-w-[160px] rounded-lg border border-white/10 bg-surface-elevated/95 backdrop-blur-md p-1 shadow-xl">
                                                             <ContextMenu.Item
                                                                 onSelect={() => onSplitLayer(layer.id)}
                                                                 className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-white/80 rounded-md cursor-pointer outline-none data-[highlighted]:bg-white/10"
