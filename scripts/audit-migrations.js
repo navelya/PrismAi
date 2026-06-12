@@ -57,6 +57,10 @@ const RECENT = [
       p_execution_id: FAKE_EXEC, p_node_id: '__audit__', p_status: 'failed',
       p_result_type: null, p_result_data: null, p_error: 'audit', p_provider_id: 'replicate', p_provider_job_id: 'audit',
     }, { cleanup: () => supabase.from('node_results').delete().eq('execution_id', FAKE_EXEC).eq('node_id', '__audit__') })],
+  // refund_tokens exists either way; a functionExists probe can't tell the old body
+  // from the netting one. Verify in SQL editor:
+  //   SELECT prosrc LIKE '%execution_partial_refund%' FROM pg_proc WHERE proname = 'refund_tokens';
+  ['20260612_refund_tokens_net_partial',        async () => 'MANUAL'],
 ];
 
 (async () => {
