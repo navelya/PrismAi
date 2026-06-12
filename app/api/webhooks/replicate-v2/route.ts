@@ -121,10 +121,13 @@ export async function POST(request: NextRequest) {
         console.log(`[Webhook/Replicate-v2] Signature verified for node ${nodeId}`);
       } catch (err) {
         console.error('[Webhook/Replicate-v2] ❌ Signature verification failed:', err);
-        console.warn('[Webhook/Replicate-v2] ⚠️ Bypassing signature block for debugging purposes.');
+        return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 400 });
       }
     } else {
-      console.warn('[Webhook/Replicate-v2] WARNING: No signing secret configured');
+      // A webhook pipeline without a signing secret must not accept payloads —
+      // anyone who knows the URL shape could forge completions/failures.
+      console.error('[Webhook/Replicate-v2] REPLICATE_WEBHOOK_SIGNING_SECRET is not configured — rejecting webhook.');
+      return NextResponse.json({ error: 'Webhook signing secret not configured' }, { status: 500 });
     }
 
     const body = JSON.parse(bodyText);

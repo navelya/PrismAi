@@ -5,6 +5,10 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // generous; sweep is bounded by MAX_PER_SWEEP
 
 export async function GET(request: Request) {
+  // Without a configured secret, `Bearer undefined` would authenticate any caller.
+  if (!process.env.CRON_SECRET) {
+    return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
+  }
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response('Unauthorized', { status: 401 });
