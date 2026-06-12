@@ -113,17 +113,27 @@ const Timeline = memo(function Timeline({
         return out;
     }, [displayLayers]);
 
-    // Timeline zoom — pixels per second. (Promoted to state in a later task;
-    // for now this aliases the module constant so render math reads from one
-    // name.)
-    const pixelsPerSecond = PIXELS_PER_SECOND;
+    // Timeline zoom — pixels per second. Session-only view state (never
+    // persisted to node config). Default matches the historical fixed value.
+    const [pixelsPerSecond, setPixelsPerSecond] = useState(PIXELS_PER_SECOND);
+    const PPS_MIN = 10;
+    const PPS_MAX = 120;
+
+    const tickStep = useMemo(() => {
+        // Smallest "nice" step whose on-screen gap is >= 48px, so labels never crowd.
+        const NICE = [1, 2, 5, 10, 15, 30, 60, 120, 300];
+        const minPx = 48;
+        for (const s of NICE) {
+            if (s * pixelsPerSecond >= minPx) return s;
+        }
+        return NICE[NICE.length - 1];
+    }, [pixelsPerSecond]);
 
     const tickMarks = useMemo(() => {
         const marks: number[] = [];
-        const stepMajor = 5;
-        for (let t = 0; t <= rulerLengthSeconds + stepMajor; t += stepMajor) marks.push(t);
+        for (let t = 0; t <= rulerLengthSeconds + tickStep; t += tickStep) marks.push(t);
         return marks;
-    }, [rulerLengthSeconds]);
+    }, [rulerLengthSeconds, tickStep]);
 
     // Per-layer snap targets, memoized so the array reference is stable across
     // Timeline re-renders. ClipBlock keeps a ref to this; reusing the same
@@ -204,7 +214,7 @@ const Timeline = memo(function Timeline({
             if (!el) { pending = null; return; }
             const rect = el.getBoundingClientRect();
             const x = pending - rect.left;
-            const t = Math.max(0, Math.min(rulerLengthSeconds, x / PIXELS_PER_SECOND));
+            const t = Math.max(0, Math.min(rulerLengthSeconds, x / pixelsPerSecond));
             onSeek(t);
             pending = null;
         };
@@ -216,7 +226,7 @@ const Timeline = memo(function Timeline({
             const overlay = playheadOverlayRef.current;
             if (el && overlay) {
                 const rect = el.getBoundingClientRect();
-                const x = Math.max(0, Math.min(rulerLengthSeconds * PIXELS_PER_SECOND, clientX - rect.left));
+                const x = Math.max(0, Math.min(rulerLengthSeconds * pixelsPerSecond, clientX - rect.left));
                 overlay.style.left = `${x}px`;
             }
             // 2. rAF-coalesced React state update so the video / transport
@@ -238,10 +248,10 @@ const Timeline = memo(function Timeline({
         };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
-    }, [rulerLengthSeconds, onSeek]);
+    }, [rulerLengthSeconds, onSeek, pixelsPerSecond]);
 
-    const playheadX = playhead * PIXELS_PER_SECOND;
-    const totalWidth = rulerLengthSeconds * PIXELS_PER_SECOND;
+    const playheadX = playhead * pixelsPerSecond;
+    const totalWidth = rulerLengthSeconds * pixelsPerSecond;
 
     return (
         <div className="h-full flex flex-col bg-black/30 backdrop-blur-md">
@@ -255,6 +265,20 @@ const Timeline = memo(function Timeline({
                 onSeek={onSeek}
                 onToggleAudioMute={onToggleAudioMute}
             />
+
+            <div className="flex items-center gap-2 px-3 py-1 border-b border-white/5 bg-black/20">
+                <span className="text-[9px] uppercase tracking-widest text-white/30">Zoom</span>
+                <input
+                    type="range"
+                    min={PPS_MIN}
+                    max={PPS_MAX}
+                    step={1}
+                    value={pixelsPerSecond}
+                    onChange={(e) => setPixelsPerSecond(Number(e.target.value))}
+                    className="w-40 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-accent-primary"
+                />
+                <span className="text-[9px] tabular-nums text-white/40 w-10">{pixelsPerSecond}px/s</span>
+            </div>
 
             <div className="flex-1 flex overflow-hidden">
                 {/* ── LABEL COLUMN ────────────────────────────────────────── */}
@@ -355,7 +379,7 @@ const Timeline = memo(function Timeline({
                                 <div
                                     key={t}
                                     className="absolute top-0 bottom-0 border-l border-white/10"
-                                    style={{ left: t * PIXELS_PER_SECOND }}
+                                    style={{ left: t * pixelsPerSecond }}
                                 >
                                     <span className="absolute top-0.5 left-1 text-[9px] text-white/40 tabular-nums">
                                         {t}s
@@ -440,22 +464,19 @@ const Timeline = memo(function Timeline({
                         {activeSnap !== null && (
                             <div
                                 className="absolute top-0 bottom-0 w-px bg-amber-300 pointer-events-none z-10 shadow-[0_0_4px_rgba(252,211,77,0.7)]"
-                                style={{ left: activeSnap * PIXELS_PER_SECOND }}
+                                style={{ left: activeSnap * pixelsPerSecond }}
                             />
                         )}
 
-                        {/* Playhead overlay — the line itself is pointer-events-none so
-                            clicks pass through to clips. The triangle handle at the top
-                            re-enables pointer events so the user can grab the playhead
-                            directly and drag it. */}
+                        {/* Playhead — thin neutral line; small flat grip at top.
+                            Line is pointer-events-none so clicks pass to clips. */}
                         <div
                             ref={playheadOverlayRef}
-                            className="absolute top-0 bottom-0 w-px bg-accent-primary pointer-events-none z-20"
+                            className="absolute top-0 bottom-0 w-px bg-white/70 pointer-events-none z-20"
                             style={{ left: playheadX }}
                         >
                             <div
-                                className="absolute -top-1 -left-2 w-4 h-3 bg-accent-primary cursor-ew-resize pointer-events-auto"
-                                style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }}
+                                className="absolute -top-0.5 -left-1 w-2 h-2 rounded-sm bg-white/80 cursor-ew-resize pointer-events-auto"
                                 onPointerDown={startScrub}
                             />
                         </div>
