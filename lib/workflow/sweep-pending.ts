@@ -118,6 +118,9 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
     .select('execution_id, node_id, provider_id, provider_job_id, status, updated_at, last_polled_at')
     .in('status', ['pending', 'running'])
     .not('provider_job_id', 'is', null)
+    // Session deletion sets execution_id NULL (ON DELETE SET NULL) — such
+    // orphans have no execution to complete; skip them.
+    .not('execution_id', 'is', null)
     .gte('updated_at', minUpdatedAt)
     .order('last_polled_at', { ascending: true, nullsFirst: true })
     .limit(MAX_PER_SWEEP);
@@ -194,6 +197,7 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
     .select('execution_id, node_id, prediction_index, provider_id, provider_job_id, status, updated_at, last_polled_at')
     .eq('status', 'pending')
     .not('provider_job_id', 'is', null)
+    .not('execution_id', 'is', null)
     .gte('updated_at', minUpdatedAt)
     .order('last_polled_at', { ascending: true, nullsFirst: true })
     .limit(MAX_PER_SWEEP);
