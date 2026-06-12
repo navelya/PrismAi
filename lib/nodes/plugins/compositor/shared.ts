@@ -153,6 +153,56 @@ export function getEffectiveDuration(
 }
 
 /**
+ * Source-relative seek time for a layer at a given timeline time.
+ * `trimIn` shifts the source forward; activity gating is separate (timeline
+ * space). Shared so preview (Renderer/CompositorAudio) and any future caller
+ * agree on the mapping.
+ */
+export function getSourceSeekTime(layer: CompositorLayer, timelineTime: number): number {
+    const local = Math.max(0, timelineTime - Math.max(0, layer.startTime || 0));
+    return local + Math.max(0, layer.trimIn || 0);
+}
+
+/** Minimum clip length (seconds) — prevents zero/negative-width splits. */
+export const MIN_CLIP_DURATION = 0.05;
+
+/**
+ * Split one layer into two contiguous clips at the playhead (blade cut).
+ *
+ * - The left clip keeps `startTime`/`trimIn`, gets a finite `duration` up to
+ *   the playhead.
+ * - The right clip gets a fresh `id`, starts at the playhead, advances
+ *   `trimIn` by the left length (so its source content is time-locked), and
+ *   gets the remaining duration.
+ *
+ * Returns `[left, null]` (no split) when the playhead is not strictly inside
+ * `(startTime, startTime + effectiveDuration)`. Caller passes the resolved
+ * effective duration (handles `null`-duration image/video uniformly).
+ */
+export function splitLayerAtPlayhead(
+    layer: CompositorLayer,
+    playhead: number,
+    effectiveDuration: number,
+): [CompositorLayer, CompositorLayer | null] {
+    const start = Math.max(0, layer.startTime || 0);
+    const end = start + effectiveDuration;
+    if (playhead <= start + MIN_CLIP_DURATION || playhead >= end - MIN_CLIP_DURATION) {
+        return [layer, null];
+    }
+    const leftDur = playhead - start;
+    const rightDur = end - playhead;
+    const left: CompositorLayer = { ...layer, duration: leftDur };
+    const right: CompositorLayer = {
+        ...layer,
+        id: `layer_${crypto.randomUUID()}`,
+        startTime: playhead,
+        duration: rightDur,
+        trimIn: Math.max(0, layer.trimIn || 0) + leftDur,
+    };
+    return [left, right];
+}
+
+/**
  * Compute the timeline's total duration in seconds.
  *
  * - If `config.timelineDuration` is a positive number, that wins.
