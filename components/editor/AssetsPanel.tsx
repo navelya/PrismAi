@@ -11,6 +11,7 @@ import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { useAppStore } from '@/lib/store/app-store';
 import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
 import { unpackAssets, type AssetItem, type TypeFilter } from '@/lib/assets/unpack';
+import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 
 type AssetScope = 'current' | 'all';
 
@@ -305,10 +306,20 @@ function AssetCard({
                     </div>
                 ) : (
                     <img
-                        src={asset.result_url}
+                        // Preview only — the drag payload (onDragStart) still
+                        // carries the full-resolution asset, so what lands on
+                        // the canvas is unaffected.
+                        src={toThumbnailUrl(asset.result_url, { width: 512 }) ?? asset.result_url}
                         alt="Generated asset"
                         className={`w-full h-full object-cover transition-all duration-500 ${loaded ? 'opacity-100 blur-0' : 'opacity-0 blur-sm'}`}
                         onLoad={() => setLoaded(true)}
+                        onError={(e) => {
+                            const img = e.currentTarget;
+                            if (!img.dataset.fellBack && img.src !== asset.result_url) {
+                                img.dataset.fellBack = '1';
+                                img.src = asset.result_url;
+                            }
+                        }}
                     />
                 )}
 

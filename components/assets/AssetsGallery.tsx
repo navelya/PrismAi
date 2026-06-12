@@ -14,6 +14,7 @@ import CharacterModal from '@/components/assets/CharacterModal';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { unpackAssets, type AssetItem, type AssetType, type TypeFilter } from '@/lib/assets/unpack';
 import { uploadApi, charactersApi, type CharacterRefImage } from '@/lib/api/client';
+import { toThumbnailUrl } from '@/lib/utils/supabase-image';
 
 /**
  * Full-page browse view of every result the user has generated, across all
@@ -567,10 +568,20 @@ function AssetCard({ asset, index, selected, selectionActive, onActivate, onTogg
                 </div>
             ) : (
                 <img
-                    src={asset.result_url}
+                    src={toThumbnailUrl(asset.result_url, { width: 640 }) ?? asset.result_url}
                     alt="Generated asset"
                     className={`w-full h-full object-cover transition-all duration-500 ${loaded ? 'opacity-100 blur-0' : 'opacity-0 blur-sm'}`}
                     onLoad={() => setLoaded(true)}
+                    // If the project's image-transform endpoint is unavailable,
+                    // fall back to the original object URL once (guard the flag
+                    // so a genuinely broken original doesn't loop).
+                    onError={(e) => {
+                        const img = e.currentTarget;
+                        if (!img.dataset.fellBack && img.src !== asset.result_url) {
+                            img.dataset.fellBack = '1';
+                            img.src = asset.result_url;
+                        }
+                    }}
                 />
             )}
 
