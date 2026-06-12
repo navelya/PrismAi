@@ -199,7 +199,7 @@ Safety nets: pending > max-age → terminal-fail + refund;  nightly credits reco
 - **Cron sweep self-races** → claim rows with `SKIP LOCKED`/watermark.
 - **Stranded/never-terminating jobs** → pending-age deadline → terminal-fail + refund.
 - **`api_mapping_key` drift across providers** → optional `input_overrides` column; admin shows bindings side-by-side.
-- **KIE ~10-min media TTL** → webhook-primary + short stale threshold for KIE.
+- ~~**KIE ~10-min media TTL** → webhook-primary~~ **CORRECTED (2026-06-13 live-doc research):** KIE Market result URLs expire after **~24h** (the ~10-min figure was a Flux *input* URL, not the result). So KIE does **not** need webhook-primary — like FAL it is fully correct on poll+sweep alone; webhooks are a pure latency optimization for all four. Also: KIE has two API generations — the adapter targets the **unified Market API only** (`jobs/createTask` + `jobs/recordInfo`); legacy per-family endpoints (Veo/Runway/Suno/MJ) have divergent shapes and are intentionally unsupported (bind only Market slugs).
 - **Unconfirmed provider facts (§3)** → Phase A gating live-probe per provider before it's trusted in prod.
 - **`replicate_id` fossilization** → hard-scheduled alias-then-drop in Phase A.
 
