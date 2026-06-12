@@ -8,10 +8,17 @@
 --   concurrent triggers (a late webhook + the cron sweep) cannot double-complete
 --   or double-dispatch.
 --
---   The loser (status already terminal) gets FALSE and writes nothing, so its own
---   mirrored media is simply discarded (storage waste is acceptable; correctness
---   is not). Callers therefore mirror media BEFORE calling this, then pass the
---   durable result_data in.
+--   The row is INSERTed (ON CONFLICT DO NOTHING) before the FOR UPDATE lock so a
+--   missing row (an early webhook/poll that beat the dispatcher's 'running'
+--   write) cannot let two concurrent callers both win — FOR UPDATE on a missing
+--   row locks nothing. A stale-attempt guard rejects callers whose
+--   p_provider_job_id differs from the row's bound provider_job_id (a failover
+--   that advanced the attempt; relevant from Phase C on).
+--
+--   The loser (status already terminal, or stale job id) gets FALSE and writes
+--   nothing, so its own mirrored media is simply discarded (storage waste is
+--   acceptable; correctness is not). Callers therefore mirror media BEFORE
+--   calling this, then pass the durable result_data in.
 
 CREATE OR REPLACE FUNCTION public.claim_node_completion(
   p_execution_id UUID,
@@ -32,38 +39,44 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_status TEXT;
+  v_job_id TEXT;
 BEGIN
-  -- Lock the node's row. Only a row currently in a non-terminal state is a
-  -- completion candidate. A missing row is created (an early poll/webhook that
-  -- beat the dispatcher's 'running' write) so the result is never lost.
-  SELECT status
-    INTO v_status
+  -- Ensure the row exists FIRST so FOR UPDATE serializes ALL callers, including
+  -- an early webhook/poll that beat the dispatcher's 'running' write.
+  INSERT INTO public.node_results (execution_id, node_id, status, session_id, user_id)
+  VALUES (p_execution_id, p_node_id, 'running', p_session_id, p_user_id)
+  ON CONFLICT (execution_id, node_id) DO NOTHING;
+
+  SELECT status, provider_job_id
+    INTO v_status, v_job_id
   FROM public.node_results
-  WHERE execution_id = p_execution_id
-    AND node_id = p_node_id
+  WHERE execution_id = p_execution_id AND node_id = p_node_id
   FOR UPDATE;
 
-  IF FOUND AND v_status IN ('completed', 'failed') THEN
-    -- Already finalized by another trigger — this caller loses the claim.
+  IF v_status IN ('completed', 'failed') THEN
+    RETURN FALSE;  -- already finalized; this caller loses
+  END IF;
+
+  -- Attempt-stale guard: if the row is bound to a DIFFERENT provider job (a
+  -- failover advanced the attempt), a late trigger for the old job loses.
+  IF v_job_id IS NOT NULL AND p_provider_job_id IS NOT NULL
+     AND v_job_id <> p_provider_job_id THEN
     RETURN FALSE;
   END IF;
 
-  INSERT INTO public.node_results AS nr
-    (execution_id, node_id, status, result_type, result_data, error,
-     provider_id, provider_job_id, session_id, user_id, updated_at)
-  VALUES
-    (p_execution_id, p_node_id, p_status, p_result_type, p_result_data, p_error,
-     p_provider_id, p_provider_job_id, p_session_id, p_user_id, NOW())
-  ON CONFLICT (execution_id, node_id) DO UPDATE
-    SET status          = EXCLUDED.status,
-        result_type     = EXCLUDED.result_type,
-        result_data     = EXCLUDED.result_data,
-        error           = EXCLUDED.error,
-        provider_id     = EXCLUDED.provider_id,
-        provider_job_id = EXCLUDED.provider_job_id,
-        session_id      = COALESCE(EXCLUDED.session_id, nr.session_id),
-        user_id         = COALESCE(EXCLUDED.user_id, nr.user_id),
-        updated_at      = NOW();
+  UPDATE public.node_results SET
+    status          = p_status,
+    -- COALESCE: result_type/result_data are NOT NULL (20260501) but callers pass
+    -- NULL for 'failed' — keep the row's current value (default 'json'/'[]') then.
+    result_type     = COALESCE(p_result_type, result_type),
+    result_data     = COALESCE(p_result_data, result_data),
+    error           = p_error,
+    provider_id     = p_provider_id,
+    provider_job_id = p_provider_job_id,
+    session_id      = COALESCE(p_session_id, session_id),
+    user_id         = COALESCE(p_user_id, user_id),
+    updated_at      = NOW()
+  WHERE execution_id = p_execution_id AND node_id = p_node_id;
 
   RETURN TRUE;
 END;
@@ -75,4 +88,4 @@ GRANT EXECUTE ON FUNCTION public.claim_node_completion(UUID, TEXT, TEXT, TEXT, J
   TO service_role;
 
 COMMENT ON FUNCTION public.claim_node_completion IS
-  'Atomically claims a single (non-fan-out) node''s running/pending->terminal transition and writes the result under a row lock. Returns true only for the caller that won; that caller dispatches children exactly once.';
+  'Atomically claims a single (non-fan-out) node''s running/pending->terminal transition and writes the result under a row lock (the row is inserted first so a missing row cannot defeat FOR UPDATE serialization). Rejects callers whose provider_job_id differs from the row''s bound job (stale failover attempt). Returns true only for the caller that won; that caller dispatches children exactly once.';
