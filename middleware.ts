@@ -65,7 +65,11 @@ export async function middleware(request: NextRequest) {
         // browser still receives Supabase's Set-Cookie updates.
         if (path === '/') {
             if (!user) {
-                return NextResponse.redirect(new URL('/login', request.url));
+                const loginUrl = new URL('/login', request.url);
+                // Preserve a hero prompt (?prompt=...) typed on the marketing site
+                // through the login bounce so it isn't lost.
+                if (search) loginUrl.searchParams.set('next', '/' + search);
+                return NextResponse.redirect(loginUrl);
             }
             const rw = request.nextUrl.clone();
             rw.pathname = '/chat';

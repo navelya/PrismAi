@@ -55,7 +55,7 @@ function LoginContent() {
     const [error, setError] = useState<string | null>(null);
     const router = useRouter();
     const searchParams = useSearchParams();
-    const nextPath = searchParams.get('next') || '/';
+    const nextPath = searchParams.get('next') || '/chat';
     const supabase = createClient();
 
     const handleAuth = async (e: React.FormEvent) => {
