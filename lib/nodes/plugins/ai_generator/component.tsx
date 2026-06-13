@@ -698,7 +698,7 @@ function EditableTextPreview({
                 className="nodrag custom-scrollbar block w-full h-[160px] overflow-y-auto text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-content-primary resize-none p-0"
                 value={draft}
                 readOnly={!onCommit}
-                placeholder="Empty output"
+                placeholder=""
                 onFocus={() => { focusedRef.current = true; }}
                 onBlur={() => { focusedRef.current = false; onCommit?.(draft); }}
                 onChange={(e) => setDraft(e.target.value)}
@@ -770,7 +770,7 @@ function TextGridView({
                             : "border-white/10 bg-white/5 text-content-secondary hover:border-white/20"
                     )}
                 >
-                    {t.length > 240 ? `${t.slice(0, 240)}…` : (t || 'Empty output')}
+                    {t.length > 240 ? `${t.slice(0, 240)}…` : t}
                 </button>
             ))}
         </div>
@@ -848,6 +848,10 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
             : [textContent ?? ''];
         const idx = Math.min(Math.max(activeImageIndex ?? 0, 0), Math.max(textItems.length - 1, 0));
         const single = textItems[idx] ?? '';
+
+        // Nothing generated (yet) → render nothing rather than an empty box with a
+        // placeholder. An empty output is not a state worth drawing.
+        if (textItems.every(t => !t || !t.trim())) return null;
 
         if (previewMode === 'grid') {
             // Stacked-list multi-view: every text output, click to select.

@@ -21,7 +21,7 @@ import { formatValidationError } from '@/lib/workflow/validate-execution-message
 import { motion, AnimatePresence } from 'framer-motion';
 import CreditConfirmModal from './CreditConfirmModal';
 import { createClient } from '@/lib/supabase/client';
-import { reconcileExecutionFromDb } from '@/lib/hooks/use-execution-channel';
+import { reconcileExecutionFromDb, advanceExecutionUntilSettled } from '@/lib/hooks/use-execution-channel';
 import { buildModelsMap, computeExecutionCost, type CostNode } from '@/lib/billing/cost';
 
 interface SharedWorkflowEditorProps {
@@ -503,6 +503,12 @@ export default function SharedWorkflowEditor({
                 const execId = data.execution_id;
                 void reconcileExecutionFromDb(execId);
                 setTimeout(() => { void reconcileExecutionFromDb(execId); }, 1200);
+
+                // Non-webhook async providers (FAL/WaveSpeed/KIE/Kinovi) complete
+                // only via a server poll. Drive that poll live from the client so
+                // the result lands without depending on the cron sweep being
+                // scheduled. No-op for Replicate (webhook) + sync adapters.
+                void advanceExecutionUntilSettled(execId);
 
                 // Correlate this server-issued execution with the chat-run card
                 // that triggered it. node_results rows carry the SERVER execution

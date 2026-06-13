@@ -292,3 +292,108 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
 
   return report;
 }
+
+/**
+ * On-demand, execution-scoped completion for NON-webhook async providers (FAL,
+ * WaveSpeed, KIE, Kinovi). Unlike sweepPendingJobs (the background cron backstop),
+ * this runs IMMEDIATELY with no stale/age/deadline gate — the client calls it
+ * every few seconds while a node is running so results appear live without waiting
+ * for the cron. Replicate is intentionally skipped (its webhook owns completion).
+ * Returns how many of this execution's async jobs are still pending after the pass
+ * (the client polls until 0).
+ */
+export async function advanceExecutionJobs(executionId: string, baseUrl: string): Promise<{ pending: number }> {
+  if (!executionId) return { pending: 0 };
+  const supabase = createServiceClient();
+  let pending = 0;
+  const now = () => new Date().toISOString();
+
+  // ── Single-node jobs ───────────────────────────────────────────────────────
+  const { data: singles } = await supabase
+    .from('node_results')
+    .select('execution_id, node_id, provider_id, provider_job_id, status')
+    .eq('execution_id', executionId)
+    .in('status', ['pending', 'running'])
+    .not('provider_job_id', 'is', null)
+    .neq('provider_id', 'replicate');
+
+  for (const row of singles || []) {
+    if (!row.provider_id || !row.provider_job_id) continue;
+    try {
+      const adapter = getAsyncAdapter(row.provider_id);
+      if (!adapter) { pending++; continue; }
+      const poll = await adapter.poll(row.provider_job_id as string);
+      if (poll.status === 'completed') {
+        await completeJob({
+          executionId, nodeId: row.node_id,
+          providerId: row.provider_id as string, providerJobId: row.provider_job_id as string,
+          outcome: { status: 'completed', outputs: poll.outputs }, baseUrl,
+        });
+      } else if (poll.status === 'failed') {
+        await completeJob({
+          executionId, nodeId: row.node_id,
+          providerId: row.provider_id as string, providerJobId: row.provider_job_id as string,
+          outcome: { status: 'failed', error: poll.error || 'Generation failed' }, baseUrl,
+        });
+      } else {
+        pending++;
+        // Mark as polled so the cron backstop doesn't immediately re-poll the row.
+        await supabase.from('node_results').update({ last_polled_at: now() })
+          .eq('execution_id', executionId).eq('node_id', row.node_id);
+      }
+    } catch (err) {
+      pending++;
+      console.error(`[Advance] single ${executionId}/${row.node_id} poll failed:`, err);
+    }
+  }
+
+  // ── Fan-out predictions ─────────────────────────────────────────────────────
+  const { data: preds } = await supabase
+    .from('node_predictions')
+    .select('execution_id, node_id, prediction_index, provider_id, provider_job_id, status')
+    .eq('execution_id', executionId)
+    .eq('status', 'pending')
+    .not('provider_job_id', 'is', null)
+    .neq('provider_id', 'replicate');
+
+  for (const row of (preds || []) as Array<FanOutRow & { provider_id: string | null; provider_job_id: string | null }>) {
+    if (!row.provider_id || !row.provider_job_id) continue;
+    try {
+      const adapter = getAsyncAdapter(row.provider_id);
+      if (!adapter) { pending++; continue; }
+      const poll = await adapter.poll(row.provider_job_id as string);
+      if (poll.status === 'pending') {
+        pending++;
+        await supabase.from('node_predictions').update({ last_polled_at: now() })
+          .eq('execution_id', executionId).eq('node_id', row.node_id).eq('prediction_index', row.prediction_index);
+        continue;
+      }
+      const { execCtx, outputType, expectedCount } = await getFanOutExecContext(supabase, row);
+      if (poll.status === 'completed') {
+        let resultData = toResultDataForType(outputType, poll.outputs);
+        if (isMediaResultType(outputType)) {
+          resultData = await mirrorMediaToStorage(
+            supabase,
+            resultData.filter((i): i is string => typeof i === 'string'),
+            outputType,
+            (execCtx?.sessions as any)?.user_id || 'unknown_user',
+            (execCtx as any)?.session_id || 'unknown_session',
+            row.node_id
+          );
+        }
+        await supabase.from('node_predictions').update({
+          status: 'completed', result_data: resultData, error: null, updated_at: now(),
+        }).eq('execution_id', executionId).eq('node_id', row.node_id)
+          .eq('prediction_index', row.prediction_index).eq('status', 'pending');
+      } else {
+        await failIterationGuarded(supabase, row, poll.error || 'Iteration failed');
+      }
+      await finalizeFanOut(supabase, row, outputType, expectedCount, baseUrl);
+    } catch (err) {
+      pending++;
+      console.error(`[Advance] fanout ${executionId}/${row.node_id}#${row.prediction_index} failed:`, err);
+    }
+  }
+
+  return { pending };
+}
