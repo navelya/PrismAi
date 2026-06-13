@@ -18,8 +18,9 @@ function isAbortError(e: unknown): boolean {
  * the result endpoint until status 'completed'. Output URLs (CloudFront) are
  * ephemeral and mirrored by the completion pipeline (adapters never mirror). No
  * webhook wired here — completion is the Phase A poll sweep (prod) / inline poll
- * (local dev). The job id is just data.id (the poll path is constructible from
- * it), so no slug round-trip is needed.
+ * (local dev). We persist WaveSpeed's OWN result URL (data.urls.get) as the job
+ * id when present — the canonical endpoint is authoritative — and fall back to
+ * reconstructing predictions/{id}/result from the bare id otherwise.
  */
 export const wavespeedAsyncAdapter: AsyncProviderAdapter = {
   key: 'wavespeed',
@@ -56,13 +57,20 @@ export const wavespeedAsyncAdapter: AsyncProviderAdapter = {
     }
     const id = body?.data?.id;
     if (!id) throw new Error('WaveSpeed submit: no data.id in response');
-    return { providerJobId: id, status: 'pending' };
+    // Prefer WaveSpeed's own result URL over a reconstructed one (FAL lesson).
+    const getUrl: string | undefined = body?.data?.urls?.get;
+    return { providerJobId: getUrl || id, status: 'pending' };
   },
 
   async poll(providerJobId): Promise<ProviderPollResult> {
+    // providerJobId is WaveSpeed's result URL (current) or a bare prediction id
+    // (legacy / no urls.get) — reconstruct the result endpoint for the latter.
+    const url = providerJobId.startsWith('http')
+      ? providerJobId
+      : `${WAVESPEED_BASE}/predictions/${encodeURIComponent(providerJobId)}/result`;
     let res: Response;
     try {
-      res = await fetch(`${WAVESPEED_BASE}/predictions/${encodeURIComponent(providerJobId)}/result`, {
+      res = await fetch(url, {
         headers: wsHeaders(),
         signal: AbortSignal.timeout(15_000),
       });
