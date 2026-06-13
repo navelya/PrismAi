@@ -6,6 +6,7 @@ import { getProviderAdapter } from '@/lib/ai/providers/registry';
 import { getAsyncAdapter } from '@/lib/ai/providers/async-registry';
 import { resolvePrimaryProvider, applyInputOverrides } from '@/lib/workflow/resolve-provider';
 import { buildCharacterFraming } from '@/lib/workflow/character-framing';
+import { isLocalUrl } from '@/lib/domains';
 
 /**
  * AI Generator Executor
@@ -222,12 +223,10 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
                 throw new Error(`No async adapter registered for provider '${primary.providerKey}'`);
             }
             const modelForAdapter = { ...(model as any), provider_model_id: primary.providerModelId };
-            const isLocalEnv = (() => {
-                const u = process.env.NEXT_PUBLIC_APP_URL
-                    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-                if (!u) return true; // nothing configured → true local dev
-                return u.startsWith('http://localhost') || u.startsWith('http://127.0.0.1');
-            })();
+            const isLocalEnv = isLocalUrl(
+                process.env.NEXT_PUBLIC_APP_URL
+                    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+            );
             // Prod: register a provider webhook so completion is fully server-side
             // (provider → our webhook → DB), exactly like Replicate — no client and
             // no cron needed for providers that support it. The execution id in the
@@ -303,7 +302,7 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         };
 
         const appUrl = getAppUrl();
-        const isLocal = appUrl.startsWith('http://localhost') || appUrl.startsWith('http://127.0.0.1');
+        const isLocal = isLocalUrl(appUrl);
         
         // V2 webhook URL - requires executionId
         if (!context.executionId) {

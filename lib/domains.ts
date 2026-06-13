@@ -83,3 +83,21 @@ export function marketingUrl(path: string): string {
 
 // Auth cookie domain. undefined on dev/preview → cookies stay host-scoped.
 export const COOKIE_DOMAIN = process.env.NEXT_PUBLIC_COOKIE_DOMAIN || undefined;
+
+/**
+ * Is this URL a local-dev address that an external provider's webhook can NEVER
+ * reach? True for localhost, any *.localhost subdomain (e.g. app.localhost — the
+ * subdomain-split dev host), 127.0.0.1, and ::1. An empty/unparseable URL counts
+ * as local (nothing configured → assume dev).
+ *
+ * Used by the generation executors to decide between the synchronous local path
+ * (poll inline / replicate.run) and the production webhook path. A naive
+ * `startsWith('http://localhost')` check misses `app.localhost`, which silently
+ * routes local runs through an unreachable webhook and hangs them forever.
+ */
+export function isLocalUrl(url: string | undefined | null): boolean {
+  if (!url) return true;
+  const h = hostnameOf(url);
+  if (!h) return true;
+  return h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '::1';
+}
