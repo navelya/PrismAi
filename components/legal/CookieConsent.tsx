@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { Cookie, X } from 'lucide-react';
+import { marketingUrl } from '@/lib/domains';
 
 const STORAGE_KEY = 'prism-cookie-consent';
 type Choice = 'accepted' | 'rejected';
@@ -90,7 +91,7 @@ export function CookieConsent() {
                                         We use cookies that are required to sign you in and run the app. With your consent
                                         we also use anonymized analytics to understand how Prisfol is used and to improve
                                         performance. Read our{' '}
-                                        <Link href="/legal/privacy" className="text-accent-primary hover:underline">
+                                        <Link href={marketingUrl('/legal/privacy')} className="text-accent-primary hover:underline">
                                             Privacy Policy
                                         </Link>.
                                     </p>

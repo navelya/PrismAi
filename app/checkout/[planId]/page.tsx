@@ -8,6 +8,7 @@ import { Logo } from '@/components/ui/Logo';
 import { createClient } from '@/lib/supabase/client';
 import { loadPaddle } from '@/lib/billing/paddle-client';
 import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
+import { marketingUrl } from '@/lib/domains';
 
 type Cycle = 'monthly' | 'yearly';
 
@@ -229,10 +230,10 @@ export default function CheckoutPage() {
 
                         <p className="text-[11px] text-slate-600 mt-12 leading-relaxed">
                             By subscribing you agree to our{' '}
-                            <Link href="/legal/terms" className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Terms</Link>,{' '}
-                            <Link href="/legal/privacy" className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Privacy Policy</Link>{' '}
+                            <Link href={marketingUrl('/legal/terms')} className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Terms</Link>,{' '}
+                            <Link href={marketingUrl('/legal/privacy')} className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Privacy Policy</Link>{' '}
                             and{' '}
-                            <Link href="/legal/refund" className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Refund Policy</Link>.
+                            <Link href={marketingUrl('/legal/refund')} className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Refund Policy</Link>.
                             Paddle.com Market Limited is the merchant of record for this purchase.
                         </p>
                     </div>
