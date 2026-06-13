@@ -42,7 +42,7 @@ const BASICS_TILES: Tile[] = [
 // built-in plugin nodes (not DB-driven ai_generator node types), so their
 // label/icon come from the shared registry and their drag payload is just
 // `{ type }` — same path as the Basics tiles.
-const TOOL_TYPES = ['blur', 'levels', 'compositor', 'extract_frame', 'collect'] as const;
+const TOOL_TYPES = ['blur', 'levels', 'compositor', 'extract_frame', 'collect', 'compare'] as const;
 const TOOLS: { type: string; label: string; icon: string }[] = TOOL_TYPES.map(type => {
     const meta = sharedRegistry[type]?.meta;
     return { type, label: meta?.label ?? type, icon: meta?.icon ?? 'Box' };

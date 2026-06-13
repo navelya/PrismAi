@@ -14,7 +14,7 @@ import CharacterModal from '@/components/assets/CharacterModal';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { unpackAssets, type AssetItem, type AssetType, type TypeFilter } from '@/lib/assets/unpack';
 import { uploadApi, charactersApi, type CharacterRefImage } from '@/lib/api/client';
-import { toThumbnailUrl } from '@/lib/utils/supabase-image';
+import { toThumbnailUrl, bakedThumbUrl } from '@/lib/utils/supabase-image';
 
 /**
  * Full-page browse view of every result the user has generated, across all
@@ -504,8 +504,31 @@ interface AssetCardProps {
 function AssetCard({ asset, index, selected, selectionActive, onActivate, onToggle, registerRef }: AssetCardProps) {
     const [loaded, setLoaded] = useState(false);
     const videoRef = React.useRef<HTMLVideoElement | null>(null);
+    const cardElRef = React.useRef<HTMLElement | null>(null);
 
-    const showSkeleton = !loaded && (asset.result_type === 'image' || asset.result_type === 'video');
+    // Video tiles show a baked poster instantly and only background-download the
+    // full clip once the tile scrolls into view — so a 200-item library doesn't
+    // fetch every mp4 up front. Images already paint from the small thumb.
+    const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
+    useEffect(() => {
+        if (asset.result_type !== 'video' || shouldLoadVideo) return;
+        const el = cardElRef.current;
+        if (!el) return;
+        const io = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting)) {
+                    setShouldLoadVideo(true);
+                    io.disconnect();
+                }
+            },
+            { rootMargin: '200px' },
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, [asset.result_type, shouldLoadVideo]);
+
+    // The baked poster covers video tiles, so only images need the skeleton.
+    const showSkeleton = !loaded && asset.result_type === 'image';
 
     const handleMouseEnter = () => {
         if (asset.result_type !== 'video') return;
@@ -526,7 +549,7 @@ function AssetCard({ asset, index, selected, selectionActive, onActivate, onTogg
 
     return (
         <motion.div
-            ref={(el) => registerRef(asset.id, el)}
+            ref={(el) => { registerRef(asset.id, el); cardElRef.current = el; }}
             data-asset-card
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -546,12 +569,17 @@ function AssetCard({ asset, index, selected, selectionActive, onActivate, onTogg
                     <video
                         ref={videoRef}
                         src={asset.result_url}
+                        // Baked frame-0 poster shows instantly (and reliably,
+                        // regardless of the mp4's internal layout). The full clip
+                        // only downloads once the tile is in view (preload flips
+                        // to 'auto'); hover then plays from the buffered bytes.
+                        poster={bakedThumbUrl(asset.result_url) ?? undefined}
                         className="w-full h-full object-cover"
                         onLoadedMetadata={() => setLoaded(true)}
                         muted
                         loop
                         playsInline
-                        preload="auto"
+                        preload={shouldLoadVideo ? 'auto' : 'none'}
                     />
                     <div className="absolute top-1.5 left-1.5 z-[1] flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm border border-white/15 shadow-sm pointer-events-none">
                         <Play className="w-2.5 h-2.5 text-white fill-white" />
@@ -568,18 +596,23 @@ function AssetCard({ asset, index, selected, selectionActive, onActivate, onTogg
                 </div>
             ) : (
                 <img
-                    src={toThumbnailUrl(asset.result_url, { width: 640 }) ?? asset.result_url}
+                    // Prefer the baked thumbnail; if it's missing (pre-feature or
+                    // not-yet-backfilled asset) fall back to the Supabase render
+                    // thumb, then to the full-res original. Stepped via a dataset
+                    // flag so a genuinely broken original can't loop.
+                    src={bakedThumbUrl(asset.result_url) ?? asset.result_url}
                     alt="Generated asset"
                     className={`w-full h-full object-cover transition-all duration-500 ${loaded ? 'opacity-100 blur-0' : 'opacity-0 blur-sm'}`}
                     onLoad={() => setLoaded(true)}
-                    // If the project's image-transform endpoint is unavailable,
-                    // fall back to the original object URL once (guard the flag
-                    // so a genuinely broken original doesn't loop).
                     onError={(e) => {
                         const img = e.currentTarget;
-                        if (!img.dataset.fellBack && img.src !== asset.result_url) {
-                            img.dataset.fellBack = '1';
-                            img.src = asset.result_url;
+                        const step = img.dataset.fbStep;
+                        if (!step) {
+                            img.dataset.fbStep = 'render';
+                            img.src = toThumbnailUrl(asset.result_url, { width: 640 }) ?? asset.result_url;
+                        } else if (step === 'render') {
+                            img.dataset.fbStep = 'orig';
+                            if (img.src !== asset.result_url) img.src = asset.result_url;
                         }
                     }}
                 />

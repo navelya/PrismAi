@@ -2,8 +2,16 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useAppStore } from '@/lib/store/app-store';
-import { extractMediaUrls } from '@/lib/workflow/result-format';
+import { coerceResultDataArray, extractMediaUrls, isOutputEnvelope } from '@/lib/workflow/result-format';
 import { collectNodeMediaBlobs, triggerBlobDownload } from '@/lib/workflow/download-output';
+
+/** Does this envelope carry a live `graph` item (renderable via the export route)? */
+function hasGraphItem(output: any): boolean {
+    if (!isOutputEnvelope(output)) return false;
+    return coerceResultDataArray(output.data).some(
+        (item: any) => item && typeof item === 'object' && (item as any).graph,
+    );
+}
 
 export type CardDownloadState = 'idle' | 'rendering' | 'success' | 'error';
 
@@ -33,7 +41,11 @@ export function useCardDownload(label: string, output: any): {
     const clearBulkDownload = useAppStore((s) => s.clearBulkDownload);
 
     const urls = useMemo(() => extractMediaUrls(output), [output]);
-    const canDownload = urls.length > 0;
+    // A live `graph` item renders to mp4 via the export route (blur and
+    // future filter nodes over a compositor), so it's downloadable even
+    // though it carries no concrete URL yet.
+    const hasGraph = useMemo(() => hasGraphItem(output), [output]);
+    const canDownload = urls.length > 0 || hasGraph;
 
     const handleDownload = useCallback(async () => {
         if (!canDownload) return;
@@ -43,9 +55,9 @@ export function useCardDownload(label: string, output: any): {
                 ? crypto.randomUUID()
                 : `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-        // total = N (one per URL) + 1 for the save step. Each fetched URL
-        // ticks the pill once via collectNodeMediaBlobs' onUnit callback.
-        const total = urls.length + 1;
+        // total = N media units + 1 for the save step. A graph item counts
+        // as one render unit. Each unit ticks the pill via the onUnit cb.
+        const total = (urls.length || (hasGraph ? 1 : 0)) + 1;
         let current = 0;
         setBulkDownloadProgress(opId, { current, total });
         setState('rendering');
@@ -72,7 +84,7 @@ export function useCardDownload(label: string, output: any): {
         } finally {
             setTimeout(() => clearBulkDownload(opId), 600);
         }
-    }, [canDownload, urls.length, output, label, setBulkDownloadProgress, clearBulkDownload]);
+    }, [canDownload, urls.length, hasGraph, output, label, setBulkDownloadProgress, clearBulkDownload]);
 
     return { state, canDownload, handleDownload };
 }

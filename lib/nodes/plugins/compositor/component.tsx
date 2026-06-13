@@ -14,7 +14,7 @@ import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './ui/Renderer';
 import CompositorAudio from './ui/CompositorAudio';
 import MiniTransport from './ui/MiniTransport';
-import { acquireVideo, releaseVideo } from './video-pool';
+import { TransportClock, useTransportClock } from './transport-clock';
 import {
     detectSourceKind,
     detectSourceKindFromUrl,
@@ -27,7 +27,7 @@ import {
 } from './shared';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { registerDownloadHandler, unregisterDownloadHandler, getDownloadHandler } from '@/lib/workflow/download-registry';
+import { registerDownloadHandler, unregisterDownloadHandler } from '@/lib/workflow/download-registry';
 import { NodeClientDef } from '../../core/types';
 import { compositorClientExecutor } from './executor.client';
 
@@ -277,7 +277,7 @@ function LivePreview({
     intrinsicDurations,
     playhead,
     isPlaying,
-    onPlayheadChange,
+    clock,
     onTotalDurationChange,
     poolKey,
     muted,
@@ -293,8 +293,8 @@ function LivePreview({
     /** External playhead control. Owner (the parent card) drives this; preview just renders. */
     playhead: number;
     isPlaying: boolean;
-    /** Called when the rAF loop advances the playhead during playback. */
-    onPlayheadChange: (t: number) => void;
+    /** The parent card's transport clock — per-frame time for gating/seeks. */
+    clock: TransportClock;
     /** Called when the computed total timeline duration changes; lets the parent size the transport scrubber. */
     onTotalDurationChange: (total: number) => void;
     /** Video-pool scope for this surface. See `CompositorLayerNodesProps.poolKey`. */
@@ -361,148 +361,18 @@ function LivePreview({
         onTotalDurationChange(totalDuration);
     }, [totalDuration, onTotalDurationChange]);
 
-    // Master-video clock. The card preview's playhead used to advance via a
-    // pure wall-clock accumulator regardless of whether the actual <video>
-    // decoder was keeping up — so when the decoder stalled or its play()
-    // hadn't started yet, the scrubber ran ahead of the painted frame. Mirror
-    // extract_frame's approach: pick the first video-URL layer as the clock
-    // master, acquire its pooled element (read-only consumer, doesn't affect
-    // LayerVideo's play/mute votes), and drive the playhead from the
-    // element's actual mediaTime via requestVideoFrameCallback. When no video
-    // layer exists (image / text / graph only), fall back to wall-clock.
-    const master = useMemo<{ url: string; startTime: number } | null>(() => {
-        for (const r of renderable) {
-            const resolved: any = r.resolved;
-            if (!resolved || typeof resolved !== 'object') continue;
-            if ((resolved as any).graph) continue;
-            const url = typeof resolved.url === 'string' ? resolved.url : null;
-            if (!url) continue;
-            if (detectSourceKindFromUrl(url) !== 'video') continue;
-            return { url, startTime: r.layer.startTime || 0 };
-        }
-        return null;
-    }, [renderable]);
-    const masterUrl = master?.url ?? null;
-    const masterStartTime = master?.startTime ?? 0;
-
-    const [masterEl, setMasterEl] = useState<HTMLVideoElement | null>(null);
-    useEffect(() => {
-        if (!masterUrl) { setMasterEl(null); return; }
-        const { el, id: cid } = acquireVideo(masterUrl, poolKey);
-        setMasterEl(el);
-        return () => {
-            releaseVideo(masterUrl, cid, poolKey);
-            setMasterEl(null);
-        };
-    }, [masterUrl, poolKey]);
-
-    // Drive cardPlayhead from the master video's mediaTime while playing.
-    // Throttled to ~10Hz because Konva paints the frame itself; React just
-    // needs the scrubber commit cadence.
-    useEffect(() => {
-        if (!isPlaying || !masterEl) return;
-        const PUSH_MS = 100;
-        let cancelled = false;
-        let lastPush = 0;
-        const hasRVFC = typeof (masterEl as any).requestVideoFrameCallback === 'function';
-        if (hasRVFC) {
-            let h = 0;
-            const onFrame = (now: number, metadata: any) => {
-                if (cancelled) return;
-                const mt = (metadata && typeof metadata.mediaTime === 'number')
-                    ? metadata.mediaTime : masterEl.currentTime;
-                if (now - lastPush >= PUSH_MS) {
-                    lastPush = now;
-                    onPlayheadChange(mt + masterStartTime);
-                }
-                h = (masterEl as any).requestVideoFrameCallback(onFrame);
-            };
-            h = (masterEl as any).requestVideoFrameCallback(onFrame);
-            return () => {
-                cancelled = true;
-                try { (masterEl as any).cancelVideoFrameCallback?.(h); } catch { /* noop */ }
-                // Commit the final actual position so LayerVideo's seek-on-pause
-                // effect doesn't snap back to the (slightly stale) throttled value.
-                onPlayheadChange(masterEl.currentTime + masterStartTime);
-            };
-        }
-        // Fallback: timeupdate fires ~4Hz, coarse but accurate.
-        const onTime = () => {
-            if (!cancelled) onPlayheadChange(masterEl.currentTime + masterStartTime);
-        };
-        masterEl.addEventListener('timeupdate', onTime);
-        return () => {
-            cancelled = true;
-            masterEl.removeEventListener('timeupdate', onTime);
-            onPlayheadChange(masterEl.currentTime + masterStartTime);
-        };
-    }, [isPlaying, masterEl, masterStartTime, onPlayheadChange]);
-
-    // Wall-clock fallback for the no-video case (image/text/graph-only). When
-    // a master video exists, the rVFC effect above owns the playhead and this
-    // one returns early so the two clocks don't fight.
-    const playheadRef = useRef(playhead);
-    playheadRef.current = playhead;
-    useEffect(() => {
-        if (!isPlaying) return;
-        if (totalDuration <= 0) return;
-        if (masterUrl) return;
-        let raf: number | null = null;
-        let last = performance.now();
-        // The accumulator advances every frame so playback timing stays
-        // exact. We only push it into React state every THROTTLE_MS — the
-        // Konva <Stage> redraws video frames itself via Konva.Animation, so
-        // a 60Hz React commit was pure waste. 10Hz keeps activity gating
-        // (clip appear/disappear) within 100ms, which is imperceptible.
-        const THROTTLE_MS = 100;
-        let live = playheadRef.current;
-        let lastCommit = last;
-        // Track the value we last *pushed* to React (not `live`). The
-        // external-seek detector below compares the incoming prop against
-        // THIS — otherwise the moment we wrap `live` to 0 without yet
-        // committing, the next tick sees `playheadRef.current` (≈ totalDuration)
-        // far from `live` (≈ 0), interprets that as an external seek, and
-        // snaps `live` straight back to the end. Net effect: indicator
-        // freezes near the end while the pooled <video> keeps looping.
-        let lastCommittedValue = live;
-        const tick = (now: number) => {
-            const dt = (now - last) / 1000;
-            last = now;
-            // Honor external playhead resets (e.g., the lightbox forcing
-            // playback to t=0). External = prop diverged from what we
-            // pushed; internal wraps don't trip this because they update
-            // lastCommittedValue at commit time.
-            if (Math.abs(playheadRef.current - lastCommittedValue) > 0.5) {
-                live = playheadRef.current;
-                lastCommittedValue = live;
-                lastCommit = now;
-            }
-            live += dt;
-            let wrapped = false;
-            if (live >= totalDuration) {
-                live = 0;
-                wrapped = true;
-            }
-            // Wraps commit immediately so the indicator snaps back to 0
-            // without waiting on the throttle — the next tick's external-
-            // seek check then sees lastCommittedValue=0 ≈ live=0+dt and
-            // leaves us alone.
-            if (wrapped || now - lastCommit >= THROTTLE_MS) {
-                lastCommit = now;
-                lastCommittedValue = live;
-                onPlayheadChange(live);
-            }
-            raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        return () => {
-            if (raf !== null) cancelAnimationFrame(raf);
-            // Commit the final position so React state matches where
-            // playback actually stopped (otherwise the preview can freeze up
-            // to THROTTLE_MS behind the real playhead on pause).
-            onPlayheadChange(live);
-        };
-    }, [isPlaying, totalDuration, onPlayheadChange, masterUrl]);
+    // Playback time is owned by the parent's TransportClock (see
+    // transport-clock.ts) — media chases the clock, never the reverse. The
+    // previous "master video" rVFC clock here was structurally broken: it
+    // acquired its element under the plain poolKey while LayerVideo pools
+    // per-layer (`poolKey:layerId`), so the master element was a separate
+    // decoder that no consumer ever voted to play — rVFC fired at most once
+    // and the card playhead froze whenever any video layer existed (gating
+    // never advanced, clips looped their pooled elements forever, and
+    // CompositorAudio stutter-looped re-seeking to the frozen target). It
+    // also derived time as mediaTime + startTime (ignoring trimIn) and, with
+    // loop=true elements, wrapped inside the first clip's window so
+    // multi-clip timelines could never reach clip 2.
 
     return (
         <div
@@ -545,6 +415,10 @@ function LivePreview({
                                 intrinsicDurations={intrinsicDurations}
                                 poolKey={poolKey}
                                 muted={muted}
+                                clock={clock}
+                                // Cards can sit many-at-once on the canvas; bound
+                                // each one's blit rate (the editor runs uncapped).
+                                maxFps={30}
                             />
                         </Group>
                     </Layer>
@@ -847,6 +721,25 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
     const [cardMuted, setCardMuted] = useState(true);
     const [cardTotalDuration, setCardTotalDuration] = useState(0);
 
+    // Transport clock: time advances in a ref, React commits at ~10Hz, and
+    // per-frame consumers (LayerVideo/LayerSubgraph gating + drift
+    // correction) subscribe directly. See transport-clock.ts.
+    const cardClock = useTransportClock(cardTotalDuration, setCardPlayhead);
+    useEffect(() => {
+        if (cardIsPlaying) cardClock.play(); else cardClock.pause();
+    }, [cardIsPlaying, cardClock]);
+
+    const handleCardSeek = useCallback((t: number) => {
+        setCardIsPlaying(false);
+        cardClock.pause();
+        // Clamp a hair off the exact end so the last clip's final frame stays
+        // visible (at t === total every clip's window is closed → black). See
+        // EditorModal.handleSeek.
+        const fps = config.fps || 30;
+        const clamped = Math.max(0, Math.min(t, Math.max(0, cardTotalDuration - 0.5 / fps)));
+        cardClock.seek(clamped);
+    }, [cardClock, cardTotalDuration, config.fps]);
+
     const openEditor = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsEditorOpen(true);
@@ -1128,20 +1021,10 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         // which can take a full A-render before B's own export even starts.
         if (!isInternal) setDownloadState('rendering');
 
-        // Count chained layers up front so we can size the progress total
-        // appropriately. Each chained layer contributes two ticks (upstream
-        // render done, upload done); the own render adds one more.
-        const chainedCount = (config.layers || []).reduce((n, layer) => {
-            const edge = layerEdges.find((e) => e.id === layer.sourceHandleId);
-            if (!edge) return n;
-            const up = upstreamBySource[edge.source];
-            const normalized = up !== undefined ? toLegacyRenderableOutput(up) : null;
-            const item = Array.isArray(normalized)
-                ? normalized[layer.selectedIndex ?? 0] ?? normalized[0]
-                : normalized;
-            return item && typeof item === 'object' && (item as any).graph ? n + 1 : n;
-        }, 0);
-        const progressTotal = 1 + chainedCount * 2;
+        // The whole composition renders in ONE server request now (nested
+        // graphs travel in the body — see the graph branch below), so the
+        // progress total is a single render tick.
+        const progressTotal = 1;
         let progressCurrent = 0;
         const tick = () => {
             progressCurrent += 1;
@@ -1149,23 +1032,27 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
         };
         onSubProgress?.(progressCurrent, progressTotal);
 
-        // Resolve each layer to a real URL.
+        // Resolve each layer to a server-renderable input.
         //
         // Three cases per layer:
         //   1. Upstream resolved to a static URL (MediaInput, completed AI
         //      generator): use it directly.
-        //   2. Upstream resolved to a live `GraphDescription` (e.g. another
-        //      Compositor wired into this one): the live preview has no URL
-        //      yet, so recurse via the upstream node's registered download
-        //      handler to render IT first, upload the resulting mp4 to chat-
-        //      assets, and use that URL. Handlers are themselves implemented
-        //      by THIS function, so deeper chains resolve naturally.
-        //   3. Neither: layer skipped.
+        //   2. Upstream is a Prompt/Text string: rasterize client-side and
+        //      upload a transparent PNG (editor-font fidelity).
+        //   3. Upstream resolved to a live `GraphDescription` (a chained
+        //      Compositor, or Blur/filters wrapping one): embed the graph in
+        //      the request — the server flattens it (filters become ffmpeg
+        //      atoms; nested compositors render to a local intermediate).
+        //      This replaced the old client-side recursion through per-node
+        //      download handlers, which did a full H.264 render + browser
+        //      upload + server re-download PER chain hop (3 trips of the
+        //      bytes, compounding generation loss) and threw outright for
+        //      blur layers (blur never registered a handler).
         //
-        // Temporary uploads are tracked so we can DELETE them after the parent
-        // render completes (success OR failure) — chat-assets isn't TTL'd and
-        // we don't want orphans from every chained download.
-        const inputs: Record<string, string> = {};
+        // Temporary uploads (text PNGs) are tracked so we can DELETE them
+        // after the render completes (success OR failure) — chat-assets isn't
+        // TTL'd and we don't want orphans from every download.
+        const inputs: Record<string, string | { graph: GraphDescription }> = {};
         const tempUploadPaths: string[] = [];
 
         for (const layer of config.layers || []) {
@@ -1217,51 +1104,17 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                 continue;
             }
 
-            // Case 3: live graph upstream. Invoke the upstream's download
-            // handler (which is this same fetchCompositorExport for chained
-            // compositors), then upload the blob to get a URL the server
-            // export can fetch.
-            const hasGraph =
-                item && typeof item === 'object' && !!(item as any).graph;
-            if (hasGraph) {
-                const upstreamHandler = getDownloadHandler(edge.source);
-                if (!upstreamHandler) {
-                    throw new Error(
-                        `Layer "${layer.name}": upstream node has no download handler. Re-open the workflow and retry.`,
-                    );
-                }
-                const upstreamItems = await upstreamHandler(true);
-                tick(); // upstream render complete
-                const upstreamBlob = upstreamItems[0]?.blob;
-                if (!upstreamBlob) {
-                    throw new Error(`Layer "${layer.name}": upstream produced no blob`);
-                }
-                const formData = new FormData();
-                formData.append(
-                    'file',
-                    upstreamBlob,
-                    upstreamItems[0]?.filename || 'upstream.mp4',
-                );
-                const uploadResp = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData,
-                });
-                if (!uploadResp.ok) {
-                    const errText = await uploadResp.text().catch(() => '');
-                    throw new Error(
-                        `Layer "${layer.name}": upstream upload failed (${uploadResp.status}): ${errText}`,
-                    );
-                }
-                const { publicUrl, path } = (await uploadResp.json()) as {
-                    publicUrl: string;
-                    path: string;
-                };
-                if (path) tempUploadPaths.push(path);
-                inputs[layer.sourceHandleId] = publicUrl;
-                tick(); // upstream upload complete
+            // Case 3: live graph upstream — embed the serialized graph; the
+            // server flattens and renders it inside the same request.
+            const upstreamGraph =
+                item && typeof item === 'object' && (item as any).graph
+                    ? ((item as any).graph as GraphDescription)
+                    : null;
+            if (upstreamGraph) {
+                inputs[layer.sourceHandleId] = { graph: upstreamGraph };
                 continue;
             }
-            // Case 3: no usable input — skip this layer.
+            // No usable input — skip this layer.
         }
 
         if (Object.keys(inputs).length === 0) {
@@ -1467,7 +1320,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                 intrinsicDurations={intrinsicDurations}
                                 playhead={cardPlayhead}
                                 isPlaying={cardIsPlaying}
-                                onPlayheadChange={setCardPlayhead}
+                                clock={cardClock}
                                 onTotalDurationChange={setCardTotalDuration}
                                 poolKey={id}
                                 muted={cardMuted}
@@ -1483,7 +1336,7 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                                     isPlaying={cardIsPlaying}
                                     muted={cardMuted}
                                     onTogglePlay={() => setCardIsPlaying((p) => !p)}
-                                    onSeek={(t) => { setCardIsPlaying(false); setCardPlayhead(t); }}
+                                    onSeek={handleCardSeek}
                                     onToggleMute={() => setCardMuted((m) => !m)}
                                 />
                             )}
@@ -1506,6 +1359,8 @@ function CompositorNode({ data, id, selected }: NodeProps<CompositorNodeData>) {
                         onClose={() => setIsEditorOpen(false)}
                         onConfigChange={updateConfig}
                         portalEl={editorPortalEl}
+                        onDownload={canDownload ? () => { handleRequestDownload().catch(() => {}); } : undefined}
+                        downloadState={downloadState}
                     />
                 </div>,
                 document.body

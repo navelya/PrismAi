@@ -1,5 +1,7 @@
 import sharp from 'sharp';
-import { promises as fs } from 'fs';
+import { promises as fs, createWriteStream } from 'fs';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import os from 'os';
 import path from 'path';
 import { ExecutionContext, NodeExecutionResult, ImageObject } from '../../types';
@@ -10,7 +12,21 @@ import {
     LayerSourceKind,
     computeTimelineDuration,
     hasTemporalContent,
+    flattenFilters,
+    GraphDescription,
 } from './shared';
+import { cssFilterToFfmpegAtoms } from './css-filter-ffmpeg';
+
+/**
+ * A layer's export input: a plain media/text string (legacy shape), or a
+ * serialized pull-model graph from a live upstream (chained compositor, blur
+ * or future filter nodes). Graph inputs are flattened server-side into the
+ * same single ffmpeg pass — filters become per-layer atoms; genuinely nested
+ * compositor timelines render to a local /tmp intermediate first. This
+ * replaced the client-side recursion that did a full render + upload +
+ * re-download per chain hop.
+ */
+export type CompositorExportInput = string | { graph: GraphDescription };
 
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 } as const;
 
@@ -391,6 +407,21 @@ interface ProcessedLayer {
     hasAudio: boolean;         // video has at least one audio stream
     intrinsicWidth: number;    // source pixel width; 0 if unknown
     intrinsicHeight: number;   // source pixel height; 0 if unknown
+    /**
+     * ffmpeg filter atoms translated from a flattened filter graph's
+     * cssFilter chain (gblur/eq/...). Injected at base-canvas resolution —
+     * i.e. after `preScale` when present, before the final scale to the
+     * layer's transform box — so px units match what the client preview
+     * applied via ctx.filter.
+     */
+    filterAtoms?: string[];
+    /**
+     * For a filter graph wrapping a RAW media URL (blur over a plain video):
+     * scale the source to the wrap graph's canvas dims before the atoms, so
+     * sigma is in canvas pixels. Nested-compositor intermediates are already
+     * at canvas dims and don't need it.
+     */
+    preScale?: { width: number; height: number } | null;
 }
 
 export interface RenderCompositorVideoOptions {
@@ -398,6 +429,29 @@ export interface RenderCompositorVideoOptions {
     includeAudio: boolean;
     /** libx264 CRF. Lower = higher quality + bigger file. Default 23 keeps parity with the workflow executor. */
     crf?: number;
+    /** x264 preset. Nested-compositor intermediates use ultrafast (near-lossless crf, never user-facing). */
+    preset?: string;
+    /** Internal recursion depth for nested-graph rendering. */
+    _depth?: number;
+}
+
+/** Maximum nested-compositor depth a single export may recurse into. */
+const MAX_GRAPH_DEPTH = 4;
+/** Parallel fetch+probe staging concurrency (network-bound; bounded for RAM). */
+const STAGING_CONCURRENCY = 4;
+
+/** Stream a fetch body to disk (no full in-memory buffering). */
+async function fetchToFile(url: string, filePath: string): Promise<{ contentType?: string }> {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const contentType = resp.headers.get('content-type') || undefined;
+    if (resp.body) {
+        await pipeline(Readable.fromWeb(resp.body as any), createWriteStream(filePath));
+    } else {
+        const buf = Buffer.from(await resp.arrayBuffer());
+        await fs.writeFile(filePath, buf);
+    }
+    return { contentType };
 }
 
 /**
@@ -441,29 +495,173 @@ export async function renderCompositorVideo(
         // Stage videos and images that have a usable source URL and are
         // visible. Layers are processed in array order so the resulting
         // overlay chain produces array[0] = bottom of stack (matches the
-        // still-composite z-order).
+        // still-composite z-order). Staging (fetch + write + probe) runs with
+        // bounded concurrency — it's network-bound and was the dominant
+        // pre-render wall time when run strictly sequentially — while
+        // `processed` keeps the original layer order (z-order and the [idx:v]
+        // input mapping depend on it).
         const visibleLayers = allLayers.filter((l) => l.visible);
-        const processed: ProcessedLayer[] = [];
+        const depth = options._depth ?? 0;
 
         // Per-layer diagnostic so a missing layer in the final mp4 can be
         // triaged from the server log: shows whether the URL classified to a
         // usable kind, what Content-Type came back from the fetch, and which
         // skip path (if any) fired.
-        const layerDiagnostics: Array<{
+        interface LayerDiagnostic {
             layerName: string;
             url: string | undefined;
             urlKind: LayerSourceKind;
             contentType?: string;
             finalKind?: 'video' | 'image' | 'audio';
             skipped?: string;
-        }> = [];
+        }
 
-        for (let i = 0; i < visibleLayers.length; i++) {
-            const layer = visibleLayers[i];
-            const url = inputs[layer.sourceHandleId];
+        /**
+         * Stage one graph-sourced layer (chained compositor / blur / future
+         * filter nodes). Flattens the filter chain into ffmpeg atoms; a
+         * trivial URL-wrap (blur over a raw video) stages the media directly
+         * with a pre-scale to the wrap's canvas dims, while a real nested
+         * compositor timeline recursively renders to a near-lossless local
+         * intermediate that then behaves like a plain video layer (its baked
+         * audio flows through the regular mix path).
+         */
+        const stageGraphLayer = async (
+            layer: CompositorLayer,
+            i: number,
+            graph: GraphDescription,
+        ): Promise<{ processed: ProcessedLayer | null; diag: LayerDiagnostic }> => {
+            if (depth >= MAX_GRAPH_DEPTH) {
+                throw new Error(
+                    `Nested graph depth exceeds ${MAX_GRAPH_DEPTH} (layer "${layer.name}") — flatten the chain or render intermediate nodes first.`,
+                );
+            }
+            const { base, cssFilter } = flattenFilters(graph);
+
+            const wrapOnly = base.layers.length === 1 ? base.layers[0] : null;
+            const isTrivialWrap =
+                !!wrapOnly &&
+                wrapOnly.source.kind === 'media' &&
+                wrapOnly.source.mediaKind === 'video' &&
+                (wrapOnly.layer.startTime || 0) === 0 &&
+                (wrapOnly.layer.trimIn || 0) === 0 &&
+                (wrapOnly.layer.duration === null || wrapOnly.layer.duration === undefined);
+
+            if (isTrivialWrap && wrapOnly!.source.kind === 'media') {
+                const mediaUrl = wrapOnly!.source.url;
+                const inputPath = path.join(tmpDir, `in_${i}.mp4`);
+                try {
+                    await fetchToFile(mediaUrl, inputPath);
+                } catch (err) {
+                    return {
+                        processed: null,
+                        diag: {
+                            layerName: layer.name, url: mediaUrl, urlKind: 'video',
+                            skipped: `fetch-failed:${err instanceof Error ? err.message : 'unknown'}`,
+                        },
+                    };
+                }
+                const probe = await probeVideoStreams(ffmpeg, inputPath).catch(
+                    () => ({ duration: 0, hasAudio: false, width: 0, height: 0 }),
+                );
+                // FULL-RESOLUTION render: apply the filter at the source's
+                // NATIVE resolution rather than down-scaling to the wrap
+                // graph's canvas (which is a 1920x1080 default when the blur's
+                // upstream — e.g. a raw MediaInput video — never reported a
+                // resolution). The blur sigma was calibrated in the wrap
+                // canvas's px space, so scale it by native/canvas to preserve
+                // the preview's apparent blur strength at full res. No
+                // pre-scale → the source flows through gblur untouched, then
+                // the per-layer chain scales to the transform box.
+                const nativeW = probe.width || base.canvasWidth;
+                const blurSigmaScale = base.canvasWidth > 0 ? nativeW / base.canvasWidth : 1;
+                const filterAtoms = cssFilter ? cssFilterToFfmpegAtoms(cssFilter, blurSigmaScale) : [];
+                return {
+                    processed: {
+                        layer,
+                        inputPath,
+                        sourceKind: 'video',
+                        intrinsicDuration: probe.duration,
+                        effectiveDuration: 0,
+                        startTime: Math.max(0, layer.startTime || 0),
+                        trimIn: Math.max(0, layer.trimIn || 0),
+                        hasAudio: probe.hasAudio,
+                        intrinsicWidth: probe.width,
+                        intrinsicHeight: probe.height,
+                        filterAtoms,
+                        preScale: null,
+                    },
+                    diag: { layerName: layer.name, url: mediaUrl, urlKind: 'video', finalKind: 'video' },
+                };
+            }
+
+            // Real nested compositor: render its timeline recursively.
+            const nestedConfig: CompositorConfig = {
+                canvasWidth: base.canvasWidth,
+                canvasHeight: base.canvasHeight,
+                backgroundColor: '#000000',
+                layers: base.layers.map((gl) => gl.layer),
+                outputFormat: 'png',
+                outputQuality: 1.0,
+                fps: base.fps || fps,
+                timelineDuration: base.duration > 0 ? base.duration : null,
+            };
+            const nestedInputs: Record<string, CompositorExportInput> = {};
+            for (const gl of base.layers) {
+                if (gl.source.kind === 'media') nestedInputs[gl.layer.sourceHandleId] = gl.source.url;
+                else if (gl.source.kind === 'text') nestedInputs[gl.layer.sourceHandleId] = gl.source.text;
+                else nestedInputs[gl.layer.sourceHandleId] = { graph: gl.source.graph };
+            }
+            const nestedBuffer = await renderCompositorVideo(nestedConfig, nestedInputs, {
+                includeAudio: options.includeAudio,
+                // Near-lossless intermediate: it gets re-encoded into the
+                // parent output, so speed >> size here.
+                crf: 10,
+                preset: 'ultrafast',
+                _depth: depth + 1,
+            });
+            const inputPath = path.join(tmpDir, `in_${i}.mp4`);
+            await fs.writeFile(inputPath, nestedBuffer);
+            const probe = await probeVideoStreams(ffmpeg, inputPath).catch(
+                () => ({ duration: 0, hasAudio: false, width: 0, height: 0 }),
+            );
+            // The intermediate is rendered at the base graph's canvas resolution,
+            // so the cssFilter sigma (calibrated in that same px space) needs no
+            // rescale. Throws on an unknown filter function — fail loudly.
+            const filterAtoms = cssFilter ? cssFilterToFfmpegAtoms(cssFilter) : [];
+            return {
+                processed: {
+                    layer,
+                    inputPath,
+                    sourceKind: 'video',
+                    intrinsicDuration: probe.duration,
+                    effectiveDuration: 0,
+                    startTime: Math.max(0, layer.startTime || 0),
+                    trimIn: Math.max(0, layer.trimIn || 0),
+                    hasAudio: probe.hasAudio,
+                    intrinsicWidth: probe.width,
+                    intrinsicHeight: probe.height,
+                    filterAtoms,
+                    // Intermediate is already at the base graph's canvas dims.
+                    preScale: null,
+                },
+                diag: { layerName: layer.name, url: '(nested graph)', urlKind: 'video', finalKind: 'video' },
+            };
+        };
+
+        const stageOne = async (
+            layer: CompositorLayer,
+            i: number,
+        ): Promise<{ processed: ProcessedLayer | null; diag: LayerDiagnostic }> => {
+            const input = inputs[layer.sourceHandleId] as CompositorExportInput | undefined;
+
+            // Graph input (serialized live signal) — flatten server-side.
+            if (input && typeof input === 'object' && (input as any).graph) {
+                return stageGraphLayer(layer, i, (input as any).graph as GraphDescription);
+            }
+
+            const url = input;
             if (!url || typeof url !== 'string') {
-                layerDiagnostics.push({ layerName: layer.name, url: undefined, urlKind: 'unknown', skipped: 'no-input-url' });
-                continue;
+                return { processed: null, diag: { layerName: layer.name, url: undefined, urlKind: 'unknown', skipped: 'no-input-url' } };
             }
 
             // Text layer (Prompt/Text string, no URL scheme). Rasterize it to a
@@ -473,25 +671,25 @@ export async function renderCompositorVideo(
             if (!isMediaUrl(url)) {
                 const textBox = await renderTextLayerToBuffer(layer, url, width, height);
                 if (!textBox) {
-                    layerDiagnostics.push({ layerName: layer.name, url: '(text)', urlKind: 'text', skipped: 'text-render-empty' });
-                    continue;
+                    return { processed: null, diag: { layerName: layer.name, url: '(text)', urlKind: 'text', skipped: 'text-render-empty' } };
                 }
                 const inputPath = path.join(tmpDir, `in_${i}.png`);
                 await fs.writeFile(inputPath, textBox);
-                layerDiagnostics.push({ layerName: layer.name, url: '(text)', urlKind: 'text', finalKind: 'image' });
-                processed.push({
-                    layer,
-                    inputPath,
-                    sourceKind: 'text',
-                    intrinsicDuration: 0,
-                    effectiveDuration: 0, // filled below once we know the timeline total
-                    startTime: Math.max(0, layer.startTime || 0),
-                    trimIn: Math.max(0, layer.trimIn || 0),
-                    hasAudio: false,
-                    intrinsicWidth: 0, // text has no intrinsic size — never drives canvas fit
-                    intrinsicHeight: 0,
-                });
-                continue;
+                return {
+                    processed: {
+                        layer,
+                        inputPath,
+                        sourceKind: 'text',
+                        intrinsicDuration: 0,
+                        effectiveDuration: 0, // filled below once we know the timeline total
+                        startTime: Math.max(0, layer.startTime || 0),
+                        trimIn: Math.max(0, layer.trimIn || 0),
+                        hasAudio: false,
+                        intrinsicWidth: 0, // text has no intrinsic size — never drives canvas fit
+                        intrinsicHeight: 0,
+                    },
+                    diag: { layerName: layer.name, url: '(text)', urlKind: 'text', finalKind: 'image' },
+                };
             }
 
             let kind: LayerSourceKind = detectSourceKindFromUrl(url);
@@ -521,75 +719,65 @@ export async function renderCompositorVideo(
                 const aext = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba)(\?|$)/i.exec(url)?.[1] || 'mp3';
                 const inputPath = path.join(tmpDir, `in_${i}.${aext}`);
                 try {
-                    const resp = await fetch(url);
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                    const buf = Buffer.from(await resp.arrayBuffer());
-                    await fs.writeFile(inputPath, buf);
+                    await fetchToFile(url, inputPath);
                 } catch (err) {
-                    layerDiagnostics.push({
-                        layerName: layer.name,
-                        url,
-                        urlKind: 'audio',
-                        contentType,
-                        skipped: `fetch-failed:${err instanceof Error ? err.message : 'unknown'}`,
-                    });
-                    continue;
+                    return {
+                        processed: null,
+                        diag: {
+                            layerName: layer.name, url, urlKind: 'audio', contentType,
+                            skipped: `fetch-failed:${err instanceof Error ? err.message : 'unknown'}`,
+                        },
+                    };
                 }
                 const probe = await probeVideoStreams(ffmpeg, inputPath).catch(
                     () => ({ duration: 0, hasAudio: false, width: 0, height: 0 }),
                 );
-                layerDiagnostics.push({ layerName: layer.name, url, urlKind: 'audio', contentType, finalKind: 'audio' });
-                processed.push({
-                    layer,
-                    inputPath,
-                    sourceKind: 'audio',
-                    intrinsicDuration: probe.duration,
-                    effectiveDuration: 0, // filled below once we know the timeline total
-                    startTime: Math.max(0, layer.startTime || 0),
-                    trimIn: Math.max(0, layer.trimIn || 0),
-                    hasAudio: probe.hasAudio,
-                    intrinsicWidth: 0, // audio has no visual — never drives canvas fit
-                    intrinsicHeight: 0,
-                });
-                continue;
+                return {
+                    processed: {
+                        layer,
+                        inputPath,
+                        sourceKind: 'audio',
+                        intrinsicDuration: probe.duration,
+                        effectiveDuration: 0, // filled below once we know the timeline total
+                        startTime: Math.max(0, layer.startTime || 0),
+                        trimIn: Math.max(0, layer.trimIn || 0),
+                        hasAudio: probe.hasAudio,
+                        intrinsicWidth: 0, // audio has no visual — never drives canvas fit
+                        intrinsicHeight: 0,
+                    },
+                    diag: { layerName: layer.name, url, urlKind: 'audio', contentType, finalKind: 'audio' },
+                };
             }
 
             if (kind !== 'video' && kind !== 'image') {
-                layerDiagnostics.push({
-                    layerName: layer.name,
-                    url,
-                    urlKind: detectSourceKindFromUrl(url),
-                    contentType,
-                    skipped: `unsupported-kind:${kind}`,
-                });
-                continue;
+                return {
+                    processed: null,
+                    diag: {
+                        layerName: layer.name, url, urlKind: detectSourceKindFromUrl(url), contentType,
+                        skipped: `unsupported-kind:${kind}`,
+                    },
+                };
             }
 
             const ext = kind === 'video' ? 'mp4' : 'png';
             const inputPath = path.join(tmpDir, `in_${i}.${ext}`);
             try {
-                const resp = await fetch(url);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const { contentType: getType } = await fetchToFile(url, inputPath);
                 // Secondary classification refinement: if we still aren't
                 // sure and the GET gives us a Content-Type, use it.
-                if (!contentType) {
-                    contentType = resp.headers.get('content-type') || undefined;
-                }
-                const buf = Buffer.from(await resp.arrayBuffer());
-                await fs.writeFile(inputPath, buf);
+                if (!contentType) contentType = getType;
             } catch (err) {
                 console.error(
                     `[renderCompositorVideo] Skipping layer ${layer.name}: fetch failed`,
                     err,
                 );
-                layerDiagnostics.push({
-                    layerName: layer.name,
-                    url,
-                    urlKind: detectSourceKindFromUrl(url),
-                    contentType,
-                    skipped: `fetch-failed:${err instanceof Error ? err.message : 'unknown'}`,
-                });
-                continue;
+                return {
+                    processed: null,
+                    diag: {
+                        layerName: layer.name, url, urlKind: detectSourceKindFromUrl(url), contentType,
+                        skipped: `fetch-failed:${err instanceof Error ? err.message : 'unknown'}`,
+                    },
+                };
             }
 
             let intrinsicDuration = 0;
@@ -610,26 +798,52 @@ export async function renderCompositorVideo(
                 intrinsicHeight = meta?.height || 0;
             }
 
-            layerDiagnostics.push({
-                layerName: layer.name,
-                url,
-                urlKind: detectSourceKindFromUrl(url),
-                contentType,
-                finalKind: kind,
-            });
+            return {
+                processed: {
+                    layer,
+                    inputPath,
+                    sourceKind: kind,
+                    intrinsicDuration,
+                    effectiveDuration: 0, // filled below once we know the timeline total
+                    startTime: Math.max(0, layer.startTime || 0),
+                    trimIn: Math.max(0, layer.trimIn || 0),
+                    hasAudio,
+                    intrinsicWidth,
+                    intrinsicHeight,
+                },
+                diag: { layerName: layer.name, url, urlKind: detectSourceKindFromUrl(url), contentType, finalKind: kind },
+            };
+        };
 
-            processed.push({
-                layer,
-                inputPath,
-                sourceKind: kind,
-                intrinsicDuration,
-                effectiveDuration: 0, // filled below once we know the timeline total
-                startTime: Math.max(0, layer.startTime || 0),
-                trimIn: Math.max(0, layer.trimIn || 0),
-                hasAudio,
-                intrinsicWidth,
-                intrinsicHeight,
-            });
+        // Bounded-concurrency staging pool; results land in a sparse array
+        // indexed by the original position, then compact in order.
+        const stageResults: Array<{ processed: ProcessedLayer | null; diag: LayerDiagnostic } | undefined> =
+            new Array(visibleLayers.length);
+        let nextStageIdx = 0;
+        // Nested levels stage sequentially: a graph layer's staging recurses
+        // into a full sub-render (its own staging pool + ffmpeg + tmpDir), so
+        // parallelism compounds multiplicatively with depth. Bounding nested
+        // concurrency to 1 keeps peak /tmp + ffmpeg processes in check on deep
+        // chains; the top level keeps the full pool where it pays off most.
+        const stagingConcurrency = depth > 0 ? 1 : STAGING_CONCURRENCY;
+        const workers = Array.from(
+            { length: Math.max(1, Math.min(stagingConcurrency, visibleLayers.length)) },
+            async () => {
+                for (;;) {
+                    const i = nextStageIdx++;
+                    if (i >= visibleLayers.length) return;
+                    stageResults[i] = await stageOne(visibleLayers[i], i);
+                }
+            },
+        );
+        await Promise.all(workers);
+
+        const processed: ProcessedLayer[] = [];
+        const layerDiagnostics: LayerDiagnostic[] = [];
+        for (const r of stageResults) {
+            if (!r) continue;
+            layerDiagnostics.push(r.diag);
+            if (r.processed) processed.push(r.processed);
         }
 
         console.log(
@@ -657,7 +871,19 @@ export async function renderCompositorVideo(
             if (typeof p.layer.duration === 'number' && p.layer.duration > 0) {
                 p.effectiveDuration = p.layer.duration;
             } else if ((p.sourceKind === 'video' || p.sourceKind === 'audio') && p.intrinsicDuration > 0) {
-                p.effectiveDuration = p.intrinsicDuration;
+                // Subtract trimIn — the clip can only show what remains of the
+                // source after its in-point. Matches the client's
+                // getEffectiveDuration; without it a trimmed null-duration
+                // clip occupied too long a window in the rendered mp4.
+                p.effectiveDuration = Math.max(0.1, p.intrinsicDuration - p.trimIn);
+            } else if (p.sourceKind === 'video' || p.sourceKind === 'audio') {
+                // Video/audio whose probe FAILED (intrinsic unknown) but which
+                // still carries a trimIn (e.g. a blade-split clip): the in-point
+                // shift must still be honored, or the overlay window is too long
+                // and ffmpeg's eof_action=repeat freezes the tail. Image/text
+                // fall through below — trimIn is meaningless for them (a split
+                // image clip keeps its always-on window).
+                p.effectiveDuration = Math.max(0.1, total - p.startTime - p.trimIn);
             } else {
                 p.effectiveDuration = Math.max(0.1, total - p.startTime);
             }
@@ -745,9 +971,20 @@ export async function renderCompositorVideo(
             const inT = p.trimIn;
             const setpts = `setpts=PTS-STARTPTS+${startT.toFixed(3)}/TB`;
 
+            // Flattened-filter atoms (gblur/eq/...) apply at the source
+            // graph's canvas resolution — after the wrap pre-scale when
+            // present, BEFORE the final scale to the layer's transform box —
+            // so px units match the client's ctx.filter rendering.
+            const pre = p.preScale
+                ? `,scale=${p.preScale.width}:${p.preScale.height}:flags=bilinear`
+                : '';
+            const atoms = p.filterAtoms && p.filterAtoms.length > 0
+                ? `,${p.filterAtoms.join(',')}`
+                : '';
+
             const layerLabel = `L${idx}`;
             filters.push(
-                `[${idx}:v]trim=start=${inT.toFixed(3)}:duration=${eff.toFixed(3)},${setpts},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
+                `[${idx}:v]trim=start=${inT.toFixed(3)}:duration=${eff.toFixed(3)},${setpts}${pre}${atoms},scale=${w}:${h}:flags=bilinear,format=rgba[${layerLabel}]`,
             );
         });
 
@@ -825,8 +1062,14 @@ export async function renderCompositorVideo(
 
         await new Promise<void>((resolve, reject) => {
             const cmd = ffmpeg();
-            // Add inputs in array order so [N:v] in the filter graph
-            // matches the layer index.
+            // Inputs are added in `processed` array order, so an input's ffmpeg
+            // ordinal == its index in `processed`. The filter graph references
+            // each layer as `[idx:v]` where idx = processed.indexOf(p) (above),
+            // i.e. the SAME index — so the mapping is correct by construction
+            // regardless of any gaps in the temp `in_N` FILENAMES (those names
+            // use the pre-compaction staging index and are NOT ffmpeg ordinals).
+            // Do NOT switch idx to a stored original-staging-index: that would
+            // reference inputs that don't exist when a layer was skipped.
             for (const p of processed) {
                 cmd.input(p.inputPath);
             }
@@ -834,7 +1077,7 @@ export async function renderCompositorVideo(
                 '-t', total.toFixed(3),
                 '-r', String(fps),
                 '-c:v', 'libx264',
-                '-preset', 'veryfast',
+                '-preset', options.preset || 'veryfast',
                 '-pix_fmt', 'yuv420p',
                 '-movflags', '+faststart',
             ];

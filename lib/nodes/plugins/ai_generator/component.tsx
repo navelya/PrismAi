@@ -16,7 +16,7 @@ import AudioPlayer from '@/components/ui/AudioPlayer';
 import { CardDownloadButton } from '@/components/editor/CardDownloadButton';
 import { useCardDownload } from '@/lib/hooks/use-card-download';
 import { isMediaResultType, inferResultTypeFromValue, extractTextValues } from '@/lib/workflow/result-format';
-import { toThumbnailUrl } from '@/lib/utils/supabase-image';
+import { bakedThumbUrl } from '@/lib/utils/supabase-image';
 import { computeAiNodeCost, formatCredits, clampIterations } from '@/lib/billing/cost';
 import { clampSelectedIndex, selectedValue, activeItemEnvelope, isActiveOnly, type GeneratedOutput } from './outputs';
 import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
@@ -960,6 +960,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                         <BlurryVideo
                             ref={(el: HTMLVideoElement | null) => { if (!isClone) videoRefs.current[realIndex] = el; }}
                             src={u}
+                            poster={bakedThumbUrl(u) ?? undefined}
                             muted
                             loop
                             playsInline
@@ -994,7 +995,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                 onPreviewClick={onPreviewClick}
                 renderSlide={(u: string, realIndex: number, isActive: boolean) => (
                     <BlurryImage
-                        src={toThumbnailUrl(u, { width: 768 }) ?? u}
+                        src={bakedThumbUrl(u) ?? u}
                         fallbackSrc={u}
                         alt="Output"
                         // Every slide reports its own dims (keyed by its url) so
@@ -1032,9 +1033,9 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                             )}
                         >
                             {type === 'video' ? (
-                                <BlurryVideo src={url} muted loop playsInline preload="metadata" className="w-full h-full object-cover" containerClassName="w-full h-full" />
+                                <BlurryVideo src={url} poster={bakedThumbUrl(url) ?? undefined} muted loop playsInline preload="metadata" className="w-full h-full object-cover" containerClassName="w-full h-full" />
                             ) : (
-                                <BlurryImage src={toThumbnailUrl(url, { width: 256 }) ?? url} fallbackSrc={url} alt="" onLoad={onImageLoad} className="w-full h-full object-cover" />
+                                <BlurryImage src={bakedThumbUrl(url) ?? url} fallbackSrc={url} alt="" onLoad={onImageLoad} className="w-full h-full object-cover" />
                             )}
                             {isActive && (
                                 <div className="absolute inset-0 bg-accent-primary/10 flex items-center justify-center">

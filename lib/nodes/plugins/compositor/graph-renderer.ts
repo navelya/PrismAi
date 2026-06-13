@@ -25,6 +25,7 @@ import {
     GraphDescription,
     GraphLayer,
     GraphLayerSource,
+    getSourceSeekTime,
     isLayerActiveAt,
     LayerSourceKind,
 } from './shared';
@@ -40,15 +41,24 @@ function sourceKind(source: GraphLayerSource): LayerSourceKind {
 interface VideoHandle {
     el: HTMLVideoElement;
     id: number;
+    /** Full pool key the element was acquired under (poolKey:slotKey). */
+    acquiredPoolKey: string;
+    url: string;
 }
 
 /**
  * Per-consumer cache. Holds image loads, scratch canvases, and pooled video
  * handles for the lifetime of one renderer (one `LayerSubgraph` instance).
  *
- * Important: video handles are pool-keyed by the consumer's `poolKey` so each
- * consumer gets its own decoder per URL with its own `currentTime`. That's
- * the core of the pull-model — independent playheads across nodes.
+ * Important: video handles are pool-keyed by the consumer's `poolKey` PLUS
+ * the layer's slot key (`poolKey:layerId`) so each consumer gets its own
+ * decoder per CLIP with its own `currentTime`. Per-clip (not per-URL)
+ * isolation matters for split clips: two halves of a blade cut share one URL
+ * but are independent clips — keying by URL alone made them fight over a
+ * single element's currentTime and stomp each other's play votes (the second
+ * clip's "I'm inactive, pause" vote overrode the first clip's "play").
+ * Mirrors the per-layer suffixing the top-level Konva LayerVideo already
+ * does (Renderer.tsx poolKey={`${poolKey}:${layer.id}`}).
  */
 export class GraphRenderCache {
     readonly poolKey: string;
@@ -58,38 +68,43 @@ export class GraphRenderCache {
     private scratch: HTMLCanvasElement[] = [];
     private scratchInUse = 0;
     /**
-     * Per-URL "was active in the previous frame" flag. Drives the
+     * Per-slot "was active in the previous frame" flag. Drives the
      * transition handling in `voteVideoPoolState`: activation seeks to
-     * layer-local time, deactivation pre-positions the element back to 0
-     * so the next activation can play instantly without a seek delay.
+     * layer-local time, deactivation pre-positions the element back to the
+     * clip's trim-in so the next activation can play instantly without a
+     * seek delay.
      */
-    private lastActiveByUrl = new Map<string, boolean>();
+    private lastActiveBySlot = new Map<string, boolean>();
     /**
-     * Per-URL "what local time were we at on the previous frame." Lets
+     * Per-slot "what local time were we at on the previous frame." Lets
      * `voteVideoPoolState` distinguish natural frame-to-frame advancement
      * (~16ms steady-state) from user-initiated scrubs (large jumps) and
      * seek only on the latter — keeping the element stable during pause.
      */
-    private lastLocalTimeByUrl = new Map<string, number>();
+    private lastLocalTimeBySlot = new Map<string, number>();
 
     constructor(poolKey: string) {
         this.poolKey = poolKey;
     }
 
-    wasVideoActive(url: string): boolean {
-        return this.lastActiveByUrl.get(url) ?? false;
+    private slotEntryKey(slotKey: string, url: string): string {
+        return `${slotKey}|${url}`;
     }
 
-    markVideoActive(url: string, isActive: boolean): void {
-        this.lastActiveByUrl.set(url, isActive);
+    wasVideoActive(slotKey: string): boolean {
+        return this.lastActiveBySlot.get(slotKey) ?? false;
     }
 
-    getLastLocalTime(url: string): number | null {
-        return this.lastLocalTimeByUrl.has(url) ? this.lastLocalTimeByUrl.get(url)! : null;
+    markVideoActive(slotKey: string, isActive: boolean): void {
+        this.lastActiveBySlot.set(slotKey, isActive);
     }
 
-    setLastLocalTime(url: string, localTime: number): void {
-        this.lastLocalTimeByUrl.set(url, localTime);
+    getLastLocalTime(slotKey: string): number | null {
+        return this.lastLocalTimeBySlot.has(slotKey) ? this.lastLocalTimeBySlot.get(slotKey)! : null;
+    }
+
+    setLastLocalTime(slotKey: string, localTime: number): void {
+        this.lastLocalTimeBySlot.set(slotKey, localTime);
     }
 
     /**
@@ -122,39 +137,58 @@ export class GraphRenderCache {
     }
 
     /**
-     * Get or acquire a pooled <video> element for this consumer. Returns null
-     * if the video isn't ready yet; the renderer skips the layer and tries
-     * next frame.
+     * Get or acquire a pooled <video> element for this consumer + clip slot.
+     * Returns null if the video isn't ready yet; the renderer skips the layer
+     * and tries next frame.
      */
-    getVideo(url: string): HTMLVideoElement | null {
-        let handle = this.videos.get(url);
+    getVideo(url: string, slotKey: string): HTMLVideoElement | null {
+        const key = this.slotEntryKey(slotKey, url);
+        let handle = this.videos.get(key);
         if (!handle) {
-            handle = acquireVideo(url, this.poolKey);
-            this.videos.set(url, handle);
+            const acquiredPoolKey = `${this.poolKey}:${slotKey}`;
+            const { el, id } = acquireVideo(url, acquiredPoolKey);
+            handle = { el, id, acquiredPoolKey, url };
+            this.videos.set(key, handle);
         }
         return handle.el.readyState >= 2 ? handle.el : null;
     }
 
-    /**
-     * Vote on the play state for a particular video. The pool reconciles per
-     * element across all voters in the same poolKey.
-     */
-    setVideoPlayState(url: string, wantsPlay: boolean): void {
-        const handle = this.videos.get(url);
-        if (!handle) return;
-        setPlayState(url, handle.id, wantsPlay, this.poolKey);
+    /** Raw element access regardless of readiness (drift checks, metadata). */
+    peekVideo(url: string, slotKey: string): HTMLVideoElement | null {
+        return this.videos.get(this.slotEntryKey(slotKey, url))?.el ?? null;
     }
 
     /**
-     * Vote on the mute state for a particular video. OR-ed across consumers
-     * in the pool — without this method, pull-model surfaces had no way to
-     * vote unmuted, so chained compositors never emitted audio even when the
-     * transport's mute toggle was off.
+     * Intrinsic duration of a pooled video once its metadata has loaded;
+     * null before that. Feeds `resolveGraphDuration` so graphs published
+     * with duration 0 (blur's URL wrap) resolve their real length.
      */
-    setVideoMuted(url: string, muted: boolean): void {
-        const handle = this.videos.get(url);
+    getVideoDuration(url: string, slotKey: string): number | null {
+        const el = this.videos.get(this.slotEntryKey(slotKey, url))?.el;
+        if (!el || el.readyState < 1) return null;
+        return isFinite(el.duration) && el.duration > 0 ? el.duration : null;
+    }
+
+    /**
+     * Vote on the play state for a particular clip's video. The pool
+     * reconciles per element across all voters in the same poolKey.
+     */
+    setVideoPlayState(url: string, slotKey: string, wantsPlay: boolean): void {
+        const handle = this.videos.get(this.slotEntryKey(slotKey, url));
         if (!handle) return;
-        setMuted(url, handle.id, muted, this.poolKey);
+        setPlayState(url, handle.id, wantsPlay, handle.acquiredPoolKey);
+    }
+
+    /**
+     * Vote on the mute state for a particular clip's video. OR-ed across
+     * consumers in the pool — without this method, pull-model surfaces had no
+     * way to vote unmuted, so chained compositors never emitted audio even
+     * when the transport's mute toggle was off.
+     */
+    setVideoMuted(url: string, slotKey: string, muted: boolean): void {
+        const handle = this.videos.get(this.slotEntryKey(slotKey, url));
+        if (!handle) return;
+        setMuted(url, handle.id, muted, handle.acquiredPoolKey);
     }
 
     /**
@@ -163,8 +197,8 @@ export class GraphRenderCache {
      * is already decoded — `fastSeek` on a readyState 1 element can silently
      * no-op without firing a seek event in some browsers).
      */
-    seekVideo(url: string, time: number): void {
-        const handle = this.videos.get(url);
+    seekVideo(url: string, slotKey: string, time: number): void {
+        const handle = this.videos.get(this.slotEntryKey(slotKey, url));
         if (!handle) return;
         const el = handle.el;
         if (el.readyState < 1) return;
@@ -196,8 +230,8 @@ export class GraphRenderCache {
      * isn't disturbed: this is a side-channel kick to the actual element,
      * not a play-state vote.
      */
-    forceFirstFrameDecode(url: string): void {
-        const handle = this.videos.get(url);
+    forceFirstFrameDecode(url: string, slotKey: string): void {
+        const handle = this.videos.get(this.slotEntryKey(slotKey, url));
         if (!handle) return;
         const el = handle.el;
         if (el.readyState >= 2) return;
@@ -251,14 +285,14 @@ export class GraphRenderCache {
      * video voters so the pool can pause/recycle the elements.
      */
     dispose(): void {
-        this.videos.forEach((handle, url) => {
-            releaseVideo(url, handle.id, this.poolKey);
+        this.videos.forEach((handle) => {
+            releaseVideo(handle.url, handle.id, handle.acquiredPoolKey);
         });
         this.videos.clear();
         this.images.clear();
         this.imageLoadingPromises.clear();
-        this.lastActiveByUrl.clear();
-        this.lastLocalTimeByUrl.clear();
+        this.lastActiveBySlot.clear();
+        this.lastLocalTimeBySlot.clear();
         this.scratch = [];
         this.scratchInUse = 0;
     }
@@ -311,16 +345,22 @@ function voteVideoPoolState(
     isPlaying: boolean,
     muted: boolean,
 ): void {
-    cache.getVideo(url);
+    const slot = layer.id;
+    cache.getVideo(url, slot);
 
-    const wasActive = cache.wasVideoActive(url);
-    cache.markVideoActive(url, isActive);
+    const wasActive = cache.wasVideoActive(slot);
+    cache.markVideoActive(slot, isActive);
 
-    const localTime = Math.max(0, time - (layer.startTime || 0));
-    const lastLocalTime = cache.getLastLocalTime(url);
-    cache.setLastLocalTime(url, localTime);
+    // Source-relative time: timeline-local offset PLUS the clip's trim-in.
+    // This is the canonical mapping (shared.ts getSourceSeekTime) — the
+    // previous `time - startTime` here omitted trimIn, so every pull-model
+    // consumer played trimmed/split clips from the wrong source position
+    // ("the cut half replays the other half's content").
+    const localTime = getSourceSeekTime(layer, time);
+    const lastLocalTime = cache.getLastLocalTime(slot);
+    cache.setLastLocalTime(slot, localTime);
 
-    cache.setVideoMuted(url, !isActive || muted);
+    cache.setVideoMuted(url, slot, !isActive || muted);
 
     if (isActive && !wasActive) {
         // Activation edge — seek to layer-local time BEFORE voting play
@@ -328,29 +368,32 @@ function voteVideoPoolState(
         // and then teleport, which renders as a blank frame. Also kick
         // the decoder so a paused not-yet-decoded element doesn't stay
         // stuck at readyState 1 (see forceFirstFrameDecode docstring).
-        cache.seekVideo(url, localTime);
-        cache.forceFirstFrameDecode(url);
-        cache.setVideoPlayState(url, isPlaying);
+        cache.seekVideo(url, slot, localTime);
+        cache.forceFirstFrameDecode(url, slot);
+        cache.setVideoPlayState(url, slot, isPlaying);
         return;
     }
 
     if (!isActive && wasActive) {
-        // Deactivation edge — pause, then pre-position to 0 so the next
-        // activation has the element already at the start and can play
-        // instantly. The seek is invisible to the user because the layer
-        // isn't being drawn anyway.
-        cache.setVideoPlayState(url, false);
-        cache.seekVideo(url, 0);
+        // Deactivation edge — pause, then pre-position to the clip's source
+        // start (trim-in) so the next activation has the element already at
+        // the right frame and can play instantly. The seek is invisible to
+        // the user because the layer isn't being drawn anyway.
+        cache.setVideoPlayState(url, slot, false);
+        cache.seekVideo(url, slot, Math.max(0, layer.trimIn || 0));
         return;
     }
 
     if (isActive) {
-        // Steady active state. Two reasons to seek; otherwise leave the
-        // element alone so pause stays visually stable (no flicker).
+        // Steady active state. Only TWO reasons to seek; otherwise leave the
+        // element alone — both so a paused scene stays visually stable AND so
+        // a PLAYING clip free-runs without per-frame seeks (see no-drift note).
         //
         // 1. User-scrub-like jumps in layer-local time. Natural frame-to-
         //    frame playback advances ~16ms which is well under the threshold;
-        //    scrubbing jumps further.
+        //    scrubbing (and the once-per-loop wrap back to 0) jumps further.
+        //    This is edge-triggered (one seek per jump), not per-frame, so it
+        //    does not stall a steadily-playing decoder.
         // 2. Element acquired but not yet decoded a frame (readyState 1, not
         //    yet 2). A paused HTMLVideoElement that loaded metadata won't
         //    decode its first frame on its own — drawImage stays empty until
@@ -360,19 +403,28 @@ function voteVideoPoolState(
         //    AND play→pause to wake the decoder. The play+pause kick is the
         //    reliable fallback when fastSeek silently no-ops on a not-yet-
         //    decoded element.
-        const ready = cache.getVideo(url) !== null;
+        //
+        // NO per-frame PLAYING-drift seek. A `currentTime =` correction on a
+        // steadily-playing element knocks its decoder back to readyState 1
+        // until the target frame re-decodes; a redraw landing in that window
+        // paints the cleared layer with no frame (drawImage no-ops) and the
+        // opaque base shows through as a black frame — the "blinking during
+        // playback" regression. The pre-overhaul renderer free-ran here and
+        // never blinked; loop=true re-aligns the source at its boundary and
+        // the scrub-jump branch above re-seeks once on the loop wrap.
+        const ready = cache.getVideo(url, slot) !== null;
         const scrubbed =
             lastLocalTime !== null &&
             Math.abs(localTime - lastLocalTime) > SCRUB_JUMP_THRESHOLD_SEC;
         if (!ready) {
-            cache.seekVideo(url, localTime);
-            cache.forceFirstFrameDecode(url);
+            cache.seekVideo(url, slot, localTime);
+            cache.forceFirstFrameDecode(url, slot);
         } else if (scrubbed) {
-            cache.seekVideo(url, localTime);
+            cache.seekVideo(url, slot, localTime);
         }
-        cache.setVideoPlayState(url, isPlaying);
+        cache.setVideoPlayState(url, slot, isPlaying);
     }
-    // !isActive && !wasActive: nothing to do; element stays paused at 0.
+    // !isActive && !wasActive: nothing to do; element stays paused at trim-in.
 }
 
 /**
@@ -392,7 +444,7 @@ function drawMediaLayer(
     const url = source.url;
 
     if (source.mediaKind === 'video') {
-        const el = cache.getVideo(url);
+        const el = cache.getVideo(url, layer.id);
         if (!el || el.videoWidth === 0) return false;
         const t = layer.transform;
         applyTransform(ctx, layer, (w, h) => {

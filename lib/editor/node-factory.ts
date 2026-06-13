@@ -49,6 +49,9 @@ export function createNodeFromType(
         collect: {
             takeOnlyActive: false,
         },
+        compare: {
+            dividerPosition: 50,
+        },
     };
 
     // Merge caller-supplied initialConfig over the defaults

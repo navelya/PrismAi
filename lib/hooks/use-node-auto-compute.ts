@@ -109,8 +109,19 @@ export function useNodeAutoCompute(nodeId: string): void {
             const out: Record<string, any> = {};
             incoming.forEach((edge) => {
                 const handleKey = edge.targetHandle || 'image';
-                const upstream = state.nodeOutputs[edge.source];
+                let upstream = state.nodeOutputs[edge.source];
                 if (upstream === undefined) return;
+                // Per-handle routing for `compare`: it publishes a per-output
+                // envelope map under `__handleOutputs` so each of its two
+                // passthrough outputs delivers its own side's media (output_a /
+                // output_b). Without this slice, both outputs would deliver the
+                // whole-node envelope (input A) — the engine otherwise reads one
+                // result per node, ignoring the source handle.
+                const srcType = wf.nodes.find((n) => n.id === edge.source)?.type;
+                if (srcType === 'compare') {
+                    const sliced = (upstream as any)?.__handleOutputs?.[edge.sourceHandle ?? ''];
+                    if (sliced !== undefined) upstream = sliced;
+                }
                 // Key by both the target handle (single-input nodes like Blur
                 // read inputs.image) AND the edge id (Compositor stores
                 // `layer.sourceHandleId = edge.id` because every layer edge

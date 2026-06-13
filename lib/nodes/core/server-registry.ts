@@ -17,6 +17,8 @@ import { characterSharedDef } from '../plugins/character/definition';
 import { characterExecutor } from '../plugins/character/executor.server';
 import { collectSharedDef } from '../plugins/collect/definition';
 import { collectExecutor } from '../plugins/collect/executor.server';
+import { compareSharedDef } from '../plugins/compare/definition';
+import { compareExecutor } from '../plugins/compare/executor.server';
 
 // The server-side registry mapping definition types
 // Only import this in Node.js/Backend execution environments
@@ -30,6 +32,7 @@ export const serverRegistry: Record<string, NodeServerDef> = {
     ai_generator: { ...aiGeneratorSharedDef, executor: aiGeneratorExecutor },
     character: { ...characterSharedDef, executor: characterExecutor },
     collect: { ...collectSharedDef, executor: collectExecutor },
+    compare: { ...compareSharedDef, executor: compareExecutor },
 };
 
 export function isEphemeralNode(type: string): boolean {

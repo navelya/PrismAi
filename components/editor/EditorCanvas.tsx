@@ -35,7 +35,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Toast } from '@/components/ui/Toast';
 import { collectNodeMediaBlobs, triggerBlobDownload, type DownloadItem } from '@/lib/workflow/download-output';
 import { getDownloadHandler } from '@/lib/workflow/download-registry';
-import { extractMediaUrls } from '@/lib/workflow/result-format';
+import { coerceResultDataArray, extractMediaUrls, isOutputEnvelope } from '@/lib/workflow/result-format';
 import JSZip from 'jszip';
 import { stableNodeTypes, stableEdgeTypes } from './reactflow-types';
 import { useTheme } from '@/components/theme/ThemeProvider';
@@ -857,7 +857,18 @@ const EditorCanvasInner = ({
                 total += 1;
             } else {
                 const out = nodeOutputs[id];
-                if (out) total += extractMediaUrls(out).length;
+                if (out) {
+                    // A live-graph envelope (blur / filter over a compositor)
+                    // has no concrete URL but IS downloadable via the export
+                    // route — count it so a graph-only selection isn't
+                    // wrongly rejected as "nothing to download".
+                    const graphUnits = isOutputEnvelope(out)
+                        ? coerceResultDataArray(out.data).filter(
+                            (item: any) => item && typeof item === 'object' && (item as any).graph,
+                        ).length
+                        : 0;
+                    total += extractMediaUrls(out).length + graphUnits;
+                }
             }
         }
 

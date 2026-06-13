@@ -1,25 +1,36 @@
 'use client';
 
-import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff, Lock, Unlock, Volume2, VolumeX, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CompositorLayer } from '../definition';
 import { LayerSourceKind, computeTimelineDuration, getEffectiveDuration } from '../shared';
+import { TransportClock } from '../transport-clock';
 import Transport from './Transport';
 import ClipBlock from './ClipBlock';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { Scissors, Trash2 } from 'lucide-react';
 
 interface TimelineProps {
-    /** Array order: array[0] = bottom of visual stack. We display TOP of stack
-     *  at the TOP of the timeline (so we reverse for display), matching the
-     *  compositor's left-side layer list and the After Effects convention. */
+    /** Array order: array[0] = TOP of the visual stack (the renderer reverses
+     *  before drawing, so array[0] is painted last = on top). We display rows
+     *  in this same order — array[0] at the TOP of the timeline — so the top
+     *  row matches the top of the left-side layer list and the highest z-index.
+     */
     layers: CompositorLayer[];
+    /** layerId → live display title (mirrors the source node's current title). */
+    layerNames?: Record<string, string>;
     sourceKindByLayerId: Record<string, LayerSourceKind>;
     intrinsicDurations: Record<string, number | null>;
     configuredTotalDuration: number | null;
     fps: number;
     playhead: number;
+    /**
+     * Surface transport clock. While playing, the playhead line follows it
+     * per-frame via direct-DOM style writes (the React `playhead` prop only
+     * commits at ~10Hz and would make the line step visibly).
+     */
+    clock?: TransportClock | null;
     isPlaying: boolean;
     audioMuted: boolean;
     selectedLayerId: string | null;
@@ -70,11 +81,13 @@ const RULER_HEIGHT = 24;
  */
 const Timeline = memo(function Timeline({
     layers,
+    layerNames,
     sourceKindByLayerId,
     intrinsicDurations,
     configuredTotalDuration,
     fps,
     playhead,
+    clock = null,
     isPlaying,
     audioMuted,
     selectedLayerId,
@@ -96,7 +109,12 @@ const Timeline = memo(function Timeline({
 
     const rulerLengthSeconds = Math.max(total, 5);
 
-    const displayLayers = useMemo(() => [...layers].reverse(), [layers]);
+    // Display in array order: array[0] = top of the visual stack, shown as the
+    // TOP row — matching the left-side layer list and the actual z-index (the
+    // renderer paints array[0] last = on top). Previously this reversed, which
+    // put the top layer at the BOTTOM of the timeline (inconsistent with the
+    // side panel).
+    const displayLayers = layers;
 
     // Group display layers into rows by sourceHandleId. One row = all clips
     // fed by the same upstream connection. Order follows displayLayers, so
@@ -255,8 +273,23 @@ const Timeline = memo(function Timeline({
     const playheadX = playhead * pixelsPerSecond;
     const totalWidth = rulerLengthSeconds * pixelsPerSecond;
 
+    // While playing, drive the playhead line per-frame straight from the
+    // transport clock — same direct-DOM mechanism the scrub drag uses above.
+    // React's `playhead` prop commits at ~10Hz; left as the paused/structural
+    // position (the inline style below re-syncs on every commit).
+    useEffect(() => {
+        if (!clock || !isPlaying) return;
+        const unsub = clock.subscribe((t) => {
+            const overlay = playheadOverlayRef.current;
+            if (overlay) overlay.style.left = `${t * pixelsPerSecond}px`;
+        });
+        return unsub;
+    }, [clock, isPlaying, pixelsPerSecond]);
+
     return (
-        <div className="h-full flex flex-col bg-black/30 backdrop-blur-md">
+        // No backdrop-filter here: the playhead line moves every frame during
+        // playback, and a blur over it re-rasterizes the whole panel per frame.
+        <div className="h-full flex flex-col bg-black/40">
             <Transport
                 playhead={playhead}
                 totalDuration={total}
@@ -317,7 +350,7 @@ const Timeline = memo(function Timeline({
                                         >
                                             <Play className="w-3 h-3 text-white/40 flex-shrink-0" />
                                             <span className="text-[11px] text-white/70 truncate flex-1 cursor-default select-none">
-                                                {head.name}{clipCount > 1 ? ` (${clipCount})` : ''}
+                                                {(layerNames?.[head.id] || head.name)}{clipCount > 1 ? ` (${clipCount})` : ''}
                                             </span>
                                             {(kind === 'video' || kind === 'audio') && (
                                                 <button
@@ -373,7 +406,7 @@ const Timeline = memo(function Timeline({
                             which is the right side of the label column. So 0s
                             visually sits exactly where clip startTime=0 sits. */}
                         <div
-                            className="relative cursor-pointer select-none border-b border-white/5 sticky top-0 bg-black/40 backdrop-blur-md z-10"
+                            className="cursor-pointer select-none border-b border-white/5 sticky top-0 bg-[#101014]/95 z-10"
                             style={{ height: RULER_HEIGHT }}
                             onPointerDown={startScrub}
                         >

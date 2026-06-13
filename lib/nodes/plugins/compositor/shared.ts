@@ -275,6 +275,45 @@ export function isLayerActiveAt(
 }
 
 /**
+ * Resolve a graph's effective timeline duration, trusting the published
+ * `duration` field when positive but falling back to a recomputation from the
+ * graph's own layers when it is 0/absent (blur's `wrapUrlAsCompositorGraph`
+ * publishes duration 0 because the client executor can't know the video's
+ * intrinsic length synchronously).
+ *
+ * `getIntrinsic` supplies the intrinsic duration of a media layer once the
+ * consumer's decoder has loaded metadata (e.g. GraphRenderCache's pooled
+ * <video>.duration). Layers whose intrinsic isn't known yet contribute 0 —
+ * callers should re-resolve when metadata arrives.
+ */
+export function resolveGraphDuration(
+    graph: GraphDescription,
+    getIntrinsic: (url: string, layerId: string) => number | null,
+): number {
+    if (graph.kind === 'filter') return resolveGraphDuration(graph.upstream, getIntrinsic);
+    if (graph.duration > 0) return graph.duration;
+
+    const intrinsicByLayerId: Record<string, number | null> = {};
+    for (const gl of graph.layers) {
+        if (gl.source.kind === 'media' && gl.source.mediaKind === 'video') {
+            intrinsicByLayerId[gl.layer.id] = getIntrinsic(gl.source.url, gl.layer.id);
+        } else if (gl.source.kind === 'graph') {
+            intrinsicByLayerId[gl.layer.id] = resolveGraphDuration(gl.source.graph, getIntrinsic) || null;
+        }
+    }
+    const computed = computeTimelineDuration(
+        graph.layers.map((gl) => gl.layer),
+        null,
+        intrinsicByLayerId,
+    );
+    // computeTimelineDuration floors at 1 even when nothing is known; report 0
+    // in the genuinely-unknown case so callers can distinguish "not loaded yet".
+    const anyKnown = Object.values(intrinsicByLayerId).some((v) => v && v > 0)
+        || graph.layers.some((gl) => typeof gl.layer.duration === 'number' && gl.layer.duration > 0);
+    return anyKnown ? computed : 0;
+}
+
+/**
  * Has any layer been positioned on the timeline OR is sourced from a video?
  * The server executor uses this to decide between the still-image path and
  * the video render path. The client UI uses it to decide whether to surface

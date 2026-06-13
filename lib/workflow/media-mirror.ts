@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/service';
 import { NodeResultType } from '@/lib/workflow/result-format';
+import { generateThumbnailBuffer, toThumbStoragePath, THUMB_CONTENT_TYPE } from '@/lib/workflow/thumbnail';
 
 // Image results are re-encoded to WebP before storage. Resolution is preserved
 // exactly — sharp is never asked to .resize() — so a 4K generation is saved at
@@ -44,6 +45,37 @@ async function prepareImageForStorage(
       ext: fallbackExt,
       contentType: IMAGE_EXT_CONTENT_TYPES[fallbackExt] ?? WEBHOOK_MEDIA_CONTENT_TYPES.image,
     };
+  }
+}
+
+/**
+ * Generate and upload a sibling `.thumb.webp` thumbnail for a just-stored
+ * result. Best-effort: any failure is logged and swallowed — a result without a
+ * thumbnail is valid (the reader falls back to full-res), and a thumbnail
+ * problem must never fail the result or mark the node failed. `buffer` is the
+ * exact bytes that were stored at `resultStoragePath` (re-encoded WebP for
+ * images, original bytes for video).
+ */
+async function uploadThumbnailBestEffort(
+  supabase: ReturnType<typeof createServiceClient>,
+  buffer: Buffer,
+  resultType: NodeResultType,
+  resultStoragePath: string
+): Promise<void> {
+  try {
+    const thumb = await generateThumbnailBuffer(buffer, resultType);
+    if (!thumb) return; // audio/3d, or generation failed (already logged)
+    const thumbPath = toThumbStoragePath(resultStoragePath);
+    const { error } = await supabase.storage.from('chat-assets').upload(thumbPath, thumb, {
+      contentType: THUMB_CONTENT_TYPE,
+      cacheControl: '3600',
+      upsert: true,
+    });
+    if (error) console.warn(`[media-mirror] thumbnail upload failed (${thumbPath}): ${error.message}`);
+  } catch (err) {
+    console.warn(
+      `[media-mirror] thumbnail step failed: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }
 
@@ -128,6 +160,10 @@ export async function uploadResultBuffer(
   if (uploadError) {
     throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
   }
+
+  // Bake a sibling thumbnail (image only here — audio adapters get null).
+  await uploadThumbnailBestEffort(supabase, outBuffer, resultType, storagePath);
+
   const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
   return urlData.publicUrl;
 }
@@ -184,6 +220,10 @@ export async function mirrorMediaToStorage(
     if (uploadError) {
       throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
     }
+
+    // Bake a sibling thumbnail from the bytes we just stored (re-encoded WebP
+    // for images, original bytes for video). Best-effort — never fails the run.
+    await uploadThumbnailBestEffort(supabase, buffer, resultType, storagePath);
 
     const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
     mirroredUrls[i] = urlData.publicUrl;

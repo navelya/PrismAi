@@ -51,3 +51,29 @@ export function toThumbnailUrl(
     const sep = transformed.includes('?') ? '&' : '?';
     return `${transformed}${sep}width=${width}&quality=${quality}&resize=contain`;
 }
+
+/**
+ * Derive the BAKED thumbnail URL for a result by the sibling-file convention:
+ * `…/result_123_0.mp4` → `…/result_123_0.thumb.webp`. The thumbnail is written
+ * at this path by media-mirror at generation time (see lib/workflow/thumbnail.ts).
+ *
+ * Only Supabase Storage public-object URLs are rewritten; data:/blob:/external
+ * URLs pass through unchanged so the helper is always safe to call. The caller
+ * MUST keep the original URL as an onError fallback — assets generated before
+ * this feature (or that the backfill hasn't reached) have no sibling thumb and
+ * will 404, at which point the reader swaps in the full-resolution original.
+ *
+ * Unlike toThumbnailUrl, this needs no Supabase-specific render endpoint, so it
+ * keeps working after a migration off Supabase (the thumb is just another file
+ * that moves with the bucket).
+ */
+export function bakedThumbUrl(url: string | null | undefined): string | undefined {
+    if (!url || typeof url !== 'string') return url ?? undefined;
+    if (!url.includes(SUPABASE_OBJECT_PUBLIC)) return url;
+
+    const qIndex = url.indexOf('?');
+    const pathPart = qIndex === -1 ? url : url.slice(0, qIndex);
+    const query = qIndex === -1 ? '' : url.slice(qIndex);
+    const thumbPath = pathPart.replace(/\.[^./]+$/, '') + '.thumb.webp';
+    return `${thumbPath}${query}`;
+}

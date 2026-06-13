@@ -1,9 +1,91 @@
-import { extractMediaUrls, isOutputEnvelope, normalizeNodeResultType } from './result-format';
+import { coerceResultDataArray, extractMediaUrls, isOutputEnvelope, normalizeNodeResultType } from './result-format';
+import { graphDimensions } from '@/lib/nodes/plugins/compositor/shared';
 
 export interface DownloadItem {
     /** Filename (no path), already sanitized — safe to use as a zip entry name. */
     filename: string;
     blob: Blob;
+}
+
+/**
+ * Pull-model live-signal items publish `url: ''` alongside a serializable
+ * `graph` (a compositor/blur/filter GraphDescription) — there's no rendered
+ * file until the user downloads. Collect those graphs so any node carrying
+ * one (NOT just the compositor) is downloadable via the shared export route.
+ */
+function extractGraphs(output: any): any[] {
+    if (!isOutputEnvelope(output)) return [];
+    const graphs: any[] = [];
+    for (const item of coerceResultDataArray(output.data)) {
+        if (item && typeof item === 'object' && (item as any).graph) {
+            graphs.push((item as any).graph);
+        }
+    }
+    return graphs;
+}
+
+/**
+ * Render a live graph to an mp4 Blob via the shared compositor export route.
+ * This is what makes blur (and every future live filter node) downloadable
+ * with zero per-node wiring — the route flattens the graph server-side into
+ * one ffmpeg pass, so there's no client-side chained re-render.
+ */
+async function renderGraphToBlob(graph: any, filename: string): Promise<Blob | null> {
+    try {
+        // graphDimensions descends through filter wrappers to the real base
+        // canvas size, so a portrait/4K source isn't squashed into 1920×1080.
+        const { width, height } = graphDimensions(graph);
+        const resp = await fetch('/api/compositor/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                // The route renders a graph passed as a single synthetic
+                // full-bleed layer: a 1-layer compositor whose only input is
+                // the graph. Reuses the existing inputs map machinery.
+                config: {
+                    canvasWidth: width,
+                    canvasHeight: height,
+                    backgroundColor: '#000000',
+                    // A graph input is always temporal → the route renders mp4
+                    // (outputFormat is only consulted on the still path, which
+                    // a graph never takes). 'mp4' for honesty, not effect.
+                    outputFormat: 'mp4',
+                    outputQuality: 1.0,
+                    fps: 30,
+                    timelineDuration: null,
+                    layers: [{
+                        id: '__graph_dl__',
+                        name: filename,
+                        sourceHandleId: '__graph_dl__',
+                        selectedIndex: 0,
+                        transform: {
+                            x: 0, y: 0, width, height,
+                            rotation: 0, opacity: 1, flipX: false, flipY: false,
+                            // isAutoCentered:false → the server's single-layer
+                            // auto-fit resizes the canvas to the source's TRUE
+                            // resolution (the graph's declared dims can be a
+                            // 1920x1080 placeholder from a URL-wrap), so a
+                            // direct blur download isn't capped below source res.
+                            isAutoCentered: false, crop: null,
+                        },
+                        visible: true, locked: false,
+                        startTime: 0, duration: null, trimIn: 0, trimOut: null,
+                        speed: 1, muted: false, transition: { type: 'none', duration: 0 },
+                    }],
+                },
+                inputs: { __graph_dl__: { graph } },
+                filename,
+            }),
+        });
+        if (!resp.ok) {
+            console.error('[renderGraphToBlob] export failed', resp.status, await resp.text().catch(() => ''));
+            return null;
+        }
+        return await resp.blob();
+    } catch (err) {
+        console.error('[renderGraphToBlob] export error', err);
+        return null;
+    }
 }
 
 /**
@@ -26,10 +108,48 @@ export async function collectNodeMediaBlobs(
 ): Promise<DownloadItem[]> {
     if (output === null || output === undefined) return [];
 
+    const safeLabel = sanitizeLabel(label);
+
+    // Live-graph items first: a blur (or future filter node) wrapping a
+    // compositor publishes a `graph` with no URL. Render each via the shared
+    // export route so it's downloadable without a per-node handler.
+    const graphs = extractGraphs(output);
+    if (graphs.length > 0) {
+        const items: DownloadItem[] = [];
+        for (let i = 0; i < graphs.length; i++) {
+            const suffix = graphs.length === 1 ? '' : `-${i + 1}`;
+            const filename = `${safeLabel}${suffix}.mp4`;
+            try {
+                const blob = await renderGraphToBlob(graphs[i], `${safeLabel}${suffix}`);
+                if (blob) items.push({ filename, blob });
+            } finally {
+                onUnit?.();
+            }
+        }
+        // Fall through to also collect any plain media URLs in the same
+        // envelope (mixed envelopes are rare but cheap to handle).
+        const urls = extractMediaUrls(output);
+        if (urls.length === 0) return items;
+        const fallbackExt = extensionFromEnvelopeType(output) || 'mp4';
+        for (let i = 0; i < urls.length; i++) {
+            const url = urls[i];
+            const ext = extensionFromUrl(url) || fallbackExt;
+            const filename = `${safeLabel}-${i + 1}.${ext}`;
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                items.push({ filename, blob: await resp.blob() });
+            } catch (err) {
+                console.error('[collectNodeMediaBlobs] fetch failed', url, err);
+            } finally {
+                onUnit?.();
+            }
+        }
+        return items;
+    }
+
     const urls = extractMediaUrls(output);
     if (urls.length === 0) return [];
-
-    const safeLabel = sanitizeLabel(label);
     const fallbackExt = extensionFromEnvelopeType(output);
 
     const items: DownloadItem[] = [];

@@ -22,7 +22,7 @@ import { blurSharedDef } from './definition';
 import { blurClientExecutor } from './executor.client';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import { radiusToSigma } from './shared';
-import { GraphDescription, graphDimensions, graphDuration } from '../compositor/shared';
+import { GraphDescription, graphDimensions, resolveGraphDuration } from '../compositor/shared';
 import { GraphRenderCache, paintGraphFrame } from '../compositor/graph-renderer';
 
 interface BlurNodeData {
@@ -294,8 +294,12 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         // a compositor-fed blur card peg the GPU and stutter the whole canvas.
         // Trade-off: if the browser evicts a paused video frame under memory
         // pressure while idle, it won't re-decode until the next hover/change.
+        //
+        // Duration is RESOLVED per tick (not read from graph.duration): blur's
+        // URL-wrap graphs publish duration 0 — the real length only becomes
+        // known once this cache's decoder loads metadata. Without resolving,
+        // the hover playhead never wrapped and grew unbounded.
         const hovering = isHoveringGraphPreview;
-        const duration = graphDuration(upstreamGraph);
         // Hard cap so a source that never loads can't keep the idle loop alive
         // forever (it would re-introduce the GPU drain the settle burst exists
         // to prevent). Normal media decodes well inside this.
@@ -313,7 +317,15 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                 const dt = (now - last) / 1000;
                 last = now;
                 playhead += dt;
-                if (duration > 0 && playhead >= duration) playhead = 0;
+                const duration = resolveGraphDuration(
+                    upstreamGraph,
+                    (u, layerId) => cache.getVideoDuration(u, layerId),
+                );
+                // Wrap on real duration; clamp at a hard ceiling while duration
+                // is still unknown (metadata not loaded) so the playhead can't
+                // grow unbounded on a source that never loads.
+                if (duration > 0) { if (playhead >= duration) playhead = 0; }
+                else if (playhead > 60) playhead = 0;
             } else {
                 playhead = 0;
                 last = now;
@@ -362,38 +374,49 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             : base;
     }, [localRadius, config.type]);
 
-    // The compositor's LayerVideo applies its filter on a canvas sized to the
-    // source's native pixels, then Konva downscales for display — so visible
-    // blur ∝ (displayWidth / nativeWidth). The server's sharp/ffmpeg pipeline
-    // also operates at native resolution. We replicate that math here so the
-    // in-card preview shows the same effective blur as both other surfaces.
-    // Without this, a 1920px source previewed at ~380px in the card would
-    // look ~5× more blurred than its final output.
+    // The compositor's graph renderer applies the filter on a canvas sized to
+    // the source's NATIVE pixels, then downscales for display — and the
+    // server's sharp/ffmpeg pipeline also operates at native resolution. The
+    // card preview applies its CSS blur at DISPLAY size, so the sigma must be
+    // scaled by the actual rendered content scale or the card overstates the
+    // blur (~5× for a 1920px source in a ~380px card — the user-visible
+    // "blur looks much weaker in the editor" mismatch; the editor was the
+    // correct surface).
+    //
+    // Content scale accounts for object-cover: the displayed content is
+    // scaled by max(boxW/nativeW, boxH/nativeH), not the width ratio alone.
+    // And there is NO unscaled fallback anymore — when measurements haven't
+    // landed yet we estimate (typical card width / 1080p) rather than apply a
+    // native-resolution sigma to a card-sized element.
     const previewWrapperRef = useRef<HTMLDivElement | null>(null);
-    const [nativeMediaWidth, setNativeMediaWidth] = useState(0);
-    const [displayWidth, setDisplayWidth] = useState(0);
+    const [nativeMediaSize, setNativeMediaSize] = useState({ width: 0, height: 0 });
+    const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
 
     useEffect(() => {
         const wrapper = previewWrapperRef.current;
         if (!wrapper || typeof ResizeObserver === 'undefined') return;
-        setDisplayWidth(wrapper.clientWidth);
+        setDisplaySize({ width: wrapper.clientWidth, height: wrapper.clientHeight });
         const observer = new ResizeObserver((entries) => {
-            for (const entry of entries) setDisplayWidth(entry.contentRect.width);
+            for (const entry of entries) {
+                setDisplaySize({ width: entry.contentRect.width, height: entry.contentRect.height });
+            }
         });
         observer.observe(wrapper);
         return () => observer.disconnect();
     }, [mediaKind, mediaUrl, upstreamGraph]);
 
     const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-        setNativeMediaWidth(e.currentTarget.videoWidth || 0);
+        const el = e.currentTarget;
+        if (el.videoWidth) setNativeMediaSize({ width: el.videoWidth, height: el.videoHeight || 0 });
     }, []);
 
     // Live sources can publish their native resolution up front (the
-    // Compositor knows its canvas dimensions immediately). Seed
-    // nativeMediaWidth from that so the preview-blur scaling math kicks in
-    // before any onLoadedMetadata fires.
+    // Compositor knows its canvas dimensions immediately). Seed from that so
+    // the scaling math kicks in before any onLoadedMetadata fires.
     useEffect(() => {
-        if (upstreamResolution?.width) setNativeMediaWidth(upstreamResolution.width);
+        if (upstreamResolution?.width) {
+            setNativeMediaSize({ width: upstreamResolution.width, height: upstreamResolution.height || 0 });
+        }
     }, [upstreamResolution]);
 
     // For images we don't get a direct onLoad event (BlurryImage doesn't
@@ -403,24 +426,31 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
         if (mediaKind !== 'image' || !mediaUrl) return;
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        const onLoad = () => setNativeMediaWidth(img.naturalWidth || 0);
+        const onLoad = () => {
+            if (img.naturalWidth) setNativeMediaSize({ width: img.naturalWidth, height: img.naturalHeight || 0 });
+        };
         img.addEventListener('load', onLoad);
         img.src = mediaUrl;
         return () => img.removeEventListener('load', onLoad);
     }, [mediaKind, mediaUrl]);
 
     const previewBlurStyle = useMemo(() => {
-        if (!displayWidth || !nativeMediaWidth) return blurStyle;
-        const ratio = displayWidth / nativeMediaWidth;
+        const nativeW = nativeMediaSize.width || 1920;
+        const nativeH = nativeMediaSize.height || Math.round(nativeW * 9 / 16);
+        const boxW = displaySize.width || 380;
+        const boxH = displaySize.height || Math.round(boxW * (nativeH / Math.max(1, nativeW)));
+        // object-cover: displayed content scale is the LARGER axis ratio.
+        const ratio = Math.max(boxW / Math.max(1, nativeW), boxH / Math.max(1, nativeH));
         return blurStyle.replace(/blur\(([\d.]+)px\)/g, (_, n) => `blur(${parseFloat(n) * ratio}px)`);
-    }, [blurStyle, displayWidth, nativeMediaWidth]);
+    }, [blurStyle, displaySize, nativeMediaSize]);
 
     // Blur's own output (post-clientExecutor). For image upstream this is a
     // data URL — useCardDownload picks it up and exposes the Download button.
-    // For video (graph) upstream the envelope has `url: ''` and no real URL
-    // until Run completes; useCardDownload's canDownload is then false and
-    // the button auto-hides. A future server-side blur ffmpeg endpoint will
-    // let us register a custom handler for the chained-video case.
+    // For video (graph) upstream the envelope carries a serializable `graph`
+    // (url: ''); useCardDownload now renders that graph to mp4 through the
+    // shared /api/compositor/export route (server-side flatten), so the
+    // Download button works for the chained-video case without a bespoke
+    // per-node handler.
     const ownOutput = useAppStore((s) => s.nodeOutputs[id]);
     const { state: cardDownloadState, canDownload, handleDownload } = useCardDownload(data.label, ownOutput);
 
@@ -584,7 +614,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                     type={mediaKind === 'video' ? 'video' : 'image'}
                     initialIndex={0}
                     cssFilter={blurStyle}
-                    nativeMediaWidth={nativeMediaWidth || undefined}
+                    nativeMediaWidth={nativeMediaSize.width || undefined}
                     onClose={() => setLightboxOpen(false)}
                 />
             )}
@@ -632,7 +662,6 @@ const BlurGraphLightbox = memo(function BlurGraphLightbox({
         if (canvas.width !== dims.width) canvas.width = Math.max(1, dims.width);
         if (canvas.height !== dims.height) canvas.height = Math.max(1, dims.height);
 
-        const duration = graphDuration(graph);
         let stopped = false;
         let raf = 0;
         let playhead = 0;
@@ -643,7 +672,13 @@ const BlurGraphLightbox = memo(function BlurGraphLightbox({
             const dt = (now - last) / 1000;
             last = now;
             playhead += dt;
-            if (duration > 0 && playhead >= duration) playhead = 0;
+            // Resolve per tick — URL-wrap graphs publish duration 0 until the
+            // decoder's metadata reveals the real length.
+            const duration = resolveGraphDuration(graph, (u, layerId) => cache.getVideoDuration(u, layerId));
+            // Wrap on real duration; clamp at a ceiling while it's still unknown
+            // so the playhead can't grow unbounded if metadata never loads.
+            if (duration > 0) { if (playhead >= duration) playhead = 0; }
+            else if (playhead > 60) playhead = 0;
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 cache.releaseAllScratch();
@@ -659,6 +694,26 @@ const BlurGraphLightbox = memo(function BlurGraphLightbox({
     }, [graph]);
 
     const dims = graphDimensions(graph);
+
+    // The cssFilter's sigma is in NATIVE canvas pixels (that's what the
+    // compositor editor and the server render apply); this canvas is
+    // displayed scaled-down to fit the viewport, so scale the blur term by
+    // the actual on-screen ratio for visual parity with those surfaces.
+    const [displayedWidth, setDisplayedWidth] = useState(0);
+    useEffect(() => {
+        const el = canvasRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        setDisplayedWidth(el.clientWidth);
+        const ro = new ResizeObserver((entries) => {
+            for (const e of entries) setDisplayedWidth(e.contentRect.width);
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+    const displayFilter = useMemo(() => {
+        const ratio = displayedWidth > 0 && dims.width > 0 ? displayedWidth / dims.width : 1;
+        return cssFilter.replace(/blur\(([\d.]+)px\)/g, (_, n) => `blur(${parseFloat(n) * ratio}px)`);
+    }, [cssFilter, displayedWidth, dims.width]);
 
     return createPortal(
         <div
@@ -677,7 +732,7 @@ const BlurGraphLightbox = memo(function BlurGraphLightbox({
                 ref={canvasRef}
                 onClick={(e) => e.stopPropagation()}
                 className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl bg-black"
-                style={{ aspectRatio: `${dims.width} / ${dims.height}`, filter: cssFilter }}
+                style={{ aspectRatio: `${dims.width} / ${dims.height}`, filter: displayFilter }}
             />
         </div>,
         document.body,

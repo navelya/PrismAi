@@ -9,6 +9,7 @@ import {
     Instagram, Youtube, Facebook, Linkedin, Video, Play, Twitter,
     Image as ImageIcon, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Undo2, Redo2, MousePointer2, Hand, Minus,
+    Download, Loader2, Check, AlertCircle,
 } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -18,11 +19,13 @@ import { NumberInput } from '@/components/ui/NumberInput';
 import { Select } from '@/components/ui/Select';
 import { ToolbarButton } from '@/components/editor/canvas/CanvasToolbar';
 import { CompositorConfig, CompositorLayer, LayerTransform, calculateInitialTransform, calculateFirstLayerFitToCanvas } from '../definition';
+import { resolveSourceLayerTitle } from '@/lib/store/slices/workflow-slice';
 import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
 import { CompositorLayerNodes, RenderableLayer } from './Renderer';
 import CompositorAudio from './CompositorAudio';
 import Timeline from './Timeline';
 import { detectSourceKind, LayerSourceKind, computeTimelineDuration, getEffectiveDuration, splitLayerAtPlayhead, layerAABB, rectsIntersect, resolveCompositeBaseFill } from '../shared';
+import { useTransportClock } from '../transport-clock';
 import { useInertBackground } from '@/lib/hooks/use-inert-background';
 import MultiLayerProperties from './MultiLayerProperties';
 
@@ -68,6 +71,7 @@ const BLEND_MODES = [
 
 const LayerListItem = React.memo(({
     layer,
+    displayName,
     isSelected,
     type,
     onSelect,
@@ -99,7 +103,7 @@ const LayerListItem = React.memo(({
             <div className={cn("w-5 h-5 rounded-md flex items-center justify-center border", isSelected ? "bg-accent-primary text-white border-white/20" : "bg-white/10 text-white/40 border-white/10")}>
                 <Icon className="w-2.5 h-2.5" />
             </div>
-            <span className={cn("flex-1 text-[10px] font-bold truncate", isSelected ? "text-white" : "text-white/60")}>{layer.name}</span>
+            <span className={cn("flex-1 text-[10px] font-bold truncate", isSelected ? "text-white" : "text-white/60")}>{displayName || layer.name}</span>
             <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100">
                 <button
                     onPointerDown={(e) => e.stopPropagation()}
@@ -129,6 +133,13 @@ interface CompositorEditorModalProps {
     onConfigChange?: (config: Partial<CompositorConfig>) => void;
     /** The portal wrapper element; used to keep this modal interactive while the rest of the page is inert. */
     portalEl?: HTMLElement | null;
+    /**
+     * Export/download trigger shared with the card's Download button (same
+     * in-flight dedupe + server render). When provided, the header shows a
+     * Download button whose visual state follows `downloadState`.
+     */
+    onDownload?: () => void;
+    downloadState?: 'idle' | 'rendering' | 'success' | 'error';
 }
 
 export default function CompositorEditorModal({
@@ -136,6 +147,8 @@ export default function CompositorEditorModal({
     config: initialConfig,
     onClose,
     portalEl = null,
+    onDownload,
+    downloadState = 'idle',
 }: CompositorEditorModalProps) {
     useInertBackground(true, portalEl);
     const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
@@ -245,6 +258,30 @@ export default function CompositorEditorModal({
         });
         return out;
     }));
+
+    // LIVE layer titles — mirror each source node's CURRENT title (the same
+    // resolution the connect-time auto-namer uses), so renaming a node
+    // updates its layer name in the panel + timeline. Derived at display time
+    // rather than read from the frozen `layer.name` stored at connect time.
+    const layerTitleBySource = useAppStore(useShallow((state) => {
+        const out: Record<string, string> = {};
+        layerEdges.forEach((e) => {
+            const node = state.currentWorkflow?.nodes.find((n) => n.id === e.source);
+            if (node) out[e.source] = resolveSourceLayerTitle(node, state.nodeTypes || []);
+        });
+        return out;
+    }));
+
+    // layerId → live display title, keyed for the timeline + panel.
+    const layerNames = useMemo(() => {
+        const out: Record<string, string> = {};
+        for (const layer of layers) {
+            const edge = layerEdges.find((ed) => ed.id === layer.sourceHandleId);
+            const title = edge ? layerTitleBySource[edge.source] : undefined;
+            out[layer.id] = title || layer.name || 'Layer';
+        }
+        return out;
+    }, [layers, layerEdges, layerTitleBySource]);
 
     // Build the renderable layers (one entry per saved layer with its currently
     // resolved upstream value). Layers whose edge no longer exists are filtered
@@ -732,24 +769,29 @@ export default function CompositorEditorModal({
         }));
     }, [layers, intrinsicDurations, sourceKindByLayerId, nodeId, updateLayers]);
 
-    // rAF playback loop. Halts when paused, when the modal closes, or when the
-    // playhead would step past the end (we wrap to 0 so playback feels looping).
+    // Transport clock. Time advances in a ref via rAF and only commits to
+    // React (~10Hz + on wrap/seek/pause) — the previous loop called
+    // setPlayhead EVERY frame, re-rendering this entire modal (timeline,
+    // panels, Konva tree) at ~60fps during playback, which was the dominant
+    // cause of choppy playback and laggy dragging. Per-frame consumers
+    // (Konva gating/seeks in LayerVideo/LayerSubgraph, the timeline playhead
+    // line) subscribe to the clock directly.
+    const clock = useTransportClock(totalDuration, setPlayhead);
     useEffect(() => {
-        if (!isPlaying) return;
-        let raf: number | null = null;
-        let last = performance.now();
-        const tick = (now: number) => {
-            const dt = (now - last) / 1000;
-            last = now;
-            setPlayhead((p) => {
-                const next = p + dt;
-                return next >= totalDuration ? 0 : next;
-            });
-            raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        return () => { if (raf !== null) cancelAnimationFrame(raf); };
-    }, [isPlaying, totalDuration]);
+        if (isPlaying) clock.play(); else clock.pause();
+    }, [isPlaying, clock]);
+
+    const handleSeek = useCallback((t: number) => {
+        setIsPlaying(false);
+        clock.pause();
+        // Clamp a hair off the exact end: at t === totalDuration every clip's
+        // `t < start + duration` window is closed, so nothing renders and the
+        // canvas goes black. Half a frame back keeps the last clip's final
+        // frame on screen (imperceptible position difference).
+        const fps = config.fps || 30;
+        const clamped = Math.max(0, Math.min(t, Math.max(0, totalDuration - 0.5 / fps)));
+        clock.seek(clamped);
+    }, [clock, totalDuration, config.fps]);
 
     const handleUpdateLayer = useCallback((layerId: string, patch: Partial<CompositorLayer>) => {
         updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, ...patch } : l));
@@ -766,7 +808,9 @@ export default function CompositorEditorModal({
         const intrinsic = intrinsicDurations[layerId] ?? null;
         const total = computeTimelineDuration(list, cfg.timelineDuration ?? null, intrinsicDurations);
         const eff = getEffectiveDuration(layer, kind, intrinsic, total);
-        const [left, right] = splitLayerAtPlayhead(layer, playhead, eff);
+        // Cut at the CLOCK's position, not the throttled React playhead — the
+        // committed state can lag up to ~100ms during playback.
+        const [left, right] = splitLayerAtPlayhead(layer, clock.getTime(), eff);
         if (!right) return; // playhead outside the clip — nothing to cut
         pushSnapshot();
         updateLayers((prev) => {
@@ -776,7 +820,7 @@ export default function CompositorEditorModal({
             copy.splice(i, 1, left, right);
             return copy;
         });
-    }, [nodeId, initialConfig, sourceKindByLayerId, intrinsicDurations, playhead, updateLayers, pushSnapshot]);
+    }, [nodeId, initialConfig, sourceKindByLayerId, intrinsicDurations, clock, updateLayers, pushSnapshot]);
 
     /**
      * Delete a single clip. If other clips still share its source row, drop
@@ -993,16 +1037,19 @@ export default function CompositorEditorModal({
         if (!gd) return; // single-select drag: Konva moves the one node itself
         const anchorStart = gd.start.get(layerId);
         if (!anchorStart) return;
-        const stage = stageRef.current;
-        if (!stage) return;
         const dx = pos.x - anchorStart.x;
         const dy = pos.y - anchorStart.y;
+        let anyNode: any = null;
         for (const [lid, s] of gd.start) {
             if (lid === layerId) continue;
             const node = gd.nodes.get(lid);
-            if (node) { node.x(s.x + dx); node.y(s.y + dy); }
+            if (node) { node.x(s.x + dx); node.y(s.y + dy); anyNode = node; }
         }
-        stage.batchDraw();
+        // Redraw ONLY the content layer the moved nodes live on. A stage-wide
+        // batchDraw here repainted the static chrome layer too — including the
+        // 100px shadowBlur rect that was split onto its own layer precisely to
+        // keep it out of per-drag-frame paints.
+        (anyNode ?? gd.nodes.get(layerId))?.getLayer()?.batchDraw();
     }, []);
 
     const handleInteractEnd = useCallback(() => {
@@ -1039,8 +1086,13 @@ export default function CompositorEditorModal({
     const dimmerPathData = `M -99999 -99999 L 99999 -99999 L 99999 99999 L -99999 99999 Z M 0 0 L 0 ${canvasHeight} L ${canvasWidth} ${canvasHeight} L ${canvasWidth} 0 Z`;
 
     return (
-        <div className="fixed inset-0 z-[100000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
-            <div className="bg-surface-primary/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl w-[96vw] h-[92vh] flex flex-col overflow-hidden">
+        // No backdrop-filter anywhere in this modal: a blur ancestor over a
+        // 60fps canvas forces per-frame re-rasterization and throttles
+        // <video> descendants in Chromium (twice root-caused in this app).
+        // The modal covers 96vw×92vh, so the frosted backdrop was invisible
+        // anyway — near-opaque fills read the same and paint for free.
+        <div className="fixed inset-0 z-[100000] bg-black/70 flex items-center justify-center pointer-events-auto">
+            <div className="bg-surface-primary/[0.98] border border-white/10 rounded-2xl shadow-2xl w-[96vw] h-[92vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-white/5">
                     <div className="flex items-center gap-3">
@@ -1053,6 +1105,26 @@ export default function CompositorEditorModal({
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        {onDownload && (
+                            <button
+                                onClick={() => { if (downloadState !== 'rendering') onDownload(); }}
+                                disabled={downloadState === 'rendering'}
+                                className={cn(
+                                    'px-5 py-2 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 border',
+                                    downloadState === 'error'
+                                        ? 'bg-red-500/15 border-red-400/30 text-red-300'
+                                        : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white',
+                                    downloadState === 'rendering' && 'opacity-70 cursor-wait',
+                                )}
+                                title="Render and download this composition"
+                            >
+                                {downloadState === 'rendering' ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    : downloadState === 'success' ? <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                    : downloadState === 'error' ? <AlertCircle className="w-3.5 h-3.5" />
+                                    : <Download className="w-3.5 h-3.5" />}
+                                {downloadState === 'rendering' ? 'Rendering…' : 'Download'}
+                            </button>
+                        )}
                         <button onClick={onClose} className="px-6 py-2 rounded-xl bg-accent-primary text-white font-black text-xs shadow-lg shadow-accent-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-widest">Done</button>
                     </div>
                 </div>
@@ -1060,7 +1132,7 @@ export default function CompositorEditorModal({
                 {/* Main Content (canvas + side panels) */}
                 <div className="flex-1 flex overflow-hidden min-h-0">
                     {/* Left Panel - Layers */}
-                    <div className="w-56 border-r border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl">
+                    <div className="w-56 border-r border-white/5 flex flex-col bg-white/5">
                         <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
                             <span className="text-[10px] font-black text-content-tertiary uppercase tracking-widest">Layers</span>
                             <div className="w-2 h-2 rounded-full bg-accent-primary animate-pulse" />
@@ -1082,6 +1154,7 @@ export default function CompositorEditorModal({
                                         <LayerListItem
                                             key={layer.id}
                                             layer={layer}
+                                            displayName={layerNames[layer.id]}
                                             isSelected={selectedLayerIds.includes(layer.id)}
                                             type={type}
                                             onSelect={selectLayer}
@@ -1178,6 +1251,7 @@ export default function CompositorEditorModal({
                                     isPlaying={isPlaying}
                                     muted={audioMuted}
                                     intrinsicDurations={intrinsicDurations}
+                                    clock={clock}
                                     // Distinct from the card's `poolKey={nodeId}` so the editor
                                     // gets its own decoders. Pull-model surfaces (LayerSubgraph)
                                     // seek the pool element every frame when paused; sharing
@@ -1186,6 +1260,14 @@ export default function CompositorEditorModal({
                                     // empty frames in the editor.
                                     poolKey={`${nodeId}__editor`}
                                 />
+                            </Layer>
+                            {/* Overlay chrome on its OWN layer: the dimmer path,
+                                marquee, and Transformer used to share the content
+                                layer, so every video frame repainted the full-stage
+                                even-odd dimmer fill + Transformer, and every
+                                drag/marquee frame repainted all the videos. Split,
+                                each redraw touches only what changed. */}
+                            <Layer>
                                 <Path data={dimmerPathData} fill="rgba(0,0,0,0.7)" fillRule="evenodd" listening={false} />
                                 {marquee && (
                                     <Rect
@@ -1222,7 +1304,9 @@ export default function CompositorEditorModal({
                         />
 
                         {/* TOOLBOX */}
-                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/90 backdrop-blur-md border border-stroke-subtle shadow-xl z-50">
+                        {/* No backdrop-blur here: this toolbox floats OVER the playing
+                            Stage, so a blur would re-rasterize on every canvas frame. */}
+                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-surface-elevated/95 border border-stroke-subtle shadow-xl z-50">
                             <ToolbarButton icon={Undo2} onClick={localUndo} disabled={!canLocalUndo} title="Undo" />
                             <ToolbarButton icon={Redo2} onClick={localRedo} disabled={!canLocalRedo} title="Redo" />
 
@@ -1238,7 +1322,7 @@ export default function CompositorEditorModal({
                     </div>
 
                     {/* Right Panel - Properties */}
-                    <div className="w-96 border-l border-white/5 flex flex-col bg-white/5 backdrop-blur-3xl overflow-hidden shadow-2xl">
+                    <div className="w-96 border-l border-white/5 flex flex-col bg-white/5 overflow-hidden shadow-2xl">
                         <div className="p-4 border-b border-white/5 bg-white/5 font-black text-[10px] uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
                             <Plus className="w-3 h-3" /> Properties
                         </div>
@@ -1396,16 +1480,18 @@ export default function CompositorEditorModal({
                         </div>
                         <Timeline
                             layers={layers}
+                            layerNames={layerNames}
                             sourceKindByLayerId={sourceKindByLayerId}
                             intrinsicDurations={intrinsicDurations}
                             configuredTotalDuration={config.timelineDuration ?? null}
                             fps={config.fps || 30}
                             playhead={playhead}
+                            clock={clock}
                             isPlaying={isPlaying}
                             audioMuted={audioMuted}
                             selectedLayerId={selectedLayerId}
                             onTogglePlay={() => setIsPlaying((p) => !p)}
-                            onSeek={(t) => { setIsPlaying(false); setPlayhead(t); }}
+                            onSeek={handleSeek}
                             onToggleAudioMute={() => setAudioMuted((m) => !m)}
                             onSelectLayer={(id) => selectLayer(id, false)}
                             onUpdateLayer={handleUpdateLayer}

@@ -21,9 +21,26 @@ import { Image as KonvaImage, Text as KonvaText, Group } from 'react-konva';
 import useImage from 'use-image';
 import Konva from 'konva';
 import { CompositorLayer, LayerTransform } from '../definition';
-import { detectSourceKindFromUrl, isLayerActiveAt, LayerSourceKind, GraphDescription, graphDimensions, graphDuration } from '../shared';
-import { acquireVideo, onVideoMetadata, releaseVideo, setPlayState, setMuted } from '../video-pool';
+import {
+    detectSourceKindFromUrl,
+    getSourceSeekTime,
+    isLayerActiveAt,
+    LayerSourceKind,
+    GraphDescription,
+    graphDimensions,
+    resolveGraphDuration,
+} from '../shared';
+import {
+    acquireVideo,
+    onVideoMetadata,
+    releaseVideo,
+    setPlayState,
+    setMuted,
+    subscribeFrames,
+    supportsVideoFrameCallback,
+} from '../video-pool';
 import { GraphRenderCache, paintGraphFrame } from '../graph-renderer';
+import { TransportClock } from '../transport-clock';
 
 /**
  * What the shared renderer needs to draw one layer:
@@ -91,6 +108,16 @@ interface CompositorLayerNodesProps {
      * pre-pull-model layout but not for chained live previews).
      */
     poolKey?: string;
+    /**
+     * Surface transport clock (see transport-clock.ts). When provided, video
+     * and subgraph layers follow it per-frame while playing: exact seeks on
+     * clip-activation edges, frame-granular visibility at cuts, and drift
+     * correction. The React `playhead` prop then only needs its ~10Hz commit
+     * cadence — it serves structural/paused rendering.
+     */
+    clock?: TransportClock | null;
+    /** Redraw-rate ceiling forwarded to CompositorAnimator (cards pass ~30). */
+    maxFps?: number;
 }
 
 // When a compositor is PAUSED, its scene is static — there's no reason to repaint
@@ -231,6 +258,9 @@ const LayerVideo = memo(function LayerVideo({
     poolKey,
     muted = true,
     onDragMove,
+    clock = null,
+    intrinsicDuration = null,
+    surfacePlaying = false,
 }: {
     layer: CompositorLayer;
     videoUrl: string;
@@ -245,6 +275,29 @@ const LayerVideo = memo(function LayerVideo({
     /** Layer-local time in seconds; clamped to [0, video.duration] by the component. */
     localTime: number | undefined;
     isPlaying: boolean;
+    /**
+     * Surface transport clock. When provided AND the surface is playing, this
+     * component follows the clock per-frame: exact seek on clip-activation
+     * edges, Konva visibility toggled at frame granularity (a 10Hz React
+     * prop would cut clips up to ~100ms late — reads as a flash/overlap),
+     * and drift correction while playing. The React props (`localTime`,
+     * `visible`, `isPlaying`) remain the paused/structural path.
+     */
+    clock?: TransportClock | null;
+    /**
+     * Intrinsic source duration (seconds) once metadata is known. Needed by
+     * the per-frame activity gating above; null before metadata.
+     */
+    intrinsicDuration?: number | null;
+    /**
+     * UNGATED surface-level playing flag. The `isPlaying` prop above is
+     * activity-gated by the parent (isPlaying && isActive) at React cadence;
+     * the clock-follow subscription must outlive activity transitions so a
+     * clip can be activated frame-accurately — keying it on the gated prop
+     * would tear it down while the clip is inactive and reintroduce the
+     * ~100ms-late activation it exists to fix.
+     */
+    surfacePlaying?: boolean;
     /**
      * Konva visibility flag — when false, the layer's frame isn't drawn but
      * the underlying HTMLVideoElement stays mounted and pre-seeked. This is
@@ -276,7 +329,23 @@ const LayerVideo = memo(function LayerVideo({
     const pooledEl = handle?.el ?? null;
     const consumerId = handle?.id ?? null;
     const shapeRef = useRef<any>(null);
+    // `ready` (readyState >= 1 / HAVE_METADATA) gates only the timing effects
+    // below — it must flip at metadata so the decode kick can RUN. It is NOT
+    // the compositing gate (see `hasFrame`): drawing the element at readyState
+    // 1 paints nothing and the opaque base shows through as black.
     const [ready, setReady] = useState(() => !!pooledEl && (pooledEl as any).readyState >= 1);
+    // `hasFrame` (readyState >= 2 / HAVE_CURRENT_DATA) is the COMPOSITING gate.
+    // Konva's drawImage(video) copies pixels only once a frame is decoded; at
+    // readyState 1 it copies nothing, so the layer contributes nothing and the
+    // compositor's opaque base fill reads as a black frame — repainted every
+    // tick of the paused settle burst, which is the "multiple black frames
+    // before the video appears" symptom. We therefore refuse to mount the
+    // KonvaImage until a frame actually exists. Sticky: once true it stays true
+    // (a transient mid-playback buffer dip must not un-mount and flicker the
+    // clip — Konva keeps drawing the last decoded frame, the correct behavior).
+    // Decoupled from `ready` so the decode kick (gated on `ready`) is still the
+    // thing that drives 1 -> 2; gating the kick on `hasFrame` would deadlock.
+    const [hasFrame, setHasFrame] = useState(() => !!pooledEl && (pooledEl as any).readyState >= 2);
     const t = layer.transform;
 
     // Keep onLoad in a ref so we don't refire the metadata subscription when
@@ -303,6 +372,102 @@ const LayerVideo = memo(function LayerVideo({
         };
     }, [videoUrl, pooledEl, consumerId, poolKey]);
 
+    // Detect when the pooled element actually has a DECODED frame
+    // (readyState >= 2) and flip `hasFrame` — the compositing gate. We listen
+    // for the deterministic decode signals (`loadeddata`/`canplay` fire when
+    // readyState first reaches HAVE_CURRENT_DATA; `seeked` fires once a sought
+    // frame is decoded; a one-shot requestVideoFrameCallback fires exactly when
+    // a frame is presented) rather than trusting the force-decode `play()`
+    // promise, which resolves on playback-START, not frame-decode. Sticky: only
+    // ever sets true here; it resets to false (re-armed) when `pooledEl`
+    // changes, i.e. a different element/URL. The batchDraw nudge handles the
+    // case where the frame lands after the parent animator's settle burst has
+    // already stopped.
+    useEffect(() => {
+        if (!pooledEl) { setHasFrame(false); return; }
+        if (pooledEl.readyState >= 2) { setHasFrame(true); return; }
+        setHasFrame(false);
+        let cancelled = false;
+        let rvfcHandle = 0;
+        const mark = () => {
+            if (cancelled) return;
+            if (pooledEl.readyState >= 2) {
+                setHasFrame(true);
+                try { shapeRef.current?.getLayer()?.batchDraw(); } catch { /* noop */ }
+            }
+        };
+        pooledEl.addEventListener('loadeddata', mark);
+        pooledEl.addEventListener('canplay', mark);
+        pooledEl.addEventListener('seeked', mark);
+        const rvfc = (pooledEl as any).requestVideoFrameCallback;
+        if (typeof rvfc === 'function') {
+            // A presented frame implies readyState >= 2; one-shot is enough.
+            rvfcHandle = rvfc.call(pooledEl, () => mark());
+        }
+        return () => {
+            cancelled = true;
+            pooledEl.removeEventListener('loadeddata', mark);
+            pooledEl.removeEventListener('canplay', mark);
+            pooledEl.removeEventListener('seeked', mark);
+            if (rvfcHandle) {
+                try { (pooledEl as any).cancelVideoFrameCallback?.(rvfcHandle); } catch { /* gone */ }
+            }
+        };
+    }, [pooledEl]);
+
+    // When the first frame becomes available the component re-renders and
+    // mounts the KonvaImage; this effect runs AFTER that commit (so shapeRef is
+    // set) and forces the one repaint that reveals it — covering the case where
+    // the parent CompositorAnimator's settle burst already ended.
+    useEffect(() => {
+        if (hasFrame) {
+            try { shapeRef.current?.getLayer()?.batchDraw(); } catch { /* noop */ }
+        }
+    }, [hasFrame]);
+
+    // Force the first frame to DECODE.
+    //
+    // A pooled element with preload="auto" reaches readyState 1 (metadata) and
+    // then idles — it won't decode a frame until something seeks or plays it.
+    // Konva drawing an element at readyState 1 paints nothing, so the
+    // compositor's black base shows through: the "first frame is black" on
+    // editor open, and "the incoming clip flashes black" at a cut (the next
+    // clip's element was warm-but-undecoded until its turn). Kick a decode at
+    // the clip's source in-point (muted play→pause — the reliable cross-browser
+    // wakeup; a no-op seek to the same currentTime fires no decode). Skipped
+    // while the element is already playing or decoded, so it never fights the
+    // clock-driven active clip.
+    useEffect(() => {
+        if (!pooledEl || !ready) return;
+        // Skip while the surface is playing: the clock owns play votes then,
+        // and a muted play→pause here could pause the active clip the clock
+        // wants playing. Pre-decoding happens while paused (open editor/card →
+        // clips warm up → press play → smooth transitions), which is the
+        // dominant flow.
+        if (surfacePlaying) return;
+        if (pooledEl.readyState >= 2 || !pooledEl.paused) return;
+        let cancelled = false;
+        const inT = Math.max(0, layer.trimIn || 0);
+        try {
+            if (Math.abs(pooledEl.currentTime - inT) > 0.01) pooledEl.currentTime = inT;
+        } catch { /* not seekable yet */ }
+        const wasMuted = pooledEl.muted;
+        try { pooledEl.muted = true; } catch { /* noop */ }
+        pooledEl.play()
+            .then(() => {
+                if (cancelled) return;
+                try { pooledEl.pause(); } catch { /* noop */ }
+                if (!wasMuted) { try { pooledEl.muted = false; } catch { /* noop */ } }
+                // Nudge a repaint so the freshly-decoded frame reaches the
+                // Stage even if the animator's settle burst already ended.
+                try { shapeRef.current?.getLayer()?.batchDraw(); } catch { /* noop */ }
+            })
+            .catch(() => {
+                if (!wasMuted) { try { pooledEl.muted = false; } catch { /* noop */ } }
+            });
+        return () => { cancelled = true; };
+    }, [ready, pooledEl, layer.trimIn, surfacePlaying]);
+
     // Vote on play state. The pool plays if any consumer wants play, pauses
     // if none do. When this LayerVideo unmounts, releaseVideo removes the
     // vote and the pool re-reconciles — which fixes the case "modal was
@@ -324,10 +489,10 @@ const LayerVideo = memo(function LayerVideo({
 
     // Seek when not playing (covers two cases: paused & user scrubs; inactive
     // clip that the parent is keeping mounted so the decoder stays warm).
-    // While playing we let the pooled video advance naturally — manual seeks
-    // would stutter. Prefer `fastSeek` when available — it jumps to the
-    // nearest keyframe rather than the exact PTS, which paints a frame much
-    // sooner during a scrub (Chrome/Firefox/Safari all support it).
+    // While playing the clock-follow subscription below owns timing — manual
+    // 10Hz seeks here would stutter. Prefer `fastSeek` when available — it
+    // jumps to the nearest keyframe rather than the exact PTS, which paints a
+    // frame much sooner during a scrub (Chrome/Firefox/Safari all support it).
     useEffect(() => {
         if (!pooledEl || !ready || isPlaying) return;
         if (typeof localTime !== 'number') return;
@@ -341,12 +506,96 @@ const LayerVideo = memo(function LayerVideo({
         }
     }, [localTime, ready, isPlaying, pooledEl]);
 
-    if (!ready || !pooledEl) return null;
+    // ── Per-frame clock follow (playing path) ──
+    //
+    // Handles the two things the React-prop path can't, WITHOUT ever seeking a
+    // steadily-playing element (which would stall its decoder and flash black —
+    // see the no-drift note below):
+    //   1. FRAME-ACCURATE CUTS / clip positioning: on each activation edge the
+    //      element is seeked to the exact clip-local source time and voted to
+    //      play; on each deactivation edge it is paused and parked at trimIn so
+    //      the next activation starts on the right frame. This is what makes a
+    //      split/trimmed clip ("the cut clip") play its correct region instead
+    //      of replaying trimmed-out content — it's driven by the edges, not by
+    //      per-frame drift correction. Konva visibility is also toggled here at
+    //      frame granularity (the ~10Hz React `visible` prop would cut up to
+    //      ~100ms late, reading as a flash/overlap).
+    //   2. Between edges the clip FREE-RUNS at the pooled element's native rate
+    //      (loop=true re-aligns it at the source boundary), exactly as the
+    //      pre-overhaul renderer did — no per-frame `currentTime =` write.
+    const layerStateRef = useRef({ layer, intrinsicDuration, muted });
+    layerStateRef.current = { layer, intrinsicDuration, muted };
+    // When the clock is driving playback it is the SOLE authority on this
+    // node's Konva visibility — the React `visible` prop (computed from the
+    // ~10Hz playhead) is omitted below so it can't overwrite the per-frame
+    // value mid-flight (which caused a clip to stay visible ~100ms past a cut).
+    const clockOwnsVisibility = !!(clock && surfacePlaying);
+    useEffect(() => {
+        if (!clock || !surfacePlaying || !pooledEl || consumerId === null || !ready) return;
+        let wasActive: boolean | null = null;
+        const unsub = clock.subscribe((t) => {
+            const { layer: l, intrinsicDuration: intrinsic } = layerStateRef.current;
+            const active = isLayerActiveAt(l, 'video', intrinsic ?? null, t);
+            const local = getSourceSeekTime(l, t);
+            const clamped = Math.max(0, Math.min(local, Math.max(0, pooledEl.duration || 0)));
+
+            // Visibility is synced EVERY tick (not just on edges): React's
+            // reconciliation can momentarily reset it (e.g. on a play/pause
+            // transition or any re-render), and a once-per-edge set would
+            // never re-correct until the next transition. The `!== active`
+            // guard keeps it a no-op when nothing changed.
+            const node = shapeRef.current;
+            if (node && node.visible() !== active) {
+                node.visible(active);
+                node.getLayer()?.batchDraw();
+            }
+
+            if (active !== wasActive) {
+                wasActive = active;
+                if (active) {
+                    // Activation edge (also the first tick after mount/wrap):
+                    // position the source exactly before letting it play.
+                    try { pooledEl.currentTime = clamped; } catch { /* not seekable yet */ }
+                    setPlayState(videoUrl, consumerId, true, poolKey);
+                } else {
+                    setPlayState(videoUrl, consumerId, false, poolKey);
+                    // Park at the clip's trim-in so the next activation
+                    // starts on the right frame with no visible seek.
+                    try { pooledEl.currentTime = Math.max(0, l.trimIn || 0); } catch { /* noop */ }
+                }
+                return;
+            }
+
+            // NO steady-state drift-correction seek. While a clip is
+            // continuously active we let its pooled element FREE-RUN — it was
+            // already seeked to the exact source position on the activation
+            // edge above and voted to play. A per-frame `currentTime =`
+            // correction knocks the decoder back to readyState 1 until the
+            // target frame re-decodes; any redraw (the 100ms animator
+            // heartbeat, a sibling's rVFC, a visibility sync) landing in that
+            // window clears the Konva layer and draws this still-undecoded
+            // element as nothing, so the opaque base shows through as a black
+            // frame — the "blinking during playback" regression. The
+            // pre-overhaul renderer free-ran here and never blinked; the tiny
+            // clock-vs-frame drift that can accrue over a long clip is
+            // imperceptible (and loop=true re-aligns at the source boundary),
+            // which is the correct trade for flawless frames.
+        });
+        return unsub;
+    }, [clock, surfacePlaying, pooledEl, consumerId, ready, videoUrl, poolKey]);
+
+    // Compositing gate: never bind an undecoded element. Until a frame exists
+    // the layer is simply absent (the opaque base shows — a single clean black
+    // until the reveal, NOT a per-paint flash of an empty element). `hasFrame`
+    // implies `ready`, but both are checked for clarity.
+    if (!ready || !pooledEl || !hasFrame) return null;
 
     const commonProps: any = {
         image: pooledEl,
         ref: shapeRef,
-        visible,
+        // Clock owns visibility during playback (see clockOwnsVisibility); the
+        // React prop is the authority only when paused / on a clock-less surface.
+        ...(clockOwnsVisibility ? {} : { visible }),
         x: t.x,
         y: t.y,
         width: t.width,
@@ -435,9 +684,17 @@ const LayerSubgraph = memo(function LayerSubgraph({
     visible = true,
     muted = true,
     onDragMove,
+    clock = null,
+    surfacePlaying = false,
 }: {
     layer: CompositorLayer;
     graph: GraphDescription;
+    /**
+     * Layer-local time (seconds) inside the subgraph — the parent maps its
+     * own playhead through getSourceSeekTime(layer, t) before passing it, so
+     * trimming/cutting a graph-sourced clip shifts the subgraph's content
+     * exactly like it does a plain video clip's.
+     */
     playhead: number;
     isPlaying: boolean;
     poolKey: string;
@@ -457,6 +714,10 @@ const LayerSubgraph = memo(function LayerSubgraph({
      * chained graphs stayed silent regardless of UI state.
      */
     muted?: boolean;
+    /** Surface transport clock — see LayerVideo. Continuous time + per-frame gating. */
+    clock?: TransportClock | null;
+    /** Ungated surface-level playing flag — see LayerVideo.surfacePlaying. */
+    surfacePlaying?: boolean;
 }) {
     const shapeRef = useRef<any>(null);
     const t = layer.transform;
@@ -465,8 +726,14 @@ const LayerSubgraph = memo(function LayerSubgraph({
     // Offscreen canvas + render cache live for the component's lifetime. The
     // cache owns pooled video voters and image loads; releasing it on unmount
     // is what removes this consumer's votes from the shared pool.
+    //
+    // The cache gets a per-layer pool namespace (`poolKey:sub:layerId`) so (a)
+    // its decoders are isolated per clip like LayerVideo's, and (b) the frame
+    // subscription below only fires for THIS subgraph's videos rather than
+    // every sibling's.
     const offscreenRef = useRef<HTMLCanvasElement | null>(null);
     const cacheRef = useRef<GraphRenderCache | null>(null);
+    const cachePoolKey = `${poolKey}:sub:${layer.id}`;
     if (!offscreenRef.current && typeof document !== 'undefined') {
         const c = document.createElement('canvas');
         c.width = Math.max(1, dims.width);
@@ -474,7 +741,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
         offscreenRef.current = c;
     }
     if (!cacheRef.current) {
-        cacheRef.current = new GraphRenderCache(poolKey);
+        cacheRef.current = new GraphRenderCache(cachePoolKey);
     }
 
     // Keep the cache's poolKey in sync if the parent changes it (rare — would
@@ -494,19 +761,39 @@ const LayerSubgraph = memo(function LayerSubgraph({
         if (c.height !== dims.height) c.height = Math.max(1, dims.height);
     }, [dims.width, dims.height]);
 
+    // Resolved timeline length of the subgraph. The published `duration` is
+    // trusted when positive, but blur's URL-wrap graphs publish duration 0
+    // (the client executor can't know the video's length synchronously) —
+    // there we recompute from our own pooled decoders' metadata as it
+    // arrives. Re-checked from the paint loops below (cheap walk) and pushed
+    // into state only on change.
+    const [resolvedDuration, setResolvedDuration] = useState<number>(() =>
+        resolveGraphDuration(graph, () => null),
+    );
+    const resolvedDurationRef = useRef(resolvedDuration);
+    resolvedDurationRef.current = resolvedDuration;
+    const refreshResolvedDuration = () => {
+        const cache = cacheRef.current;
+        if (!cache) return;
+        const next = resolveGraphDuration(graph, (url, layerId) => cache.getVideoDuration(url, layerId));
+        if (Math.abs(next - resolvedDurationRef.current) > 0.01) {
+            resolvedDurationRef.current = next;
+            setResolvedDuration(next);
+        }
+    };
+
     // Fire onLoad once we know the subgraph's dimensions AND its timeline
-    // length. Reporting the upstream graph's duration here is what lets the
-    // parent compositor populate `intrinsicDurations[layerId]` correctly, so
-    // its own `computeTimelineDuration` sums to the right total instead of
-    // falling through to the 1-second fallback.
-    const reportedDuration = graphDuration(graph);
+    // length. Reporting the resolved duration here is what lets the parent
+    // compositor populate `intrinsicDurations[layerId]` correctly, so its own
+    // `computeTimelineDuration` sums to the right total (and activity gating
+    // can bound this clip) instead of treating the clip as always-on.
     const onLoadRef = useRef(onLoad);
     onLoadRef.current = onLoad;
     useEffect(() => {
         if (dims.width > 0 && dims.height > 0) {
-            onLoadRef.current?.({ duration: reportedDuration, width: dims.width, height: dims.height });
+            onLoadRef.current?.({ duration: resolvedDuration, width: dims.width, height: dims.height });
         }
-    }, [dims.width, dims.height, reportedDuration]);
+    }, [dims.width, dims.height, resolvedDuration]);
 
     // rAF loop driving the subgraph repaint. While PLAYING we repaint every
     // frame (the subgraph is animating). While PAUSED the subgraph is static at
@@ -522,7 +809,10 @@ const LayerSubgraph = memo(function LayerSubgraph({
     isPlayingRef.current = isPlaying;
     const mutedRef = useRef(muted);
     mutedRef.current = muted;
-    const paintDep = isPlaying ? '__playing__' : playhead;
+    const layerRef = useRef(layer);
+    layerRef.current = layer;
+    const surfacePlayingActive = !!(clock ? surfacePlaying : isPlaying);
+    const paintDep = surfacePlayingActive ? '__playing__' : playhead;
     useEffect(() => {
         const c = offscreenRef.current;
         const cache = cacheRef.current;
@@ -531,19 +821,92 @@ const LayerSubgraph = memo(function LayerSubgraph({
         let stopped = false;
         let raf = 0;
 
-        // While PLAYING the subgraph animates every frame; CompositorAnimator
-        // owns the Stage blit. Run uncapped until the effect tears down.
-        if (isPlaying) {
-            const draw = () => {
+        // While the SURFACE is playing, repaint on the producer pattern:
+        // a pool frame-subscription marks the offscreen dirty whenever one of
+        // THIS subgraph's videos presents a new frame (so paint cadence
+        // follows the decoder instead of a fixed 60Hz loop — the old
+        // uncapped loop burned ~4 of every 5 paints that the throttled Stage
+        // blit never even showed), plus a 100ms heartbeat that covers
+        // non-video changes (activity windows opening/closing, text/image
+        // layers, nested still graphs). Browsers without rVFC fall back to
+        // painting every rAF tick, as before.
+        //
+        // Per-frame clip gating also lives here when a clock is present:
+        // compute this graph-layer's own active window and toggle the Konva
+        // node's visibility at frame granularity; when the clip deactivates,
+        // paint one final frame with isPlaying=false so the nested videos'
+        // pool votes reconcile to paused (otherwise they'd keep playing —
+        // the old "blur clip keeps looping past its cut" symptom).
+        if (surfacePlayingActive) {
+            const HEARTBEAT_MS = 100;
+            const hasRVFC = supportsVideoFrameCallback();
+            let dirty = true;
+            const unsubFrames = hasRVFC
+                ? subscribeFrames(cachePoolKey, () => { dirty = true; })
+                : null;
+            let lastPaint = -1;
+            let wasActive: boolean | null = null;
+
+            const paintAt = (time: number, playing: boolean) => {
+                if (!ctx) return;
+                cache.releaseAllScratch();
+                paintGraphFrame(graph, time, ctx, cache, playing, mutedRef.current);
+                refreshResolvedDuration();
+            };
+            const blit = () => { try { shapeRef.current?.getLayer()?.batchDraw(); } catch { /* noop */ } };
+
+            const draw = (now: number) => {
                 if (stopped) return;
-                if (ctx) {
-                    cache.releaseAllScratch();
-                    paintGraphFrame(graph, playheadRef.current, ctx, cache, true, mutedRef.current);
-                }
                 raf = requestAnimationFrame(draw);
+
+                const surfaceTime = clock ? clock.getTime() : null;
+                const localTime = surfaceTime !== null
+                    ? getSourceSeekTime(layerRef.current, surfaceTime)
+                    : playheadRef.current;
+
+                // Per-frame activity gating (clock surfaces only; clock-less
+                // callers keep the parent's React-cadence visible prop).
+                if (surfaceTime !== null) {
+                    const active = isLayerActiveAt(
+                        layerRef.current,
+                        'video',
+                        resolvedDurationRef.current > 0 ? resolvedDurationRef.current : null,
+                        surfaceTime,
+                    );
+                    // Sync visibility EVERY tick (not just on edges) — a
+                    // React re-render can momentarily reset the Konva prop,
+                    // and an edge-only set would never re-correct until the
+                    // next transition. The `!== active` guard keeps it cheap.
+                    const node = shapeRef.current;
+                    if (node && node.visible() !== active) {
+                        node.visible(active);
+                        node.getLayer()?.batchDraw();
+                    }
+                    if (active !== wasActive) {
+                        wasActive = active;
+                        if (!active) {
+                            // Final pause-paint so nested pool votes settle.
+                            paintAt(localTime, false);
+                            return;
+                        }
+                    }
+                    if (!active) return; // hidden — skip paint work entirely
+                }
+
+                const heartbeatDue = lastPaint < 0 || now - lastPaint >= HEARTBEAT_MS;
+                if (!hasRVFC || dirty || heartbeatDue) {
+                    dirty = false;
+                    lastPaint = now;
+                    paintAt(localTime, true);
+                    if (hasRVFC) blit();
+                }
             };
             raf = requestAnimationFrame(draw);
-            return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
+            return () => {
+                stopped = true;
+                if (raf) cancelAnimationFrame(raf);
+                unsubFrames?.();
+            };
         }
 
         // PAUSED: the scene is static, so we must NOT repaint forever (that
@@ -570,6 +933,7 @@ const LayerSubgraph = memo(function LayerSubgraph({
             if (ctx) {
                 cache.releaseAllScratch();
                 complete = paintGraphFrame(graph, playhead, ctx, cache, false, mutedRef.current);
+                refreshResolvedDuration();
             }
             blit();
             if (complete) {
@@ -582,15 +946,19 @@ const LayerSubgraph = memo(function LayerSubgraph({
         raf = requestAnimationFrame(draw);
         return () => { stopped = true; if (raf) cancelAnimationFrame(raf); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [graph, paintDep]);
+    }, [graph, paintDep, clock, cachePoolKey]);
 
     const imageEl = offscreenRef.current;
     if (!imageEl) return null;
 
+    // When the clock drives playback it owns this node's visibility per-frame
+    // (the gating loop above); omit the ~10Hz React prop so it can't overwrite
+    // the fresh value at a cut. Paused / clock-less surfaces keep the prop.
+    const clockOwnsVisibility = !!(clock && surfacePlaying);
     const commonProps: any = {
         image: imageEl,
         ref: shapeRef,
-        visible,
+        ...(clockOwnsVisibility ? {} : { visible }),
         x: t.x,
         y: t.y,
         width: t.width,
@@ -782,7 +1150,31 @@ export const CompositorAnimator = memo(function CompositorAnimator({
     enabled,
     isPlaying,
     redrawKey,
-}: { enabled: boolean; isPlaying: boolean; redrawKey: string }) {
+    poolKey,
+    maxFps,
+}: {
+    enabled: boolean;
+    isPlaying: boolean;
+    redrawKey: string;
+    /**
+     * Pool namespace whose video elements drive the redraw. When provided
+     * (and the browser supports requestVideoFrameCallback), the Stage blit
+     * follows the DECODERS' actual frame cadence instead of a fixed-rate
+     * loop: paints happen exactly when a new video frame exists, and when a
+     * decoder stalls no paint work competes with it — the starvation
+     * feedback loop that forced the old hard 15fps cap can't occur. A 10Hz
+     * heartbeat covers non-video changes (clip windows opening/closing,
+     * text/image layers). Without a poolKey (or without rVFC) we fall back
+     * to a fixed-rate loop.
+     */
+    poolKey?: string;
+    /**
+     * Optional ceiling on blit rate. Cards pass ~30 to bound the cost of
+     * many simultaneous previews; the fullscreen editor omits it (source
+     * cadence, typically 24-30fps, is the natural rate).
+     */
+    maxFps?: number;
+}) {
     // The Group is a no-op visually — its sole purpose is to hold a ref so
     // we can reach the parent Konva.Layer at runtime. We don't render
     // anything inside it.
@@ -794,17 +1186,27 @@ export const CompositorAnimator = memo(function CompositorAnimator({
         const konvaLayer = node?.getLayer?.();
         if (!konvaLayer) return;
         if (isPlaying) {
-            // Throttled to 15fps. Konva.Animation runs at the browser's
-            // display rate (~60Hz); each tick re-reads every <KonvaImage>'s
-            // `image` prop and (for pooled HTMLVideoElement sources) does
-            // an internal drawImage(video, ...) per layer on the main
-            // thread. At 60Hz that synchronous main-thread copy starves
-            // the video decoder and causes the visible playback stutter
-            // (verified in prod: skipping the per-frame draw flipped
-            // playback from 56%-smooth-with-stalls to 100% smooth).
-            // 15fps is the explicit lower bound where a live canvas mirror
-            // still reads as smooth for card-sized previews.
-            const FRAME_MS = 1000 / 15;
+            const minIntervalMs = maxFps && maxFps > 0 ? 1000 / maxFps : 0;
+            let lastDraw = 0;
+            const draw = () => {
+                const now = performance.now();
+                if (minIntervalMs && now - lastDraw < minIntervalMs) return;
+                lastDraw = now;
+                // batchDraw is internally rAF-coalesced by Konva — N producer
+                // callbacks in one display frame still cost one layer paint.
+                konvaLayer.batchDraw();
+            };
+
+            if (poolKey && supportsVideoFrameCallback()) {
+                const unsub = subscribeFrames(poolKey, draw);
+                const heartbeat = setInterval(draw, 100);
+                return () => { unsub(); clearInterval(heartbeat); };
+            }
+
+            // Fallback (no poolKey / no rVFC): fixed-rate rAF loop at
+            // maxFps, defaulting to 30 — twice the old 15fps floor but still
+            // bounded so a stalled decoder isn't starved by paint work.
+            const FRAME_MS = 1000 / Math.min(maxFps || 30, 30);
             let raf = 0;
             let last = 0;
             const tick = (now: number) => {
@@ -824,7 +1226,7 @@ export const CompositorAnimator = memo(function CompositorAnimator({
         anim.start();
         const timer = setTimeout(() => anim.stop(), PAUSED_SETTLE_MS);
         return () => { clearTimeout(timer); anim.stop(); };
-    }, [enabled, isPlaying, redrawKey]);
+    }, [enabled, isPlaying, redrawKey, poolKey, maxFps]);
 
     return <Group ref={anchorRef} listening={false} />;
 });
@@ -849,6 +1251,8 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
     intrinsicDurations,
     poolKey,
     muted = true,
+    clock = null,
+    maxFps,
 }: CompositorLayerNodesProps) {
     // Detect if any visible layer needs the continuous redraw loop. That's
     // true when the layer is a video URL (frames decode over time) or a
@@ -877,7 +1281,13 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
 
     return (
         <>
-            <CompositorAnimator enabled={hasVideo} isPlaying={isPlaying} redrawKey={animatorRedrawKey} />
+            <CompositorAnimator
+                enabled={hasVideo}
+                isPlaying={isPlaying}
+                redrawKey={animatorRedrawKey}
+                poolKey={poolKey}
+                maxFps={maxFps}
+            />
             {[...layers].reverse().map(({ layer, resolved }) => {
                 if (!layer.visible) return null;
                 if (resolved === null || resolved === undefined) return null;
@@ -922,17 +1332,22 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                     // consumer of the same upstream — each downstream node
                     // is its own renderer with its own time cursor.
                     //
-                    // Subgraphs ignore per-layer time gating at the parent
-                    // level (LayerSubgraph manages its own internal timeline),
-                    // so the surface's `muted` flag is forwarded directly —
-                    // unlike LayerVideo below which also gates on activity.
+                    // Graph-sourced layers are CLIPS like any other: their
+                    // activity window gates rendering (a cut blur clip used
+                    // to ignore its window and loop forever), and the time
+                    // handed to the subgraph is the clip-local source time
+                    // (startTime shifts it, trimIn advances it) so trims and
+                    // blade cuts behave identically to plain video clips.
+                    const subLocalTime = typeof playhead === 'number'
+                        ? getSourceSeekTime(layer, playhead)
+                        : 0;
                     return (
                         <LayerSubgraph
                             key={layer.id}
                             layer={layer}
                             graph={sourceGraph}
-                            playhead={typeof playhead === 'number' ? playhead : 0}
-                            isPlaying={isPlaying}
+                            playhead={subLocalTime}
+                            isPlaying={isPlaying && isActive}
                             poolKey={poolKey || '_global_'}
                             interactive={interactive}
                             isSelected={!!selectedLayerIds?.includes(layer.id)}
@@ -954,8 +1369,10 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             }
                             onInteractStart={onInteractStart}
                             onInteractEnd={onInteractEnd}
-                            visible={true}
-                            muted={muted || !!layer.muted}
+                            visible={isActive}
+                            muted={muted || !isActive || !!layer.muted}
+                            clock={clock}
+                            surfacePlaying={isPlaying}
                         />
                     );
                 }
@@ -997,6 +1414,9 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             localTime={localTime}
                             isPlaying={isPlaying && isActive}
                             visible={isActive}
+                            clock={clock}
+                            surfacePlaying={isPlaying}
+                            intrinsicDuration={intrinsicDurations?.[layer.id] ?? null}
                             // Per-LAYER pool key: two split clips share one URL
                             // and one sourceHandleId but are independent clips
                             // (non-overlapping in time). Suffixing layer.id gives

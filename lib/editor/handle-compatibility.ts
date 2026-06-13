@@ -144,6 +144,47 @@ function resolveCompositorOutputKind(nodeId: string): 'image' | 'video' | null {
 }
 
 /**
+ * Resolve the runtime output kind for ONE output handle of a compare node by
+ * inspecting the media wired into its CORRESPONDING input:
+ *   output_a ← input_a, output_b ← input_b.
+ * Compare is a pure passthrough, so each output's type mirrors its own input's.
+ * Returns null when that side isn't wired or its kind can't be determined
+ * (broad union applies). A null handleId (e.g. a wire being dragged toward an
+ * unknown output) also yields null — both outputs accept the broad union.
+ */
+function resolveCompareOutputKind(nodeId: string, handleId: string | null): 'image' | 'video' | null {
+    if (handleId !== 'output_a' && handleId !== 'output_b') return null;
+    const inputHandle = handleId === 'output_b' ? 'input_b' : 'input_a';
+    const wf = useAppStore.getState().currentWorkflow;
+    if (!wf) return null;
+
+    const inputEdge = wf.edges.find((e) => e.target === nodeId && e.targetHandle === inputHandle);
+    if (!inputEdge) return null;
+
+    const upstream = wf.nodes.find((n) => n.id === inputEdge.source);
+    if (!upstream) return null;
+
+    const liveOutput = useAppStore.getState().nodeOutputs[upstream.id];
+    const dataOutput = (upstream.data as any)?.output;
+    const cfgImages = (upstream.data as any)?.config?.images;
+    const cfgLast = (upstream.data as any)?.config?.last_output;
+    const candidate = liveOutput ?? dataOutput ?? cfgImages ?? cfgLast;
+
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        const t = (candidate as any).type;
+        if (t === 'video' || t === 'image') return t;
+    }
+
+    const url = extractFirstUrl(candidate);
+    if (!url) return null;
+    if (url.startsWith('data:video/')) return 'video';
+    if (url.startsWith('data:image/')) return 'image';
+    const detected = detectMediaTypeFromUrl(url);
+    if (detected === 'image' || detected === 'video') return detected;
+    return null;
+}
+
+/**
  * For nodes whose output dataType is dynamic, return the narrowed runtime
  * type — or null to fall back to the static registry dataType. Centralizes
  * the per-node-type carve-outs so the handle-compat helpers stay generic.
@@ -159,6 +200,11 @@ function resolveDynamicOutputType(
     }
     if (node.type === 'compositor') {
         return resolveCompositorOutputKind(node.id); // 'image' | 'video' | null
+    }
+    if (node.type === 'compare') {
+        // Per-output narrowing: output_a mirrors input_a, output_b mirrors
+        // input_b. handleId is null for some callers (broad) — handled inside.
+        return resolveCompareOutputKind(node.id, handleId); // 'image' | 'video' | null
     }
     if (node.type === 'collect') {
         // Output mirrors the type locked by the first connected input.

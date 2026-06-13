@@ -3,6 +3,7 @@ import { clientRegistry, FallbackNode } from '@/lib/nodes/core/client-registry';
 import AIGeneratorNode from '@/lib/nodes/plugins/ai_generator/component';
 import GroupNode from '@/components/editor/GroupNode';
 import NoteNode from '@/components/editor/NoteNode';
+import CompareNode from '@/lib/nodes/plugins/compare/component';
 
 // 🛡️ STABILITY FIX: Create the base node types in a separate utility module.
 // Next.js Fast Refresh often re-evaluates files that export React components,
@@ -21,6 +22,11 @@ const concreteNodeTypes: Record<string, React.ComponentType<any>> = {
     legacy: FallbackNode,
     group_container: GroupNode,
     note: NoteNode,
+    // Explicitly registered (like group_container/note) so it resolves even if
+    // the baseNodeTypes reduce over clientRegistry is built before this plugin's
+    // entry is live (module-eval / HMR ordering). Without this the Proxy below
+    // falls 'compare' through to AIGeneratorNode.
+    compare: CompareNode,
 };
 
 // Dynamic AI-generator node type ids come from the DB (ai_models.node_type_id)

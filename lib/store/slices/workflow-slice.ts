@@ -86,7 +86,7 @@ function clearStaleCollectLocks(
  * component's `nodeTitle` logic here so a freshly-connected layer is named
  * after what the user sees. Other node types keep using their label.
  */
-function resolveSourceLayerTitle(sourceNode: any, nodeTypes: any[]): string {
+export function resolveSourceLayerTitle(sourceNode: any, nodeTypes: any[]): string {
     const label = typeof sourceNode?.data?.label === 'string' ? sourceNode.data.label.trim() : '';
     if (sourceNode?.type === 'ai_generator') {
         const isDefaultFactoryLabel = label === '' || /^ai (generator|model)$/i.test(label);
@@ -545,12 +545,16 @@ export const createWorkflowSlice: StateCreator<RootState, [], [], WorkflowSlice>
         });
     },
 
-    pruneIncompatibleOutgoingEdges: (nodeId, outputType) => {
+    pruneIncompatibleOutgoingEdges: (nodeId, outputType, sourceHandleId) => {
         const { currentWorkflow, models } = get();
         if (!currentWorkflow) return;
 
         const incompatible = currentWorkflow.edges.filter((edge) => {
             if (edge.source !== nodeId) return false;
+            // When a specific output handle is given (multi-output nodes like
+            // `compare`), only prune edges leaving THAT handle — each output
+            // narrows independently.
+            if (sourceHandleId && edge.sourceHandle !== sourceHandleId) return false;
             const downstream = currentWorkflow.nodes.find((n) => n.id === edge.target);
             if (!downstream) return false;
             const downstreamHandle = getNodeHandleType(

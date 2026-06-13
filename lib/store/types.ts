@@ -237,7 +237,7 @@ export interface WorkflowSlice {
      * → video or vice versa), edges that targeted a now-incompatible input
      * become orphaned and are removed.
      */
-    pruneIncompatibleOutgoingEdges: (nodeId: string, outputType: string | string[]) => void;
+    pruneIncompatibleOutgoingEdges: (nodeId: string, outputType: string | string[], sourceHandleId?: string) => void;
 
     isDragging: boolean;
     setIsDragging: (isDragging: boolean) => void;

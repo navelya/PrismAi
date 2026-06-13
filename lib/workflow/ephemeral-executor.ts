@@ -166,12 +166,19 @@ function buildNodeInputs(
   // primary item. Deliver every edge's FULL result_data under its edge id so
   // the collect executor can flatten all items (its OFF/default mode).
   const isCollectTarget = graph.nodes.find((n) => n.id === nodeId)?.type === 'collect';
+  const nodeTypeById = new Map(graph.nodes.map((n) => [n.id, n.type]));
   for (const edge of incomingEdges) {
     const sourceNodeState = nodeStates[edge.source];
     if (sourceNodeState?.status === 'completed') {
       const inputKey = edge.targetHandle || edge.sourceHandle || 'image';
       let value: any;
-      if (sourceNodeState.result_type && sourceNodeState.result_data) {
+      // Per-handle routing for `compare`: its result_data is a fixed positional
+      // 2-slot array [A, B]; deliver slot 0 to `output_a` wires and slot 1 to
+      // `output_b` wires (mirrors the orchestrator + live carve-outs).
+      if (nodeTypeById.get(edge.source) === 'compare') {
+        const arr = coerceResultDataArray(sourceNodeState.result_data ?? []);
+        value = arr[edge.sourceHandle === 'output_b' ? 1 : 0] ?? null;
+      } else if (sourceNodeState.result_type && sourceNodeState.result_data) {
         value = getPrimaryInputValue(
           normalizeNodeResultType(sourceNodeState.result_type),
           sourceNodeState.result_data,

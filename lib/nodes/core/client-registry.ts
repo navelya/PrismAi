@@ -8,6 +8,7 @@ import { levelsClientDef } from '../plugins/levels';
 import { aiGeneratorClientDef, AIGeneratorNode } from '../plugins/ai_generator';
 import { characterClientDef } from '../plugins/character';
 import { collectClientDef } from '../plugins/collect';
+import { compareClientDef } from '../plugins/compare';
 
 export const clientRegistry: Record<string, NodeClientDef> = {
     prompt: promptClientDef,

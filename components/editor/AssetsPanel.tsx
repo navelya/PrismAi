@@ -243,9 +243,31 @@ function AssetCard({
     const [loaded, setLoaded] = useState(false);
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const videoRef = React.useRef<HTMLVideoElement | null>(null);
+    const cardElRef = React.useRef<HTMLDivElement | null>(null);
+
+    // Video tiles show a baked poster instantly and only background-download the
+    // full clip once the tile scrolls into view.
+    const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
+    useEffect(() => {
+        if (asset.result_type !== 'video' || shouldLoadVideo) return;
+        const el = cardElRef.current;
+        if (!el) return;
+        const io = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting)) {
+                    setShouldLoadVideo(true);
+                    io.disconnect();
+                }
+            },
+            { rootMargin: '200px' },
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, [asset.result_type, shouldLoadVideo]);
 
     const mediaType = asset.result_type === 'audio' ? 'any' : (asset.result_type === '3d' ? 'any' : asset.result_type);
-    const showSkeleton = !loaded && (asset.result_type === 'image' || asset.result_type === 'video');
+    // The baked poster covers video tiles, so only images need the skeleton.
+    const showSkeleton = !loaded && asset.result_type === 'image';
 
     const handleMouseEnter = () => {
         if (asset.result_type !== 'video') return;
@@ -267,6 +289,7 @@ function AssetCard({
     return (
         <>
             <motion.div
+                ref={cardElRef}
                 initial={{ opacity: 0, scale: 0.92 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.2, delay: index * 0.03 }}
@@ -287,24 +310,20 @@ function AssetCard({
                         <video
                             ref={videoRef}
                             src={asset.result_url}
+                            poster={bakedThumbUrl(asset.result_url) ?? undefined}
                             className="w-full h-full object-cover"
-                            // preload="auto" + onLoadedMetadata reveal: with
-                            // preload="metadata" + onLoadedData, the card stays
-                            // invisible forever for any mp4 whose moov atom is
-                            // at the END of the file (Replicate outputs aren't
-                            // muxed with +faststart). The browser stops after
-                            // the head, never finds the index, and neither
-                            // event fires. preload="auto" keeps fetching until
-                            // the index is found; onLoadedMetadata fires as
-                            // soon as it does. We also drop the opacity gate
-                            // entirely so the user at least sees a black tile
-                            // (with the Play badge overlay below) while bytes
-                            // are still arriving — never a phantom blank card.
+                            // The baked frame-0 poster paints instantly and
+                            // reliably (it's a static image, immune to the
+                            // moov-atom-at-end problem that leaves Replicate
+                            // mp4s blank under preload="metadata"). So we defer
+                            // the full download: preload stays 'none' until the
+                            // tile scrolls into view, then flips to 'auto' to
+                            // buffer in the background for smooth hover-play.
                             onLoadedMetadata={() => setLoaded(true)}
                             muted
                             loop
                             playsInline
-                            preload="auto"
+                            preload={shouldLoadVideo ? 'auto' : 'none'}
                         />
                         <div className="absolute top-1.5 left-1.5 z-[1] flex items-center justify-center w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm border border-white/15 shadow-sm pointer-events-none">
                             <Play className="w-2.5 h-2.5 text-white fill-white" />
@@ -323,16 +342,21 @@ function AssetCard({
                     <img
                         // Preview only — the drag payload (onDragStart) still
                         // carries the full-resolution asset, so what lands on
-                        // the canvas is unaffected.
-                        src={toThumbnailUrl(asset.result_url, { width: 512 }) ?? asset.result_url}
+                        // the canvas is unaffected. Baked thumb → Supabase render
+                        // thumb → full-res original (stepped so it can't loop).
+                        src={bakedThumbUrl(asset.result_url) ?? asset.result_url}
                         alt="Generated asset"
                         className={`w-full h-full object-cover transition-all duration-500 ${loaded ? 'opacity-100 blur-0' : 'opacity-0 blur-sm'}`}
                         onLoad={() => setLoaded(true)}
                         onError={(e) => {
                             const img = e.currentTarget;
-                            if (!img.dataset.fellBack && img.src !== asset.result_url) {
-                                img.dataset.fellBack = '1';
-                                img.src = asset.result_url;
+                            const step = img.dataset.fbStep;
+                            if (!step) {
+                                img.dataset.fbStep = 'render';
+                                img.src = toThumbnailUrl(asset.result_url, { width: 512 }) ?? asset.result_url;
+                            } else if (step === 'render') {
+                                img.dataset.fbStep = 'orig';
+                                if (img.src !== asset.result_url) img.src = asset.result_url;
                             }
                         }}
                     />

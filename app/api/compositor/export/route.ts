@@ -20,7 +20,11 @@ import type { CompositorConfig, CompositorLayer } from '@/lib/nodes/plugins/comp
  * Body:
  *   {
  *     config: CompositorConfig,
- *     inputs: Record<string, string>,  // keyed by layer.sourceHandleId -> resolved URL
+ *     // keyed by layer.sourceHandleId → resolved URL string, OR a serialized
+ *     // pull-model graph `{ graph: GraphDescription }` for live upstreams
+ *     // (chained compositor, blur). Graph inputs are flattened server-side
+ *     // into the same single render — no client-side chained re-renders.
+ *     inputs: Record<string, string | { graph: object }>,
  *     filename?: string,                // user-friendly download name (no extension needed)
  *   }
  *
@@ -36,7 +40,7 @@ export async function POST(request: NextRequest) {
     const auth = await getAuthenticatedUser();
     if (auth.error) return auth.error;
 
-    let body: { config?: CompositorConfig; inputs?: Record<string, string>; filename?: string };
+    let body: { config?: CompositorConfig; inputs?: Record<string, any>; filename?: string };
     try {
         body = await request.json();
     } catch {
@@ -62,9 +66,15 @@ export async function POST(request: NextRequest) {
         const layers = (config.layers || []) as CompositorLayer[];
         const sourceKindByLayerId: Record<string, LayerSourceKind> = {};
         for (const layer of layers) {
-            const url = inputs[layer.sourceHandleId];
-            sourceKindByLayerId[layer.id] =
-                typeof url === 'string' ? detectSourceKindFromUrl(url) : 'unknown';
+            const input = inputs[layer.sourceHandleId];
+            if (input && typeof input === 'object' && (input as any).graph) {
+                // Live-graph input (chained compositor / blur) — always a
+                // temporal surface, same convention as the client renderers.
+                sourceKindByLayerId[layer.id] = 'video';
+            } else {
+                sourceKindByLayerId[layer.id] =
+                    typeof input === 'string' ? detectSourceKindFromUrl(input) : 'unknown';
+            }
         }
 
         if (!hasTemporalContent(layers, sourceKindByLayerId)) {

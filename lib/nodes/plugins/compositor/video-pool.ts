@@ -52,6 +52,92 @@ function entryKey(url: string, poolKey: string): string {
     return `${poolKey}|${url}`;
 }
 
+function poolKeyOfEntryKey(key: string): string {
+    const i = key.indexOf('|');
+    return i >= 0 ? key.slice(0, i) : key;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Frame subscriptions (requestVideoFrameCallback).
+//
+// A consumer (CompositorAnimator, LayerSubgraph) subscribes with a poolKey
+// PREFIX and gets called whenever any pooled element under that prefix
+// presents a new video frame. This is what lets the Konva redraw follow the
+// decoder's actual cadence instead of a fixed-rate rAF loop: when the decoder
+// stalls, no callbacks fire and no paint work happens — the starvation
+// feedback loop the old fixed 15fps cap papered over can't occur.
+//
+// Prefix matching covers the per-layer suffixing convention: LayerVideo and
+// GraphRenderCache acquire under `${baseKey}:${layerId}`, so a subscriber for
+// `baseKey` matches `baseKey` itself and every `baseKey:*` entry. Entries
+// acquired AFTER subscribing attach automatically via the acquire hook.
+// ───────────────────────────────────────────────────────────────────────────
+
+interface FrameSub {
+    prefix: string;
+    cb: () => void;
+    /** entryKey → detach fn for the rVFC loop attached on that element. */
+    attached: Map<string, () => void>;
+}
+
+const frameSubs = new Set<FrameSub>();
+
+function prefixMatches(prefix: string, poolKey: string): boolean {
+    return poolKey === prefix || poolKey.startsWith(prefix + ':');
+}
+
+function attachRVFC(el: HTMLVideoElement, cb: () => void): () => void {
+    const rvfc = (el as any).requestVideoFrameCallback;
+    if (typeof rvfc !== 'function') return () => {};
+    let cancelled = false;
+    let handle = 0;
+    const onFrame = () => {
+        if (cancelled) return;
+        cb();
+        handle = (el as any).requestVideoFrameCallback(onFrame);
+    };
+    handle = (el as any).requestVideoFrameCallback(onFrame);
+    return () => {
+        cancelled = true;
+        try { (el as any).cancelVideoFrameCallback?.(handle); } catch { /* gone */ }
+    };
+}
+
+function attachSubToEntry(sub: FrameSub, key: string, entry: PoolEntry): void {
+    if (sub.attached.has(key)) return;
+    if (!prefixMatches(sub.prefix, poolKeyOfEntryKey(key))) return;
+    sub.attached.set(key, attachRVFC(entry.el, sub.cb));
+}
+
+function detachSubFromEntry(sub: FrameSub, key: string): void {
+    const detach = sub.attached.get(key);
+    if (detach) {
+        detach();
+        sub.attached.delete(key);
+    }
+}
+
+/** Whether this browser supports requestVideoFrameCallback at all. */
+export function supportsVideoFrameCallback(): boolean {
+    return typeof HTMLVideoElement !== 'undefined' &&
+        typeof (HTMLVideoElement.prototype as any).requestVideoFrameCallback === 'function';
+}
+
+/**
+ * Subscribe to "a pooled video under `poolKeyPrefix` presented a new frame".
+ * Fires for current and future entries. Returns an unsubscribe function.
+ */
+export function subscribeFrames(poolKeyPrefix: string, cb: () => void): () => void {
+    const sub: FrameSub = { prefix: poolKeyPrefix, cb, attached: new Map() };
+    frameSubs.add(sub);
+    pool.forEach((entry, key) => attachSubToEntry(sub, key, entry));
+    return () => {
+        frameSubs.delete(sub);
+        sub.attached.forEach((detach) => detach());
+        sub.attached.clear();
+    };
+}
+
 function makeSafeUrl(url: string): string {
     if (url.startsWith('data:')) return url;
     return url + (url.includes('?') ? '&' : '?') + 'notaint=1';
@@ -141,6 +227,9 @@ export function acquireVideo(
     el.load();
     // Element starts paused. Consumers vote into play state via setPlayState.
 
+    // Attach any live frame subscriptions whose prefix covers this entry.
+    frameSubs.forEach((sub) => attachSubToEntry(sub, key, entry!));
+
     return { el, id };
 }
 
@@ -221,6 +310,7 @@ export function releaseVideo(
         }
         entry.el.remove();
         pool.delete(key);
+        frameSubs.forEach((sub) => detachSubFromEntry(sub, key));
     } else {
         // Other consumers remain; recompute play state + mute without this voter.
         reconcilePlayState(entry);

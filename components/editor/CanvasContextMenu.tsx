@@ -420,7 +420,6 @@ export default function CanvasContextMenu({
                                     <LayoutGrid className="w-4 h-4 text-content-tertiary opacity-40" />
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold uppercase tracking-widest text-content-secondary">Menu empty</p>
-                                        <p className="text-[10px] text-content-tertiary leading-relaxed">Configure items in the Admin Panel.</p>
                                     </div>
                                 </div>
                             )

@@ -398,9 +398,17 @@ async function buildInputsFromParents(
     // all of them. (Multi-image inputs are still possible by wiring several
     // upstream nodes; each contributes its primary and they concatenate below.)
     const isAiSource = nodeTypeById.get(edge.source) === 'ai_generator';
-    const typedValue = (arrayInputKeys.has(inputKey) && !isAiSource)
-      ? resultData
-      : getPrimaryInputValue(resultType, resultData);
+    // Per-handle routing for `compare`: its server result_data is a fixed
+    // positional 2-slot array [A, B]. Deliver slot 0 to wires off `output_a`
+    // and slot 1 to wires off `output_b` (the engine otherwise reads one
+    // result per node and ignores the source handle). Mirrors the live carve-
+    // out in lib/hooks/use-node-auto-compute.ts.
+    const isCompareSource = nodeTypeById.get(edge.source) === 'compare';
+    const typedValue = isCompareSource
+      ? (resultData[edge.sourceHandle === 'output_b' ? 1 : 0] ?? null)
+      : (arrayInputKeys.has(inputKey) && !isAiSource)
+        ? resultData
+        : getPrimaryInputValue(resultType, resultData);
 
     if (typedValue !== undefined && typedValue !== null) {
       // Deliver strictly under the wired handle's key. With connection
@@ -446,9 +454,11 @@ async function buildInputsFromParents(
       // arrayInputKeys flag, since `layer.sourceHandleId` is always a single-
       // value lookup.
       if (edge.id) {
-        const perEdgeValue = arrayInputKeys.has(inputKey)
-          ? getPrimaryInputValue(resultType, resultData)
-          : typedValue;
+        const perEdgeValue = isCompareSource
+          ? typedValue
+          : arrayInputKeys.has(inputKey)
+            ? getPrimaryInputValue(resultType, resultData)
+            : typedValue;
         if (perEdgeValue !== undefined && perEdgeValue !== null) {
           inputs[edge.id] = perEdgeValue;
         }
