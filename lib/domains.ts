@@ -25,6 +25,11 @@ function hostnameOf(url: string | undefined): string {
 const APP_HOST = hostnameOf(process.env.NEXT_PUBLIC_APP_URL);
 const MARKETING_HOST = hostnameOf(process.env.NEXT_PUBLIC_MARKETING_URL);
 
+// The split is only meaningful when two DISTINCT hosts are configured. On
+// localhost / previews (envs unset, or both pointing at the same host) it is
+// disabled and everything is 'neutral' / relative — the app behaves like today.
+const SPLIT_ENABLED = !!APP_HOST && !!MARKETING_HOST && APP_HOST !== MARKETING_HOST;
+
 // App-only route prefixes (canonical home = app host). '/share' is the
 // collaboration-invite accept page (gates on login, routes into the canvas).
 const APP_ROUTE_PREFIXES = [
@@ -42,6 +47,7 @@ function matchesPrefix(pathname: string, prefix: string): boolean {
 }
 
 export function classifyHost(host: string | null | undefined): HostClass {
+  if (!SPLIT_ENABLED) return 'neutral';
   if (!host) return 'neutral';
   const h = host.split(':')[0].toLowerCase(); // strip :port
   if (APP_HOST && h === APP_HOST) return 'app';
@@ -58,19 +64,21 @@ export function isMarketingRoute(pathname: string): boolean {
   return MARKETING_ROUTE_PREFIXES.some((p) => matchesPrefix(pathname, p));
 }
 
-// Absolute URL builders. In prod (env set) return fully-qualified URLs so a
-// <Link>/navigation crosses to the right subdomain. On neutral/dev (env unset)
-// return the path unchanged so client-side nav stays same-origin.
+// Absolute URL builders. In prod (split active) return fully-qualified URLs so
+// a <Link>/navigation crosses to the right subdomain. On neutral/dev (split
+// disabled) return the path unchanged so client-side nav stays same-origin.
 export function appUrl(path: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL;
-  if (!base) return path;
-  return `${base.replace(/\/$/, '')}${path}`;
+  if (!SPLIT_ENABLED) return path;
+  const base = process.env.NEXT_PUBLIC_APP_URL!;
+  const safePath = '/' + path.replace(/^\/+/, '');
+  return `${base.replace(/\/$/, '')}${safePath}`;
 }
 
 export function marketingUrl(path: string): string {
-  const base = process.env.NEXT_PUBLIC_MARKETING_URL;
-  if (!base) return path;
-  return `${base.replace(/\/$/, '')}${path}`;
+  if (!SPLIT_ENABLED) return path;
+  const base = process.env.NEXT_PUBLIC_MARKETING_URL!;
+  const safePath = '/' + path.replace(/^\/+/, '');
+  return `${base.replace(/\/$/, '')}${safePath}`;
 }
 
 // Auth cookie domain. undefined on dev/preview → cookies stay host-scoped.
