@@ -211,11 +211,27 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
     // (which cancels the first frame) still delivers the prompt exactly once.
     useEffect(() => {
         let pending: string | null = null;
-        try { pending = sessionStorage.getItem('prismai:pendingPrompt'); } catch { /* storage blocked */ }
+        // Cross-origin handoff from the marketing site arrives as ?prompt=.
+        try {
+            const qp = new URLSearchParams(window.location.search).get('prompt');
+            if (qp) pending = qp;
+        } catch { /* SSR / no window */ }
+        // Same-origin (dev) handoff uses sessionStorage.
+        if (!pending) {
+            try { pending = sessionStorage.getItem('prismai:pendingPrompt'); } catch { /* storage blocked */ }
+        }
         const text = pending?.trim();
         if (!text) return;
         const raf = requestAnimationFrame(() => {
             try { sessionStorage.removeItem('prismai:pendingPrompt'); } catch { /* storage blocked */ }
+            // Strip ?prompt= so a refresh doesn't resubmit.
+            try {
+                const url = new URL(window.location.href);
+                if (url.searchParams.has('prompt')) {
+                    url.searchParams.delete('prompt');
+                    window.history.replaceState({}, '', url.pathname + url.search);
+                }
+            } catch { /* no window */ }
             sendMessage(text, [], [], () => {}, setInput);
         });
         return () => cancelAnimationFrame(raf);
