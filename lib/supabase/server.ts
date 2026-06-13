@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { COOKIE_DOMAIN } from '@/lib/domains';
 
 export const createClient = () => {
     const cookieStore = cookies();
@@ -8,6 +9,7 @@ export const createClient = () => {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
+            ...(COOKIE_DOMAIN ? { cookieOptions: { domain: COOKIE_DOMAIN } } : {}),
             cookies: {
                 getAll() {
                     return cookieStore.getAll();
