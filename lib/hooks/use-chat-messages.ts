@@ -12,6 +12,22 @@ import { extractRenderableMedia } from '@/lib/workflow/result-format';
 import { collectTerminalRunMedia } from '@/lib/workflow/run-media';
 import { firstChatRunError } from '@/lib/workflow/validate-chat-run';
 import { buildPreferencesPayload } from '@/lib/chat/preferences';
+import { isDefaultWorkflowTitle } from '@/lib/utils/workflow-title';
+
+/**
+ * Adopt the session/workflow mirror title returned by /generate-title into the
+ * in-memory workflow name, so the editor toolbar reflects the auto-generated
+ * title immediately (no reload). Guarded to default placeholders only, so a
+ * manual rename made during the title call is never clobbered. Not marked dirty
+ * — the DB session title is already saved by the route and load falls back to it.
+ */
+function adoptMirrorTitle(res: { success?: boolean; title?: string } | undefined | void) {
+    if (!res?.success || !res.title || isDefaultWorkflowTitle(res.title)) return;
+    const store = useAppStore.getState();
+    const wf = store.currentWorkflow;
+    if (!wf || !isDefaultWorkflowTitle(wf.name)) return;
+    store.setCurrentWorkflow({ ...wf, name: res.title }, false);
+}
 
 
 async function persistRunProposal(messageId: string) {
@@ -371,8 +387,9 @@ export function useChatMessages({
                 .catch(err => console.error("[Session Create] Error:", err));
             sessionsApi.generateTitle({
                 sessionId: activeSessionId,
-                message: trimmedInput
-            }).catch(err => console.error('[TitleGen] Error:', err));
+                message: trimmedInput,
+                workflowName: useAppStore.getState().currentWorkflow?.name,
+            }).then(adoptMirrorTitle).catch(err => console.error('[TitleGen] Error:', err));
 
             // Smooth background transition (URL change only)
             startTransition(() => {
@@ -389,7 +406,8 @@ export function useChatMessages({
                 sessionId: activeSessionId,
                 message: trimmedInput,
                 chatId: useAppStore.getState().activeChatId || undefined,
-            }).catch(err => console.error('[TitleGen] Error:', err));
+                workflowName: useAppStore.getState().currentWorkflow?.name,
+            }).then(adoptMirrorTitle).catch(err => console.error('[TitleGen] Error:', err));
         }
 
         // 👑 Immediate UI update with guaranteed activeSessionId in store.

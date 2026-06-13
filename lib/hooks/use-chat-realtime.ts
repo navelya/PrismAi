@@ -301,6 +301,13 @@ export function useChatRealtime({
                     return;
                 }
 
+                // The chat engine writes canvas_state as { nodes, edges } with no
+                // `name`, so carry over the current workflow name (the mirror of the
+                // session title) instead of letting it reset to the fallback.
+                if (!newWorkflow.name && existingWorkflow?.name) {
+                    newWorkflow.name = existingWorkflow.name;
+                }
+
                 setServerWorkflowHash(newWorkflow);
                 // Server-origin updates must not mark the workflow as dirty,
                 // otherwise autosave writes them back and creates an echo loop.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { isDefaultWorkflowTitle } from '@/lib/utils/workflow-title';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
 
-        const { sessionId, message, chatId } = body;
+        const { sessionId, message, chatId, workflowName } = body;
 
         // Only sessionId is strictly required — message and workflowName are optional inputs
         if (!sessionId) {
@@ -25,8 +26,13 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        let title = 'New Session';
+        // A real, user-set workflow name (not a placeholder) is the mirror title and
+        // always wins — the first chat must never auto-title over a manual rename.
+        const manualName = isDefaultWorkflowTitle(workflowName) ? null : String(workflowName).trim();
 
+        // Per-chat title: a short summary of the first message. Independent of the
+        // session/workflow mirror title.
+        let chatTitle: string | null = null;
         if (message) {
             try {
                 const model = genAI.getGenerativeModel({
@@ -35,28 +41,33 @@ export async function POST(req: NextRequest) {
                 });
                 const prompt = `Summarize this user request into a objective 2-4 word UI title. Focus strictly on the core action or subject. Do not use conversational filler, dramatic words, quotes, or punctuation. User prompt: "${message}"`;
                 const result = await model.generateContent(prompt);
-                title = result.response.text().trim();
+                chatTitle = result.response.text().trim();
             } catch (geminiError: any) {
                 console.error('[TitleGen] Gemini failed:', geminiError);
-                return NextResponse.json({
-                    success: false,
-                    error: geminiError.message || 'Failed to generate title',
-                    title: 'New Session'
-                });
+                // Non-fatal: a manual name can still seed the mirror title below.
+                if (!manualName) {
+                    return NextResponse.json({
+                        success: false,
+                        error: geminiError.message || 'Failed to generate title',
+                        title: 'New Session'
+                    });
+                }
             }
-        } else {
-            // No useful text provided — skip title generation
-            return NextResponse.json({ success: true, title: 'New Session' });
         }
 
-        // Cleanup
-        title = title.replace(/^["']|["']$/g, '');
-        if (title.length > 50) title = title.substring(0, 47) + '...';
+        // Cleanup the generated chat title.
+        if (chatTitle) {
+            chatTitle = chatTitle.replace(/^["']|["']$/g, '');
+            if (chatTitle.length > 50) chatTitle = chatTitle.substring(0, 47) + '...';
+        }
+
+        // The session/workflow mirror title: a manual name wins; otherwise the
+        // generated summary seeds it.
+        const mirrorTitle = manualName ?? chatTitle;
 
         // Title the ACTIVE chat (each chat gets its own title from its first
-        // message). Also seed the SESSION title once — it names the workflow in
-        // the sidebar, so only the first chat should set it; later chats must
-        // not rename the workflow. Safe — never crashes if rows don't exist yet.
+        // message) and set the SESSION title (the mirror of the workflow name).
+        // Safe — never crashes if rows don't exist yet.
         try {
             const { data: session } = await supabase
                 .from('sessions')
@@ -69,16 +80,19 @@ export async function POST(req: NextRequest) {
             // may have moved on (user started another chat) by the time Gemini
             // returned, so reading active_chat_id here could title the wrong chat.
             const targetChatId = chatId || session?.active_chat_id;
-            if (targetChatId) {
-                await supabase.from('chats').update({ title }).eq('id', targetChatId);
+            if (targetChatId && chatTitle) {
+                await supabase.from('chats').update({ title: chatTitle }).eq('id', targetChatId);
             }
 
-            const sessionTitle = (session?.title || '').trim();
-            const sessionTitleUnset = !sessionTitle || sessionTitle === 'New Workflow' || sessionTitle === 'New Session';
-            if (!session || sessionTitleUnset) {
+            // Session title (mirror): a manual name always wins; a generated
+            // summary only seeds it when the session title is still unset, so
+            // later chats never rename the workflow.
+            const sessionTitleUnset = isDefaultWorkflowTitle(session?.title);
+            const titleChanged = (session?.title || '').trim() !== mirrorTitle;
+            if (mirrorTitle && titleChanged && (manualName || !session || sessionTitleUnset)) {
                 await supabase
                     .from('sessions')
-                    .update({ title })
+                    .update({ title: mirrorTitle })
                     .eq('id', sessionId)
                     .eq('user_id', user.id);
             }
@@ -86,7 +100,7 @@ export async function POST(req: NextRequest) {
             console.error('[TitleGen] DB update failed:', dbError);
         }
 
-        return NextResponse.json({ success: true, title });
+        return NextResponse.json({ success: true, title: mirrorTitle ?? 'New Session' });
 
     } catch (error) {
         console.error('[TitleGen] Critical error:', error);
