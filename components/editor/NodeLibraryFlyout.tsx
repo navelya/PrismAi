@@ -28,16 +28,33 @@ export const FLYOUT_MAX_HEIGHT = 320;
 
 export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseEnter, onMouseLeave, onDragStartClose, onAdd }: NodeLibraryFlyoutProps) {
     const isEmpty = mode.items.length === 0;
+    const ref = React.useRef<HTMLDivElement>(null);
+    // Default: open next to the row, top-aligned (extends down). If the real
+    // content height would overflow the viewport bottom, shift up so the
+    // flyout's bottom sits at the viewport edge — still adjacent to the row,
+    // just extending upward instead of down.
+    const [resolvedTop, setResolvedTop] = React.useState(top);
+    React.useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const height = el.offsetHeight;
+        const viewportBottom = window.innerHeight - 8;
+        const next = top + height > viewportBottom
+            ? Math.max(8, viewportBottom - height)
+            : top;
+        setResolvedTop(next);
+    }, [top, maxHeight, mode]);
 
     return (
         <motion.div
+            ref={ref}
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -6 }}
             transition={{ duration: 0.16, ease: 'easeOut' }}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
-            style={{ left, top, maxHeight, width: 260, transformOrigin: 'left center' }}
+            style={{ left, top: resolvedTop, maxHeight, width: 260, transformOrigin: 'left center' }}
             className="fixed z-[55] pointer-events-auto bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         >
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5">

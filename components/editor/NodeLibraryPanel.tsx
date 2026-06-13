@@ -122,23 +122,13 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
             const rect = rowEl.getBoundingClientRect();
             const container = containerRef.current?.getBoundingClientRect();
             if (!container) return;
-            const viewportBottom = window.innerHeight - 8;
-            // Anchor to the row's top. The flyout's max-height absorbs the
-            // remaining vertical space; if that gets too small to be
-            // usable (< 140 px), shift the top upward enough to give the
-            // flyout 140 px of breathing room. Short-content flyouts stay
-            // pinned next to their row regardless of how far down it sits.
-            const MIN_USABLE = 140;
-            const available = viewportBottom - rect.top;
-            let top = rect.top;
-            let maxHeight = Math.min(FLYOUT_MAX_HEIGHT, Math.max(MIN_USABLE, available));
-            if (available < MIN_USABLE) {
-                top = viewportBottom - MIN_USABLE;
-                maxHeight = MIN_USABLE;
-            }
-            top = Math.max(8, top);
-            setFlyoutTop(top);
-            setFlyoutMaxHeight(maxHeight);
+            // Anchor next to the row, aligned to its top, extending downward.
+            // The flyout self-corrects (bottom-aligns, extends up) only if its
+            // measured height would overflow the viewport bottom. See
+            // NodeLibraryFlyout. We always pass the full max-height cap and let
+            // short content size itself naturally.
+            setFlyoutTop(Math.max(8, rect.top));
+            setFlyoutMaxHeight(FLYOUT_MAX_HEIGHT);
             setFlyoutLeft(container.right + FLYOUT_OFFSET_FROM_MASTER);
             setHoveredKind(kind);
             setHoveredId(id);

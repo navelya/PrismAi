@@ -186,6 +186,13 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     const pendingTools: PendingTool[] = [];
     let calledWorkflowTool = false;
     let calledTerminalTool = false;
+    // Non-terminal data-returning tools (search_templates) don't mutate the
+    // workflow, but they DO queue a tool_result that Claude must consume on
+    // the next iteration. Without this, a turn that only consults the template
+    // library terminates before the result is fed back — the model never
+    // builds and the bubble hangs empty ("Consulting templates" flashes then
+    // the chat sticks on loading).
+    let calledDataTool = false;
     let turnAssistantContent: Anthropic.ContentBlock[] | null = null;
 
     // Iteration 1 uses the user's thinking heuristic; iterations 2+ always
@@ -538,6 +545,10 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
                     instructions: 'No good template fit. Proceed to build from scratch.',
                   };
               pendingTools.push({ id: event.id, success: true, result: JSON.stringify(payload) });
+              // Continue the loop so the queued result is fed back to Claude on
+              // the next iteration — this tool returns data the model must act
+              // on (build from the skeleton, or proceed from scratch).
+              calledDataTool = true;
               break;
             }
 
@@ -612,7 +623,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     //   3. We captured the assistant content (needed to echo back)
     //   4. We have headroom under MAX_ITERATIONS
     if (
-      (calledWorkflowTool || planNeedsRetry) &&
+      (calledWorkflowTool || planNeedsRetry || calledDataTool) &&
       !calledTerminalTool &&
       turnAssistantContent &&
       iteration < MAX_ITERATIONS &&
