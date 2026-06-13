@@ -36,9 +36,15 @@ hardcodes hostnames or route prefixes.
 
 - **App route prefixes** (canonical home = app host):
   `/chat`, `/editor`, `/templates`, `/settings`, `/admin`, `/assets`,
-  `/library`, `/nodes`, `/login`, `/auth`, `/checkout`, `/billing`
+  `/library`, `/nodes`, `/login`, `/auth`, `/checkout`, `/billing`, `/share`
+  - `/share/<token>` is a **collaboration-invite accept page**, not a public
+    showcase: it redirects to `/login?next=/share/<token>` when signed out,
+    then accepts the invite and routes into `/chat/<canvasId>`. So it lives on
+    the app host. (The invite email's `acceptUrl` already builds
+    `${NEXT_PUBLIC_APP_URL}/share/<token>` → resolves to the app host, no
+    cross-host redirect.)
 - **Marketing route prefixes** (canonical home = marketing host):
-  `/` (exact), `/legal`, `/pricing`, `/demo`, `/share`
+  `/` (exact), `/legal`, `/pricing`, `/demo`
 - **`/api/*`**: shared — served on both hosts, never redirected. Each origin
   calls its own same-origin API, so no CORS concerns.
 
@@ -140,13 +146,30 @@ identify which links cross the boundary; only those switch to the helpers.
 Added to `.env.local` and documented in `CLAUDE.md`:
 
 - `NEXT_PUBLIC_MARKETING_URL` = `https://prisfol.com` (new)
-- `NEXT_PUBLIC_APP_URL` = `https://app.prisfol.com` — **existing** var (used as
-  the Replicate webhook base); align its value to the app subdomain so webhooks
-  hit the host where `/api` is canonical.
+- `NEXT_PUBLIC_APP_URL` = `https://app.prisfol.com` — **existing** var. Set it
+  to the app subdomain. See the webhook note below.
 - `NEXT_PUBLIC_COOKIE_DOMAIN` = `.prisfol.com` (new)
 
 Production DNS / Vercel: both `prisfol.com` (+ `www`) and `app.prisfol.com`
 point at the same Vercel project.
+
+### Webhook / provider impact of `NEXT_PUBLIC_APP_URL`
+
+Audited the providers — pointing this var at `https://app.prisfol.com` is safe
+and requires no external/dashboard changes:
+
+- **Replicate is the only provider that uses webhooks.** The webhook URL
+  (`${NEXT_PUBLIC_APP_URL}/api/webhooks/replicate-v2`) is built per-prediction
+  at submit time in [dispatch-v2.ts](../../../lib/workflow/dispatch-v2.ts) and
+  [ai_generator/executor.server.ts](../../../lib/nodes/plugins/ai_generator/executor.server.ts)
+  — it is **not** a Replicate dashboard setting, so it simply follows the env
+  var. `/api/webhooks/*` is a public API route and `/api/*` is served on both
+  hosts without redirect, so the callback lands fine on the app host.
+- **FAL / KIE / Kinovi / WaveSpeed use no webhooks** — poll-as-truth + the
+  cron sweep. They read `NEXT_PUBLIC_APP_URL` only to detect localhost-vs-prod,
+  never to build a callback URL. No impact.
+- The collaboration invite email's `acceptUrl` (`${NEXT_PUBLIC_APP_URL}/share/<token>`)
+  resolves to the app host — correct, since `/share` is an app route.
 
 ## Files touched
 
