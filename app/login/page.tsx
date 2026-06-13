@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Loader2, ArrowRight, Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 import { Logo } from '@/components/ui/Logo';
+import { marketingUrl } from '@/lib/domains';
 
 /**
  * The brand "visual side" of the split-screen login: a full-bleed generated
@@ -54,7 +55,7 @@ function LoginContent() {
     const [error, setError] = useState<string | null>(null);
     const router = useRouter();
     const searchParams = useSearchParams();
-    const nextPath = searchParams.get('next') || '/chat';
+    const nextPath = searchParams.get('next') || '/';
     const supabase = createClient();
 
     const handleAuth = async (e: React.FormEvent) => {
@@ -157,7 +158,7 @@ function LoginContent() {
                 <div className="w-full max-w-sm">
                     {/* Logo */}
                     <div className="flex justify-center mb-8">
-                        <Link href="/" className="flex items-center gap-3">
+                        <Link href={marketingUrl('/')} className="flex items-center gap-3">
                             <Logo variant="wordmark" className="h-9 w-auto text-content-primary" />
                         </Link>
                     </div>
@@ -319,7 +320,7 @@ function LoginContent() {
                     </div>
 
                     <div className="mt-8 text-center">
-                        <Link href="/" className="text-xs text-content-tertiary hover:text-content-primary">
+                        <Link href={marketingUrl('/')} className="text-xs text-content-tertiary hover:text-content-primary">
                             Back to Home
                         </Link>
                     </div>
