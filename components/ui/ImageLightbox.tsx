@@ -55,6 +55,14 @@ export default function ImageLightbox({ media, type, initialIndex, onClose, cssF
         return detectMediaTypeFromUrl(mediaSrc) === 'video';
     }, [type, mediaSrc]);
 
+    // Audio assets reach the lightbox with type="any" (the Assets page maps
+    // audio/3d → 'any'). Without this branch they fell through to <img> and
+    // rendered as a broken image you couldn't play.
+    const isAudio = React.useMemo(() => {
+        if (type === 'video' || type === 'image') return false;
+        return detectMediaTypeFromUrl(mediaSrc) === 'audio';
+    }, [type, mediaSrc]);
+
     // Scale any blur(Npx) inside cssFilter by displayWidth / nativeMediaWidth
     // so the lightbox visual matches the card preview and the server render.
     // The displayed width changes when the media element loads (since size
@@ -102,7 +110,12 @@ export default function ImageLightbox({ media, type, initialIndex, onClose, cssF
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            const extension = isVideo ? 'mp4' : (blob.type.includes('png') ? 'png' : 'jpg');
+            const urlExt = mediaSrc.match(/\.([a-zA-Z0-9]{2,5})(?:\?|$)/)?.[1]?.toLowerCase();
+            const extension = isAudio
+                ? (urlExt || 'mp3')
+                : isVideo
+                    ? 'mp4'
+                    : (blob.type.includes('png') ? 'png' : 'jpg');
             a.download = `output_${currentIndex + 1}.${extension}`;
             document.body.appendChild(a);
             a.click();
@@ -170,8 +183,18 @@ export default function ImageLightbox({ media, type, initialIndex, onClose, cssF
                 </button>
             )}
 
-            {/* Image / Video */}
-            {isVideo ? (
+            {/* Image / Video / Audio */}
+            {isAudio ? (
+                <div
+                    className="flex flex-col items-center gap-5 px-8 py-10 rounded-2xl bg-white/5 border border-white/10 shadow-2xl"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <span className="text-white/80 font-black uppercase tracking-widest text-xs">Audio</span>
+                    <audio src={mediaSrc} controls autoPlay className="w-[60vw] max-w-[480px]" />
+                </div>
+            ) : isVideo ? (
                 <video
                     ref={(el) => { mediaElRef.current = el; }}
                     src={mediaSrc}

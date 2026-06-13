@@ -18,6 +18,7 @@ import { Slider } from '@/components/ui/Slider';
 import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
 import type { TypeFilter } from '@/lib/assets/unpack';
 import { adminNodeResultsApi, type AdminNodeResultItem } from '@/lib/api/admin-node-results';
+import { toThumbnailUrl, bakedThumbUrl } from '@/lib/utils/supabase-image';
 
 interface Props {
     onMobileBack: () => void;
@@ -27,7 +28,11 @@ const MIN_COLUMNS = 3;
 const MAX_COLUMNS = 10;
 const DEFAULT_COLUMNS = 5;
 const COLUMNS_KEY = 'admin:nodeResults:gridColumns';
-const PAGE_SIZE = 48;
+// Larger pages = fewer round trips (and the per-request user-directory join is
+// amortized over more rows), so fast scrolling rarely outruns the buffer. 100
+// is the sweet spot under the route's 200 cap — big batches that still return
+// quickly. Paired with a deep prefetch margin below.
+const PAGE_SIZE = 100;
 
 function loadColumns(): number {
     if (typeof window === 'undefined') return DEFAULT_COLUMNS;
@@ -69,6 +74,8 @@ export function NodeResultsAdminContent({ onMobileBack }: Props) {
 
     // Tracks the latest request so a slow earlier fetch can't overwrite results.
     const reqIdRef = useRef(0);
+    // Infinite-scroll sentinel — auto-loads the next page as it nears view.
+    const sentinelRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         try { window.localStorage.setItem(COLUMNS_KEY, String(columns)); } catch { /* ignore */ }
@@ -108,6 +115,30 @@ export function NodeResultsAdminContent({ onMobileBack }: Props) {
 
     // (Re)load from the first page whenever the filters change.
     useEffect(() => { fetchPage(0, 'replace'); }, [fetchPage]);
+
+    // Infinite scroll: when the bottom sentinel nears the viewport, pull the
+    // next page (one in-flight at a time). rootMargin prefetches before the
+    // user actually reaches the end so scrolling stays smooth. Re-runs as `page`
+    // advances so it keeps loading until `hasMore` is false (or the sentinel
+    // scrolls out of view). Mirrors the per-tile lazy loading on the assets page.
+    useEffect(() => {
+        if (!hasMore || loading) return;
+        const el = sentinelRef.current;
+        if (!el) return;
+        const io = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting) && !loadingMore) {
+                    fetchPage(page + 1, 'append');
+                }
+            },
+            // Deep prefetch: fire ~2.5 screens before the sentinel is actually
+            // reached so the next page is already loading while the user is still
+            // scrolling through the current one — nothing holds them back.
+            { rootMargin: '2500px' },
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, [hasMore, loading, loadingMore, page, fetchPage]);
 
     const gridTemplate = useMemo(
         () => ({ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }),
@@ -212,15 +243,22 @@ export function NodeResultsAdminContent({ onMobileBack }: Props) {
                         </div>
 
                         {hasMore && (
-                            <div className="flex justify-center pt-2">
-                                <button
-                                    onClick={() => fetchPage(page + 1, 'append')}
-                                    disabled={loadingMore}
-                                    className="flex items-center gap-2 px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-content-secondary hover:text-content-primary text-[10px] font-black uppercase tracking-widest rounded-xl transition-all disabled:opacity-40"
-                                >
-                                    {loadingMore ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                                    {loadingMore ? 'Loading…' : 'Load more'}
-                                </button>
+                            // Auto-load sentinel — the observer above fires when
+                            // this nears the viewport. The button is a manual
+                            // fallback for the rare case the observer doesn't fire.
+                            <div ref={sentinelRef} className="flex justify-center pt-2 min-h-[44px] items-center">
+                                {loadingMore ? (
+                                    <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-content-tertiary">
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                                    </span>
+                                ) : (
+                                    <button
+                                        onClick={() => fetchPage(page + 1, 'append')}
+                                        className="px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-content-secondary hover:text-content-primary text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                    >
+                                        Load more
+                                    </button>
+                                )}
                             </div>
                         )}
                     </>
@@ -267,7 +305,8 @@ function ResultCard({ item, onOpen, onPickUser }: ResultCardProps) {
 
     const primary = item.user_email || item.user_name || 'Unknown user';
     const secondary = item.user_email && item.user_name ? item.user_name : (item.user_id ?? '');
-    const showSkeleton = !loaded && (item.result_type === 'image' || item.result_type === 'video');
+    // The baked poster covers video tiles, so only images need the skeleton.
+    const showSkeleton = !loaded && item.result_type === 'image';
 
     return (
         <div className="group flex flex-col rounded-xl overflow-hidden border border-stroke-subtle bg-surface-primary shadow-sm hover:shadow-lg hover:border-accent-primary/40 transition-all">
@@ -285,6 +324,7 @@ function ResultCard({ item, onOpen, onPickUser }: ResultCardProps) {
                         <video
                             ref={videoRef}
                             src={item.result_url}
+                            poster={bakedThumbUrl(item.result_url) ?? undefined}
                             className="w-full h-full object-cover"
                             onLoadedMetadata={() => setLoaded(true)}
                             onMouseEnter={handleMouseEnter}
@@ -309,10 +349,23 @@ function ResultCard({ item, onOpen, onPickUser }: ResultCardProps) {
                     </div>
                 ) : (
                     <img
-                        src={item.result_url}
+                        // Baked thumb → Supabase render thumb → full-res original
+                        // (stepped via a dataset flag so it can't loop).
+                        src={bakedThumbUrl(item.result_url) ?? item.result_url}
                         alt="Generated result"
                         className={`w-full h-full object-cover transition-all duration-500 ${loaded ? 'opacity-100 blur-0' : 'opacity-0 blur-sm'}`}
                         onLoad={() => setLoaded(true)}
+                        onError={(e) => {
+                            const img = e.currentTarget;
+                            const step = img.dataset.fbStep;
+                            if (!step) {
+                                img.dataset.fbStep = 'render';
+                                img.src = toThumbnailUrl(item.result_url, { width: 640 }) ?? item.result_url;
+                            } else if (step === 'render') {
+                                img.dataset.fbStep = 'orig';
+                                if (img.src !== item.result_url) img.src = item.result_url;
+                            }
+                        }}
                     />
                 )}
 
