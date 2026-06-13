@@ -8,10 +8,12 @@ import CharacterGrid from '@/components/assets/CharacterGrid';
 import CharacterModal from '@/components/assets/CharacterModal';
 import CharacterVariantModal from '@/components/assets/CharacterVariantModal';
 import AssetsGallery from '@/components/assets/AssetsGallery';
+import UploadsGallery from '@/components/assets/UploadsGallery';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 
 const TABS = [
     { id: 'assets', label: 'Assets' },
+    { id: 'uploads', label: 'Uploads' },
     { id: 'characters', label: 'Characters' },
 ] as const;
 
@@ -76,6 +78,8 @@ export default function AssetsPage() {
                 </div>
 
                 {activeTab === 'assets' && <AssetsGallery />}
+
+                {activeTab === 'uploads' && <UploadsGallery />}
 
                 {activeTab === 'characters' && (
                     <>

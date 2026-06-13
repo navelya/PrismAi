@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Sparkles, RefreshCw, X, Filter, Play } from 'lucide-react';
+import { Image as ImageIcon, Sparkles, RefreshCw, X, Filter, Play, Upload } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { PillTabs } from '@/components/ui/PillTabs';
@@ -10,10 +10,10 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { clientRegistry } from '@/lib/nodes/core/client-registry';
 import { useAppStore } from '@/lib/store/app-store';
 import { AssetTypeFilter } from '@/components/assets/AssetTypeFilter';
-import { unpackAssets, type AssetItem, type TypeFilter } from '@/lib/assets/unpack';
-import { toThumbnailUrl } from '@/lib/utils/supabase-image';
+import { unpackAssets, unpackUploads, type AssetItem, type TypeFilter, type UploadRow } from '@/lib/assets/unpack';
+import { toThumbnailUrl, bakedThumbUrl } from '@/lib/utils/supabase-image';
 
-type AssetScope = 'current' | 'all';
+type AssetScope = 'current' | 'all' | 'uploads';
 
 interface AssetsPanelProps {
     sessionId?: string | null;
@@ -49,6 +49,20 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
         if (scope === 'current' && !sessionId) {
             setIsLoading(false);
             setAssets([]);
+            return;
+        }
+
+        // Uploads come from the `uploads` index (user file-uploads), not
+        // node_results. RLS scopes to the current user; newest first.
+        if (scope === 'uploads') {
+            setIsLoading(true);
+            const { data, error } = await supabase
+                .from('uploads')
+                .select('id, url, storage_path, media_type, created_at')
+                .order('created_at', { ascending: false })
+                .limit(200);
+            if (!error && data) setAssets(unpackUploads(data as UploadRow[]));
+            setIsLoading(false);
             return;
         }
 
@@ -153,6 +167,7 @@ export function AssetsPanel({ sessionId, onClose }: AssetsPanelProps) {
                     items={[
                         { value: 'current', label: 'Last runs', icon: RefreshCw },
                         { value: 'all', label: 'All assets', icon: ImageIcon },
+                        { value: 'uploads', label: 'Uploads', icon: Upload },
                     ]}
                     value={scope}
                     onChange={setScope}

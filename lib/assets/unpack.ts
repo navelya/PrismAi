@@ -20,6 +20,43 @@ export interface AssetItem {
     result_url: string;
     created_at: string;
     execution_id: string;
+    /** Storage path — present only for `uploads`-table items (enables hard-delete). */
+    storage_path?: string;
+}
+
+/** A row from the `uploads` table (user file-uploads index). */
+export interface UploadRow {
+    id: string;
+    url: string;
+    storage_path: string;
+    media_type: string;
+    created_at: string;
+}
+
+/**
+ * Maps `uploads` rows into the shared AssetItem shape so the same asset tiles
+ * (drag-to-canvas, lightbox, baked thumbnails) render uploads unchanged. Rows
+ * with an unknown media_type are skipped. Carries `storage_path` so the Uploads
+ * tab can hard-delete the underlying storage object.
+ */
+export function unpackUploads(rows: UploadRow[]): AssetItem[] {
+    const items: AssetItem[] = [];
+    rows.forEach((row) => {
+        const type = row?.media_type as AssetType;
+        if (!ALL_TYPES.includes(type)) return;
+        if (typeof row?.url !== 'string' || !row.url.startsWith('http')) return;
+        items.push({
+            id: row.id,
+            source_result_id: row.id,
+            node_id: '',
+            result_type: type,
+            result_url: row.url,
+            created_at: row.created_at,
+            execution_id: '',
+            storage_path: row.storage_path,
+        });
+    });
+    return items;
 }
 
 /**

@@ -1673,6 +1673,7 @@ const EditorCanvasInner = ({
                         const result = await uploadApi.upload(file, {
                             sessionId: activeSessionId,
                             nodeId: newNodeId,
+                            track: true,
                         });
                         return { url: result.publicUrl, path: result.path };
                     }),

@@ -22,6 +22,10 @@ export async function POST(request: NextRequest) {
         const customFilename = formData.get('filename') as string | null;
         const sessionId = formData.get('sessionId') as string | null;
         const nodeId = formData.get('nodeId') as string | null;
+        // `track=1` marks a genuine user file-upload (canvas drop / media_input
+        // picker) — indexed in `uploads` so it can appear in the Uploads tab.
+        // URL-copies and AI-result re-hosts don't set it, so they're excluded.
+        const track = formData.get('track') != null;
 
         if (!file && !urlToFetch) {
             return NextResponse.json({ error: 'No file or url provided' }, { status: 400 });
@@ -94,6 +98,31 @@ export async function POST(request: NextRequest) {
             .from('chat-assets')
             .getPublicUrl(storagePath);
 
+        // Index genuine user file-uploads so they surface in the Uploads tab.
+        // Best-effort: a tracking failure must never fail the upload itself.
+        if (track && file) {
+            const mediaType = mimeType.startsWith('video/')
+                ? 'video'
+                : mimeType.startsWith('audio/')
+                    ? 'audio'
+                    : 'image';
+            try {
+                await supabase.from('uploads').upsert(
+                    {
+                        user_id: user.id,
+                        url: urlData.publicUrl,
+                        storage_path: data.path,
+                        media_type: mediaType,
+                        mime_type: mimeType,
+                        session_id: sessionId,
+                    },
+                    { onConflict: 'user_id,url', ignoreDuplicates: true },
+                );
+            } catch {
+                // ignore — the file is uploaded; only the index entry is missing.
+            }
+        }
+
         return NextResponse.json({
             path: data.path,
             publicUrl: urlData.publicUrl,
@@ -150,6 +179,15 @@ export async function DELETE(request: NextRequest) {
                 return NextResponse.json({ error: removeError.message }, { status: 500 });
             }
         }
+        // Drop any upload-index rows under this folder prefix so the Uploads
+        // tab never lists a deleted object (best-effort).
+        try {
+            await supabase
+                .from('uploads')
+                .delete()
+                .eq('user_id', user.id)
+                .like('storage_path', `${path}/%`);
+        } catch { /* ignore — storage already cleaned */ }
     } else {
         // Single file delete
         const { error } = await supabase.storage
@@ -159,6 +197,14 @@ export async function DELETE(request: NextRequest) {
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
+        // Remove its upload-index row, if any (best-effort).
+        try {
+            await supabase
+                .from('uploads')
+                .delete()
+                .eq('user_id', user.id)
+                .eq('storage_path', path);
+        } catch { /* ignore — storage already cleaned */ }
     }
 
     return NextResponse.json({ success: true });

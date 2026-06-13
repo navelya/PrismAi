@@ -199,13 +199,19 @@ export const messagesApi = {
 // ─── Upload APIs ───────────────────────────────────────────────────────
 
 export const uploadApi = {
-    /** Upload an image (pass a Blob or File) */
-    upload: async (file: Blob, options?: { filename?: string; sessionId?: string; nodeId?: string }) => {
+    /**
+     * Upload an image (pass a Blob or File).
+     * Pass `track: true` for a genuine user file-upload so it's indexed in the
+     * `uploads` table and appears in the Uploads tab. Leave it off for
+     * AI-result re-hosts and other non-user uploads.
+     */
+    upload: async (file: Blob, options?: { filename?: string; sessionId?: string; nodeId?: string; track?: boolean }) => {
         const formData = new FormData();
         formData.append('file', file);
         if (options?.filename) formData.append('filename', options.filename);
         if (options?.sessionId) formData.append('sessionId', options.sessionId);
         if (options?.nodeId) formData.append('nodeId', options.nodeId);
+        if (options?.track) formData.append('track', '1');
 
         const res = await fetch('/api/upload', {
             method: 'POST',

@@ -119,7 +119,8 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                 if (file.type.startsWith('image/') || file.type.startsWith('video/') || file.type.startsWith('audio/')) {
                     const result = await uploadApi.upload(file, {
                         sessionId: activeSessionId,
-                        nodeId: id
+                        nodeId: id,
+                        track: true,
                     });
                     return { url: result.publicUrl, path: result.path };
                 }
