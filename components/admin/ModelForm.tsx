@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Textarea } from '@/components/ui/Textarea';
 import { Switch } from '@/components/ui/Switch';
 import { parseReplicateSchema, formatDisplayName } from '@/lib/utils/schema-parser';
+import { API_PROVIDERS, apiProviderName } from '@/lib/ai/providers/catalog';
 import AIGeneratorProperties from '@/lib/nodes/plugins/ai_generator/properties';
 import { VoicePickerControl } from '@/lib/nodes/plugins/ai_generator/VoicePickerControl';
 import { Control, isSeedControl } from '@/lib/nodes/types';
@@ -507,25 +508,21 @@ export function ModelForm({
     // PROVIDER BINDINGS (ordered, index 0 = default)
     // -------------------------------------------------------------------------
 
-    /** The providers-table row backing an adapter key — for logos/names and the
-     * legacy ai_models.provider_id display chip. Replicate usually has no
-     * adapter-keyed row, so fall back to a name match. */
-    const providerRowForAdapterKey = (key: string) => {
+    /** A providers-table row whose adapter_key matches — used ONLY for an optional
+     * logo on a binding row (e.g. ElevenLabs, which is both a brand and an API
+     * provider). API providers are NOT brand rows; their names come from the code
+     * catalog (apiProviderName), not the providers table. */
+    const providerLogoForAdapterKey = (key: string): string | null => {
         const normalized = (key || '').trim().toLowerCase();
-        if (!normalized) return undefined;
-        const byAdapterKey = providers.find((p: any) => (p.adapter_key || '').trim().toLowerCase() === normalized);
-        if (byAdapterKey) return byAdapterKey;
-        if (normalized !== 'replicate') return undefined;
-        return providers.find((p: any) => (p.name || '').trim().toLowerCase() === 'replicate')
-            || providers.find((p: any) => !p.adapter_key && (p.name || '').toLowerCase().includes('replicate'));
+        if (!normalized) return null;
+        const row = providers.find((p: any) => (p.adapter_key || '').trim().toLowerCase() === normalized);
+        return row?.logo_url || null;
     };
 
-    // Adapter keys available in the "Add provider" dropdown: always replicate,
-    // plus every distinct adapter-keyed provider, minus already-bound keys.
-    const adapterKeyOptions = Array.from(new Set([
-        'replicate',
-        ...providers.map((p: any) => (p.adapter_key || '').trim().toLowerCase()).filter(Boolean),
-    ]));
+    // API providers available in the "Add provider" dropdown come from the code
+    // catalog (where a model RUNS) — NOT the brand `providers` table. Minus
+    // already-bound keys.
+    const adapterKeyOptions = API_PROVIDERS.map(p => p.key);
     const unboundAdapterKeys = adapterKeyOptions.filter(key => !bindings.some(b => b.provider_id === key));
 
     const defaultBinding = bindings[0];
@@ -566,6 +563,12 @@ export function ModelForm({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Model Provider (brand) is mandatory — it drives the node-library grouping.
+        if (!form.provider_id) {
+            alert('Please select a Model Provider (brand) under Classification.');
+            return;
+        }
 
         const compiledInputs = {
             description: form.description,
@@ -609,29 +612,14 @@ export function ModelForm({
         const submitDefault = orderedBindings[0];
         const replicateRow = orderedBindings.find(b => b.provider_id === 'replicate');
 
-        // Legacy display-chip FK (ai_models.provider_id): the providers row
-        // matching the default binding's adapter key. The server back-syncs the
-        // other legacy columns from bindings but NOT this one. If no providers
-        // row matches, leave whatever the form/owner-auto-match already set.
-        let legacyProviderId = form.provider_id;
-        if (submitDefault) {
-            const matched = providerRowForAdapterKey(submitDefault.provider_id);
-            if (matched) {
-                legacyProviderId = matched.id;
-            } else if (submitDefault.provider_id === 'replicate') {
-                // No providers row represents Replicate. If the chip still
-                // points at an adapter-keyed provider (model retargeted to a
-                // replicate default), the pre-migration legacy fallback would
-                // route the run to that adapter with an empty slug — clear it.
-                const current = providers.find(p => p.id === legacyProviderId);
-                if (current?.adapter_key) legacyProviderId = '';
-            }
-        }
-
         await onSubmit({
             ...form,
-            provider_id: legacyProviderId || null,
-            // Legacy columns derived from the bindings list (behind the scenes).
+            // Brand provider (ai_models.provider_id) comes straight from the
+            // Model Provider select — it is a CATALOG attribute, independent of
+            // where the model runs (the API Providers / bindings below).
+            provider_id: form.provider_id || null,
+            // Legacy run-target columns are derived from the bindings list so old
+            // readers keep working; the server reconcile re-syncs them too.
             replicate_model_id: replicateRow?.provider_model_id ?? null,
             provider_model_id: submitDefault && submitDefault.provider_id !== 'replicate'
                 ? submitDefault.provider_model_id
@@ -675,8 +663,8 @@ export function ModelForm({
             </FormSection>
 
             <FormSection
-                title="Providers"
-                description="Where this model runs. The first provider is the default; the rest are fallbacks in order. Each slug is the model's id on that provider."
+                title="API Providers"
+                description="Where this model RUNS — the API service, not the brand. The default is primary; the rest are fallbacks in order. Each slug is the model's id on that provider."
             >
                 {bindings.length === 0 && (
                     <div className="text-center py-6 opacity-40 italic text-[10px] uppercase font-bold tracking-widest border-2 border-dashed border-white/5 rounded-3xl">
@@ -686,14 +674,14 @@ export function ModelForm({
                 {bindings.length > 0 && (
                     <div className="space-y-3">
                         {bindings.map((binding, index) => {
-                            const providerRow = providerRowForAdapterKey(binding.provider_id);
-                            const displayName = providerRow?.name || formatDisplayName(binding.provider_id);
+                            const logoUrl = providerLogoForAdapterKey(binding.provider_id);
+                            const displayName = apiProviderName(binding.provider_id);
                             return (
                                 <div key={binding.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3">
                                     <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
-                                        {providerRow?.logo_url ? (
+                                        {logoUrl ? (
                                             // eslint-disable-next-line @next/next/no-img-element
-                                            <img src={providerRow.logo_url} alt="" className="w-full h-full object-contain p-1" />
+                                            <img src={logoUrl} alt="" className="w-full h-full object-contain p-1" />
                                         ) : (
                                             <span className="text-[10px] font-black uppercase text-content-tertiary">{displayName.slice(0, 2)}</span>
                                         )}
@@ -748,14 +736,11 @@ export function ModelForm({
                         <Select
                             value=""
                             placeholder="Add provider..."
-                            options={unboundAdapterKeys.map(key => {
-                                const row = providerRowForAdapterKey(key);
-                                return {
-                                    id: key,
-                                    display_name: row?.name || formatDisplayName(key),
-                                    icon_url: row?.logo_url || null,
-                                };
-                            })}
+                            options={unboundAdapterKeys.map(key => ({
+                                id: key,
+                                display_name: apiProviderName(key),
+                                icon_url: providerLogoForAdapterKey(key),
+                            }))}
                             onChange={e => {
                                 if (e.target.value) setBindings(prev => [...prev, newBindingRow(e.target.value)]);
                             }}
@@ -782,7 +767,16 @@ export function ModelForm({
                 title="Classification"
                 description="Determines where this model sits in the library."
             >
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <Select
+                        label="Model Provider (Brand)"
+                        value={form.provider_id || 'none'}
+                        options={[
+                            { id: 'none', display_name: 'Select brand...' },
+                            ...providers.map((p: any) => ({ id: p.id, display_name: p.name, icon_url: p.logo_url || null })),
+                        ]}
+                        onChange={e => setForm({ ...form, provider_id: e.target.value === 'none' ? '' : e.target.value })}
+                    />
                     <Select
                         label="Category"
                         value={form.category_id}
