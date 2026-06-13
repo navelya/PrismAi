@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Rect, Path, Transformer } from 'react-konva';
+import { Stage, Layer, Rect, Path, Transformer, Line } from 'react-konva';
 import {
     Eye, EyeOff, Lock, Unlock, Layers2,
     RotateCcw, FlipHorizontal, FlipVertical, Plus,
@@ -330,6 +330,24 @@ export default function CompositorEditorModal({
         ));
     }, [updateLayers]);
 
+    // Self-heal orphan layers. A CompositorLayer is materialized 1:1 with the
+    // edge that feeds it (layer.sourceHandleId === edge.id), and the store strips
+    // the layer when its edge is removed. But that strip is duplicated across the
+    // edge-removal paths and any path that misses it leaves a "ghost": a layer
+    // whose edge is gone, which renders as a name-only row in the list/timeline
+    // (renderable already drops it from the canvas — no edge, no media) and CANNOT
+    // be deleted, because its delete routes through "remove the edge" and the edge
+    // is already gone (a no-op). Layers and edges always co-load atomically in
+    // currentWorkflow, so an unmatched sourceHandleId is genuinely dead — prune it
+    // here so the invariant (every layer has a live edge) self-corrects no matter
+    // which path dropped the edge. No snapshot: this is cleanup, not a user edit.
+    useEffect(() => {
+        if (layers.length === 0) return;
+        const edgeIds = new Set(layerEdges.map((e) => e.id));
+        if (!layers.some((l) => !edgeIds.has(l.sourceHandleId))) return;
+        updateLayers((prev) => prev.filter((l) => edgeIds.has(l.sourceHandleId)));
+    }, [layers, layerEdges, updateLayers]);
+
     const toggleVisibility = useCallback((layerId: string) => {
         pushSnapshot();
         updateLayers((prev) => prev.map((l) => l.id === layerId ? { ...l, visible: !l.visible } : l));
@@ -578,6 +596,70 @@ export default function CompositorEditorModal({
     const [stagePan, setStagePan] = useState({ x: VIEWPORT_PADDING, y: VIEWPORT_PADDING });
     const [isPanning, setIsPanning] = useState(false);
     const [spaceHeld, setSpaceHeld] = useState(false);
+
+    // ---------- Canvas snapping (move + resize) ----------
+    // Snap a layer's edges + center to the canvas borders (0, W/H) and the
+    // canvas mid-lines (W/2, H/2), with a guide line drawn while a snap is live.
+    // The threshold is in SCREEN pixels (constant feel regardless of zoom).
+    const SNAP_THRESHOLD_PX = 6;
+    const [snapGuides, setSnapGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
+    // Compare-and-set guard: drag/resize fires many times per second but the
+    // active guide set rarely changes — only re-render React when it does.
+    const snapGuidesRef = useRef<{ v: number[]; h: number[] }>({ v: [], h: [] });
+    const stageZoomRef = useRef(stageZoom);
+    stageZoomRef.current = stageZoom;
+    const canvasSizeRef = useRef({ w: canvasWidth, h: canvasHeight });
+    canvasSizeRef.current = { w: canvasWidth, h: canvasHeight };
+
+    const sameGuides = (a: { v: number[]; h: number[] }, b: { v: number[]; h: number[] }) =>
+        a.v.length === b.v.length && a.h.length === b.h.length &&
+        a.v.every((x, i) => x === b.v[i]) && a.h.every((y, i) => y === b.h[i]);
+
+    const commitGuides = useCallback((guides: { v: number[]; h: number[] }) => {
+        if (sameGuides(snapGuidesRef.current, guides)) return;
+        snapGuidesRef.current = guides;
+        setSnapGuides(guides);
+    }, []);
+
+    const clearGuides = useCallback(() => commitGuides({ v: [], h: [] }), [commitGuides]);
+
+    // Snap a Konva node's axis-aligned box (in canvas coords) to the canvas
+    // borders/mid-lines. Mutates the node's x/y to the snapped position and
+    // returns the guide lines (canvas coords) to draw. Rotation/flip are ignored
+    // for the test — the common case is unrotated layers, where snapping the
+    // position attribute reads correctly.
+    const snapNodeToCanvas = useCallback((node: any): { v: number[]; h: number[] } => {
+        const zoom = stageZoomRef.current || 1;
+        const thr = SNAP_THRESHOLD_PX / zoom;
+        const { w: cw, h: ch } = canvasSizeRef.current;
+        const w = node.width();
+        const h = node.height();
+        let x = node.x();
+        let y = node.y();
+        const guides: { v: number[]; h: number[] } = { v: [], h: [] };
+
+        const snapAxis = (targets: number[], pos: number, size: number) => {
+            let best: { target: number; off: number } | null = null;
+            for (const target of targets) {
+                for (const pt of [pos, pos + size / 2, pos + size]) {
+                    const off = target - pt;
+                    if (Math.abs(off) <= thr && (!best || Math.abs(off) < Math.abs(best.off))) {
+                        best = { target, off };
+                    }
+                }
+            }
+            return best;
+        };
+
+        const vx = snapAxis([0, cw / 2, cw], x, w);
+        if (vx) { x += vx.off; guides.v.push(vx.target); }
+        const hy = snapAxis([0, ch / 2, ch], y, h);
+        if (hy) { y += hy.off; guides.h.push(hy.target); }
+
+        node.x(x);
+        node.y(y);
+        return guides;
+    }, []);
 
     const startTimelineResize = useCallback((e: React.PointerEvent) => {
         e.preventDefault();
@@ -882,32 +964,87 @@ export default function CompositorEditorModal({
         const anchor = transformerRef.current?.getActiveAnchor?.();
         const horizontal = anchor === 'middle-left' || anchor === 'middle-right';
         const vertical = anchor === 'top-center' || anchor === 'bottom-center';
-        if (!horizontal && !vertical) return newBox;
-        if (oldBox.width === 0 || oldBox.height === 0) return newBox;
 
-        const ratio = oldBox.width / oldBox.height; // width / height
-        const rad = newBox.rotation || 0;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        const box = { ...newBox };
+        const box: any = { ...newBox };
 
-        if (horizontal) {
-            // Width was dragged → derive height, recenter along local Y axis.
-            const newHeight = Math.abs(box.width) / ratio;
-            const dh = newHeight - box.height;
-            box.height = newHeight;
-            box.x += (dh / 2) * sin;
-            box.y -= (dh / 2) * cos;
-        } else {
-            // Height was dragged → derive width, recenter along local X axis.
-            const newWidth = Math.abs(box.height) * ratio;
-            const dw = newWidth - box.width;
-            box.width = newWidth;
-            box.x -= (dw / 2) * cos;
-            box.y -= (dw / 2) * sin;
+        // Aspect-lock the edge (middle) anchors — corner anchors already keep
+        // ratio via Konva's `keepRatio`. (Unchanged from before; just no longer
+        // an early return so snapping below applies to every anchor.)
+        if ((horizontal || vertical) && oldBox.width !== 0 && oldBox.height !== 0) {
+            const ratio = oldBox.width / oldBox.height; // width / height
+            const rad = newBox.rotation || 0;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            if (horizontal) {
+                const newHeight = Math.abs(box.width) / ratio;
+                const dh = newHeight - box.height;
+                box.height = newHeight;
+                box.x += (dh / 2) * sin;
+                box.y -= (dh / 2) * cos;
+            } else {
+                const newWidth = Math.abs(box.height) * ratio;
+                const dw = newWidth - box.width;
+                box.width = newWidth;
+                box.x -= (dw / 2) * cos;
+                box.y -= (dw / 2) * sin;
+            }
         }
+
+        // Snap the box edges + center to the canvas borders/mid-lines. boundBox
+        // coords are ABSOLUTE (stage-transformed), so convert the canvas targets
+        // into that space (threshold stays in screen px → constant feel). Only
+        // for unrotated boxes — the snap test is axis-aligned. Snapping releases
+        // aspect ratio at the snapped edge (the expected "stick to the border"
+        // behavior).
+        const stage = stageRef.current;
+        if (stage && !box.rotation) {
+            const zoom = stage.scaleX() || 1;
+            const panX = stage.x();
+            const panY = stage.y();
+            const { w: cw, h: ch } = canvasSizeRef.current;
+            const thr = SNAP_THRESHOLD_PX;
+            const guides: { v: number[]; h: number[] } = { v: [], h: [] };
+
+            const vAbs = [0, cw / 2, cw].map((c) => panX + c * zoom);
+            const left = box.x, right = box.x + box.width, cx = box.x + box.width / 2;
+            let bx: { target: number; off: number; kind: 'l' | 'c' | 'r' } | null = null;
+            for (const target of vAbs) {
+                for (const ref of [{ pt: left, kind: 'l' as const }, { pt: cx, kind: 'c' as const }, { pt: right, kind: 'r' as const }]) {
+                    const off = target - ref.pt;
+                    if (Math.abs(off) <= thr && (!bx || Math.abs(off) < Math.abs(bx.off))) bx = { target, off, kind: ref.kind };
+                }
+            }
+            if (bx) {
+                if (bx.kind === 'l') { box.width = right - bx.target; box.x = bx.target; }
+                else if (bx.kind === 'r') { box.width = bx.target - box.x; }
+                else { box.x = bx.target - box.width / 2; }
+                guides.v.push((bx.target - panX) / zoom);
+            }
+
+            const hAbs = [0, ch / 2, ch].map((c) => panY + c * zoom);
+            const top = box.y, bottom = box.y + box.height, cy = box.y + box.height / 2;
+            let by: { target: number; off: number; kind: 't' | 'c' | 'b' } | null = null;
+            for (const target of hAbs) {
+                for (const ref of [{ pt: top, kind: 't' as const }, { pt: cy, kind: 'c' as const }, { pt: bottom, kind: 'b' as const }]) {
+                    const off = target - ref.pt;
+                    if (Math.abs(off) <= thr && (!by || Math.abs(off) < Math.abs(by.off))) by = { target, off, kind: ref.kind };
+                }
+            }
+            if (by) {
+                if (by.kind === 't') { box.height = bottom - by.target; box.y = by.target; }
+                else if (by.kind === 'b') { box.height = by.target - box.y; }
+                else { box.y = by.target - box.height / 2; }
+                guides.h.push((by.target - panY) / zoom);
+            }
+
+            commitGuides(guides);
+        }
+
+        // A snap can shrink an edge past the opposite one — clamp to a min size.
+        if (box.width < 5) box.width = 5;
+        if (box.height < 5) box.height = 5;
         return box;
-    }, []);
+    }, [commitGuides]);
 
     // Wire the Konva Transformer to every selected (unlocked) Konva node by
     // name, so one bounding box wraps the whole multi-selection.
@@ -1032,28 +1169,40 @@ export default function CompositorEditorModal({
         groupDragRef.current = { start, nodes };
     }, [pushSnapshot, setIsDragging]);
 
-    const handleLayerDragMove = useCallback((layerId: string, pos: { x: number; y: number }) => {
+    const handleLayerDragMove = useCallback((layerId: string, _pos: { x: number; y: number }) => {
+        const stage = stageRef.current;
         const gd = groupDragRef.current;
-        if (!gd) return; // single-select drag: Konva moves the one node itself
-        const anchorStart = gd.start.get(layerId);
-        if (!anchorStart) return;
-        const dx = pos.x - anchorStart.x;
-        const dy = pos.y - anchorStart.y;
-        let anyNode: any = null;
-        for (const [lid, s] of gd.start) {
-            if (lid === layerId) continue;
-            const node = gd.nodes.get(lid);
-            if (node) { node.x(s.x + dx); node.y(s.y + dy); anyNode = node; }
+        // The anchor is the node Konva is actively dragging (single OR group).
+        const anchor = gd?.nodes.get(layerId) || stage?.findOne(`.img-${layerId}`);
+        if (!anchor) return;
+
+        // Snap the anchor to the canvas borders/mid-lines (mutates its x/y).
+        commitGuides(snapNodeToCanvas(anchor));
+
+        // Group drag: shift every sibling by the SNAPPED anchor's delta so the
+        // whole selection follows the snap in lockstep.
+        if (gd) {
+            const anchorStart = gd.start.get(layerId);
+            if (anchorStart) {
+                const dx = anchor.x() - anchorStart.x;
+                const dy = anchor.y() - anchorStart.y;
+                for (const [lid, s] of gd.start) {
+                    if (lid === layerId) continue;
+                    const node = gd.nodes.get(lid);
+                    if (node) { node.x(s.x + dx); node.y(s.y + dy); }
+                }
+            }
         }
         // Redraw ONLY the content layer the moved nodes live on. A stage-wide
         // batchDraw here repainted the static chrome layer too — including the
         // 100px shadowBlur rect that was split onto its own layer precisely to
         // keep it out of per-drag-frame paints.
-        (anyNode ?? gd.nodes.get(layerId))?.getLayer()?.batchDraw();
-    }, []);
+        anchor.getLayer()?.batchDraw();
+    }, [commitGuides, snapNodeToCanvas]);
 
     const handleInteractEnd = useCallback(() => {
         setIsDragging(false);
+        clearGuides(); // drop any snap guide lines from the just-ended gesture
         const gd = groupDragRef.current;
         groupDragRef.current = null;
         if (!gd) return;
@@ -1073,7 +1222,7 @@ export default function CompositorEditorModal({
             const u = updates.get(l.id);
             return u ? { ...l, transform: { ...l.transform, x: u.x, y: u.y } } : l;
         }));
-    }, [setIsDragging, updateLayers]);
+    }, [setIsDragging, updateLayers, clearGuides]);
 
     const selectedLayer = useMemo(() => layers.find((l) => l.id === selectedLayerId) || null, [layers, selectedLayerId]);
     const selectedEdge = useMemo(
@@ -1174,7 +1323,7 @@ export default function CompositorEditorModal({
                     </div>
 
                     {/* Center - Stage Container */}
-                    <div ref={stageContainerRef} className="flex-1 relative bg-[#080808] overflow-hidden" style={{ cursor: (spaceHeld || tool === 'pan') ? (isPanning ? 'grabbing' : 'grab') : 'default' }}>
+                    <div ref={stageContainerRef} className="flex-1 relative bg-[#1c1c20] overflow-hidden" style={{ cursor: (spaceHeld || tool === 'pan') ? (isPanning ? 'grabbing' : 'grab') : 'default' }}>
                         <Stage
                             ref={stageRef}
                             width={stageSize.width || window.innerWidth}
@@ -1288,6 +1437,16 @@ export default function CompositorEditorModal({
                                 }) && (
                                     <Transformer ref={transformerRef} flipEnabled={false} keepRatio boundBoxFunc={keepRatioBoundBox} borderStroke="#00F2EA" anchorStroke="#00F2EA" anchorFill="#00F2EA" anchorSize={8} borderDash={[3, 3]} />
                                 )}
+                                {/* Canvas snap guides — thin dashed lines shown only
+                                    while a move/resize is hitting a border or mid-line.
+                                    Drawn full canvas-length; stroke is zoom-compensated
+                                    so the line stays hairline at any zoom. */}
+                                {snapGuides.v.map((vx, i) => (
+                                    <Line key={`snap-v-${i}`} points={[vx, 0, vx, canvasHeight]} stroke="#00F2EA" strokeWidth={1 / stageZoom} dash={[5 / stageZoom, 5 / stageZoom]} opacity={0.9} listening={false} />
+                                ))}
+                                {snapGuides.h.map((hy, i) => (
+                                    <Line key={`snap-h-${i}`} points={[0, hy, canvasWidth, hy]} stroke="#00F2EA" strokeWidth={1 / stageZoom} dash={[5 / stageZoom, 5 / stageZoom]} opacity={0.9} listening={false} />
+                                ))}
                             </Layer>
                         </Stage>
 

@@ -498,7 +498,7 @@ const Timeline = memo(function Timeline({
                             playhead always wins visually if they overlap. */}
                         {activeSnap !== null && (
                             <div
-                                className="absolute top-0 bottom-0 w-px bg-amber-300 pointer-events-none z-10 shadow-[0_0_4px_rgba(252,211,77,0.7)]"
+                                className="absolute top-0 bottom-0 w-px bg-accent-primary/70 pointer-events-none z-10 shadow-[0_0_2px_rgb(var(--accent-primary)/0.45)]"
                                 style={{ left: activeSnap * pixelsPerSecond }}
                             />
                         )}

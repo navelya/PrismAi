@@ -81,12 +81,16 @@ export interface Message {
     // Cleared implicitly once `plan` is set (skeleton is gated on !plan).
     // Not persisted.
     planLoading?: boolean;
-    // Transient client-only flag: true while the brain is consulting the
+    // Transient client-only flag: true WHILE the brain is consulting the
     // template library on a fresh build. Set on `template_search_start`,
     // cleared on `template_search_complete` (and forced false on `done` as
-    // a safety net). Not persisted — the search is invisible by design;
-    // the user only sees a single timeline step while it runs.
+    // a safety net). Drives the active "Consulting templates" spinner step.
     templateSearching?: boolean;
+    // Persistent flag: true once a template search ran this turn. Set on
+    // `template_search_complete`, persisted to assistant metadata + rehydrated
+    // on reload, so the "Consulted templates" timeline step stays visible like
+    // the plan/built steps. Hit/miss is NOT surfaced — scaffolding only.
+    templateConsulted?: boolean;
     // Plan card (assistant turn): set when the brain emits a `plan`
     // stream event. The full PlanPayload from the propose_plan tool.
     plan?: {

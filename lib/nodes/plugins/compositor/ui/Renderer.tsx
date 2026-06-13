@@ -144,6 +144,9 @@ const LayerImage = memo(function LayerImage({
     onInteractStart,
     onInteractEnd,
     onDragMove,
+    visible = true,
+    clock = null,
+    surfacePlaying = false,
 }: {
     layer: CompositorLayer;
     imageUrl: string;
@@ -155,6 +158,18 @@ const LayerImage = memo(function LayerImage({
     onInteractStart?: () => void;
     onInteractEnd?: () => void;
     onDragMove?: (x: number, y: number) => void;
+    /**
+     * Time-gated visibility. Image layers stay MOUNTED across activity changes
+     * (we toggle this instead of unmounting) so the decoded <img> stays warm —
+     * unmounting an inactive clip drops the element, and re-mounting on its next
+     * turn reloads it, painting nothing until it decodes: the black frame between
+     * clips. Mirrors the video path, which already stays mounted + pre-decoded.
+     */
+    visible?: boolean;
+    /** Surface transport clock — see the clock-follow effect below. */
+    clock?: TransportClock | null;
+    /** UNGATED surface playing flag (parent's isPlaying, not activity-gated). */
+    surfacePlaying?: boolean;
 }) {
     const safeUrl = useMemo(() => safeImageUrl(imageUrl), [imageUrl]);
     const [img] = useImage(safeUrl, 'anonymous');
@@ -165,11 +180,38 @@ const LayerImage = memo(function LayerImage({
         if (img && onLoad) onLoad(img);
     }, [img, onLoad]);
 
+    // ── Clock-follow visibility (playing path) ──
+    // The React `visible` prop is computed from the ~10Hz playhead, so it lands
+    // up to ~100ms late at a cut. Video flips its visibility on the FRAME-ACCURATE
+    // clock instead; if an image used only the late React prop, a video→image cut
+    // would hide the outgoing video on time but reveal the image late, leaving a
+    // 1-frame gap where the opaque base shows through (the residual black blink).
+    // So images follow the same clock — but ONLY toggling Konva visibility (no
+    // decode/seek): a cheap `isLayerActiveAt` compare per tick, a `batchDraw` ONLY
+    // on the toggle frame, and nothing at all while paused. When the clock owns
+    // visibility the React `visible` prop is omitted so it can't fight the clock.
+    const layerRef = useRef(layer);
+    layerRef.current = layer;
+    const clockOwnsVisibility = !!(clock && surfacePlaying);
+    useEffect(() => {
+        if (!clock || !surfacePlaying) return;
+        const unsub = clock.subscribe((time: number) => {
+            const active = isLayerActiveAt(layerRef.current, 'image', null, time);
+            const node = shapeRef.current;
+            if (node && node.visible() !== active) {
+                node.visible(active);
+                node.getLayer()?.batchDraw();
+            }
+        });
+        return unsub;
+    }, [clock, surfacePlaying]);
+
     if (!img) return null;
 
     const commonProps: any = {
         image: img,
         ref: shapeRef,
+        ...(clockOwnsVisibility ? {} : { visible }),
         x: t.x,
         y: t.y,
         width: t.width,
@@ -195,7 +237,7 @@ const LayerImage = memo(function LayerImage({
             {...commonProps}
             // The Transformer in the editor finds the selected node by name.
             name={`img-${layer.id}`}
-            draggable={!layer.locked}
+            draggable={!layer.locked && visible}
             onClick={onSelect}
             onTap={onSelect}
             onDragStart={() => {
@@ -1026,6 +1068,9 @@ const LayerText = memo(function LayerText({
     onInteractStart,
     onInteractEnd,
     onDragMove,
+    visible = true,
+    clock = null,
+    surfacePlaying = false,
 }: {
     layer: CompositorLayer;
     text: string;
@@ -1036,13 +1081,39 @@ const LayerText = memo(function LayerText({
     onInteractStart?: () => void;
     onInteractEnd?: () => void;
     onDragMove?: (x: number, y: number) => void;
+    /** Time-gated visibility; kept mounted when inactive (see LayerImage). */
+    visible?: boolean;
+    /** Surface transport clock — frame-accurate visibility (see LayerImage). */
+    clock?: TransportClock | null;
+    /** UNGATED surface playing flag. */
+    surfacePlaying?: boolean;
 }) {
     const shapeRef = useRef<any>(null);
     const t = layer.transform;
 
+    // Frame-accurate visibility on the clock while playing — same rationale as
+    // LayerImage (the late React `visible` prop opens a 1-frame black gap at a
+    // video→text cut). Visibility toggle only; no per-frame cost when paused.
+    const layerRef = useRef(layer);
+    layerRef.current = layer;
+    const clockOwnsVisibility = !!(clock && surfacePlaying);
+    useEffect(() => {
+        if (!clock || !surfacePlaying) return;
+        const unsub = clock.subscribe((time: number) => {
+            const active = isLayerActiveAt(layerRef.current, 'text', null, time);
+            const node = shapeRef.current;
+            if (node && node.visible() !== active) {
+                node.visible(active);
+                node.getLayer()?.batchDraw();
+            }
+        });
+        return unsub;
+    }, [clock, surfacePlaying]);
+
     const commonProps: any = {
         text,
         ref: shapeRef,
+        ...(clockOwnsVisibility ? {} : { visible }),
         x: t.x,
         y: t.y,
         width: t.width,
@@ -1072,7 +1143,7 @@ const LayerText = memo(function LayerText({
         <KonvaText
             {...commonProps}
             name={`img-${layer.id}`}
-            draggable={!layer.locked}
+            draggable={!layer.locked && visible}
             onClick={onSelect}
             onTap={onSelect}
             onDragStart={() => {
@@ -1431,10 +1502,10 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                     );
                 }
 
-                if (typeof playhead === 'number' && !isActive) {
-                    return null;
-                }
-
+                // NOTE: image/text layers are NOT unmounted when inactive — they
+                // stay mounted with visible=false so their decoded element stays
+                // warm (no reload → no black frame on their next turn). Only the
+                // unknown/no-source case falls through to the null return below.
                 if (kind === 'image' && url) {
                     return (
                         <LayerImage
@@ -1442,6 +1513,9 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             imageUrl={url}
                             interactive={interactive}
+                            visible={isActive}
+                            clock={clock}
+                            surfacePlaying={isPlaying}
                             isSelected={!!selectedLayerIds?.includes(layer.id)}
                             onSelect={interactive && onSelectLayer
                                 ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))
@@ -1474,6 +1548,9 @@ export const CompositorLayerNodes = memo(function CompositorLayerNodes({
                             layer={layer}
                             text={asText}
                             interactive={interactive}
+                            visible={isActive}
+                            clock={clock}
+                            surfacePlaying={isPlaying}
                             isSelected={!!selectedLayerIds?.includes(layer.id)}
                             onSelect={interactive && onSelectLayer
                                 ? (e?: any) => onSelectLayer(layer.id, !!(e?.evt?.ctrlKey || e?.evt?.metaKey))

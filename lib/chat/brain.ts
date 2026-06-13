@@ -30,6 +30,10 @@ export interface BrainResult {
   planRequested: boolean;
   /** Explicit run intent from the run_nodes tool, or null if no run was requested. */
   runRequest: { nodeIds: string[] } | null;
+  /** True if the brain consulted the template library this turn (search_templates
+   *  ran). Persisted so the timeline's "Consulted templates" step survives reload
+   *  like plan/built. Hit/miss is intentionally NOT exposed — scaffolding only. */
+  templateConsulted: boolean;
 }
 
 export interface BrainInput {
@@ -134,6 +138,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   let attemptedWorkflowTool = false;
   let planRequested = false;
   let runRequest: BrainResult['runRequest'] = null;
+  let templateConsulted = false;
   const modelKey: 'haiku' | 'sonnet' = input.model ?? 'sonnet';
 
   // Trivial-message heuristic: if the user's last turn is short, has no
@@ -501,6 +506,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
               // back to Claude as the tool_result content. Streams a dedicated
               // start/complete pair so the UI timeline can show progress.
               const rawQuery = typeof event.args?.query === 'string' ? event.args.query.trim() : '';
+              templateConsulted = true;
               input.encoder.send({ type: 'template_search_start' });
               let searchResult: TemplateSearchResult;
               if (!input.searchTemplates) {
@@ -665,7 +671,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
     ? applyWorkflowPatch(baseWorkflow, accumulatedPatch)
     : baseWorkflow;
 
-  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated, buildFailed: attemptedWorkflowTool && accumulatedPatch === null, planRequested, runRequest };
+  return { finalText, finalThinking, finalWorkflow, accumulatedPatch, hadAnyOutput, usage, clarification, plan, model: modelKey, escalated, buildFailed: attemptedWorkflowTool && accumulatedPatch === null, planRequested, runRequest, templateConsulted };
 }
 
 /**

@@ -273,6 +273,7 @@ export function useSession() {
                             expectedResultCount?: number;
                         } | null;
                         inline_result_ids?: string[] | null;
+                        template_consulted?: boolean | null;
                     };
 
                     const formatted: any = {
@@ -312,6 +313,10 @@ export function useSession() {
                             },
                             tasks: Array.isArray(metadata.plan.tasks) ? metadata.plan.tasks : undefined,
                         };
+                    }
+
+                    if (msg.role === 'assistant' && metadata.template_consulted) {
+                        formatted.templateConsulted = true;
                     }
 
                     if (msg.role === 'assistant' && metadata.run_proposal) {

@@ -649,11 +649,13 @@ export function useChatMessages({
                     });
                 }
                 else if (parsed.type === 'template_search_complete') {
-                    // We don't surface the hit/miss outcome to the user — the
-                    // search is internal scaffolding. Just clear the spinner;
-                    // the next step (plan, build, or text reply) is what they see.
+                    // Clear the spinner but mark the step as consulted so it
+                    // stays in the timeline as a "Consulted templates" done step
+                    // (like plan/built). We still don't surface the hit/miss
+                    // outcome — the label is generic scaffolding.
                     useAppStore.getState().updateMessage(assistantMsgId, {
                         templateSearching: false,
+                        templateConsulted: true,
                     });
                 }
                 else if (parsed.type === 'plan') {

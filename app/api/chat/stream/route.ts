@@ -507,6 +507,39 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
   const registry = await getRegistryContext(supabase);
 
   const chatWindow = (messages || [])
+    // Rehydrate question-only clarification turns. An assistant turn that
+    // called ask_clarification stores its questions in the `clarification`
+    // field (stripped before send by toAnthropicMessages), NOT in `content`.
+    // The system prompt explicitly allows the prose preamble to be "(or none)",
+    // so a clarification turn usually has EMPTY content — which the
+    // empty-content filter below then drops. Dropping it collapses the history
+    // to [user request, user answer]: two back-to-back user roles (the same
+    // shape the 'Approved' filter below guards against, which the API rejects),
+    // and the model loses any record of having asked, so it just asks the same
+    // questions again — an endless clarify loop. Synthesize a text rendering of
+    // the questions so the turn survives the filter and the model sees what it
+    // already asked.
+    .map((m: any) => {
+      const role = (m.role || m.type) === 'assistant' ? 'assistant' : 'user';
+      if (role !== 'assistant' || (m.content && m.content.trim().length > 0)) return m;
+      const clar = m.clarification ?? m.metadata?.clarification;
+      const questions: any[] = Array.isArray(clar?.questions)
+        ? clar.questions
+        : Array.isArray(clar?.options)
+          ? [{ question: '', options: clar.options }] // legacy flat shape
+          : [];
+      if (questions.length === 0) return m;
+      const lines = questions.map((q: any, i: number) => {
+        const opts = Array.isArray(q?.options)
+          ? q.options.filter((o: any) => typeof o === 'string' && o.trim().length > 0)
+          : [];
+        const head = typeof q?.question === 'string' && q.question.trim().length > 0
+          ? q.question.trim()
+          : 'Which option?';
+        return opts.length > 0 ? `${i + 1}. ${head} (options: ${opts.join(' / ')})` : `${i + 1}. ${head}`;
+      });
+      return { ...m, content: `I asked you to clarify:\n${lines.join('\n')}` };
+    })
     .filter((m: any) => m.content && m.content.trim().length > 0)
     // Filter out synthetic 'Approved' user messages — they're DB-only
     // markers for plan-card state derivation on reload. Sending them to
@@ -731,6 +764,7 @@ async function handleWithNewBrain(req: Request): Promise<Response> {
                   usage: result.usage || null,
                   clarification: result.clarification || null,
                   plan: result.plan || null,
+                  template_consulted: result.templateConsulted || null,
                   model: result.model,
                 },
                 status: 'completed',

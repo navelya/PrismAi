@@ -55,6 +55,7 @@ interface Message {
     };
     planLoading?: boolean;
     templateSearching?: boolean;
+    templateConsulted?: boolean;
     planAnswer?: {
         action: 'approve' | 'feedback';
         feedbackText?: string;
@@ -339,6 +340,7 @@ export const Message = React.memo(function Message({
                             isThinking={message.isThinking === true}
                             thinkingDurationMs={message.thinkingDurationMs}
                             templateSearching={message.templateSearching}
+                            templateConsulted={message.templateConsulted}
                             planLoading={message.planLoading}
                             hasPlan={!!message.plan}
                             built={!!message.runProposal || !!message.taskProgress}
