@@ -60,14 +60,32 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
     }
     const requestId = body.request_id;
     if (!requestId) throw new Error('FAL submit: no request_id in response');
-    return { providerJobId: `${slug}::${requestId}`, status: 'pending' };
+    // Persist FAL's OWN response_url, not a slug-reconstructed one. For a
+    // multi-segment model (e.g. fal-ai/flux/dev) the status/response endpoints
+    // live at the APP base (.../fal-ai/flux/requests/{id}), NOT the full slug —
+    // rebuilding from the slug hits a route that 405s. The status URL is always
+    // `${response_url}/status`, so storing response_url is sufficient.
+    const responseUrl: string | undefined =
+      body.response_url || (body.status_url ? String(body.status_url).replace(/\/status$/, '') : undefined);
+    if (!responseUrl) {
+      // Legacy fallback: no URL returned → reconstruct (works for single-segment slugs).
+      return { providerJobId: `${slug}::${requestId}`, status: 'pending' };
+    }
+    return { providerJobId: responseUrl, status: 'pending' };
   },
 
   async poll(providerJobId): Promise<ProviderPollResult> {
-    const sep = providerJobId.indexOf('::');
-    const slug = providerJobId.slice(0, sep);
-    const requestId = providerJobId.slice(sep + 2);
-    const base = `${FAL_QUEUE}/${slug}/requests/${requestId}`;
+    // providerJobId is FAL's response_url (current) or the legacy
+    // `${slug}::${requestId}` form (jobs submitted before the URL fix).
+    let base: string;
+    if (providerJobId.startsWith('http')) {
+      base = providerJobId;
+    } else {
+      const sep = providerJobId.indexOf('::');
+      const slug = providerJobId.slice(0, sep);
+      const requestId = providerJobId.slice(sep + 2);
+      base = `${FAL_QUEUE}/${slug}/requests/${requestId}`;
+    }
     let statusRes: Response;
     try {
       statusRes = await fetch(`${base}/status`, { headers: falHeaders(), signal: AbortSignal.timeout(15_000) });
