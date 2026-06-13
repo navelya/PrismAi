@@ -11,9 +11,10 @@ import { Menu, Workflow } from 'lucide-react';
 
 interface AppLayoutProps {
     children: React.ReactNode;
+    hostClass?: 'app' | 'marketing' | 'neutral';
 }
 
-export default function AppLayout({ children }: AppLayoutProps) {
+export default function AppLayout({ children, hostClass }: AppLayoutProps) {
     const pathname = usePathname();
     const isMobile = useIsMobile();
     const hasMounted = useHasMounted();
@@ -64,8 +65,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
     const hasCanvas = !!currentWorkflow?.nodes?.length;
     const showCanvasToggle = inSession && hasCanvas && !isMobileCanvasOpen;
 
+    // On the app host, `/` is the chat root (middleware rewrites it to /chat),
+    // so it must get the full app shell, NOT the public/marketing layout.
+    const isAppRootChat = hostClass === 'app' && pathname === '/';
+
     // Hide sidebar on home page, login page, demo page, legal pages, billing landing pages, and checkout
-    const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname === '/pricing' || pathname.startsWith('/legal') || pathname.startsWith('/billing') || pathname.startsWith('/checkout');
+    const isPublicPage = !isAppRootChat && (pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname === '/pricing' || pathname.startsWith('/legal') || pathname.startsWith('/billing') || pathname.startsWith('/checkout'));
 
     // Lock the mobile viewport on internal app pages so the browser chrome stays put.
     // Public pages keep normal scroll behavior.

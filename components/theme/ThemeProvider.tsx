@@ -36,9 +36,11 @@ function resolveTheme(theme: Theme): ResolvedTheme {
     return theme as ResolvedTheme;
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+export function ThemeProvider({ children, isAppHost = false }: { children: React.ReactNode; isAppHost?: boolean }) {
     const pathname = usePathname();
-    const isHomePage = pathname === '/';
+    // On the app host, `/` is the chat root, not the marketing home — so it must
+    // honor the user's saved theme rather than the forced midnight-slate.
+    const isHomePage = pathname === '/' && !isAppHost;
 
     const [theme, setThemeState] = useState<Theme>('midnight-slate');
     const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('midnight-slate');

@@ -2,11 +2,13 @@ import type { Metadata } from 'next';
 import React from 'react';
 // import { Inter, Space_Grotesk } from 'next/font/google';
 import './globals.css';
+import { headers } from 'next/headers';
 import AppLayout from '@/components/layout/AppLayout';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { CookieConsent } from '@/components/legal/CookieConsent';
 import { CrashRecoveryProvider } from '@/components/providers/CrashRecoveryProvider';
+import { classifyHost } from '@/lib/domains';
 
 // const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 // const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-space' });
@@ -34,11 +36,13 @@ export const viewport = {
   userScalable: false,
 };
 
-// Anti-flash script - runs before React hydration to prevent theme flash
-const themeScript = `
+// Anti-flash script - runs before React hydration to prevent theme flash.
+// On the app host, `/` is the chat root (rewritten to /chat), NOT the marketing
+// home — so isHome is baked to false there to keep the user's saved theme.
+const buildThemeScript = (isAppHost: boolean) => `
 (function() {
   try {
-    const isHome = window.location.pathname === '/';
+    const isHome = ${isAppHost ? 'false' : "window.location.pathname === '/'"};
     if (isHome) {
       document.documentElement.setAttribute('data-theme', 'midnight-slate');
       document.documentElement.classList.add('dark');
@@ -65,11 +69,11 @@ const themeScript = `
 // Mobile viewport lock - keeps the browser chrome from collapsing on internal app pages.
 // Runs pre-hydration so the lock is applied before first paint. Only mobile widths,
 // only non-public pages (skips home / login / demo / legal).
-const viewportLockScript = `
+const buildViewportLockScript = (isAppHost: boolean) => `
 (function() {
   try {
     var path = window.location.pathname;
-    var isPublic = path === '/' || path === '/login' || path === '/demo' || path === '/pricing' || path.indexOf('/legal') === 0;
+    var isPublic = ${isAppHost ? 'false' : "path === '/'"} || path === '/login' || path === '/demo' || path === '/pricing' || path.indexOf('/legal') === 0;
     var isMobile = window.matchMedia('(max-width: 767px)').matches;
     if (!isPublic && isMobile) {
       document.documentElement.classList.add('app-locked');
@@ -83,6 +87,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Resolve the host server-side (no hydration flash) so `/` is treated as the
+  // chat root on the app subdomain and as the marketing home elsewhere.
+  const hostClass = classifyHost(headers().get('host'));
+  const isAppHost = hostClass === 'app';
+  const themeScript = buildThemeScript(isAppHost);
+  const viewportLockScript = buildViewportLockScript(isAppHost);
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -102,10 +113,10 @@ export default function RootLayout({
         '--font-inter': "'Inter', sans-serif",
         '--font-space': "'Space Grotesk', sans-serif"
       } as React.CSSProperties}>
-        <ThemeProvider>
+        <ThemeProvider isAppHost={isAppHost}>
           <TooltipProvider delayDuration={400} skipDelayDuration={100}>
             <CrashRecoveryProvider>
-              <AppLayout>{children}</AppLayout>
+              <AppLayout hostClass={hostClass}>{children}</AppLayout>
             </CrashRecoveryProvider>
           </TooltipProvider>
         </ThemeProvider>
