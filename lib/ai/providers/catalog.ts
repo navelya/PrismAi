@@ -23,8 +23,11 @@ export const API_PROVIDERS: ApiProviderInfo[] = [
   { key: 'fal', name: 'FAL' },
   { key: 'wavespeed', name: 'WaveSpeed' },
   { key: 'kie', name: 'KIE' },
-  { key: 'kinovi', name: 'Kinovi' },
   { key: 'elevenlabs', name: 'ElevenLabs' },
+  // Kinovi is intentionally NOT offered: it has no webhook, so it can only
+  // complete via the polling sweep (which requires scheduling pg_cron / an
+  // external cron). Re-add `{ key: 'kinovi', name: 'Kinovi' }` once that backstop
+  // is enabled — the adapter (lib/ai/providers/kinovi.ts) is still registered.
 ];
 
 export function apiProviderName(key: string): string {
