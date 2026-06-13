@@ -32,7 +32,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     .single();
   if (!exec) return NextResponse.json({ error: 'Execution not found' }, { status: 404 });
   const ownerId = (exec.sessions as any)?.user_id;
-  if (ownerId && ownerId !== auth.user.id) {
+  // Deny by default: an execution with no resolvable owner is not advanceable by
+  // an arbitrary caller.
+  if (!ownerId || ownerId !== auth.user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
