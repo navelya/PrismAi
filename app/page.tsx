@@ -31,6 +31,7 @@ import { BrandCarousel } from '@/components/ui/BrandCarousel';
 import { Logo } from '@/components/ui/Logo';
 import { useSession } from '@/lib/hooks/use-session';
 import { cn } from '@/lib/utils';
+import { appUrl } from '@/lib/domains';
 
 const PrisfolLogo = ({ className, dark = false }: { className?: string, dark?: boolean }) => (
     <Logo
@@ -154,13 +155,21 @@ function HeroChatInput() {
             if (!t) textareaRef.current?.focus();
             return;
         }
+        setLeaving(true);
+        const dest = appUrl(`/?prompt=${encodeURIComponent(t)}`);
+        if (dest.startsWith('http')) {
+            // Cross-origin to the app subdomain (prod): sessionStorage won't
+            // survive, so carry the prompt in the URL.
+            window.location.href = dest;
+            return;
+        }
+        // Same-origin dev/neutral: keep the sessionStorage + SPA push path.
         try {
             sessionStorage.setItem('prismai:pendingPrompt', t);
         } catch {
             // Private-mode / blocked storage: fall through and let the user type
             // again on the chat page rather than hard-failing.
         }
-        setLeaving(true);
         router.push('/chat');
     };
 
@@ -1230,7 +1239,7 @@ function TemplateCarousel() {
             {/* CTA */}
             <div className="flex justify-center mt-12">
                 <Link
-                    href="/templates"
+                    href={appUrl('/templates')}
                     className="group flex items-center gap-3 px-7 py-3 rounded-xl border border-white/15 text-[8px] font-black uppercase tracking-[0.4em] text-white hover:bg-white hover:text-slate-900 transition-all"
                 >
                     Browse all templates
@@ -1604,9 +1613,9 @@ export default function Home() {
                             <Link href="/pricing" className="text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Pricing</Link>
                         </div>
                         <div className="flex items-center gap-3">
-                            <Link href="/chat" className="hidden md:inline text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Sign In</Link>
+                            <Link href={appUrl('/login')} className="hidden md:inline text-[7px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-slate-900 transition-colors">Sign In</Link>
                             <Link
-                                href="/chat"
+                                href={appUrl('/')}
                                 className="px-4 py-2 rounded-xl bg-slate-900 text-white text-[7px] font-black uppercase tracking-[0.4em] hover:bg-accent-primary hover:text-slate-900 transition-all"
                             >
                                 Get Started
@@ -1637,7 +1646,11 @@ export default function Home() {
 
                         {/* Secondary: skip straight to a blank canvas */}
                         <button
-                            onClick={createNewSession}
+                            onClick={() => {
+                                const dest = appUrl('/');
+                                if (dest.startsWith('http')) { window.location.href = dest; return; }
+                                createNewSession();
+                            }}
                             disabled={isLoading}
                             className="group inline-flex items-center gap-2 text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] text-slate-400 hover:text-slate-900 transition-colors"
                         >
@@ -1829,7 +1842,7 @@ export default function Home() {
 
                         <div className="flex justify-center mt-12">
                             <Link
-                                href="/templates"
+                                href={appUrl('/templates')}
                                 className="group flex items-center gap-3 px-7 py-3 rounded-xl border border-white/15 text-[8px] font-black uppercase tracking-[0.4em] text-white hover:bg-white hover:text-slate-900 transition-all"
                             >
                                 Explore templates
@@ -1865,14 +1878,14 @@ export default function Home() {
                                 </h2>
                                 <PromptRotator />
                                 <div className="flex flex-col sm:flex-row gap-4 pt-2">
-                                    <MagneticButton href="/chat">
+                                    <MagneticButton href={appUrl('/')}>
                                         <div className="group flex items-center justify-center gap-3 px-10 py-5 rounded-2xl bg-white text-slate-900 font-black text-base hover:bg-accent-primary transition-colors shadow-2xl">
                                             START BUILDING
                                             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                                         </div>
                                     </MagneticButton>
                                     <Link
-                                        href="/templates"
+                                        href={appUrl('/templates')}
                                         className="flex items-center justify-center gap-3 px-10 py-5 rounded-2xl border border-white/15 text-white font-black text-base hover:bg-white/10 transition-all"
                                     >
                                         <Layers3 className="w-5 h-5" />
@@ -1912,7 +1925,7 @@ export default function Home() {
                                     <ul className="space-y-2 text-[7px] font-black text-white/40 uppercase tracking-[0.2em]">
                                         <li><a href="#" className="hover:text-white transition-colors">Nodes</a></li>
                                         <li><a href="#" className="hover:text-white transition-colors">Models</a></li>
-                                        <li><Link href="/templates" className="hover:text-white transition-colors">Templates</Link></li>
+                                        <li><Link href={appUrl('/templates')} className="hover:text-white transition-colors">Templates</Link></li>
                                     </ul>
                                 </div>
                                 <div className="space-y-4">
