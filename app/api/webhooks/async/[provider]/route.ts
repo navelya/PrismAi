@@ -32,15 +32,21 @@ export async function POST(req: NextRequest, { params }: { params: { provider: s
   // Read the RAW body once — signature verification must hash exactly these bytes.
   const rawBody = await req.text();
 
+  // Verify the signature for observability, but DO NOT gate completion on it.
+  // Completion is authoritative via poll() (poll-as-truth): a webhook only ever
+  // triggers a re-poll of the real provider job, so even a forged/late delivery
+  // can never assert a wrong result — at worst it causes a harmless poll (and
+  // execution_id is an unguessable UUID). Gating on the ±5-min signature window
+  // would instead let a late FAL RETRY be rejected and the result hang. So we
+  // always attempt completion and just log the auth status.
   if (typeof adapter.verifyWebhook === 'function') {
-    const headers: Record<string, string> = {};
-    req.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
     let ok = false;
-    try { ok = await adapter.verifyWebhook(headers, rawBody); } catch { ok = false; }
-    if (!ok) {
-      console.warn(`[Webhook/${params.provider}] signature verification failed for execution ${executionId}`);
-      return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
-    }
+    try {
+      const headers: Record<string, string> = {};
+      req.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
+      ok = await adapter.verifyWebhook(headers, rawBody);
+    } catch { ok = false; }
+    if (!ok) console.warn(`[Webhook/${params.provider}] unverified delivery for execution ${executionId} (completing via poll-as-truth)`);
   }
 
   // Complete via poll-as-truth: advance this execution's pending async jobs (the
