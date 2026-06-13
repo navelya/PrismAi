@@ -228,7 +228,22 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
                 if (!u) return true; // nothing configured → true local dev
                 return u.startsWith('http://localhost') || u.startsWith('http://127.0.0.1');
             })();
-            const { providerJobId } = await asyncAdapter.submit(modelForAdapter, providerInputs, context);
+            // Prod: register a provider webhook so completion is fully server-side
+            // (provider → our webhook → DB), exactly like Replicate — no client and
+            // no cron needed for providers that support it. The execution id in the
+            // URL lets the webhook complete the right run; the cron sweep remains the
+            // backstop (and the only path for Kinovi, which has no webhook).
+            const webhookBase = process.env.NEXT_PUBLIC_APP_URL
+                || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+            // Only the execution id is needed — the webhook advances the whole
+            // execution's pending async jobs (the completion claim de-dupes).
+            const webhookUrl = (!isLocalEnv && webhookBase && context.executionId)
+                ? `${webhookBase}/api/webhooks/async/${primary.providerKey}`
+                    + `?execution_id=${encodeURIComponent(context.executionId)}`
+                : undefined;
+            const { providerJobId } = await asyncAdapter.submit(
+                modelForAdapter, providerInputs, context, webhookUrl ? { webhookUrl } : undefined
+            );
             if (isLocalEnv) {
                 // Local dev has no public webhook + no cron sweep — poll inline to
                 // completion, mirroring replicate.run()'s synchronous local behavior.

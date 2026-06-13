@@ -179,43 +179,6 @@ export async function reconcileExecutionFromDb(executionId: string): Promise<voi
 }
 
 /**
- * Drive a NON-webhook async run (FAL/WaveSpeed/KIE/Kinovi) to completion LIVE.
- *
- * WHY: Replicate completes via its webhook; the other providers complete only via
- * a server-side poll. In prod that poll is the cron sweep — but a deployment that
- * hasn't scheduled the cron would leave such a node stuck on "loading" forever
- * (the result exists on the provider; nothing writes it back). This walks the
- * execution to completion on demand: it asks the server to poll-and-complete the
- * execution's async jobs every few seconds (reusing the exact sweep pipeline,
- * scoped to one execution) and reconciles each pass into the store, stopping as
- * soon as none are pending. Idempotent and safe to call alongside the cron/webhook
- * (the completion claim de-dupes). Replicate-only runs return pending:0 on the
- * first call, so this costs a single no-op request for them.
- */
-export async function advanceExecutionUntilSettled(executionId: string): Promise<void> {
-    if (!executionId) return;
-    // ~5 min ceiling at 4s/iteration — matches the local inline-poll budget.
-    for (let i = 0; i < 75; i++) {
-        let pending = 0;
-        try {
-            const res = await fetch(`/api/executions/${executionId}/advance`, { method: 'POST' });
-            if (res.ok) {
-                const j = await res.json().catch(() => null);
-                pending = j?.pending ?? 0;
-            }
-            // A non-OK response (403/404/500) means there's nothing we can do here —
-            // stop quietly and let realtime / the cron backstop handle it.
-        } catch {
-            // Network blip — keep trying on the next tick.
-            pending = 1;
-        }
-        await reconcileExecutionFromDb(executionId);
-        if (pending <= 0) return;
-        await new Promise((r) => setTimeout(r, 4000));
-    }
-}
-
-/**
  * Subscribe to a channel with exponential backoff retry.
  * Resolves when SUBSCRIBED, rejects after all retries exhausted.
  */

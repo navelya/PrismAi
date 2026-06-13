@@ -25,12 +25,16 @@ export const wavespeedAsyncAdapter: AsyncProviderAdapter = {
   key: 'wavespeed',
   mode: 'async',
 
-  async submit(model, inputs, _ctx, _opts) {
+  async submit(model, inputs, _ctx, opts) {
     const slug = (model as any).provider_model_id as string;
     if (!slug) throw new Error('WaveSpeed adapter: model has no provider_model_id (slug)');
+    // Attach our webhook (server-side completion); poll sweep remains the backstop.
+    const url = opts?.webhookUrl
+      ? `${WAVESPEED_BASE}/${slug}?webhook=${encodeURIComponent(opts.webhookUrl)}`
+      : `${WAVESPEED_BASE}/${slug}`;
     let res: Response;
     try {
-      res = await fetch(`${WAVESPEED_BASE}/${slug}`, {
+      res = await fetch(url, {
         method: 'POST',
         headers: wsHeaders(),
         body: JSON.stringify(inputs ?? {}),

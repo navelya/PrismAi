@@ -1,7 +1,9 @@
+import crypto from 'crypto';
 import { AsyncProviderAdapter, ErrorClass, ProviderPollResult } from './types';
 
 const FAL_QUEUE = 'https://queue.fal.run';
 const FAL_REST = 'https://api.fal.ai/v1';
+const FAL_JWKS_URL = 'https://rest.fal.ai/.well-known/jwks.json';
 
 function falHeaders(): Record<string, string> {
   const key = process.env.FAL_KEY;
@@ -26,12 +28,17 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
   key: 'fal',
   mode: 'async',
 
-  async submit(model, inputs, _ctx, _opts) {
+  async submit(model, inputs, _ctx, opts) {
     const slug = (model as any).provider_model_id as string;
     if (!slug) throw new Error('FAL adapter: model has no provider_model_id (slug)');
+    // Attach our webhook so FAL POSTs the result to the server on completion
+    // (server-side, like Replicate); the poll sweep remains the backstop.
+    const url = opts?.webhookUrl
+      ? `${FAL_QUEUE}/${slug}?fal_webhook=${encodeURIComponent(opts.webhookUrl)}`
+      : `${FAL_QUEUE}/${slug}`;
     let res: Response;
     try {
-      res = await fetch(`${FAL_QUEUE}/${slug}`, {
+      res = await fetch(url, {
         method: 'POST',
         headers: falHeaders(),
         body: JSON.stringify(inputs ?? {}),
@@ -111,6 +118,10 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
     return 'validation';
   },
 
+  async verifyWebhook(headers, rawBody) {
+    return verifyFalWebhook(headers, rawBody);
+  },
+
   async fetchSchema(modelSlug) {
     const res = await fetch(`${FAL_REST}/models?endpoint_id=${encodeURIComponent(modelSlug)}&expand=openapi-3.0`, {
       headers: falHeaders(),
@@ -187,6 +198,57 @@ function normalizeFalProp(key: string, prop: any): any {
     /\burl of (the|an|a|your)\b/i.test(String(p.description || ''));
   if (looksFile && p.type === 'string' && !p.enum) p.format = 'uri';
   return p;
+}
+
+// ── FAL webhook verification (ED25519 over request_id\nuser_id\ntimestamp\nsha256(body)) ──
+let falJwksCache: { keys: any[]; fetchedAt: number } | null = null;
+
+async function getFalJwks(): Promise<any[]> {
+  // Cache the JWKS for an hour (docs allow up to 24h); keys rotate rarely.
+  if (falJwksCache && Date.now() - falJwksCache.fetchedAt < 3600_000) return falJwksCache.keys;
+  const res = await fetch(FAL_JWKS_URL, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`FAL JWKS fetch failed (${res.status})`);
+  const body = await res.json();
+  const keys = Array.isArray(body?.keys) ? body.keys : [];
+  falJwksCache = { keys, fetchedAt: Date.now() };
+  return keys;
+}
+
+/**
+ * Verify a FAL webhook. The signed message is the four parts joined by '\n':
+ * request_id, user_id, timestamp, and the lowercase hex SHA-256 of the RAW body.
+ * The signature (hex) must validate as ED25519 against ANY current JWKS key
+ * (headers carry no kid). Timestamp must be within ±5 min. Any failure → false.
+ */
+async function verifyFalWebhook(headers: Record<string, string>, rawBody: string): Promise<boolean> {
+  try {
+    const requestId = headers['x-fal-webhook-request-id'];
+    const userId = headers['x-fal-webhook-user-id'];
+    const timestamp = headers['x-fal-webhook-timestamp'];
+    const signatureHex = headers['x-fal-webhook-signature'];
+    if (!requestId || !userId || !timestamp || !signatureHex) return false;
+
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false;
+
+    const bodyHash = crypto.createHash('sha256').update(rawBody, 'utf8').digest('hex');
+    const message = Buffer.from(`${requestId}\n${userId}\n${timestamp}\n${bodyHash}`, 'utf8');
+    const signature = Buffer.from(signatureHex, 'hex');
+
+    const keys = await getFalJwks();
+    for (const k of keys) {
+      try {
+        const pub = crypto.createPublicKey({
+          key: { kty: 'OKP', crv: 'Ed25519', x: String(k.x).replace(/=+$/, '') },
+          format: 'jwk',
+        });
+        if (crypto.verify(null, message, pub, signature)) return true;
+      } catch { /* try next key */ }
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /**

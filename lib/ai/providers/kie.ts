@@ -24,15 +24,20 @@ export const kieAsyncAdapter: AsyncProviderAdapter = {
   key: 'kie',
   mode: 'async',
 
-  async submit(model, inputs, _ctx, _opts) {
+  async submit(model, inputs, _ctx, opts) {
     const slug = (model as any).provider_model_id as string;
     if (!slug) throw new Error('KIE adapter: model has no provider_model_id (slug)');
+    // callBackUrl makes KIE POST to our server on completion (server-side); the
+    // poll sweep remains the backstop. KIE's callback is a wake-up — the webhook
+    // route re-polls for the authoritative result.
+    const payload: Record<string, any> = { model: slug, input: inputs ?? {} };
+    if (opts?.webhookUrl) payload.callBackUrl = opts.webhookUrl;
     let res: Response;
     try {
       res = await fetch(`${KIE_BASE}/jobs/createTask`, {
         method: 'POST',
         headers: kieHeaders(),
-        body: JSON.stringify({ model: slug, input: inputs ?? {} }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(30_000),
       });
     } catch (e) {

@@ -294,13 +294,13 @@ export async function sweepPendingJobs(baseUrl: string): Promise<SweepReport> {
 }
 
 /**
- * On-demand, execution-scoped completion for NON-webhook async providers (FAL,
- * WaveSpeed, KIE, Kinovi). Unlike sweepPendingJobs (the background cron backstop),
- * this runs IMMEDIATELY with no stale/age/deadline gate — the client calls it
- * every few seconds while a node is running so results appear live without waiting
- * for the cron. Replicate is intentionally skipped (its webhook owns completion).
- * Returns how many of this execution's async jobs are still pending after the pass
- * (the client polls until 0).
+ * Execution-scoped, immediate completion pass for async providers (FAL/WaveSpeed/
+ * KIE/Kinovi). Called SERVER-SIDE by the provider webhook route (the fast path,
+ * like Replicate's webhook) — no client involvement. Unlike sweepPendingJobs (the
+ * cron backstop) it has no stale/age/deadline gate: a webhook means "this job is
+ * done now," so poll and complete immediately. Replicate is skipped (its own
+ * webhook owns it). Idempotent vs. the cron + racing deliveries via the completion
+ * claim. Returns how many of this execution's async jobs are still pending.
  */
 export async function advanceExecutionJobs(executionId: string, baseUrl: string): Promise<{ pending: number }> {
   if (!executionId) return { pending: 0 };

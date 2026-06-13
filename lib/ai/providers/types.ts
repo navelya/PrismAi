@@ -67,6 +67,14 @@ export interface AsyncProviderAdapter {
   classifyError(op: 'submit' | 'poll', httpStatus: number | null, body: unknown): ErrorClass;
   fetchSchema?(modelSlug: string): Promise<ProviderSchemaResult>;   // optional; per-provider schema fetch
   parseWebhook?(req: Request): { providerJobId: string } | null;  // optional; Phase B
+  /**
+   * Verify a provider webhook's signature over the RAW request body. Returns true
+   * if authentic. Optional: providers without a verifiable signature (or before a
+   * signing secret is configured) omit it — the webhook route then relies on
+   * poll-as-truth (it polls the provider for the authoritative result, so a forged
+   * trigger can only cause a harmless poll, never a wrong completion).
+   */
+  verifyWebhook?(headers: Record<string, string>, rawBody: string): Promise<boolean> | boolean;
 }
 
 /**
