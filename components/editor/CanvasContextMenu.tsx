@@ -17,6 +17,7 @@ import {
 } from '@/lib/editor/handle-compatibility';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { useCurrentUser } from '@/lib/hooks/use-current-user';
+import { computeModelMenuCost, formatCredits } from '@/lib/billing/cost';
 
 interface ContextMenuItem {
     id: string;
@@ -261,6 +262,21 @@ export default function CanvasContextMenu({
     const renderItem = (item: ContextMenuItem, index?: number) => {
         const isHighlightedByKbd = searchQuery && selectedIndex === index;
 
+        // For model items, show the default credit cost (per-second for video).
+        let costBadge: React.ReactNode = null;
+        if (item.item_type === 'ai_model') {
+            const model = models?.find(m => m.id === parseInt(item.action_value || '0'));
+            if (model) {
+                const cost = computeModelMenuCost(model);
+                costBadge = (
+                    <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-mono tabular-nums text-content-tertiary">
+                        <Icons.Link2 className="w-3 h-3 -rotate-45 opacity-70" />
+                        {formatCredits(cost.credits)}{cost.perSecond ? '/s' : ''}
+                    </span>
+                );
+            }
+        }
+
         return (
             <Item
                 key={item.id}
@@ -283,7 +299,7 @@ export default function CanvasContextMenu({
                         {item.title}
                     </span>
                 </div>
-                {item.badge && (
+                {costBadge ? costBadge : item.badge && (
                     <span className="px-1.5 py-0.5 bg-accent-primary/10 text-accent-primary text-[9px] font-bold uppercase rounded-full">
                         {item.badge}
                     </span>
