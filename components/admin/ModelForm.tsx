@@ -497,6 +497,59 @@ export function ModelForm({
         setVisualControls(prev => prev.map(c => c.id === controlId ? { ...c, ...patch } : c));
     };
 
+    // --- Reclassify a field between Property (control) and Input (handle) ---------
+    // Both share api_mapping_key / type / is_visible / description; everything
+    // type-specific is reset to sensible defaults (the admin re-tunes after). The
+    // move is local state only — it persists when the model is saved, exactly like
+    // every other edit here. A fresh `id` is minted for the destination item.
+    const TEXTISH_COMPONENTS = new Set(['text_input', 'textarea', 'prompt_textarea', 'negative_prompt']);
+
+    const convertControlToInput = (controlId: string) => {
+        const ctrl = visualControls.find(c => c.id === controlId);
+        if (!ctrl) return;
+        if (visualInputWires.some(w => w.api_mapping_key === ctrl.api_mapping_key)) {
+            window.alert(`An input handle with key "${ctrl.api_mapping_key}" already exists. Rename or remove it before converting.`);
+            return;
+        }
+        const t = (ctrl.type || '').toLowerCase();
+        const isTextish = t === 'string' || t === 'text' || t === '' || TEXTISH_COMPONENTS.has(ctrl.component);
+        const wire = {
+            id: Math.random().toString(),
+            name: ctrl.label || formatDisplayName(ctrl.api_mapping_key),
+            api_mapping_key: ctrl.api_mapping_key,
+            type: isTextish ? 'text' : 'any',
+            is_array: false,
+            is_mandatory: false,
+            is_visible: ctrl.is_visible ?? true,
+            cost_per_item: 0,
+            max_items: 0,
+            description: ctrl.description,
+        };
+        setVisualControls(prev => prev.filter(c => c.id !== controlId));
+        setVisualInputWires(prev => [...prev, wire]);
+    };
+
+    const convertInputToControl = (wireId: string) => {
+        const wire = visualInputWires.find(w => w.id === wireId);
+        if (!wire) return;
+        if (visualControls.some(c => c.api_mapping_key === wire.api_mapping_key)) {
+            window.alert(`A property with key "${wire.api_mapping_key}" already exists. Rename or remove it before converting.`);
+            return;
+        }
+        const ctrl: Control & { id: string } = {
+            id: Math.random().toString(),
+            api_mapping_key: wire.api_mapping_key,
+            label: wire.name || undefined,
+            component: 'text_input',
+            type: 'string',
+            default_value: '',
+            is_visible: wire.is_visible ?? true,
+            description: wire.description,
+        };
+        setVisualInputWires(prev => prev.filter(w => w.id !== wireId));
+        setVisualControls(prev => [...prev, ctrl]);
+    };
+
     const parseSelectDefault = (rawValue: string, controlType?: string) => {
         const normalizedType = (controlType || '').toLowerCase();
         if (normalizedType === 'number' || normalizedType === 'integer') {
@@ -1031,6 +1084,15 @@ export function ModelForm({
                                     />
                                     <button
                                         type="button"
+                                        onClick={() => convertControlToInput(ctrl.id)}
+                                        title="Convert this property into a wired input handle"
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all bg-white/5 border-white/10 text-content-tertiary hover:text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/20"
+                                    >
+                                        <Link2 className="w-3.5 h-3.5" />
+                                        To Input
+                                    </button>
+                                    <button
+                                        type="button"
                                         onClick={() => handleToggleVisibility(ctrl.api_mapping_key, 'control')}
                                         className={cn(
                                             "flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all",
@@ -1489,6 +1551,15 @@ export function ModelForm({
                                         onMoveUp={() => setVisualInputWires(prev => arrayShift(prev, wire.id, -1))}
                                         onMoveDown={() => setVisualInputWires(prev => arrayShift(prev, wire.id, 1))}
                                     />
+                                    <button
+                                        type="button"
+                                        onClick={() => convertInputToControl(wire.id)}
+                                        title="Convert this input handle into a properties-panel control"
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition-all bg-white/5 border-white/10 text-content-tertiary hover:text-accent-primary hover:bg-accent-primary/10 hover:border-accent-primary/20"
+                                    >
+                                        <Settings2 className="w-3.5 h-3.5" />
+                                        To Property
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => handleToggleVisibility(wire.api_mapping_key, 'input-handle')}

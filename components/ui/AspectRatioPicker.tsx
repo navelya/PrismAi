@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NumberInput } from './NumberInput';
@@ -100,7 +101,53 @@ export function AspectRatioPicker({
     const [customW, setCustomW] = useState<string>('16');
     const [customH, setCustomH] = useState<string>('9');
     const containerRef = useRef<HTMLDivElement>(null);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
     const isMinimal = variant === 'minimal';
+
+    // The dropdown is portaled to <body> with fixed positioning so it is never
+    // clipped by an `overflow` ancestor (e.g. the property panel's scroll area).
+    // It opens below the trigger when there's room, and flips above when there
+    // isn't — so the full menu stays visible even spilling outside the panel.
+    const [menuPos, setMenuPos] = useState<{
+        left: number;
+        width: number;
+        top?: number;
+        bottom?: number;
+        maxHeight: number;
+    } | null>(null);
+
+    const updateMenuPos = () => {
+        const el = triggerRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const margin = 8;
+        const spaceBelow = window.innerHeight - rect.bottom - margin;
+        const spaceAbove = rect.top - margin;
+        const openUp = spaceBelow < 240 && spaceAbove > spaceBelow;
+        setMenuPos({
+            left: rect.left,
+            width: rect.width,
+            ...(openUp
+                ? { bottom: window.innerHeight - rect.top + 4 }
+                : { top: rect.bottom + 4 }),
+            maxHeight: Math.max(160, (openUp ? spaceAbove : spaceBelow) - 4),
+        });
+    };
+
+    // Recompute placement when the menu opens, and keep it pinned to the trigger
+    // while scrolling/resizing (capture phase catches the panel's own scroll).
+    useLayoutEffect(() => {
+        if (!open) { setMenuPos(null); return; }
+        updateMenuPos();
+        window.addEventListener('scroll', updateMenuPos, true);
+        window.addEventListener('resize', updateMenuPos);
+        return () => {
+            window.removeEventListener('scroll', updateMenuPos, true);
+            window.removeEventListener('resize', updateMenuPos);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
 
     const availablePresets = options && options.length
         ? PRESETS.filter(p => options.includes(p.value))
@@ -126,7 +173,9 @@ export function AspectRatioPicker({
     useEffect(() => {
         if (!open) return;
         const handler = (e: MouseEvent) => {
-            if (!containerRef.current?.contains(e.target as Node)) {
+            const target = e.target as Node;
+            // The menu is portaled outside containerRef, so check both.
+            if (!containerRef.current?.contains(target) && !dropdownRef.current?.contains(target)) {
                 setOpen(false);
             }
         };
@@ -177,6 +226,7 @@ export function AspectRatioPicker({
             )}
 
             <button
+                ref={triggerRef}
                 type="button"
                 onClick={() => setOpen(o => !o)}
                 className={cn(
@@ -199,8 +249,22 @@ export function AspectRatioPicker({
                 )} />
             </button>
 
-            {open && (
-                <div className="absolute z-50 left-0 right-0 mt-1 bg-surface-primary/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-2 animate-in fade-in slide-in-from-top-2 duration-150 max-h-[60vh] overflow-y-auto custom-scrollbar">
+            {open && menuPos && createPortal(
+                <div
+                    ref={dropdownRef}
+                    style={{
+                        position: 'fixed',
+                        left: menuPos.left,
+                        width: menuPos.width,
+                        top: menuPos.top,
+                        bottom: menuPos.bottom,
+                        maxHeight: menuPos.maxHeight,
+                    }}
+                    className={cn(
+                        "z-[100001] bg-surface-primary/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-2 overflow-y-auto custom-scrollbar animate-in fade-in duration-150",
+                        menuPos.bottom !== undefined ? "slide-in-from-bottom-2" : "slide-in-from-top-2"
+                    )}
+                >
                     <div className="grid grid-cols-2 gap-1">
                         {availablePresets.map(preset => {
                             const isActive = !showCustom && value === preset.value;
@@ -238,7 +302,8 @@ export function AspectRatioPicker({
                     >
                         Custom Ratio →
                     </button>
-                </div>
+                </div>,
+                document.body
             )}
 
             {showCustom && (
