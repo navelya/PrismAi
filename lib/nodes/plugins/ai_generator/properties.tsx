@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { Eye, EyeOff, Play, Coins, Link2 } from 'lucide-react';
+import { Eye, EyeOff, Play, Coins } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { NumberInput } from '@/components/ui/NumberInput';
@@ -17,11 +17,12 @@ import { AiModel, Control, isSeedControl } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
 import { DescriptionHint } from '@/components/ui/DescriptionHint';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { computeAiNodeCost, clampIterations } from '@/lib/billing/cost';
+import { computeAiNodeCost, clampIterations, computeModelMenuCost, formatCredits } from '@/lib/billing/cost';
 import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { VoicePickerControl } from './VoicePickerControl';
+import { useModelPreview } from '@/components/editor/ModelPreview';
 
 // =============================================================================
 // SKELETON LOADER
@@ -89,6 +90,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     // Pre-flight wiring validation for a solo run of this node — same source as
     // the node-card Run button. Empty when there's no real node (admin model
     // edit passes no nodeId), so the button stays enabled in those contexts.
+    const modelPreview = useModelPreview();
     const runErrors = useNodeRunValidation(nodeId);
     const cannotRun = runErrors.length > 0;
     const runErrorText = cannotRun ? runErrors.map(formatValidationError).join(' · ') : '';
@@ -169,6 +171,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
 
     return (
         <div className="flex-1 flex flex-col min-h-0 animate-in fade-in duration-300 overflow-hidden">
+            {modelPreview.overlay}
             {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pt-3 pb-3 space-y-3">
                 {/* Model Selection */}
@@ -177,17 +180,21 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                         label="Model"
                         value={config.model_id?.toString() || ''}
                         onChange={(e) => handleModelChange(e.target.value)}
-                        options={filteredModels.filter(m => m.is_active).map(m => ({
-                            id: m.id.toString(),
-                            display_name: m.display_name,
-                            icon_url: m.providers?.logo_url ?? undefined,
-                            meta: (
-                                <span className="inline-flex items-center gap-0.5 text-[10px] font-mono tabular-nums text-content-tertiary">
-                                    <Link2 className="w-3 h-3 -rotate-45 opacity-70" />
-                                    {m.credit_cost}
-                                </span>
-                            ),
-                        }))}
+                        options={filteredModels.filter(m => m.is_active).map(m => {
+                            const cost = computeModelMenuCost(m);
+                            return {
+                                id: m.id.toString(),
+                                display_name: m.display_name,
+                                icon_url: m.providers?.logo_url ?? undefined,
+                                ...modelPreview.bind(m),
+                                meta: (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium tabular-nums text-content-secondary">
+                                        <Coins className="w-3.5 h-3.5 text-accent-primary/80" />
+                                        {formatCredits(cost.credits)}{cost.perSecond ? '/s' : ''}
+                                    </span>
+                                ),
+                            };
+                        })}
                         placeholder="Select a model..."
                         variant="minimal"
                     />

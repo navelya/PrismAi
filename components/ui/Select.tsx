@@ -18,6 +18,9 @@ export interface SelectOption {
     meta?: React.ReactNode;
     /** Disabled options can't be selected; their label dims and the cursor turns not-allowed. */
     disabled?: boolean;
+    /** Optional hover handlers (e.g. to drive a hover-preview card next to the row). */
+    onMouseEnter?: (e: React.MouseEvent) => void;
+    onMouseLeave?: () => void;
 }
 
 interface SelectProps {
@@ -115,6 +118,8 @@ export function Select({
                                 key={opt.id}
                                 value={opt.id}
                                 disabled={opt.disabled}
+                                onMouseEnter={opt.onMouseEnter}
+                                onMouseLeave={opt.onMouseLeave}
                                 className={cn(
                                     'relative w-full px-2 py-1.5 text-left rounded-lg cursor-pointer',
                                     'flex items-center gap-2 outline-none select-none transition-colors',
