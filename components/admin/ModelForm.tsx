@@ -228,6 +228,7 @@ export function ModelForm({
         credit_cost: initialData?.credit_cost || 0,
         is_per_second: initialData?.is_per_second ?? false,
         is_active: initialData?.is_active ?? true,
+        is_done: initialData?.is_done ?? false,
         archetype_id: initialData?.archetype_id || '',
         provider_id: initialData?.provider_id || '',
         provider_model_id: initialData?.provider_model_id || '',
@@ -267,6 +268,7 @@ export function ModelForm({
                 credit_cost: initialData.credit_cost || 0,
                 is_per_second: initialData.is_per_second ?? false,
                 is_active: initialData.is_active ?? true,
+                is_done: initialData.is_done ?? false,
                 archetype_id: initialData.archetype_id || '',
                 provider_id: initialData.provider_id || '',
                 provider_model_id: initialData.provider_model_id || '',
@@ -755,6 +757,20 @@ export function ModelForm({
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Done marker — prominent at the top. Internal admin bookkeeping
+                flag only (independent of Is Active; no runtime effect). */}
+            <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-white/5 border border-white/10">
+                <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-tight text-content-primary">Done</p>
+                    <p className="text-[11px] text-content-tertiary leading-snug">Mark this model as finished/configured. Internal organization only — doesn&apos;t affect visibility or behavior.</p>
+                </div>
+                <Switch
+                    label={form.is_done ? 'Done' : 'Not done'}
+                    checked={form.is_done}
+                    onCheckedChange={(checked) => setForm(prev => ({ ...prev, is_done: checked }))}
+                />
+            </div>
+
             <FormSection
                 title="Model Identification"
                 description="How this model appears across the app. Provider slugs live in the Providers section below."

@@ -22,6 +22,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             archetype_id,
             credit_cost,
             is_active,
+            is_done,
             inputs_schema,
             outputs_schema,
             provider_id,
@@ -32,25 +33,31 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             provider_bindings
         } = body;
 
+        // Build the update from ONLY the fields the client actually sent, so a
+        // partial PATCH (e.g. the management "Done" toggle sending just
+        // { is_done }) never clobbers inputs_schema / bindings / other columns.
+        const update: Record<string, any> = { updated_at: new Date().toISOString() };
+        if (replicate_model_id !== undefined) update.replicate_model_id = replicate_model_id;
+        if (display_name !== undefined) update.display_name = display_name;
+        if (category_id !== undefined) update.category_id = category_id;
+        if (node_type_id !== undefined) update.node_type_id = node_type_id;
+        if (archetype_id !== undefined) update.archetype_id = archetype_id;
+        if (credit_cost !== undefined) update.credit_cost = Number(credit_cost);
+        if (is_active !== undefined) update.is_active = is_active;
+        if (is_done !== undefined) update.is_done = is_done;
+        if (provider_id !== undefined) update.provider_id = provider_id;
+        if (provider_model_id !== undefined) update.provider_model_id = provider_model_id || null;
+        if (inputs_schema !== undefined || description !== undefined) {
+            update.inputs_schema = {
+                ...(inputs_schema || {}),
+                description: description || inputs_schema?.description || ''
+            };
+        }
+        if (outputs_schema !== undefined) update.outputs_schema = outputs_schema;
+
         const { data, error } = await auth.supabase
             .from('ai_models')
-            .update({
-                replicate_model_id,
-                display_name,
-                category_id,
-                node_type_id,
-                archetype_id,
-                credit_cost: credit_cost !== undefined ? Number(credit_cost) : undefined,
-                is_active,
-                inputs_schema: {
-                    ...(inputs_schema || {}),
-                    description: description || inputs_schema?.description || ''
-                },
-                outputs_schema: outputs_schema || { handles: [] },
-                provider_id,
-                provider_model_id: provider_model_id || null,
-                updated_at: new Date().toISOString()
-            })
+            .update(update)
             .eq('id', id)
             .select()
             .single();
@@ -63,7 +70,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         // (replace-all); legacy clients keep the single-row mirror.
         if (Array.isArray(provider_bindings)) {
             await reconcileModelProviderBindings(auth.supabase, data.id, provider_bindings);
-        } else {
+        } else if (provider_id !== undefined || replicate_model_id !== undefined || provider_model_id !== undefined) {
+            // Only re-mirror when provider-related fields were actually sent —
+            // a partial PATCH (e.g. the "Done" toggle) must not touch bindings.
             await mirrorModelProviderBinding(auth.supabase, data);
         }
 

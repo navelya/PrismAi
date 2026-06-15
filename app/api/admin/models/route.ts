@@ -21,6 +21,7 @@ export async function POST(req: Request) {
             archetype_id,
             credit_cost,
             is_active,
+            is_done,
             inputs_schema,
             outputs_schema,
             provider_id,
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
                 archetype_id,
                 credit_cost: credit_cost || 0,
                 is_active: is_active ?? true,
+                is_done: is_done ?? false,
                 inputs_schema: { 
                     ...(inputs_schema || { handles: [], controls: [] }),
                     description: description || inputs_schema?.description || ''

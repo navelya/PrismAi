@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { modelsAdminApi } from '@/lib/api/admin';
 import { Select } from '@/components/ui/Select';
+import { Switch } from '@/components/ui/Switch';
 import { Input } from '@/components/ui/Input';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { formatDisplayName, parseIconName } from '@/lib/utils/schema-parser';
@@ -555,6 +556,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [activeFilter, setActiveFilter] = useState('all');
+    const [doneFilter, setDoneFilter] = useState('all');
 
     // Selection/Edit State
     const [editingModel, setEditingModel] = useState<any | null>(null);
@@ -646,6 +648,19 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
             setStatus({ type: 'error', message: err.message || 'Failed to process AI Model.' });
         } finally {
             setModelSubmitting(false);
+        }
+    };
+
+    // Inline "done" toggle from the management list — sends a partial PATCH so
+    // it never touches the model's schema/bindings. Optimistic, with rollback.
+    const handleToggleDone = async (model: any) => {
+        const next = !model.is_done;
+        setAllModels(prev => prev.map(m => (m.id === model.id ? { ...m, is_done: next } : m)));
+        try {
+            await modelsAdminApi.updateModel(model.id, { is_done: next });
+        } catch (err: any) {
+            setAllModels(prev => prev.map(m => (m.id === model.id ? { ...m, is_done: model.is_done } : m)));
+            setStatus({ type: 'error', message: err.message || 'Failed to update done status.' });
         }
     };
 
@@ -905,6 +920,16 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             ]}
                                             onChange={e => setActiveFilter(e.target.value)}
                                         />
+                                        <Select
+                                            value={doneFilter}
+                                            className="min-w-[150px]"
+                                            options={[
+                                                { id: 'all', display_name: 'All (Done & Not)' },
+                                                { id: 'done', display_name: 'Done' },
+                                                { id: 'not_done', display_name: 'Not Done' }
+                                            ]}
+                                            onChange={e => setDoneFilter(e.target.value)}
+                                        />
                                     </div>
                                 </div>
 
@@ -915,7 +940,8 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             const matchesSearch = m.display_name.toLowerCase().includes(searchQuery.toLowerCase()) || m.replicate_model_id.toLowerCase().includes(searchQuery.toLowerCase());
                                             const matchesCat = categoryFilter === 'all' || m.category_id === categoryFilter;
                                             const matchesActive = activeFilter === 'all' || (activeFilter === 'active' ? m.is_active : !m.is_active);
-                                            return matchesSearch && matchesCat && matchesActive;
+                                            const matchesDone = doneFilter === 'all' || (doneFilter === 'done' ? !!m.is_done : !m.is_done);
+                                            return matchesSearch && matchesCat && matchesActive && matchesDone;
                                         })
                                         .map(model => {
                                             const provider = providers.find(p => p.id === model.provider_id);
@@ -974,6 +1000,17 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                     </div>
 
                                                     <div className="flex items-center gap-3">
+                                                        <div
+                                                            className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-xl"
+                                                            title="Internal admin marker — does not affect visibility or behavior"
+                                                        >
+                                                            <Switch
+                                                                size="sm"
+                                                                label="Done"
+                                                                checked={!!model.is_done}
+                                                                onCheckedChange={() => handleToggleDone(model)}
+                                                            />
+                                                        </div>
                                                         <button
                                                             onClick={() => {
                                                                 const blob = new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' });
