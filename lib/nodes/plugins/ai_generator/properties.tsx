@@ -180,6 +180,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                         label="Model"
                         value={config.model_id?.toString() || ''}
                         onChange={(e) => handleModelChange(e.target.value)}
+                        onOpenChange={(open) => { if (!open) modelPreview.hide(); }}
                         options={filteredModels.filter(m => m.is_active).map(m => {
                             const cost = computeModelMenuCost(m);
                             return {
