@@ -1,9 +1,42 @@
 import crypto from 'crypto';
-import { AsyncProviderAdapter, ErrorClass, ProviderPollResult } from './types';
+import { AsyncProviderAdapter, ErrorClass, ProviderAdapterModel, ProviderPollResult } from './types';
 
 const FAL_QUEUE = 'https://queue.fal.run';
 const FAL_REST = 'https://api.fal.ai/v1';
 const FAL_JWKS_URL = 'https://rest.fal.ai/.well-known/jwks.json';
+
+/**
+ * FAL names its image inputs `image_urls` (multi) or `image_url` (single), but the
+ * app's canonical input-handle key is `image_input` — what every other provider's
+ * models use, and what the engine special-cases for the shared multi-image slot.
+ * We rename FAL → canonical when importing a schema, and canonical → FAL when
+ * submitting a request, so a model fetched from FAL behaves like every other model
+ * while still sending FAL the field name it expects. Other keys pass through as-is.
+ */
+const FAL_INPUT_ALIASES: Record<string, string> = {
+  image_urls: 'image_input',
+  image_url: 'image_input',
+};
+
+/**
+ * Reverse the alias for an outgoing request: canonical `image_input` → the FAL key.
+ * The singular/plural choice is driven by the model's `image_input` handle being an
+ * array (→ `image_urls`) or not (→ `image_url`); when the schema is unavailable we
+ * fall back to the runtime value shape. No-op when there's no `image_input` input,
+ * and we never overwrite a FAL key that's already present.
+ */
+function mapInputsForFal(model: ProviderAdapterModel, inputs: Record<string, any>): Record<string, any> {
+  if (!inputs || !('image_input' in inputs)) return inputs;
+  const handles = model?.inputs_schema?.handles;
+  const handle = Array.isArray(handles)
+    ? handles.find((h: any) => h?.api_mapping_key === 'image_input')
+    : undefined;
+  const isArray = handle ? Boolean(handle.is_array) : Array.isArray(inputs.image_input);
+  const falKey = isArray ? 'image_urls' : 'image_url';
+  if (falKey in inputs) return inputs; // legacy schema already uses the FAL key — leave it.
+  const { image_input, ...rest } = inputs;
+  return { ...rest, [falKey]: image_input };
+}
 
 function falHeaders(): Record<string, string> {
   const key = process.env.FAL_KEY;
@@ -41,7 +74,7 @@ export const falAsyncAdapter: AsyncProviderAdapter = {
       res = await fetch(url, {
         method: 'POST',
         headers: falHeaders(),
-        body: JSON.stringify(inputs ?? {}),
+        body: JSON.stringify(mapInputsForFal(model, inputs ?? {})),
         signal: AbortSignal.timeout(30_000),
       });
     } catch (err) {
@@ -185,10 +218,21 @@ function normalizeFalOpenApi(doc: any): any {
   if (!rawInput?.properties) throw new Error('FAL schema: could not locate the Input schema');
 
   const normProps: Record<string, any> = {};
+  const required: string[] = [...(rawInput.required || [])];
   for (const [key, rawProp] of Object.entries<any>(rawInput.properties)) {
-    normProps[key] = normalizeFalProp(key, rawProp);
+    // Rename FAL's image_urls/image_url to the canonical image_input. Pass the
+    // ORIGINAL key to normalizeFalProp so its file-input detection (which matches
+    // on names like *image*url*) still tags the prop as a uri input. Don't clobber
+    // a real existing canonical prop on the rare model that has both.
+    const aliased = FAL_INPUT_ALIASES[key];
+    const targetKey = aliased && !rawInput.properties[aliased] ? aliased : key;
+    normProps[targetKey] = normalizeFalProp(key, rawProp);
+    if (targetKey !== key) {
+      const i = required.indexOf(key);
+      if (i >= 0) required[i] = targetKey;
+    }
   }
-  schemas.Input = { type: 'object', required: rawInput.required || [], properties: normProps };
+  schemas.Input = { type: 'object', required, properties: normProps };
 
   const outputName = Object.keys(schemas).find((k) => k.endsWith('Output'));
   if (outputName) schemas.Output = schemas[outputName];
