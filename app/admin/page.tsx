@@ -557,6 +557,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [activeFilter, setActiveFilter] = useState('all');
     const [doneFilter, setDoneFilter] = useState('all');
+    const [providerFilter, setProviderFilter] = useState('all');
 
     // Selection/Edit State
     const [editingModel, setEditingModel] = useState<any | null>(null);
@@ -889,7 +890,20 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                         )}
 
                         {/* Management View */}
-                        {activeTab === 'management' && !editingModel && (
+                        {activeTab === 'management' && !editingModel && (() => {
+                            const providerCounts = new Map<string, number>();
+                            allModels.forEach(m => {
+                                if (m.provider_id) providerCounts.set(m.provider_id, (providerCounts.get(m.provider_id) ?? 0) + 1);
+                            });
+                            const filteredModels = allModels.filter(m => {
+                                const matchesSearch = m.display_name.toLowerCase().includes(searchQuery.toLowerCase()) || m.replicate_model_id.toLowerCase().includes(searchQuery.toLowerCase());
+                                const matchesCat = categoryFilter === 'all' || m.category_id === categoryFilter;
+                                const matchesActive = activeFilter === 'all' || (activeFilter === 'active' ? m.is_active : !m.is_active);
+                                const matchesDone = doneFilter === 'all' || (doneFilter === 'done' ? !!m.is_done : !m.is_done);
+                                const matchesProvider = providerFilter === 'all' || m.provider_id === providerFilter;
+                                return matchesSearch && matchesCat && matchesActive && matchesDone && matchesProvider;
+                            });
+                            return (
                             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 {/* Filters */}
                                 <div className="flex flex-col md:flex-row gap-4 bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-md shadow-xl">
@@ -930,19 +944,31 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             ]}
                                             onChange={e => setDoneFilter(e.target.value)}
                                         />
+                                        <Select
+                                            value={providerFilter}
+                                            className="min-w-[170px]"
+                                            options={[
+                                                { id: 'all', display_name: `All Providers (${allModels.length})` },
+                                                ...providers.map((p: any) => ({
+                                                    id: p.id,
+                                                    display_name: `${p.name} (${providerCounts.get(p.id) ?? 0})`,
+                                                    icon_url: p.logo_url || null,
+                                                })),
+                                            ]}
+                                            onChange={e => setProviderFilter(e.target.value)}
+                                        />
                                     </div>
                                 </div>
 
+                                {/* Result count */}
+                                <p className="px-1 text-[10px] font-black uppercase tracking-widest text-content-tertiary">
+                                    {filteredModels.length} {filteredModels.length === 1 ? 'Model' : 'Models'}
+                                    <span className="opacity-50"> / {allModels.length} total</span>
+                                </p>
+
                                 {/* Models Grid */}
                                 <div className="grid grid-cols-1 gap-4">
-                                    {allModels
-                                        .filter(m => {
-                                            const matchesSearch = m.display_name.toLowerCase().includes(searchQuery.toLowerCase()) || m.replicate_model_id.toLowerCase().includes(searchQuery.toLowerCase());
-                                            const matchesCat = categoryFilter === 'all' || m.category_id === categoryFilter;
-                                            const matchesActive = activeFilter === 'all' || (activeFilter === 'active' ? m.is_active : !m.is_active);
-                                            const matchesDone = doneFilter === 'all' || (doneFilter === 'done' ? !!m.is_done : !m.is_done);
-                                            return matchesSearch && matchesCat && matchesActive && matchesDone;
-                                        })
+                                    {filteredModels
                                         .map(model => {
                                             const provider = providers.find(p => p.id === model.provider_id);
                                             const subCategory = nodeTypes.find(t => t.id === model.node_type_id);
@@ -1042,14 +1068,17 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             );
                                         })
                                     }
-                                    {allModels.length === 0 && (
+                                    {filteredModels.length === 0 && (
                                         <div className="text-center py-20 bg-white/5 rounded-3xl border border-dashed border-white/10">
-                                            <p className="text-content-tertiary text-xs font-bold uppercase tracking-widest">No models found in the database.</p>
+                                            <p className="text-content-tertiary text-xs font-bold uppercase tracking-widest">
+                                                {allModels.length === 0 ? 'No models found in the database.' : 'No models match the current filters.'}
+                                            </p>
                                         </div>
                                     )}
                                 </div>
                             </div>
-                        )}
+                            );
+                        })()}
 
                         {/* Edit Mode */}
                         {editingModel && activeTab === 'management' && (
