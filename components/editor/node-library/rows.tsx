@@ -3,6 +3,7 @@ import React from 'react';
 import { ChevronRight, Building2 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { NodeTypeRecord, Category, AiModel } from '@/lib/nodes/types';
+import { computeModelMenuCost, formatCredits } from '@/lib/billing/cost';
 
 type DragPayload = Record<string, unknown>;
 
@@ -134,10 +135,11 @@ export function ProviderRow({ id, provider, active, subtitle, onMouseEnter, onMo
 /** Two-line row whose subtitle is hidden by default and slides up from below
  *  on hover. The row's height is fixed by the icon chip (24 px) + padding,
  *  so revealing the subtitle never reflows neighbours. */
-function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDragPayload, onAdd }: {
+function RevealingRow({ name, subtitle, leftSlot, rightSlot, draggable, onDragStart, onDragPayload, onAdd }: {
     name: string;
     subtitle: string;
     leftSlot: React.ReactNode;
+    rightSlot?: React.ReactNode;
     draggable: boolean;
     onDragStart?: () => void;
     onDragPayload?: DragPayload;
@@ -153,7 +155,20 @@ function RevealingRow({ name, subtitle, leftSlot, draggable, onDragStart, onDrag
         >
             {leftSlot}
             <RevealingLabel name={name} subtitle={subtitle} />
+            {rightSlot}
         </div>
+    );
+}
+
+/** Compact credits badge shown at the end of a model row. Mirrors the cost chip
+ *  used in the properties panel / admin list (Link2 glyph + number, `/s` for
+ *  per-second video rates). */
+export function ModelCostBadge({ credits, perSecond }: { credits: number; perSecond: boolean }) {
+    return (
+        <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-mono tabular-nums text-content-tertiary group-hover:text-content-secondary transition-colors">
+            <Icons.Link2 className="w-3 h-3 -rotate-45 opacity-70" />
+            {formatCredits(credits)}{perSecond ? '/s' : ''}
+        </span>
     );
 }
 
@@ -215,6 +230,7 @@ export interface ModelItemRowProps {
 }
 
 export function ModelItemRow({ model, provider, onDragStart, onAdd }: ModelItemRowProps) {
+    const cost = computeModelMenuCost(model);
     return (
         <RevealingRow
             name={model.display_name}
@@ -230,6 +246,7 @@ export function ModelItemRow({ model, provider, onDragStart, onAdd }: ModelItemR
                         : <Icons.Box className={ICON_CLASS} />}
                 </div>
             }
+            rightSlot={<ModelCostBadge credits={cost.credits} perSecond={cost.perSecond} />}
         />
     );
 }

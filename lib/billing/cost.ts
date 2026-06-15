@@ -145,6 +145,55 @@ export function computeAiNodeCost(
     return Math.max(0, total * multiplier);
 }
 
+/** api_mapping_keys that denote a video DURATION in seconds (for the per-second
+ *  menu estimate). Mirrors the multiplier auto-detect set, minus frame counts. */
+const DURATION_SECONDS_KEY_REGEX = /(^|_)(duration|length|seconds|num_seconds|video_length)(_|$)/i;
+
+/**
+ * The default credit cost to show next to a model in the picker menus (add-node
+ * panel + canvas context menu).
+ *
+ * - Image / non-temporal models → the plain default node cost (no suffix).
+ * - Video models → a PER-SECOND rate (shown with a `/s` suffix), so the duration's
+ *   default selection never inflates the headline number:
+ *     • a numeric `is_cost_multiplier` control (the app's standard duration/frames
+ *       knob): the cost with every multiplier forced to 1 — i.e. total ÷ seconds.
+ *     • a duration-in-seconds control rendered as a dropdown (e.g. 5 / 10): the
+ *       default total ÷ the default-selected seconds (30 / 5 = 6).
+ *     • an `is_per_second` model with no duration control: credit_cost is already
+ *       per-second, used as-is.
+ */
+export function computeModelMenuCost(
+    model: { credit_cost?: number | null; is_per_second?: boolean | null; inputs_schema?: AiModel['inputs_schema'] | null }
+): { credits: number; perSecond: boolean } {
+    const controls: Control[] = model.inputs_schema?.controls ?? [];
+    const fullCost = computeAiNodeCost(undefined, model);
+
+    // Case 1: explicit cost-multiplier control(s) — force each to 1 second/frame.
+    const multiplierControls = controls.filter(c => c.is_cost_multiplier === true);
+    if (multiplierControls.length > 0) {
+        const overrides: Record<string, any> = {};
+        for (const c of multiplierControls) overrides[c.api_mapping_key] = 1;
+        return { credits: computeAiNodeCost(overrides, model), perSecond: true };
+    }
+
+    // Case 2: a duration-in-seconds control (e.g. a 5 / 10 dropdown). Divide the
+    // default total by the default-selected number of seconds.
+    const durationCtrl = controls.find(c => DURATION_SECONDS_KEY_REGEX.test(c.api_mapping_key));
+    const durationSeconds = durationCtrl ? Number(durationCtrl.default_value) : NaN;
+    if (durationCtrl && Number.isFinite(durationSeconds) && durationSeconds >= 1) {
+        return { credits: fullCost / durationSeconds, perSecond: true };
+    }
+
+    // Case 3: per-second billing flag, no duration control — already per-second.
+    if (model.is_per_second) {
+        return { credits: fullCost, perSecond: true };
+    }
+
+    // Otherwise: image / non-temporal model.
+    return { credits: fullCost, perSecond: false };
+}
+
 export interface ExecutionCostResult {
     cost: number;
     generativeCount: number;
