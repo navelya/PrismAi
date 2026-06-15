@@ -18,6 +18,7 @@ import {
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { useCurrentUser } from '@/lib/hooks/use-current-user';
 import { computeModelMenuCost, formatCredits } from '@/lib/billing/cost';
+import { useModelPreview } from './ModelPreview';
 
 interface ContextMenuItem {
     id: string;
@@ -70,6 +71,7 @@ export default function CanvasContextMenu({
     const [selectedIndex, setSelectedIndex] = useState(0);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const modelPreview = useModelPreview();
 
     // No longer needs on-demand fetch here as it is pre-fetched by SharedWorkflowEditor
 
@@ -262,15 +264,18 @@ export default function CanvasContextMenu({
     const renderItem = (item: ContextMenuItem, index?: number) => {
         const isHighlightedByKbd = searchQuery && selectedIndex === index;
 
-        // For model items, show the default credit cost (per-second for video).
+        // For model items, show the default credit cost (per-second for video)
+        // and enable the hover-preview card.
         let costBadge: React.ReactNode = null;
+        let hoverProps: { onMouseEnter?: (e: React.MouseEvent) => void; onMouseLeave?: () => void } | undefined;
         if (item.item_type === 'ai_model') {
             const model = models?.find(m => m.id === parseInt(item.action_value || '0'));
             if (model) {
                 const cost = computeModelMenuCost(model);
+                hoverProps = modelPreview.bind(model);
                 costBadge = (
-                    <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-mono tabular-nums text-content-tertiary">
-                        <Icons.Link2 className="w-3 h-3 -rotate-45 opacity-70" />
+                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-mono font-medium tabular-nums text-content-secondary">
+                        <Icons.Coins className="w-3.5 h-3.5 text-accent-primary/80" />
                         {formatCredits(cost.credits)}{cost.perSecond ? '/s' : ''}
                     </span>
                 );
@@ -281,6 +286,7 @@ export default function CanvasContextMenu({
             <Item
                 key={item.id}
                 onSelect={() => handleNodeClick(item)}
+                {...hoverProps}
                 className={cn(
                     "w-full px-2 py-1.5 flex items-center justify-between gap-2 outline-none cursor-pointer rounded-md text-content-secondary",
                     "data-[highlighted]:bg-white/5 data-[highlighted]:text-content-primary",
@@ -441,6 +447,7 @@ export default function CanvasContextMenu({
                             )
                         )}
                     </div>
+                    {modelPreview.overlay}
                 </Content>
             </Portal>
         </Root>

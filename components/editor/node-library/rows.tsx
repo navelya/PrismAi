@@ -135,7 +135,7 @@ export function ProviderRow({ id, provider, active, subtitle, onMouseEnter, onMo
 /** Two-line row whose subtitle is hidden by default and slides up from below
  *  on hover. The row's height is fixed by the icon chip (24 px) + padding,
  *  so revealing the subtitle never reflows neighbours. */
-function RevealingRow({ name, subtitle, leftSlot, rightSlot, draggable, onDragStart, onDragPayload, onAdd }: {
+function RevealingRow({ name, subtitle, leftSlot, rightSlot, draggable, onDragStart, onDragPayload, onAdd, hoverProps }: {
     name: string;
     subtitle: string;
     leftSlot: React.ReactNode;
@@ -144,6 +144,7 @@ function RevealingRow({ name, subtitle, leftSlot, rightSlot, draggable, onDragSt
     onDragStart?: () => void;
     onDragPayload?: DragPayload;
     onAdd?: (payload: DragPayload) => void;
+    hoverProps?: { onMouseEnter?: (e: React.MouseEvent) => void; onMouseLeave?: () => void };
 }) {
     const clickable = !!(onAdd && onDragPayload);
     return (
@@ -151,6 +152,7 @@ function RevealingRow({ name, subtitle, leftSlot, rightSlot, draggable, onDragSt
             draggable={draggable}
             onDragStart={draggable && onDragPayload ? e => startDrag(e, onDragPayload, onDragStart) : undefined}
             onClick={clickable ? () => onAdd!(onDragPayload!) : undefined}
+            {...hoverProps}
             className={`${ROW_CLASS} ${clickable ? 'cursor-pointer' : draggable ? 'cursor-move' : ''}`}
         >
             {leftSlot}
@@ -165,8 +167,8 @@ function RevealingRow({ name, subtitle, leftSlot, rightSlot, draggable, onDragSt
  *  per-second video rates). */
 export function ModelCostBadge({ credits, perSecond }: { credits: number; perSecond: boolean }) {
     return (
-        <span className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-mono tabular-nums text-content-tertiary group-hover:text-content-secondary transition-colors">
-            <Icons.Link2 className="w-3 h-3 -rotate-45 opacity-70" />
+        <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-mono font-medium tabular-nums text-content-secondary group-hover:text-content-primary transition-colors">
+            <Icons.Coins className="w-3.5 h-3.5 text-accent-primary/80" />
             {formatCredits(credits)}{perSecond ? '/s' : ''}
         </span>
     );
@@ -227,9 +229,11 @@ export interface ModelItemRowProps {
     provider?: { name: string; logo_url: string | null } | null;
     onDragStart?: () => void;
     onAdd?: (payload: DragPayload) => void;
+    /** Hover-preview handlers from useModelPreview().bind(model). */
+    hoverProps?: { onMouseEnter?: (e: React.MouseEvent) => void; onMouseLeave?: () => void };
 }
 
-export function ModelItemRow({ model, provider, onDragStart, onAdd }: ModelItemRowProps) {
+export function ModelItemRow({ model, provider, onDragStart, onAdd, hoverProps }: ModelItemRowProps) {
     const cost = computeModelMenuCost(model);
     return (
         <RevealingRow
@@ -239,6 +243,7 @@ export function ModelItemRow({ model, provider, onDragStart, onAdd }: ModelItemR
             onDragStart={onDragStart}
             onAdd={onAdd}
             onDragPayload={{ type: 'ai_generator', node_type_id: model.node_type_id, model_id: model.id }}
+            hoverProps={hoverProps}
             leftSlot={
                 <div className={`${ICON_CHIP_CLASS} overflow-hidden p-1`}>
                     {provider?.logo_url

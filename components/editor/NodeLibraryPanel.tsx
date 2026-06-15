@@ -9,6 +9,7 @@ import type { NodeTypeRecord, AiModel, Category } from '@/lib/nodes/types';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { BasicsTile, CategoryRow, ProviderRow, NodeItemRow, ModelItemRow } from './node-library/rows';
 import NodeLibraryFlyout, { FlyoutMode, FLYOUT_MAX_HEIGHT } from './NodeLibraryFlyout';
+import { useModelPreview } from './ModelPreview';
 
 const HOVER_OPEN_MS = 60;
 const HOVER_CLOSE_MS = 160;
@@ -66,6 +67,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const categories = useAppStore(s => s.categories) as Category[];
     const nodeTypes = useAppStore(s => s.nodeTypes) as NodeTypeRecord[];
     const providers = useAppStore(s => s.providers) as ProviderRec[];
+    const modelPreview = useModelPreview();
     const models = useAppStore(s => s.models) as AiModel[];
     const fetchCategories = useAppStore(s => s.fetchCategories);
     const fetchNodeTypes = useAppStore(s => s.fetchNodeTypes);
@@ -240,6 +242,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
             onMouseLeave={scheduleClose}
             className="relative w-full h-full bg-surface-elevated/80 backdrop-blur-md border border-stroke-subtle rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         >
+            {modelPreview.overlay}
             {/* Search bar IS the header — close button sits next to it. */}
             <div className="flex items-center gap-2 px-2.5 py-2 border-b border-stroke-subtle/60" onMouseEnter={scheduleClose}>
                 <div className="relative flex-1">
@@ -310,7 +313,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                 <div className="space-y-0.5">
                                     {modelHits.map(m => {
                                         const provider = providers.find(p => p.id === String(m.provider_id));
-                                        return <ModelItemRow key={m.id} model={m} provider={provider} onDragStart={handleDragStartClose} onAdd={handleAdd} />;
+                                        return <ModelItemRow key={m.id} model={m} provider={provider} onDragStart={handleDragStartClose} onAdd={handleAdd} hoverProps={modelPreview.bind(m)} />;
                                     })}
                                 </div>
                             </section>

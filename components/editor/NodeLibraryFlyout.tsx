@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import * as Icons from 'lucide-react';
 import { NodeTypeRecord, AiModel } from '@/lib/nodes/types';
 import { NodeItemRow, ModelItemRow, ToolItemRow } from './node-library/rows';
+import { useModelPreview } from './ModelPreview';
 
 export type FlyoutMode =
     | { kind: 'category'; categoryName: string; items: NodeTypeRecord[] }
@@ -29,6 +30,7 @@ export const FLYOUT_MAX_HEIGHT = 320;
 export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseEnter, onMouseLeave, onDragStartClose, onAdd }: NodeLibraryFlyoutProps) {
     const isEmpty = mode.items.length === 0;
     const ref = React.useRef<HTMLDivElement>(null);
+    const modelPreview = useModelPreview();
     // Default: open next to the row, top-aligned (extends down). If the real
     // content height would overflow the viewport bottom, shift up so the
     // flyout's bottom sits at the viewport edge — still adjacent to the row,
@@ -74,10 +76,11 @@ export default function NodeLibraryFlyout({ mode, left, top, maxHeight, onMouseE
                 ) : (
                     mode.items.map(model => {
                         const provider = mode.providers.find(p => p.id === String(model.provider_id));
-                        return <ModelItemRow key={model.id} model={model} provider={provider} onDragStart={onDragStartClose} onAdd={onAdd} />;
+                        return <ModelItemRow key={model.id} model={model} provider={provider} onDragStart={onDragStartClose} onAdd={onAdd} hoverProps={modelPreview.bind(model)} />;
                     })
                 )}
             </div>
+            {modelPreview.overlay}
         </motion.div>
     );
 }
