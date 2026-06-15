@@ -12,9 +12,11 @@ interface NumberInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
     inputClassName?: string;
     hideArrows?: boolean;
     variant?: 'default' | 'minimal';
+    /** Optional node rendered next to the label (e.g. a description info icon). */
+    labelAccessory?: React.ReactNode;
 }
 
-export function NumberInput({ label, error, suffix, className, inputClassName, hideArrows = false, variant = 'default', ...props }: NumberInputProps) {
+export function NumberInput({ label, error, suffix, className, inputClassName, hideArrows = false, variant = 'default', labelAccessory, ...props }: NumberInputProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const defaultId = useId();
     const id = props.id || defaultId;
@@ -62,6 +64,7 @@ export function NumberInput({ label, error, suffix, className, inputClassName, h
                 >
                     {label}
                     {props.required && <span className="text-accent-primary leading-none">*</span>}
+                    {labelAccessory}
                 </RadixLabel.Root>
             )}
 

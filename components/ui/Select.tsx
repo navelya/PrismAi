@@ -32,6 +32,8 @@ interface SelectProps {
     placeholder?: string;
     required?: boolean;
     variant?: 'default' | 'minimal';
+    /** Optional node rendered next to the label (e.g. a description info icon). */
+    labelAccessory?: React.ReactNode;
     /**
      * Custom trigger element. When provided, replaces the built-in trigger entirely
      * (label/error chrome is also skipped). Must be a single React element that
@@ -76,6 +78,7 @@ export function Select({
     placeholder = 'Select option...',
     required = false,
     variant = 'default',
+    labelAccessory,
     triggerNode,
     open,
     onOpenChange,
@@ -177,6 +180,7 @@ export function Select({
                 )}>
                     {label}
                     {required && <span className="text-accent-primary leading-none">*</span>}
+                    {labelAccessory}
                 </label>
             )}
 

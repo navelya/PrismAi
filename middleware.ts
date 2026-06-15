@@ -89,7 +89,7 @@ export async function middleware(request: NextRequest) {
     const isProtectedPage = protectedPageRoutes.some(route => path.startsWith(route));
 
     // Define protected API routes (all /api/* except public ones)
-    const publicApiRoutes = ['/api/auth', '/api/image/generate', '/api/webhooks'];
+    const publicApiRoutes = ['/api/auth', '/api/image/generate', '/api/webhooks', '/api/marketing'];
     const isApiRoute = path.startsWith('/api/');
     const isPublicApi = publicApiRoutes.some(route => path.startsWith(route));
     const isProtectedApi = isApiRoute && !isPublicApi;

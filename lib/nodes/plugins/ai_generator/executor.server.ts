@@ -7,6 +7,7 @@ import { getAsyncAdapter } from '@/lib/ai/providers/async-registry';
 import { resolvePrimaryProvider, applyInputOverrides } from '@/lib/workflow/resolve-provider';
 import { buildCharacterFraming } from '@/lib/workflow/character-framing';
 import { isLocalUrl } from '@/lib/domains';
+import { isSeedControl } from '@/lib/nodes/types';
 
 /**
  * AI Generator Executor
@@ -101,9 +102,16 @@ export const aiGeneratorExecutor: NodeExecutor = async (config: any, input: any,
         };
 
         controls.forEach((ctrl: any) => {
+            // Seed control: an explicit per-node "Random" toggle (control_values.__seedRandom)
+            // decides whether to randomize. Default (undefined) = Random ON → omit the seed so
+            // the model randomizes every run/iteration. Only when Random is OFF (=== false) do
+            // we fall through and send the pinned value below.
+            if (isSeedControl(ctrl) && control_values?.__seedRandom !== false) {
+                return;
+            }
             const val = control_values?.[ctrl.api_mapping_key] ?? ctrl.default_value;
-            // null is treated the same as undefined/'' — an auto/random seed resolves to
-            // null and must be omitted so the model randomizes. Sending null is never intended.
+            // null is treated the same as undefined/'' — an unset seed must be omitted so the
+            // model randomizes. Sending null is never intended.
             if (val !== undefined && val !== '' && val !== null) {
                 replicateInputs[ctrl.api_mapping_key] = val;
             }

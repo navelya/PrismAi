@@ -252,7 +252,8 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
             type: h.type,
             is_array: h.is_array,
-            isMandatory: h.is_mandatory
+            isMandatory: h.is_mandatory,
+            description: h.description
         }));
 
     const customOutputs = outputHandles
@@ -262,7 +263,8 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
             label: h.name,
             color: WIRE_TYPE_COLORS[h.type] || WIRE_TYPE_COLORS.any,
             type: h.type,
-            is_array: h.is_array
+            is_array: h.is_array,
+            description: h.description
         }));
 
     // Find the first valid output to preview (if multiple)

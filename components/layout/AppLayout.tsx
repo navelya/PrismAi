@@ -70,7 +70,7 @@ export default function AppLayout({ children, hostClass }: AppLayoutProps) {
     const isAppRootChat = hostClass === 'app' && pathname === '/';
 
     // Hide sidebar on home page, login page, demo page, legal pages, billing landing pages, and checkout
-    const isPublicPage = !isAppRootChat && (pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname === '/pricing' || pathname.startsWith('/legal') || pathname.startsWith('/billing') || pathname.startsWith('/checkout'));
+    const isPublicPage = !isAppRootChat && (pathname === '/' || pathname === '/login' || pathname === '/demo' || pathname === '/pricing' || pathname.startsWith('/legal') || pathname.startsWith('/blog') || pathname.startsWith('/roadmap') || pathname.startsWith('/billing') || pathname.startsWith('/checkout'));
 
     // Lock the mobile viewport on internal app pages so the browser chrome stays put.
     // Public pages keep normal scroll behavior.

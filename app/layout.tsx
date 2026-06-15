@@ -42,8 +42,9 @@ export const viewport = {
 const buildThemeScript = (isAppHost: boolean) => `
 (function() {
   try {
-    const isHome = ${isAppHost ? 'false' : "window.location.pathname === '/'"};
-    if (isHome) {
+    var p = window.location.pathname;
+    var isMarketing = ${isAppHost ? 'false' : "(p === '/' || p.indexOf('/legal') === 0 || p.indexOf('/blog') === 0 || p.indexOf('/roadmap') === 0 || p === '/pricing' || p === '/demo')"};
+    if (isMarketing) {
       document.documentElement.setAttribute('data-theme', 'midnight-slate');
       document.documentElement.classList.add('dark');
       return;
@@ -73,7 +74,7 @@ const buildViewportLockScript = (isAppHost: boolean) => `
 (function() {
   try {
     var path = window.location.pathname;
-    var isPublic = ${isAppHost ? 'false' : "path === '/'"} || path === '/login' || path === '/demo' || path === '/pricing' || path.indexOf('/legal') === 0;
+    var isPublic = ${isAppHost ? 'false' : "path === '/'"} || path === '/login' || path === '/demo' || path === '/pricing' || path.indexOf('/legal') === 0 || path.indexOf('/blog') === 0 || path.indexOf('/roadmap') === 0;
     var isMobile = window.matchMedia('(max-width: 767px)').matches;
     if (!isPublic && isMobile) {
       document.documentElement.classList.add('app-locked');

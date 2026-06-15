@@ -535,8 +535,8 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
     // View State
     const initialTab = searchParams.get('tab') as any;
     const [activeTab, setActiveTab] = useState<'models' | 'nodes' | 'providers' | 'management' | 'menu_builder'>(
-        (initialTab && ['models', 'nodes', 'providers', 'management', 'menu_builder'].includes(initialTab)) 
-        ? initialTab 
+        (initialTab && ['models', 'nodes', 'providers', 'management', 'menu_builder'].includes(initialTab))
+        ? initialTab
         : 'models'
     );
 

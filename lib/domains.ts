@@ -40,7 +40,7 @@ const APP_ROUTE_PREFIXES = [
 
 // Marketing-only route prefixes (canonical home = marketing host). '/' is
 // handled by exact match in isMarketingRoute so it doesn't swallow every path.
-const MARKETING_ROUTE_PREFIXES = ['/legal', '/pricing', '/demo'];
+const MARKETING_ROUTE_PREFIXES = ['/legal', '/pricing', '/demo', '/blog', '/roadmap'];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(prefix + '/');

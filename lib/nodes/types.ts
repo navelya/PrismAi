@@ -16,6 +16,9 @@ export interface InputHandle {
     /** For array-capable handles (is_array), the max number of edges/items that
      *  may connect. Enforced at connection time. Omitted/0 = unlimited. */
     max_items?: number;
+    /** Inline admin-authored help text shown to end users as a hover tooltip on
+     *  the handle label. Empty/absent = no tooltip. */
+    description?: string;
 }
 
 export interface OutputHandle {
@@ -24,6 +27,8 @@ export interface OutputHandle {
     type: string;
     is_array: boolean;
     is_visible: boolean;
+    /** See InputHandle.description. */
+    description?: string;
 }
 
 export interface Control {
@@ -43,6 +48,9 @@ export interface Control {
     cost_per_unit?: number;
     /** When true on a numeric control, multiplies the total node cost by this control's value (e.g. video duration). */
     is_cost_multiplier?: boolean;
+    /** Inline admin-authored help text shown to end users as a small ⓘ info icon
+     *  + hover tooltip next to the control's label. Empty/absent = no icon. */
+    description?: string;
 }
 
 export interface InputsSchema {

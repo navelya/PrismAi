@@ -8,9 +8,11 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
     label?: string;
     error?: string;
     variant?: 'default' | 'minimal';
+    /** Optional node rendered next to the label (e.g. a description info icon). */
+    labelAccessory?: React.ReactNode;
 }
 
-export function Input({ label, error, className, variant = 'default', ...props }: InputProps) {
+export function Input({ label, error, className, variant = 'default', labelAccessory, ...props }: InputProps) {
     const defaultId = useId();
     const id = props.id || defaultId;
     const isMinimal = variant === 'minimal';
@@ -27,6 +29,7 @@ export function Input({ label, error, className, variant = 'default', ...props }
                 >
                     {label}
                     {props.required && <span className="text-accent-primary leading-none">*</span>}
+                    {labelAccessory}
                 </RadixLabel.Root>
             )}
             <input

@@ -169,8 +169,8 @@ export interface BaseNodeProps extends React.HTMLAttributes<HTMLDivElement> {
     // Handle controls
     renderInputs?: boolean;
     renderOutput?: boolean;
-    customInputs?: Array<{ id: string; label: string; color: string; type?: string | string[]; is_array?: boolean; isMandatory?: boolean }>;
-    customOutputs?: Array<{ id: string; label: string; color: string; type?: string | string[]; is_array?: boolean; isMandatory?: boolean }>;
+    customInputs?: Array<{ id: string; label: string; color: string; type?: string | string[]; is_array?: boolean; isMandatory?: boolean; description?: string }>;
+    customOutputs?: Array<{ id: string; label: string; color: string; type?: string | string[]; is_array?: boolean; isMandatory?: boolean; description?: string }>;
     // Additional styling
     contentClassName?: string;
     badgeCount?: number;
@@ -583,6 +583,10 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
     const nodeColor = metadata?.color || 'rgb(var(--accent-primary))';
     const displayLabel = label || metadata?.label || 'Node';
 
+    // Inline handle descriptions drive the hover tooltips. Only ai_generator
+    // handles carry a `description`; other node types have none → no tooltip.
+    const handleDescPopupClass = "whitespace-normal max-w-[15rem] py-1.5 leading-snug normal-case tracking-normal font-medium text-[10px]";
+
     // Labels
     const defaultInputLabel = sharedDef?.handles?.inputs?.[0]?.label;
     const defaultOutputLabel = sharedDef?.handles?.outputs?.[0]?.label;
@@ -937,6 +941,8 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                     <HandleDot type={inputType} open={open} delay={delay} highlight={isMissing} side="left" />
                                     {input.label && (() => {
                                         const isErrorState = !hideStatus && status === 'error' && isMissing;
+                                        const descBody = (input as any).description || undefined;
+                                        const labelText = `${input.label}${(input as any).isMandatory ? ' *' : ''}`;
 
                                         return (
                                             <div
@@ -944,13 +950,21 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                                     // Inline beside the dot, outward to the left, vertically
                                                     // centered on its row and right-aligned so it reads INTO
                                                     // the node. mr clears the expanded+drifted chip.
-                                                    "absolute right-full top-1/2 -translate-y-1/2 mr-6 text-right whitespace-nowrap text-[11px] font-semibold pointer-events-none transition-all duration-150 ease-out drop-shadow-md z-[70]",
+                                                    "absolute right-full top-1/2 -translate-y-1/2 mr-6 text-right whitespace-nowrap text-[11px] font-semibold transition-all duration-150 ease-out drop-shadow-md z-[70]",
+                                                    // Enable pointer events only when there's a description to
+                                                    // reveal, so the rest of the canvas keeps its drag behavior.
+                                                    descBody ? "pointer-events-auto" : "pointer-events-none",
                                                     open ? "opacity-100" : "opacity-0",
                                                     isErrorState ? "text-accent-error font-bold" : "text-content-primary"
                                                 )}
                                                 style={{ transitionDelay: `${delay}ms` }}
                                             >
-                                                {input.label}{(input as any).isMandatory ? ' *' : ''}
+                                                {descBody ? (
+                                                    // Tooltip points toward the node (to the RIGHT of the label).
+                                                    <Tooltip content={descBody} position="right" delay={120} className="inline-flex cursor-help" popupClassName={handleDescPopupClass}>
+                                                        <span>{labelText}</span>
+                                                    </Tooltip>
+                                                ) : labelText}
                                             </div>
                                         );
                                     })()}
@@ -1059,17 +1073,28 @@ const BaseNode = React.forwardRef<HTMLDivElement, BaseNodeProps>(({
                                 }}
                             >
                                 <HandleDot type={outputType} open={open} delay={delay} side="right" />
-                                <div
-                                    className={cn(
-                                        // Inline beside the dot, outward to the right, vertically
-                                        // centered and left-aligned. ml clears the expanded+drifted chip.
-                                        "absolute left-full top-1/2 -translate-y-1/2 ml-6 text-left whitespace-nowrap text-[11px] font-semibold pointer-events-none transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
-                                        open ? "opacity-100" : "opacity-0"
-                                    )}
-                                    style={{ transitionDelay: `${delay}ms` }}
-                                >
-                                    {output.label}
-                                </div>
+                                {(() => {
+                                    const descBody = (output as any).description || undefined;
+                                    return (
+                                        <div
+                                            className={cn(
+                                                // Inline beside the dot, outward to the right, vertically
+                                                // centered and left-aligned. ml clears the expanded+drifted chip.
+                                                "absolute left-full top-1/2 -translate-y-1/2 ml-6 text-left whitespace-nowrap text-[11px] font-semibold transition-all duration-150 ease-out text-content-primary drop-shadow-md z-[70]",
+                                                descBody ? "pointer-events-auto" : "pointer-events-none",
+                                                open ? "opacity-100" : "opacity-0"
+                                            )}
+                                            style={{ transitionDelay: `${delay}ms` }}
+                                        >
+                                            {descBody ? (
+                                                // Tooltip points toward the node (to the LEFT of the label).
+                                                <Tooltip content={descBody} position="left" delay={120} className="inline-flex cursor-help" popupClassName={handleDescPopupClass}>
+                                                    <span>{output.label}</span>
+                                                </Tooltip>
+                                            ) : output.label}
+                                        </div>
+                                    );
+                                })()}
                             </Handle>
                         );
                     })

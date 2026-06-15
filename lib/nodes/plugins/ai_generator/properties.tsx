@@ -15,6 +15,7 @@ import { formatDisplayName } from '@/lib/utils/schema-parser';
 // =============================================================================
 import { AiModel, Control, isSeedControl } from '@/lib/nodes/types';
 import { useAppStore } from '@/lib/store/app-store';
+import { DescriptionHint } from '@/components/ui/DescriptionHint';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { computeAiNodeCost, clampIterations } from '@/lib/billing/cost';
 import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
@@ -275,9 +276,11 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
                                             <ControlRenderer
                                                 control={ctrl}
                                                 value={config.control_values?.[ctrl.api_mapping_key]}
+                                                seedRandom={config.control_values?.__seedRandom}
                                                 onChange={handleControlChange}
                                                 aspectIsCustom={aspectIsCustom}
                                                 onAspectCustomChange={setAspectCustom}
+                                                descriptionBody={ctrl.description}
                                             />
                                         </div>
                                     </div>
@@ -363,38 +366,62 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
 function ControlRenderer({
     control,
     value,
+    seedRandom,
     onChange,
     aspectIsCustom,
     onAspectCustomChange,
+    descriptionBody,
 }: {
     control: Control;
     value: any;
+    /** For the seed control only: current value of the reserved `__seedRandom` flag. */
+    seedRandom?: boolean;
     onChange: (key: string, val: any) => void;
     aspectIsCustom?: boolean;
     onAspectCustomChange?: (custom: boolean) => void;
+    descriptionBody?: string;
 }) {
     const label = control.label || formatDisplayName(control.api_mapping_key);
 
+    // ⓘ info marker next to the label, revealing the attached description on hover.
+    // Renders nothing when the control has no description. `side="bottom"` shows it
+    // centered underneath, auto-fitting within the viewport.
+    const hint = <DescriptionHint body={descriptionBody} side="bottom" />;
+
     const minimalLabelClass = "text-[8px] font-bold text-content-tertiary uppercase tracking-[0.1em] pl-0.5 leading-none opacity-80";
 
-    // Seed: empty by default (= random per image). Pre-fills only if the admin pinned a
-    // numeric default. Clearing the field stores '' so the executor omits it.
+    // Seed: a "Random" toggle (ON by default) decides whether to randomize. The number
+    // field always shows the would-be seed (pre-filled from the admin default); it is
+    // disabled while Random is on. Random state lives under the reserved `__seedRandom`
+    // key in control_values; the executor omits the seed entirely when it isn't `false`.
     if (isSeedControl(control)) {
         const raw = value ?? control.default_value ?? '';
+        const isRandom = seedRandom !== false; // undefined → ON by default
         return (
-            <NumberInput
-                label={label}
-                min={control.min}
-                max={control.max}
-                step={control.step ?? 1}
-                value={raw === null ? '' : raw}
-                placeholder="Random"
-                onChange={e => {
-                    const v = e.target.value;
-                    onChange(control.api_mapping_key, v === '' ? '' : parseFloat(v));
-                }}
-                variant="minimal"
-            />
+            <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                    <label className={cn(minimalLabelClass, "flex items-center gap-1")}>{label}{hint}</label>
+                    <Switch
+                        size="sm"
+                        checked={isRandom}
+                        onCheckedChange={checked => onChange('__seedRandom', checked)}
+                        label="Random"
+                    />
+                </div>
+                <NumberInput
+                    min={control.min}
+                    max={control.max}
+                    step={control.step ?? 1}
+                    value={raw === null ? '' : raw}
+                    placeholder={isRandom ? 'Random' : 'Seed'}
+                    disabled={isRandom}
+                    onChange={e => {
+                        const v = e.target.value;
+                        onChange(control.api_mapping_key, v === '' ? '' : parseFloat(v));
+                    }}
+                    variant="minimal"
+                />
+            </div>
         );
     }
 
@@ -404,7 +431,7 @@ function ControlRenderer({
         case 'negative_prompt':
             return (
                 <div className="space-y-1">
-                    <label className={minimalLabelClass}>{label}</label>
+                    <label className={cn(minimalLabelClass, "flex items-center gap-1")}>{label}{hint}</label>
                     <textarea
                         value={value ?? control.default_value ?? ''}
                         onChange={e => onChange(control.api_mapping_key, e.target.value)}
@@ -416,15 +443,18 @@ function ControlRenderer({
             );
         case 'aspect_ratio':
             return (
-                <AspectRatioPicker
-                    label={label}
-                    value={String(value ?? control.default_value ?? '')}
-                    options={control.options}
-                    onChange={val => onChange(control.api_mapping_key, val)}
-                    variant="minimal"
-                    isCustom={aspectIsCustom}
-                    onCustomChange={onAspectCustomChange}
-                />
+                <div className="relative">
+                    {descriptionBody && <span className="absolute top-0 right-0 z-10">{hint}</span>}
+                    <AspectRatioPicker
+                        label={label}
+                        value={String(value ?? control.default_value ?? '')}
+                        options={control.options}
+                        onChange={val => onChange(control.api_mapping_key, val)}
+                        variant="minimal"
+                        isCustom={aspectIsCustom}
+                        onCustomChange={onAspectCustomChange}
+                    />
+                </div>
             );
         case 'select':
         case 'resolution':
@@ -441,6 +471,7 @@ function ControlRenderer({
             return (
                 <Select
                     label={label}
+                    labelAccessory={hint}
                     value={effective}
                     onChange={e => onChange(control.api_mapping_key, e.target.value)}
                     options={visibleOptions.map(opt => ({
@@ -457,7 +488,10 @@ function ControlRenderer({
             return (
                 <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                        <label className={minimalLabelClass}>{label}</label>
+                        <span className="flex items-center gap-1">
+                            <label className={minimalLabelClass}>{label}</label>
+                            {hint}
+                        </span>
                         <span className="text-[9px] font-mono font-semibold text-accent-primary tracking-tight tabular-nums">
                             {current}
                         </span>
@@ -482,9 +516,12 @@ function ControlRenderer({
         case 'reverse':
             return (
                 <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-white/5 border border-white/10 rounded-lg transition-colors hover:bg-white/[0.07]">
-                    <label className="text-[10px] font-bold text-content-secondary tracking-tight truncate">
-                        {label}
-                    </label>
+                    <span className="flex items-center gap-1 min-w-0">
+                        <label className="text-[10px] font-bold text-content-secondary tracking-tight truncate">
+                            {label}
+                        </label>
+                        {hint}
+                    </span>
                     <Switch
                         size="sm"
                         checked={value ?? control.default_value ?? false}
@@ -496,6 +533,7 @@ function ControlRenderer({
             return (
                 <NumberInput
                     label={label}
+                    labelAccessory={hint}
                     min={control.min}
                     max={control.max}
                     step={control.step ?? 1}
@@ -506,21 +544,25 @@ function ControlRenderer({
             );
         case 'voice_picker':
             return (
-                <VoicePickerControl
-                    label={label}
+                <div className="relative">
+                    {descriptionBody && <span className="absolute top-0 right-0 z-10">{hint}</span>}
+                    <VoicePickerControl
+                        label={label}
                     // Fall back to the admin-configured default voice (control.default_value)
                     // when the node has no explicitly-picked voice yet — same display-fallback
                     // pattern every other control uses, and matches what the executor runs
                     // (executor.server.ts: control_values?.[key] ?? ctrl.default_value).
                     value={value ?? control.default_value}
                     onChange={val => onChange(control.api_mapping_key, val)}
-                />
+                    />
+                </div>
             );
         case 'text_input':
         default:
             return (
                 <Input
                     label={label}
+                    labelAccessory={hint}
                     value={value ?? control.default_value ?? ''}
                     onChange={e => onChange(control.api_mapping_key, e.target.value)}
                     placeholder={`${control.api_mapping_key}…`}

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Reorder } from 'framer-motion';
-import { Save, Layers, Link2, Settings2, Trash2, X, Eye, EyeOff, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
+import { Save, Layers, Link2, Settings2, Trash2, X, Eye, EyeOff, GripVertical, ChevronUp, ChevronDown, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -15,6 +15,7 @@ import { API_PROVIDERS, apiProviderName } from '@/lib/ai/providers/catalog';
 import AIGeneratorProperties from '@/lib/nodes/plugins/ai_generator/properties';
 import { VoicePickerControl } from '@/lib/nodes/plugins/ai_generator/VoicePickerControl';
 import { Control, isSeedControl } from '@/lib/nodes/types';
+import { modelFieldDescriptionsApi } from '@/lib/api/admin';
 
 // =============================================================================
 // UI COMPONENTS
@@ -40,6 +41,49 @@ function FormSection({ title, description, children }: FormSectionProps) {
                     {children}
                 </div>
             </div>
+        </div>
+    );
+}
+
+/**
+ * Inline per-field description editor: a textarea (the help tooltip shown to end
+ * users) plus a "Generate" button that AI-writes just this field. Wrapped so its
+ * pointer events don't start a row drag.
+ */
+function FieldDescBlock({
+    value,
+    onChange,
+    onRegenerate,
+    regenerating,
+}: {
+    value: string;
+    onChange: (v: string) => void;
+    onRegenerate: () => void;
+    regenerating: boolean;
+}) {
+    return (
+        <div onPointerDown={(e) => e.stopPropagation()} className="space-y-1.5 cursor-default">
+            <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase tracking-wider text-content-tertiary opacity-80">
+                    Description (tooltip)
+                </label>
+                <button
+                    type="button"
+                    onClick={onRegenerate}
+                    disabled={regenerating}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md border border-white/10 bg-white/5 text-[9px] font-bold uppercase tracking-wider text-content-tertiary hover:text-content-secondary hover:border-white/20 transition-all disabled:opacity-50"
+                >
+                    <Sparkles className={cn('w-3 h-3', regenerating && 'animate-pulse')} />
+                    {regenerating ? 'Generating…' : 'Generate'}
+                </button>
+            </div>
+            <Textarea
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder="Shown to users as a hover tooltip. Leave blank for none."
+                rows={2}
+                className="min-h-[56px] text-xs"
+            />
         </div>
     );
 }
@@ -202,8 +246,12 @@ export function ModelForm({
 
     // Visual Schema States
     const [visualControls, setVisualControls] = useState<Array<Control & { id: string }>>([]);
-    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean, cost_per_item?: number, max_items?: number }>>([]);
-    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_visible: boolean }>>([]);
+    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean, cost_per_item?: number, max_items?: number, description?: string }>>([]);
+    const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_visible: boolean, description?: string }>>([]);
+    // Auto-generate-descriptions UI state: `autoGenAll` for the bulk button,
+    // `regenKey` = `${kind}:${api_mapping_key}` of the single field regenerating.
+    const [autoGenAll, setAutoGenAll] = useState(false);
+    const [regenKey, setRegenKey] = useState<string | null>(null);
     const [jsonDefaultDrafts, setJsonDefaultDrafts] = useState<Record<string, string>>({});
 
     // -------------------------------------------------------------------------
@@ -253,7 +301,8 @@ export function ModelForm({
                     is_mandatory: h.is_mandatory ?? false,
                     is_visible: h.is_visible ?? true,
                     cost_per_item: h.cost_per_item ?? 0,
-                    max_items: h.max_items ?? 0
+                    max_items: h.max_items ?? 0,
+                    description: h.description
                 })));
             }
 
@@ -274,7 +323,8 @@ export function ModelForm({
                 api_mapping_key: h.api_mapping_key || '',
                 type: h.type || 'image',
                 is_array: h.is_array ?? false,
-                is_visible: h.is_visible ?? true
+                is_visible: h.is_visible ?? true,
+                description: h.description
             })));
         }
     }, [initialData]);
@@ -581,7 +631,8 @@ export function ModelForm({
                 is_visible: wire.is_visible,
                 cost_per_item: Number(wire.cost_per_item) || 0,
                 // max_items only applies to array-capable handles
-                max_items: wire.is_array ? (Number(wire.max_items) || 0) : 0
+                max_items: wire.is_array ? (Number(wire.max_items) || 0) : 0,
+                description: wire.description
             })),
             controls: visualControls.map(ctrl => {
                 const { id, ...rest } = ctrl;
@@ -595,7 +646,8 @@ export function ModelForm({
                 api_mapping_key: wire.api_mapping_key,
                 type: wire.type,
                 is_array: wire.is_array,
-                is_visible: wire.is_visible
+                is_visible: wire.is_visible,
+                description: wire.description
             }))
         };
 
@@ -631,6 +683,75 @@ export function ModelForm({
             description: form.description // Pass at top level too for API processing
         });
     };
+
+    // -------------------------------------------------------------------------
+    // AUTO-GENERATE FIELD DESCRIPTIONS (Gemini)
+    // -------------------------------------------------------------------------
+    const controlField = (c: any) => ({ kind: 'control' as const, api_mapping_key: c.api_mapping_key, label: c.label, component: c.component, options: c.options, min: c.min, max: c.max });
+    const inputField = (w: any) => ({ kind: 'input' as const, api_mapping_key: w.api_mapping_key, label: w.name, type: w.type });
+    const outputField = (w: any) => ({ kind: 'output' as const, api_mapping_key: w.api_mapping_key, label: w.name, type: w.type });
+
+    const describeModelContext = () => ({
+        display_name: form.display_name,
+        provider: providers.find((p: any) => p.id === form.provider_id)?.name,
+        category: categories.find((c: any) => c.id === form.category_id)?.display_name,
+        node_type: nodeTypes.find((n: any) => n.id === form.node_type_id)?.display_name,
+        archetype: archetypes.find((a: any) => a.id === form.archetype_id)?.component_name,
+    });
+
+    // Write the returned descriptions back onto the visual state. `onlyEmpty`
+    // protects hand-written text (used by the bulk button); per-field regenerate
+    // passes false so it overwrites that one field.
+    const applyDescriptions = (map: Record<string, string>, onlyEmpty: boolean) => {
+        setVisualControls(prev => prev.map(c => {
+            const d = map[`control:${c.api_mapping_key}`];
+            return d && (!onlyEmpty || !c.description?.trim()) ? { ...c, description: d } : c;
+        }));
+        setVisualInputWires(prev => prev.map(w => {
+            const d = map[`input:${w.api_mapping_key}`];
+            return d && (!onlyEmpty || !w.description?.trim()) ? { ...w, description: d } : w;
+        }));
+        setVisualOutputWires(prev => prev.map(w => {
+            const d = map[`output:${w.api_mapping_key}`];
+            return d && (!onlyEmpty || !w.description?.trim()) ? { ...w, description: d } : w;
+        }));
+    };
+
+    const handleAutoGenerateAll = async () => {
+        const fields = [
+            ...visualControls.filter(c => !c.description?.trim()).map(controlField),
+            ...visualInputWires.filter(w => !w.description?.trim()).map(inputField),
+            ...visualOutputWires.filter(w => !w.description?.trim()).map(outputField),
+        ];
+        if (fields.length === 0) return;
+        setAutoGenAll(true);
+        try {
+            const map = await modelFieldDescriptionsApi.generate({ model: describeModelContext(), fields });
+            applyDescriptions(map, true);
+        } catch (e: any) {
+            alert(e?.message || 'Failed to generate descriptions');
+        } finally {
+            setAutoGenAll(false);
+        }
+    };
+
+    const regenerateField = async (field: { kind: 'control' | 'input' | 'output'; api_mapping_key: string }) => {
+        const key = `${field.kind}:${field.api_mapping_key}`;
+        setRegenKey(key);
+        try {
+            const map = await modelFieldDescriptionsApi.generate({ model: describeModelContext(), fields: [field as any] });
+            applyDescriptions(map, false);
+        } catch (e: any) {
+            alert(e?.message || 'Failed to generate description');
+        } finally {
+            setRegenKey(null);
+        }
+    };
+
+    const emptyDescCount =
+        visualControls.filter(c => !c.description?.trim()).length +
+        visualInputWires.filter(w => !w.description?.trim()).length +
+        visualOutputWires.filter(w => !w.description?.trim()).length;
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -831,6 +952,29 @@ export function ModelForm({
                 </div>
             </FormSection>
 
+            <div className="pt-8">
+                <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-accent-primary/5 border border-accent-primary/15">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-accent-primary/10 border border-accent-primary/20 flex items-center justify-center text-accent-primary shrink-0">
+                            <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-xs font-black uppercase tracking-tight text-content-primary">Auto-generate descriptions</p>
+                            <p className="text-[11px] text-content-tertiary leading-snug">AI-writes a tooltip for every empty property, input &amp; output using this model&apos;s name &amp; category. Won&apos;t touch ones you wrote.</p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleAutoGenerateAll}
+                        disabled={autoGenAll || emptyDescCount === 0}
+                        className="shrink-0 flex items-center gap-1.5 h-9 px-4 rounded-lg bg-accent-primary text-white text-xs font-bold uppercase tracking-wider shadow-md shadow-accent-primary/20 hover:bg-accent-primary/90 active:scale-95 transition-all disabled:opacity-40 disabled:hover:bg-accent-primary disabled:active:scale-100"
+                    >
+                        <Sparkles className={cn('w-4 h-4', autoGenAll && 'animate-pulse')} />
+                        {autoGenAll ? 'Generating…' : emptyDescCount === 0 ? 'All filled' : `Generate ${emptyDescCount}`}
+                    </button>
+                </div>
+            </div>
+
             <FormSection
                 title="UI Properties"
                 description="Refine the visual interface and set dynamic pricing rules."
@@ -921,6 +1065,13 @@ export function ModelForm({
                                 />
                             </div>
 
+                            <FieldDescBlock
+                                value={ctrl.description || ''}
+                                onChange={(v) => setControlPatch(ctrl.id, { description: v })}
+                                onRegenerate={() => regenerateField(controlField(ctrl))}
+                                regenerating={regenKey === `control:${ctrl.api_mapping_key}`}
+                            />
+
                             <div className="pt-1">
                                 {isBooleanControl(ctrl) && (
                                     <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
@@ -934,35 +1085,24 @@ export function ModelForm({
                                 )}
 
                                 {isSeedControl(ctrl) && (() => {
-                                    const isAuto = ctrl.default_value === null || ctrl.default_value === undefined || ctrl.default_value === '';
                                     const step = ctrl.step ?? 1;
-                                    const numericDefault = Number.isFinite(Number(ctrl.default_value)) ? Number(ctrl.default_value) : (ctrl.min ?? 0);
+                                    const hasNum = ctrl.default_value !== null && ctrl.default_value !== undefined
+                                        && ctrl.default_value !== '' && Number.isFinite(Number(ctrl.default_value));
                                     return (
-                                        <div className="space-y-3">
-                                            <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                                                <div>
-                                                    <p className="text-[10px] font-black uppercase tracking-wider text-content-tertiary">Auto (random seed)</p>
-                                                    <p className="text-[9px] text-content-tertiary/60 mt-1 leading-snug">On = sent empty, randomized every run. Turn off to pin a default seed.</p>
-                                                </div>
-                                                <Switch
-                                                    checked={isAuto}
-                                                    onCheckedChange={(checked) => setControlPatch(ctrl.id, { default_value: checked ? null : (ctrl.min ?? 0) })}
-                                                    label={isAuto ? 'Auto' : 'Fixed'}
-                                                />
-                                            </div>
-                                            {!isAuto && (
-                                                <NumberInput
-                                                    label="Default Seed"
-                                                    min={ctrl.min}
-                                                    max={ctrl.max}
-                                                    step={step}
-                                                    value={numericDefault}
-                                                    onChange={e => {
-                                                        const val = Number(e.target.value);
-                                                        setControlPatch(ctrl.id, { default_value: Number.isFinite(val) ? val : (ctrl.min ?? 0) });
-                                                    }}
-                                                />
-                                            )}
+                                        <div className="space-y-2">
+                                            <NumberInput
+                                                label="Default Seed"
+                                                min={ctrl.min}
+                                                max={ctrl.max}
+                                                step={step}
+                                                value={hasNum ? Number(ctrl.default_value) : ''}
+                                                placeholder="None"
+                                                onChange={e => {
+                                                    const raw = e.target.value;
+                                                    setControlPatch(ctrl.id, { default_value: raw === '' || !Number.isFinite(Number(raw)) ? null : Number(raw) });
+                                                }}
+                                            />
+                                            <p className="text-[9px] text-content-tertiary/60 leading-snug">Pre-fills the seed field on the node. Each node has a "Random" toggle (on by default) that randomizes the seed every run.</p>
                                         </div>
                                     );
                                 })()}
@@ -1387,6 +1527,13 @@ export function ModelForm({
                                     />
                                 )}
                             </div>
+
+                            <FieldDescBlock
+                                value={wire.description || ''}
+                                onChange={(v) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, description: v } : w))}
+                                onRegenerate={() => regenerateField(inputField(wire))}
+                                regenerating={regenKey === `input:${wire.api_mapping_key}`}
+                            />
                         </Reorder.Item>
                     ))}
                 </Reorder.Group>
@@ -1469,6 +1616,13 @@ export function ModelForm({
                                     />
                                 </div>
                             </div>
+
+                            <FieldDescBlock
+                                value={wire.description || ''}
+                                onChange={(v) => setVisualOutputWires(prev => prev.map(w => w.id === wire.id ? { ...w, description: v } : w))}
+                                onRegenerate={() => regenerateField(outputField(wire))}
+                                regenerating={regenKey === `output:${wire.api_mapping_key}`}
+                            />
                         </Reorder.Item>
                     ))}
                 </Reorder.Group>

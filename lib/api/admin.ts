@@ -264,6 +264,24 @@ export const modelsAdminApi = {
     }
 };
 
+/** Auto-generate inline field descriptions for a model (admin, Gemini). Returns
+ *  a map keyed by `${kind}:${api_mapping_key}` → description text. */
+export const modelFieldDescriptionsApi = {
+    generate: async (payload: {
+        model: { display_name?: string; provider?: string; category?: string; node_type?: string; archetype?: string };
+        fields: Array<{ kind: 'control' | 'input' | 'output'; api_mapping_key: string; label?: string; component?: string; type?: string; options?: string[]; min?: number; max?: number }>;
+    }) => {
+        const res = await fetch('/api/admin/models/describe-fields', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to generate descriptions');
+        return data.descriptions as Record<string, string>;
+    },
+};
+
 export const adminTemplatesApi = {
   list: async () => {
     const res = await fetch('/api/admin/templates');
