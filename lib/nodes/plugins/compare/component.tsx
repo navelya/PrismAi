@@ -230,7 +230,7 @@ function CompareNode({ data, id, selected, dragging = false }: NodeProps<Compare
             isNew={data.isNew}
             hideStatus={true}
             width=""
-            style={{ width: 'max-content', minWidth: 320, maxWidth: 480 }}
+            style={{ width: 'max-content', minWidth: 280, maxWidth: 360 }}
         >
             <div
                 ref={wrapperRef}
@@ -238,7 +238,7 @@ function CompareNode({ data, id, selected, dragging = false }: NodeProps<Compare
                     'relative w-full rounded-xl overflow-hidden shadow-inner group/node border border-white/10 bg-white/5',
                     !isDragging && 'transition-all duration-500',
                 )}
-                style={{ aspectRatio }}
+                style={{ aspectRatio, maxHeight: 460 }}
                 onMouseEnter={() => setHovering(true)}
                 onMouseLeave={() => setHovering(false)}
             >
