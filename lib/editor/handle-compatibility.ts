@@ -39,10 +39,13 @@ function resolveBlurOutputKind(nodeId: string, depth: number = 0): 'image' | 'vi
     const upstream = wf.nodes.find((n) => n.id === inputEdge.source);
     if (!upstream) return null;
 
-    // If the upstream is itself a blur, recurse so chained blur nodes carry
-    // the narrowed type forward.
+    // If the upstream is itself a kind-preserving filter (blur or levels),
+    // recurse so chained filter nodes carry the narrowed type forward.
     if (upstream.type === 'blur') {
         return resolveBlurOutputKind(upstream.id, depth + 1);
+    }
+    if (upstream.type === 'levels') {
+        return resolveLevelsOutputKind(upstream.id, depth + 1);
     }
 
     const liveOutput = useAppStore.getState().nodeOutputs[upstream.id];
@@ -54,6 +57,50 @@ function resolveBlurOutputKind(nodeId: string, depth: number = 0): 'image' | 'vi
     // Envelope shape: {type: 'image'|'video', data: [...]}. Trust the type
     // field over URL detection — it's authoritative for live-stream sources
     // (Compositor's live video output has no URL until the server renders).
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        const t = (candidate as any).type;
+        if (t === 'video' || t === 'image') return t;
+    }
+
+    const url = extractFirstUrl(candidate);
+    if (!url) return null;
+
+    if (url.startsWith('data:video/')) return 'video';
+    if (url.startsWith('data:image/')) return 'image';
+    const detected = detectMediaTypeFromUrl(url);
+    if (detected === 'image' || detected === 'video') return detected;
+    return null;
+}
+
+/**
+ * Levels is a kind-preserving filter (image in → image out, video in → video
+ * out), exactly like blur. Its resolver mirrors resolveBlurOutputKind and
+ * shares the cross-recursion so blur↔levels chains carry the type forward.
+ */
+function resolveLevelsOutputKind(nodeId: string, depth: number = 0): 'image' | 'video' | null {
+    if (depth > 8) return null;
+    const wf = useAppStore.getState().currentWorkflow;
+    if (!wf) return null;
+
+    const inputEdge = wf.edges.find((e) => e.target === nodeId && (e.targetHandle === 'image' || !e.targetHandle));
+    if (!inputEdge) return null;
+
+    const upstream = wf.nodes.find((n) => n.id === inputEdge.source);
+    if (!upstream) return null;
+
+    if (upstream.type === 'levels') {
+        return resolveLevelsOutputKind(upstream.id, depth + 1);
+    }
+    if (upstream.type === 'blur') {
+        return resolveBlurOutputKind(upstream.id, depth + 1);
+    }
+
+    const liveOutput = useAppStore.getState().nodeOutputs[upstream.id];
+    const dataOutput = (upstream.data as any)?.output;
+    const cfgImages = (upstream.data as any)?.config?.images;
+    const cfgLast = (upstream.data as any)?.config?.last_output;
+    const candidate = liveOutput ?? dataOutput ?? cfgImages ?? cfgLast;
+
     if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
         const t = (candidate as any).type;
         if (t === 'video' || t === 'image') return t;
@@ -197,6 +244,9 @@ function resolveDynamicOutputType(
     if (node.type === 'blur') {
         const kind = resolveBlurOutputKind(node.id);
         return kind; // 'image' | 'video' | null
+    }
+    if (node.type === 'levels') {
+        return resolveLevelsOutputKind(node.id); // 'image' | 'video' | null
     }
     if (node.type === 'compositor') {
         return resolveCompositorOutputKind(node.id); // 'image' | 'video' | null

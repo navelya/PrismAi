@@ -5,6 +5,7 @@ import { NodeProps, useUpdateNodeInternals } from 'reactflow';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
+import { fitMediaWidth, MEDIA_FIT_MAX } from '@/lib/nodes/core/canvas/media-fit';
 import { useAppStore } from '@/lib/store/app-store';
 import { useNodeAutoCompute } from '@/lib/hooks/use-node-auto-compute';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
@@ -166,6 +167,10 @@ function CompareNode({ data, id, selected, dragging = false }: NodeProps<Compare
         return `${w} / ${h}`;
     }, [nativeSize]);
 
+    // Aspect-fitted node width: narrowing portraits so their height lands on the
+    // 460 cap (instead of clamping height, which would crop the wipe panes).
+    const fitWidth = fitMediaWidth(nativeSize.width, nativeSize.height);
+
     // Divider position — committed to config on release for persistence; tracked
     // locally during drag for instant feedback without global churn.
     const [localDivider, setLocalDivider] = useState(config.dividerPosition);
@@ -230,7 +235,7 @@ function CompareNode({ data, id, selected, dragging = false }: NodeProps<Compare
             isNew={data.isNew}
             hideStatus={true}
             width=""
-            style={{ width: 'max-content', minWidth: 280, maxWidth: 360 }}
+            style={{ width: fitWidth ?? 'max-content', minWidth: fitWidth != null ? 200 : 280, maxWidth: MEDIA_FIT_MAX }}
         >
             <div
                 ref={wrapperRef}

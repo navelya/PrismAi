@@ -6,6 +6,7 @@ import { NodeProps, useUpdateNodeInternals } from 'reactflow';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
+import { fitMediaWidth, MEDIA_FIT_MAX, MEDIA_FIT_CLASS } from '@/lib/nodes/core/canvas/media-fit';
 import BlurryImage from '@/components/ui/BlurryImage';
 import BlurryVideo from '@/components/ui/BlurryVideo';
 import { BlurConfig } from './definition';
@@ -392,6 +393,10 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
     const [nativeMediaSize, setNativeMediaSize] = useState({ width: 0, height: 0 });
     const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
 
+    // Width that hugs the media's aspect ratio so the node fits the whole frame
+    // (no crop, no empty bars) — same model as the ai_generator preview.
+    const fitWidth = fitMediaWidth(nativeMediaSize.width, nativeMediaSize.height);
+
     useEffect(() => {
         const wrapper = previewWrapperRef.current;
         if (!wrapper || typeof ResizeObserver === 'undefined') return;
@@ -467,7 +472,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             isNew={(data as any).isNew}
             hideStatus={true}
             width=""
-            style={{ width: 'max-content', minWidth: 280, maxWidth: 360 }}
+            style={{ width: fitWidth ?? 'max-content', minWidth: fitWidth != null ? 200 : 280, maxWidth: MEDIA_FIT_MAX }}
             customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
             <div
@@ -481,7 +486,7 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                 {(mediaUrl || upstreamGraph) ? (
                     <div
                         ref={previewWrapperRef}
-                        className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
+                        className="w-full relative group/preview cursor-zoom-in overflow-hidden"
                         onClick={() => setLightboxOpen(true)}
                         onMouseEnter={
                             mediaKind === 'video'
@@ -502,7 +507,8 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                             <canvas
                                 ref={previewGraphCanvasRef}
                                 className={cn(
-                                    "relative z-10 w-full h-full object-cover",
+                                    "relative z-10",
+                                    MEDIA_FIT_CLASS,
                                     !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                                 )}
                             />
@@ -516,7 +522,8 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                                 preload="metadata"
                                 onLoadedMetadata={handleVideoMetadata}
                                 className={cn(
-                                    "relative z-10 w-full h-full object-cover max-w-none max-h-none",
+                                    "relative z-10",
+                                    MEDIA_FIT_CLASS,
                                     !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                                 )}
                             />
@@ -525,8 +532,10 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
                                 src={mediaUrl ?? undefined}
                                 fallbackSrc={mediaUrl ?? undefined}
                                 alt="Blur preview"
+                                containerClassName="h-auto"
                                 className={cn(
                                     "relative z-10",
+                                    MEDIA_FIT_CLASS,
                                     !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                                 )}
                             />

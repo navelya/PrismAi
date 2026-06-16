@@ -38,6 +38,11 @@ export function createNodeFromType(
         blur: {
             radius: 5,
         },
+        levels: {
+            black_point: 0,
+            white_point: 255,
+            gamma: 1.0,
+        },
         group_container: {
             width: 400,
             height: 300,

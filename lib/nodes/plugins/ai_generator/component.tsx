@@ -1015,8 +1015,13 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                         // BlurryImage's default h-full (which collapses to 0 inside
                         // the flex track and clips the image).
                         containerClassName="h-auto"
+                        // Fill the aspect-fitted node width and cap height at the
+                        // same 460 the node width math uses (max-w-none overrides
+                        // BlurryImage's default max-w-[420px] — otherwise the image
+                        // sat 420px wide in a 460px node, leaving a dead strip on
+                        // the right). Parity with the video slide above.
                         className={cn(
-                            "relative z-10",
+                            "relative z-10 w-full h-auto object-contain max-w-none max-h-[460px]",
                             !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                         )}
                     />
