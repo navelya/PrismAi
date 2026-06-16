@@ -5,6 +5,7 @@ import { NodeProps } from 'reactflow';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
+import { fitMediaWidth, MEDIA_FIT_MAX, MEDIA_FIT_CLASS } from '@/lib/nodes/core/canvas/media-fit';
 import BlurryImage from '@/components/ui/BlurryImage';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { NumberInput } from '@/components/ui/NumberInput';
@@ -143,6 +144,11 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
     useEffect(() => setLocalWhite(config.white_point), [config.white_point]);
     useEffect(() => setLocalGamma(config.gamma), [config.gamma]);
 
+    // Aspect-fitted node width so the whole image shows (no crop, no empty bars),
+    // same model as the ai_generator preview.
+    const [nativeMediaSize, setNativeMediaSize] = useState({ width: 0, height: 0 });
+    const fitWidth = fitMediaWidth(nativeMediaSize.width, nativeMediaSize.height);
+
     const sourceOutput = useMemo(() => {
         if (!connectedInputId) return null;
         return liveSourceOutput ?? sourceFallbackOutput ?? null;
@@ -199,7 +205,7 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
             isNew={(data as any).isNew}
             hideStatus={true}
             width=""
-            style={{ width: 'max-content', minWidth: 280, maxWidth: 360 }}
+            style={{ width: fitWidth ?? 'max-content', minWidth: fitWidth != null ? 200 : 280, maxWidth: MEDIA_FIT_MAX }}
             customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
             <div
@@ -212,7 +218,7 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
 
                 {sourceImageUrl ? (
                     <div
-                        className="w-full h-full relative group/preview cursor-zoom-in overflow-hidden"
+                        className="w-full relative group/preview cursor-zoom-in overflow-hidden"
                         onClick={() => setLightboxOpen(true)}
                         style={{ filter: `url(#${filterId})` }}
                     >
@@ -220,8 +226,11 @@ function LevelsNode({ data, id, selected, dragging = false }: NodeProps<LevelsNo
                             src={sourceImageUrl}
                             fallbackSrc={sourceImageUrl}
                             alt="Levels preview"
+                            containerClassName="h-auto"
+                            onLoad={(dims) => { if (dims?.naturalWidth) setNativeMediaSize({ width: dims.naturalWidth, height: dims.naturalHeight || 0 }); }}
                             className={cn(
                                 'relative z-10',
+                                MEDIA_FIT_CLASS,
                                 !isDragging && 'transition-transform duration-700 group-hover/preview:scale-[1.03]',
                             )}
                         />

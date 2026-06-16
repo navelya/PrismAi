@@ -5,6 +5,7 @@ import { NodeProps, useUpdateNodeInternals } from 'reactflow';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import BaseNode from '@/lib/nodes/core/canvas/BaseNode';
+import { fitMediaWidth, MEDIA_FIT_MAX, MEDIA_FIT_CLASS } from '@/lib/nodes/core/canvas/media-fit';
 import BlurryImage from '@/components/ui/BlurryImage';
 import ImageLightbox from '@/components/ui/ImageLightbox';
 import { ExtractFrameConfig } from './definition';
@@ -123,6 +124,27 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
     const [videoDuration, setVideoDuration] = useState(0);
     const [videoFps, setVideoFps] = useState(30);
 
+    // Natural media size → aspect-fitted node width (shows the whole frame, no
+    // crop), mirroring the ai_generator preview. Fed from the graph dims, video
+    // metadata, or the loaded image below.
+    const [nativeMediaSize, setNativeMediaSize] = useState({ width: 0, height: 0 });
+    const fitWidth = fitMediaWidth(nativeMediaSize.width, nativeMediaSize.height);
+    // Seed the size synchronously from the upstream graph dims or the item's
+    // published resolution, so the node is correctly fitted BEFORE any media
+    // decode event fires (a video's loadedmetadata can report videoWidth=0 on
+    // some codecs, which would otherwise leave the node stuck at max-content).
+    // The metadata / image onLoad handlers below refine it if needed.
+    useEffect(() => {
+        if (upstreamGraph) {
+            const d = graphDimensions(upstreamGraph);
+            if (d.width > 0) { setNativeMediaSize({ width: d.width, height: d.height || 0 }); return; }
+        }
+        const r = upstreamItem && typeof upstreamItem === 'object' ? (upstreamItem as any).resolution : null;
+        if (r && typeof r.width === 'number' && r.width > 0) {
+            setNativeMediaSize({ width: r.width, height: r.height || 0 });
+        }
+    }, [upstreamGraph, upstreamItem]);
+
     const playheadRef = useRef(playhead);
     playheadRef.current = playhead;
     const playingRef = useRef(isPlaying);
@@ -165,6 +187,7 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
     const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
         const v = e.currentTarget;
         if (Number.isFinite(v.duration)) setVideoDuration(v.duration);
+        if (v.videoWidth) setNativeMediaSize({ width: v.videoWidth, height: v.videoHeight || 0 });
         if (!seededRef.current) {
             seededRef.current = true;
             const t = Math.max(0, Math.min(configRef.current.frameTime ?? 0, Math.max(0, (v.duration || 0) - 0.05)));
@@ -380,7 +403,7 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
             isNew={(data as any).isNew}
             hideStatus={true}
             width=""
-            style={{ width: 'max-content', minWidth: 280, maxWidth: 360 }}
+            style={{ width: fitWidth ?? 'max-content', minWidth: fitWidth != null ? 200 : 280, maxWidth: MEDIA_FIT_MAX }}
             customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
             <div
@@ -392,13 +415,13 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
 
                 {hasPreview ? (
-                    <div className="w-full h-full relative group/preview overflow-hidden">
+                    <div className="w-full relative group/preview overflow-hidden">
                         <div
                             className={cn('w-full relative', !showTransport && 'cursor-zoom-in')}
                             onClick={() => { if (!showTransport) setLightboxOpen(true); }}
                         >
                             {upstreamGraph ? (
-                                <canvas ref={graphCanvasRef} className="relative z-10 w-full h-full object-cover" />
+                                <canvas ref={graphCanvasRef} className={cn('relative z-10', MEDIA_FIT_CLASS)} />
                             ) : mediaKind === 'video' ? (
                                 <video
                                     ref={videoRef}
@@ -409,14 +432,17 @@ function ExtractFrameNode({ data, id, selected, dragging = false }: NodeProps<Ex
                                     loop
                                     preload="auto"
                                     onLoadedMetadata={handleVideoMetadata}
-                                    className="relative z-10 w-full h-full object-cover"
+                                    onLoadedData={handleVideoMetadata}
+                                    className={cn('relative z-10', MEDIA_FIT_CLASS)}
                                 />
                             ) : (
                                 <BlurryImage
                                     src={mediaUrl ?? undefined}
                                     fallbackSrc={mediaUrl ?? undefined}
                                     alt="Extract frame preview"
-                                    className="relative z-10"
+                                    containerClassName="h-auto"
+                                    onLoad={(dims) => { if (dims?.naturalWidth) setNativeMediaSize({ width: dims.naturalWidth, height: dims.naturalHeight || 0 }); }}
+                                    className={cn('relative z-10', MEDIA_FIT_CLASS)}
                                 />
                             )}
                         </div>
