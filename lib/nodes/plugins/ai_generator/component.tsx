@@ -20,6 +20,7 @@ import { bakedThumbUrl } from '@/lib/utils/supabase-image';
 import { computeAiNodeCost, formatCredits, clampIterations } from '@/lib/billing/cost';
 import { clampSelectedIndex, selectedValue, activeItemEnvelope, isActiveOnly, type GeneratedOutput } from './outputs';
 import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
+import { useNodeConnectedInputCost } from '@/lib/hooks/use-node-connected-cost';
 import { useGridViewHeightLock } from '@/lib/hooks/use-grid-view-height-lock';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -158,6 +159,9 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
         : models;
 
     const selectedModel = filteredModels.find(m => m.id === data.config?.model_id) || null;
+    // Cost of media wired into this node's priced input handles (one-time / per-item),
+    // so the badge below reacts live when an image is connected.
+    const connectedInputCost = useNodeConnectedInputCost(id, selectedModel);
     const selectedNodeType = nodeTypes.find(nt => nt.id === nodeTypeId) || null;
     const aiDefaultLabel = selectedNodeType ? selectedNodeType.display_name : (data.config?.model_id ? 'AI Model' : 'AI Generator');
     const persistedLabel = typeof data?.label === 'string' ? data.label.trim() : '';
@@ -555,7 +559,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
                     </div>
 
                     {(() => {
-                        const dynamicCost = computeAiNodeCost(data.config?.control_values, selectedModel) * clampIterations(data.config?.iterations);
+                        const dynamicCost = (computeAiNodeCost(data.config?.control_values, selectedModel) + connectedInputCost) * clampIterations(data.config?.iterations);
                         const showCost = dynamicCost > 0;
                         return (
                             <Tooltip

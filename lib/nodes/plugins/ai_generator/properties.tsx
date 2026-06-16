@@ -20,6 +20,7 @@ import { DescriptionHint } from '@/components/ui/DescriptionHint';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { computeAiNodeCost, clampIterations, computeModelMenuCost, formatCredits } from '@/lib/billing/cost';
 import { useNodeRunValidation } from '@/lib/hooks/use-node-run-validation';
+import { useNodeConnectedInputCost } from '@/lib/hooks/use-node-connected-cost';
 import { formatValidationError } from '@/lib/workflow/validate-execution-messages';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { VoicePickerControl } from './VoicePickerControl';
@@ -120,6 +121,11 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const controls = selectedModel?.inputs_schema?.controls || [];
     const handles = selectedModel?.inputs_schema?.handles || [];
 
+    // Cost of media wired into this node's priced input handles (one-time / per-item),
+    // so the estimate reacts live when an image is connected — mirrors the run-modal total.
+    // Declared before the isModelsLoading early-return to keep hook order stable.
+    const connectedInputCost = useNodeConnectedInputCost(nodeId, selectedModel ?? null);
+
     const handleModelChange = (val: string) => {
         const modelId = Number(val);
         onUpdate({
@@ -144,7 +150,7 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     }
 
     const totalCost = selectedModel
-        ? Number((computeAiNodeCost(config.control_values, selectedModel) * clampIterations(config.iterations)).toFixed(2))
+        ? Number(((computeAiNodeCost(config.control_values, selectedModel) + connectedInputCost) * clampIterations(config.iterations)).toFixed(2))
         : 0;
 
     const hasMultiplier = (selectedModel?.inputs_schema?.controls ?? [])
