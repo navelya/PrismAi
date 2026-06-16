@@ -58,8 +58,8 @@ function resolveStoredFormat(
  * result. Best-effort: any failure is logged and swallowed — a result without a
  * thumbnail is valid (the reader falls back to full-res), and a thumbnail
  * problem must never fail the result or mark the node failed. `buffer` is the
- * exact bytes that were stored at `resultStoragePath` (re-encoded WebP for
- * images, original bytes for video).
+ * exact original bytes that were stored at `resultStoragePath` (same for every
+ * type — only the derived sibling `.thumb.webp` is WebP).
  */
 async function uploadThumbnailBestEffort(
   supabase: ReturnType<typeof createServiceClient>,
@@ -221,8 +221,8 @@ export async function mirrorMediaToStorage(
       throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
     }
 
-    // Bake a sibling thumbnail from the bytes we just stored (re-encoded WebP
-    // for images, original bytes for video). Best-effort — never fails the run.
+    // Bake a sibling thumbnail from the original bytes we just stored (same for
+    // every type — only the thumbnail is WebP). Best-effort — never fails the run.
     await uploadThumbnailBestEffort(supabase, buffer, resultType, storagePath);
 
     const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);
