@@ -97,11 +97,16 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const cannotRun = runErrors.length > 0;
     const runErrorText = cannotRun ? runErrors.map(formatValidationError).join(' · ') : '';
 
-    // Hide variants from the picker (one primary per group); the full `models`
-    // list is still used elsewhere for cost resolution.
+    // Variant visibility is contextual. A variant (`is_primary === false`) is an
+    // alternate-settings row that lives in its OWN sub-category, and the user
+    // picks a model here PER sub-category — so inside a sub-category-scoped picker
+    // the variant must appear and behave like a normal model. The primary-only
+    // dedupe only matters for flat / provider-grouped lists (where two variants of
+    // one group would collide, e.g. the unscoped fallback below and the add-node /
+    // provider pickers elsewhere). Cost resolution still uses the full `models`.
     const visibleModels = selectVisibleModels(models);
     const filteredModels = config.node_type_id
-        ? visibleModels.filter(m => m.node_type_id === config.node_type_id)
+        ? models.filter(m => m.node_type_id === config.node_type_id)
         : visibleModels;
 
     useEffect(() => {
