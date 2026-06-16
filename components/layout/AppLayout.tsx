@@ -7,6 +7,7 @@ import AccountModal from '@/components/account/AccountModal';
 import { useIsMobile, useHasMounted } from '@/lib/hooks/use-mobile';
 import { useAppStore } from '@/lib/store/app-store';
 import { useShallow } from 'zustand/react/shallow';
+import { isDefaultWorkflowTitle } from '@/lib/utils/workflow-title';
 import { Menu, Workflow } from 'lucide-react';
 
 interface AppLayoutProps {
@@ -84,6 +85,18 @@ export default function AppLayout({ children, hostClass }: AppLayoutProps) {
         mq.addEventListener('change', apply);
         return () => mq.removeEventListener('change', apply);
     }, [isPublicPage]);
+
+    // Mirror the active session's title into the browser tab. The session title
+    // and currentWorkflow.name are mirrors of one value, so this stays in sync
+    // through realtime renames + title generation. Public/marketing pages keep
+    // their own Next metadata title (skip them so we don't clobber it).
+    React.useEffect(() => {
+        if (isPublicPage) return;
+        const base = 'Prisfol';
+        const name = (currentWorkflow?.name || '').trim();
+        const showSession = inSession && !isDefaultWorkflowTitle(name);
+        document.title = showSession ? `${name} · ${base}` : base;
+    }, [isPublicPage, inSession, currentWorkflow?.name]);
 
     // Public pages get full width, no sidebar, and allow scrolling
     if (isPublicPage) {
