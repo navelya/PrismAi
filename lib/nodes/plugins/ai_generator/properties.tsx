@@ -14,6 +14,7 @@ import { formatDisplayName } from '@/lib/utils/schema-parser';
 // TYPES - MOVED TO lib/nodes/types.ts
 // =============================================================================
 import { AiModel, Control, isSeedControl } from '@/lib/nodes/types';
+import { selectVisibleModels } from '@/lib/store/model-selectors';
 import { useAppStore } from '@/lib/store/app-store';
 import { DescriptionHint } from '@/components/ui/DescriptionHint';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -95,9 +96,12 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
     const cannotRun = runErrors.length > 0;
     const runErrorText = cannotRun ? runErrors.map(formatValidationError).join(' · ') : '';
 
-    const filteredModels = config.node_type_id 
-        ? models.filter(m => m.node_type_id === config.node_type_id)
-        : models;
+    // Hide variants from the picker (one primary per group); the full `models`
+    // list is still used elsewhere for cost resolution.
+    const visibleModels = selectVisibleModels(models);
+    const filteredModels = config.node_type_id
+        ? visibleModels.filter(m => m.node_type_id === config.node_type_id)
+        : visibleModels;
 
     useEffect(() => {
         // Default model selection if none exists (and models have loaded)
@@ -107,7 +111,12 @@ export default function AIGeneratorProperties({ config, onUpdate, editMode = fal
         }
     }, [isModelsLoading, filteredModels, config.model_id, onUpdate]);
 
-    const selectedModel = selectedModelOverride || filteredModels.find(m => m.id === config.model_id);
+    // Fall back to the full list so a node bound to a hidden variant (e.g. one the
+    // chat brain wired) still resolves its controls/handles, even though the
+    // dropdown only offers primaries.
+    const selectedModel = selectedModelOverride
+        || filteredModels.find(m => m.id === config.model_id)
+        || models.find(m => m.id === config.model_id);
     const controls = selectedModel?.inputs_schema?.controls || [];
     const handles = selectedModel?.inputs_schema?.handles || [];
 

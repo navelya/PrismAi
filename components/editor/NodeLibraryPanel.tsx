@@ -5,6 +5,7 @@ import { AnimatePresence } from 'framer-motion';
 import * as Icons from 'lucide-react';
 import { Search, X } from 'lucide-react';
 import { useAppStore } from '@/lib/store/app-store';
+import { selectVisibleModels } from '@/lib/store/model-selectors';
 import type { NodeTypeRecord, AiModel, Category } from '@/lib/nodes/types';
 import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { BasicsTile, CategoryRow, ProviderRow, NodeItemRow, ModelItemRow } from './node-library/rows';
@@ -69,6 +70,8 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
     const providers = useAppStore(s => s.providers) as ProviderRec[];
     const modelPreview = useModelPreview();
     const models = useAppStore(s => s.models) as AiModel[];
+    // Hide variants from every model list in this panel (one primary per group).
+    const visibleModels = useMemo(() => selectVisibleModels(models), [models]);
     const fetchCategories = useAppStore(s => s.fetchCategories);
     const fetchNodeTypes = useAppStore(s => s.fetchNodeTypes);
     const fetchProviders = useAppStore(s => s.fetchProviders);
@@ -191,7 +194,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         ? nodeTypes.filter(nt => nt.display_name.toLowerCase().includes(q))
         : [];
     const modelHits = q
-        ? models.filter(m => m.display_name.toLowerCase().includes(q) || (m.replicate_model_id?.toLowerCase().includes(q) ?? false))
+        ? visibleModels.filter(m => m.display_name.toLowerCase().includes(q) || (m.replicate_model_id?.toLowerCase().includes(q) ?? false))
         : [];
     const noHits = !!q && basicsHits.length === 0 && toolHits.length === 0 && nodeHits.length === 0 && modelHits.length === 0;
 
@@ -216,9 +219,9 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
         }
         const provider = providers.find(p => p.id === hoveredId);
         if (!provider) return null;
-        const items = models.filter(m => String(m.provider_id) === hoveredId);
+        const items = visibleModels.filter(m => String(m.provider_id) === hoveredId);
         return { kind: 'provider', providerName: provider.name, items, providers };
-    }, [hoveredKind, hoveredId, categories, nodeTypes, providers, models]);
+    }, [hoveredKind, hoveredId, categories, nodeTypes, providers, visibleModels]);
 
     const handleDragStartClose = useCallback(() => onClose(), [onClose]);
 
@@ -371,7 +374,7 @@ export default function NodeLibraryPanel({ onClose }: NodeLibraryPanelProps) {
                                             key={p.id}
                                             id={`nl-prv-${p.id}`}
                                             provider={p}
-                                            subtitle={countLabel(models.filter(m => String(m.provider_id) === p.id).length, 'model')}
+                                            subtitle={countLabel(visibleModels.filter(m => String(m.provider_id) === p.id).length, 'model')}
                                             active={hoveredKind === 'provider' && hoveredId === p.id}
                                             onMouseEnter={e => { cancelClose(); scheduleOpen('provider', p.id, e.currentTarget); }}
                                             onMouseLeave={handleRowLeave}

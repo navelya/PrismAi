@@ -179,6 +179,17 @@ export const modelsAdminApi = {
         return data.success;
     },
 
+    /** Promote a variant to be its group's primary (the one shown in user lists). */
+    promoteModel: async (id: number) => {
+        const res = await fetch(`/api/admin/models/${id}/promote`, {
+            method: 'POST',
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to promote model');
+        return data.success;
+    },
+
     /** Create a new provider */
     createProvider: async (formData: FormData) => {
         const res = await fetch('/api/admin/providers', {

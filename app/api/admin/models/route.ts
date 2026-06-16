@@ -27,6 +27,11 @@ export async function POST(req: Request) {
             provider_id,
             provider_model_id,
             description,
+            // Variant grouping. Omitted for a normal new model → DB defaults give it
+            // its own group + is_primary=true. A "create variant" clone sends the
+            // parent's variant_group_id with is_primary=false.
+            variant_group_id,
+            is_primary,
             // Optional ordered bindings array (index 0 = default). Reconciled
             // into ai_model_providers below — NOT an ai_models column.
             provider_bindings
@@ -58,6 +63,10 @@ export async function POST(req: Request) {
                 outputs_schema: outputs_schema || { handles: [] },
                 provider_id,
                 provider_model_id: provider_model_id || null,
+                // Only set when provided; otherwise DB defaults make this its own
+                // singleton primary group.
+                ...(variant_group_id ? { variant_group_id } : {}),
+                ...(is_primary !== undefined ? { is_primary } : {}),
             })
             .select()
             .single();
