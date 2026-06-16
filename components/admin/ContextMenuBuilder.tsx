@@ -13,6 +13,18 @@ import { sharedRegistry } from '@/lib/nodes/core/shared-registry';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store/app-store';
 import { motion, AnimatePresence } from 'framer-motion';
+import { parseIconName } from '@/lib/utils/schema-parser';
+
+/**
+ * Normalize an admin-entered icon for storage/preview. lucide names are accepted
+ * in the copy-from-lucide kebab form ("pen-line") and converted to the resolvable
+ * "PenLineIcon" form; provider/model logo URLs (http…) are passed through untouched.
+ */
+function normalizeMenuIcon(icon: string | null | undefined): string | null {
+    if (!icon) return null;
+    if (icon.startsWith('http')) return icon;
+    return parseIconName(icon);
+}
 
 interface ContextMenuItem {
     id: string;
@@ -260,13 +272,13 @@ export function ContextMenuBuilder() {
                 
                 // Strip children before creating
                 const { children, ...cleanForm } = form as any;
-                const newItem = await modelsAdminApi.createContextMenuItem({ ...cleanForm, sort_order: nextOrder });
+                const newItem = await modelsAdminApi.createContextMenuItem({ ...cleanForm, icon: normalizeMenuIcon(cleanForm.icon), sort_order: nextOrder });
                 setItems(prev => [...prev, newItem]);
                 setStatus({ type: 'success', msg: 'Item created.' });
             } else if (editingItem) {
                 // Strip children before updating
                 const { children, ...cleanForm } = form as any;
-                const updatedItem = await modelsAdminApi.updateContextMenuItem(editingItem.id, cleanForm);
+                const updatedItem = await modelsAdminApi.updateContextMenuItem(editingItem.id, { ...cleanForm, icon: normalizeMenuIcon(cleanForm.icon) });
                 setItems(prev => prev.map(i => i.id === editingItem.id ? updatedItem : i));
                 setStatus({ type: 'success', msg: 'Item updated.' });
             }
@@ -361,8 +373,8 @@ export function ContextMenuBuilder() {
         setStatus({ type: 'success', msg: `Syncing models for ${providerItem.title}...` });
         
         try {
-            // 1. Find all models for this provider
-            const providerModels = models.filter(m => m.provider_id === providerItem.action_value);
+            // 1. Find all PRIMARY models for this provider (variants stay hidden from menus)
+            const providerModels = models.filter(m => m.provider_id === providerItem.action_value && m.is_primary !== false);
             
             // 2. Get existing children to avoid duplicates
             const existingChildren = items.filter(i => i.parent_id === providerItem.id);
@@ -411,6 +423,57 @@ export function ContextMenuBuilder() {
         }
     };
 
+    // Top-level one-click sync: add a provider menu item for every provider not yet
+    // in the menu, then refresh the model list of EVERY provider (new + existing).
+    const syncAllProviders = async () => {
+        if (providers.length === 0) return;
+        setLoading(true);
+        setStatus({ type: 'success', msg: 'Syncing all providers...' });
+        try {
+            const existingProviderItems = items.filter(i => i.item_type === 'provider');
+            const existingProviderValues = new Set(existingProviderItems.map(i => i.action_value));
+            const rootItems = items.filter(i => i.parent_id === null);
+            let nextOrder = rootItems.length > 0 ? Math.max(...rootItems.map(i => i.sort_order)) + 1 : 0;
+
+            // 1. Create a provider item for any provider missing from the menu.
+            const createdProviderItems: ContextMenuItem[] = [];
+            for (const p of providers) {
+                if (existingProviderValues.has(p.id)) continue;
+                const created = await modelsAdminApi.createContextMenuItem({
+                    title: p.name,
+                    item_type: 'provider',
+                    action_value: p.id,
+                    icon: p.logo_url || null,
+                    badge: null,
+                    parent_id: null,
+                    sort_order: nextOrder++,
+                    is_active: true,
+                });
+                createdProviderItems.push(created);
+            }
+            if (createdProviderItems.length > 0) {
+                setItems(prev => [...prev, ...createdProviderItems]);
+            }
+
+            // 2. Refresh models for every provider item (existing + just-created).
+            const allProviderItems = [...existingProviderItems, ...createdProviderItems];
+            for (const item of allProviderItems) {
+                await refreshProviderModels(item);
+            }
+
+            setStatus({
+                type: 'success',
+                msg: `Synced ${allProviderItems.length} provider${allProviderItems.length === 1 ? '' : 's'} (${createdProviderItems.length} new).`,
+            });
+            setHasChanges(true);
+        } catch (err: any) {
+            console.error('Sync all providers failed', err);
+            setStatus({ type: 'error', msg: `Sync all failed: ${err.message}` });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSync = async () => {
         if (!hasChanges) return;
         setLoading(true);
@@ -441,7 +504,10 @@ export function ContextMenuBuilder() {
 
     const renderTree = (nodes: ContextMenuItem[], level = 0) => {
         return nodes.map(node => {
-            const Icon = (LucideIcons[node.icon as keyof typeof LucideIcons] as React.ComponentType<any>) || LucideIcons.Box;
+            // Resolve lucide names via parseIconName so kebab ("pen-line") previews
+            // correctly; http logo URLs render as an <img> below, not through Icon.
+            const iconKey = node.icon?.startsWith('http') ? node.icon : parseIconName(node.icon || '');
+            const Icon = (LucideIcons[iconKey as keyof typeof LucideIcons] as React.ComponentType<any>) || LucideIcons.Box;
             const hasChildren = node.children && node.children.length > 0;
             const isExpanded = expanded.has(node.id);
 
@@ -592,7 +658,15 @@ export function ContextMenuBuilder() {
                                 <LucideIcons.Save className="w-4 h-4 group-hover:scale-110 transition-transform" /> Save Changes
                             </button>
                         )}
-                        <button 
+                        <button
+                            onClick={syncAllProviders}
+                            disabled={loading}
+                            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Add any missing providers and refresh every provider's model list"
+                        >
+                            <LucideIcons.RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Sync Providers
+                        </button>
+                        <button
                             onClick={() => startCreate(null)}
                             className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2"
                         >
@@ -688,7 +762,7 @@ export function ContextMenuBuilder() {
                                         });
                                     }}
                                     options={[
-                                        ...models.map(m => ({ id: m.id.toString(), display_name: m.display_name }))
+                                        ...models.filter(m => m.is_primary !== false).map(m => ({ id: m.id.toString(), display_name: m.display_name }))
                                     ]}
                                     placeholder="Select Model..."
                                     required

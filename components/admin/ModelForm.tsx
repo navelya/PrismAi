@@ -247,7 +247,7 @@ export function ModelForm({
 
     // Visual Schema States
     const [visualControls, setVisualControls] = useState<Array<Control & { id: string }>>([]);
-    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean, cost_per_item?: number, max_items?: number, description?: string }>>([]);
+    const [visualInputWires, setVisualInputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_mandatory: boolean, is_visible: boolean, cost_per_item?: number, cost_is_one_time?: boolean, max_items?: number, description?: string }>>([]);
     const [visualOutputWires, setVisualOutputWires] = useState<Array<{ id: string, name: string, api_mapping_key: string, type: string, is_array: boolean, is_visible: boolean, description?: string }>>([]);
     // Auto-generate-descriptions UI state: `autoGenAll` for the bulk button,
     // `regenKey` = `${kind}:${api_mapping_key}` of the single field regenerating.
@@ -303,6 +303,7 @@ export function ModelForm({
                     is_mandatory: h.is_mandatory ?? false,
                     is_visible: h.is_visible ?? true,
                     cost_per_item: h.cost_per_item ?? 0,
+                    cost_is_one_time: h.cost_is_one_time ?? false,
                     max_items: h.max_items ?? 0,
                     description: h.description
                 })));
@@ -522,6 +523,7 @@ export function ModelForm({
             is_mandatory: false,
             is_visible: ctrl.is_visible ?? true,
             cost_per_item: 0,
+            cost_is_one_time: false,
             max_items: 0,
             description: ctrl.description,
         };
@@ -685,6 +687,7 @@ export function ModelForm({
                 is_mandatory: wire.is_mandatory,
                 is_visible: wire.is_visible,
                 cost_per_item: Number(wire.cost_per_item) || 0,
+                cost_is_one_time: !!wire.cost_is_one_time,
                 // max_items only applies to array-capable handles
                 max_items: wire.is_array ? (Number(wire.max_items) || 0) : 0,
                 description: wire.description
@@ -1599,12 +1602,22 @@ export function ModelForm({
                                     />
                                 </div>
                                 {['image', 'video'].some(t => (wire.type || '').toLowerCase().includes(t)) && (
-                                    <NumberInput
-                                        label="Cost / connected item"
-                                        value={wire.cost_per_item ?? 0}
-                                        onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_per_item: Number(e.target.value) } : w))}
-                                        suffix="CR"
-                                    />
+                                    <div className="flex items-end gap-3">
+                                        <NumberInput
+                                            label={wire.cost_is_one_time ? 'One-time cost' : 'Cost / connected item'}
+                                            value={wire.cost_per_item ?? 0}
+                                            onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_per_item: Number(e.target.value) } : w))}
+                                            suffix="CR"
+                                        />
+                                        <div className="pb-2 shrink-0">
+                                            <Switch
+                                                size="sm"
+                                                label="One-time"
+                                                checked={!!wire.cost_is_one_time}
+                                                onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_is_one_time: checked } : w))}
+                                            />
+                                        </div>
+                                    </div>
                                 )}
                                 {wire.is_array && (
                                     <NumberInput

@@ -36,7 +36,7 @@ function RevealingLabel({ name, subtitle }: { name: string; subtitle?: string })
                 {name}
             </div>
             {subtitle && (
-                <div className="absolute left-0 right-0 top-full mt-0.5 text-[9px] text-content-tertiary uppercase tracking-wider truncate leading-[10px] opacity-0 -translate-y-1 group-hover:opacity-100 group-hover:-translate-y-[5px] transition-all duration-200">
+                <div className="absolute left-0 right-0 top-full mt-1 text-[10px] text-content-secondary tracking-normal truncate leading-[12px] opacity-0 -translate-y-1 group-hover:opacity-100 group-hover:-translate-y-1 transition-all duration-200">
                     {subtitle}
                 </div>
             )}
@@ -185,7 +185,7 @@ export function NodeItemRow({ nodeType, onDragStart, onAdd }: NodeItemRowProps) 
     return (
         <RevealingRow
             name={nodeType.display_name}
-            subtitle="Dynamic node"
+            subtitle={nodeType.description?.trim() || 'Dynamic node'}
             draggable
             onDragStart={onDragStart}
             onAdd={onAdd}

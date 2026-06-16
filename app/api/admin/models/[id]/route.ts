@@ -97,10 +97,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
         const { id } = params;
 
+        // Deleting a group's primary must promote a surviving variant so the group
+        // is never left without a primary — done atomically in the RPC. Plain delete
+        // for non-primary or last-in-group rows.
         const { error } = await auth.supabase
-            .from('ai_models')
-            .delete()
-            .eq('id', id);
+            .rpc('delete_model_and_reseat_primary', { target_id: Number(id) });
 
         if (error) throw error;
 

@@ -40,12 +40,15 @@ import {
     Maximize2,
     GripVertical,
     LayoutTemplate,
-    Images
+    Images,
+    Copy,
+    Star
 } from 'lucide-react';
-import { modelsAdminApi } from '@/lib/api/admin';
+import { modelsAdminApi, nodeTypeDescriptionsApi } from '@/lib/api/admin';
 import { Select } from '@/components/ui/Select';
 import { Switch } from '@/components/ui/Switch';
 import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { formatDisplayName, parseIconName } from '@/lib/utils/schema-parser';
 import { cn } from '@/lib/utils';
@@ -566,6 +569,8 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
     const [providerToDelete, setProviderToDelete] = useState<any | null>(null);
     const [modelToDelete, setModelToDelete] = useState<any | null>(null);
     const [nodeTypeToDelete, setNodeTypeToDelete] = useState<any | null>(null);
+    // variant_group_ids whose hidden variants are expanded in the management list.
+    const [expandedVariantGroups, setExpandedVariantGroups] = useState<Set<string>>(new Set());
 
     // Dynamic Data
     const [categories, setCategories] = useState<any[]>([]);
@@ -584,9 +589,14 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
         id: '',
         display_name: '',
         icon_reference: 'Boxes',
-        parent_categories: [] as string[]
+        parent_categories: [] as string[],
+        description: ''
     });
     const [nodeSubmitting, setNodeSubmitting] = useState(false);
+    // Per-form AI description generation (the Generate button next to the field).
+    const [nodeDescGenerating, setNodeDescGenerating] = useState(false);
+    // Bulk "generate descriptions for all uninitialized sub categories".
+    const [bulkDescGenerating, setBulkDescGenerating] = useState(false);
 
     const [providerForm, setProviderForm] = useState({
         name: '',
@@ -665,6 +675,55 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
         }
     };
 
+    const toggleVariantGroup = (groupId: string) => {
+        setExpandedVariantGroups(prev => {
+            const next = new Set(prev);
+            next.has(groupId) ? next.delete(groupId) : next.add(groupId);
+            return next;
+        });
+    };
+
+    // Clone a model into the SAME variant group as a non-primary variant, then open
+    // it in the editor. A variant is just a regular model row with its own settings
+    // (incl. a different sub-category) that stays hidden from user-facing lists.
+    const handleCreateVariant = async (model: any) => {
+        if (!model.variant_group_id) {
+            setStatus({ type: 'error', message: 'This model has no variant group yet — apply migration 20260616 and reload.' });
+            return;
+        }
+        setStatus(null);
+        setModelSubmitting(true);
+        try {
+            // Strip non-column / server-managed fields; keep schema, bindings, settings.
+            const { id, providers: _p, created_at, updated_at, is_primary, ...rest } = model;
+            const newModel = await modelsAdminApi.createModel({
+                ...rest,
+                variant_group_id: model.variant_group_id,
+                is_primary: false,
+            });
+            await loadData();
+            setExpandedVariantGroups(prev => new Set(prev).add(model.variant_group_id));
+            setStatus({ type: 'success', message: 'Variant created — editing its settings.' });
+            if (newModel) setEditingModel(newModel);
+        } catch (err: any) {
+            setStatus({ type: 'error', message: err.message || 'Failed to create variant.' });
+        } finally {
+            setModelSubmitting(false);
+        }
+    };
+
+    // Make a variant the group's primary (the one shown in user-facing lists).
+    const handlePromoteVariant = async (model: any) => {
+        setStatus(null);
+        try {
+            await modelsAdminApi.promoteModel(model.id);
+            await loadData();
+            setStatus({ type: 'success', message: `"${model.display_name}" is now the main model.` });
+        } catch (err: any) {
+            setStatus({ type: 'error', message: err.message || 'Failed to promote variant.' });
+        }
+    };
+
     const handleNodeTypeSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setStatus(null);
@@ -689,7 +748,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                 await modelsAdminApi.createNodeType(finalNodeForm);
                 setStatus({ type: 'success', message: 'Sub Category created successfully!' });
             }
-            setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [] });
+            setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [], description: '' });
             await loadData();
         } catch (err: any) {
             setStatus({ type: 'error', message: err.message || 'Failed to process Sub Category.' });
@@ -709,6 +768,69 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
             setStatus({ type: 'error', message: err.message || 'Failed to delete Sub Category.' });
         } finally {
             setNodeTypeToDelete(null);
+        }
+    };
+
+    // Per-form AI description: fill the description field for the sub category
+    // currently being authored/edited, from its name + parent categories.
+    const generateNodeDescription = async () => {
+        if (!nodeForm.display_name.trim()) {
+            setStatus({ type: 'error', message: 'Enter a display name first.' });
+            return;
+        }
+        setStatus(null);
+        setNodeDescGenerating(true);
+        try {
+            const descriptions = await nodeTypeDescriptionsApi.generate({
+                items: [{
+                    id: nodeForm.id || 'draft',
+                    display_name: nodeForm.display_name,
+                    parent_categories: nodeForm.parent_categories,
+                }],
+                categories: categories.map(c => ({ id: c.id, display_name: c.display_name })),
+            });
+            const text = descriptions[nodeForm.id || 'draft'];
+            if (text) {
+                setNodeForm(prev => ({ ...prev, description: text }));
+            } else {
+                setStatus({ type: 'error', message: 'No description was generated.' });
+            }
+        } catch (err: any) {
+            setStatus({ type: 'error', message: err.message || 'Failed to generate description.' });
+        } finally {
+            setNodeDescGenerating(false);
+        }
+    };
+
+    // Bulk: generate a description for every sub category that doesn't have one
+    // yet, then persist each via a description-only PATCH and reload.
+    const generateAllNodeDescriptions = async () => {
+        const targets = nodeTypes.filter(t => !t.description || !String(t.description).trim());
+        if (targets.length === 0) {
+            setStatus({ type: 'success', message: 'All sub categories already have a description.' });
+            return;
+        }
+        setStatus(null);
+        setBulkDescGenerating(true);
+        try {
+            const descriptions = await nodeTypeDescriptionsApi.generate({
+                items: targets.map(t => ({
+                    id: t.id,
+                    display_name: t.display_name,
+                    parent_categories: t.parent_categories || [],
+                })),
+                categories: categories.map(c => ({ id: c.id, display_name: c.display_name })),
+            });
+            const entries = Object.entries(descriptions).filter(([, text]) => text && text.trim());
+            await Promise.all(entries.map(([id, text]) =>
+                modelsAdminApi.updateNodeType(id, { description: text })
+            ));
+            await loadData();
+            setStatus({ type: 'success', message: `Generated ${entries.length} description${entries.length === 1 ? '' : 's'}.` });
+        } catch (err: any) {
+            setStatus({ type: 'error', message: err.message || 'Failed to generate descriptions.' });
+        } finally {
+            setBulkDescGenerating(false);
         }
     };
 
@@ -891,11 +1013,22 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
 
                         {/* Management View */}
                         {activeTab === 'management' && !editingModel && (() => {
-                            const providerCounts = new Map<string, number>();
+                            // Top-level list shows PRIMARIES only; variants are nested under
+                            // their primary. Counts reflect primaries too.
+                            const primaryModels = allModels.filter(m => m.is_primary !== false);
+                            const variantsByGroup = new Map<string, any[]>();
                             allModels.forEach(m => {
+                                if (m.is_primary === false && m.variant_group_id) {
+                                    const list = variantsByGroup.get(m.variant_group_id) || [];
+                                    list.push(m);
+                                    variantsByGroup.set(m.variant_group_id, list);
+                                }
+                            });
+                            const providerCounts = new Map<string, number>();
+                            primaryModels.forEach(m => {
                                 if (m.provider_id) providerCounts.set(m.provider_id, (providerCounts.get(m.provider_id) ?? 0) + 1);
                             });
-                            const filteredModels = allModels.filter(m => {
+                            const filteredModels = primaryModels.filter(m => {
                                 const matchesSearch = m.display_name.toLowerCase().includes(searchQuery.toLowerCase()) || m.replicate_model_id.toLowerCase().includes(searchQuery.toLowerCase());
                                 const matchesCat = categoryFilter === 'all' || m.category_id === categoryFilter;
                                 const matchesActive = activeFilter === 'all' || (activeFilter === 'active' ? m.is_active : !m.is_active);
@@ -948,7 +1081,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             value={providerFilter}
                                             className="min-w-[170px]"
                                             options={[
-                                                { id: 'all', display_name: `All Providers (${allModels.length})` },
+                                                { id: 'all', display_name: `All Providers (${primaryModels.length})` },
                                                 ...providers.map((p: any) => ({
                                                     id: p.id,
                                                     display_name: `${p.name} (${providerCounts.get(p.id) ?? 0})`,
@@ -973,9 +1106,12 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             const provider = providers.find(p => p.id === model.provider_id);
                                             const subCategory = nodeTypes.find(t => t.id === model.node_type_id);
                                             const IconComponent = (subCategory?.icon_reference && (LucideIcons as any)[subCategory.icon_reference]) || Boxes;
+                                            const groupVariants = (model.variant_group_id && variantsByGroup.get(model.variant_group_id)) || [];
+                                            const isVariantsOpen = !!model.variant_group_id && expandedVariantGroups.has(model.variant_group_id);
 
                                             return (
-                                                <div key={model.id} className="group bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl p-6 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                              <div key={model.id} className="space-y-2">
+                                                <div className="group bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl p-6 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6">
                                                     <div className="flex items-center gap-5">
                                                         <div className="relative">
                                                             <div className={cn(
@@ -1051,6 +1187,28 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                         >
                                                             <Download className="w-3.5 h-3.5" /> JSON
                                                         </button>
+                                                        {groupVariants.length > 0 && (
+                                                            <button
+                                                                onClick={() => model.variant_group_id && toggleVariantGroup(model.variant_group_id)}
+                                                                className={cn(
+                                                                    "flex items-center gap-2 px-4 py-2 border text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all",
+                                                                    isVariantsOpen
+                                                                        ? "bg-accent-primary/20 border-accent-primary/30 text-accent-primary"
+                                                                        : "bg-white/5 hover:bg-white/10 border-white/10 text-content-tertiary hover:text-content-primary"
+                                                                )}
+                                                                title="Show/hide this model's hidden variants"
+                                                            >
+                                                                <Layers className="w-3.5 h-3.5" /> {groupVariants.length} {groupVariants.length === 1 ? 'Variant' : 'Variants'}
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => handleCreateVariant(model)}
+                                                            disabled={modelSubmitting}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-content-tertiary hover:text-content-primary text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all disabled:opacity-40"
+                                                            title="Create a hidden variant of this model (same name, editable settings)"
+                                                        >
+                                                            <Copy className="w-3.5 h-3.5" /> Variant
+                                                        </button>
                                                         <button
                                                             onClick={() => setEditingModel(model)}
                                                             className="flex items-center gap-2 px-4 py-2 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 text-accent-primary text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all"
@@ -1065,6 +1223,52 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                         </button>
                                                     </div>
                                                 </div>
+
+                                                {/* Hidden variants of this model (different settings/sub-category) */}
+                                                {isVariantsOpen && groupVariants.map((variant: any) => {
+                                                    const vSub = nodeTypes.find(t => t.id === variant.node_type_id);
+                                                    return (
+                                                        <div key={variant.id} className="ml-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-black/20 border border-white/5 border-l-2 border-l-accent-primary/30 rounded-xl px-5 py-3">
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <Layers className="w-3.5 h-3.5 text-accent-primary/60 shrink-0" />
+                                                                <div className="min-w-0">
+                                                                    <span className="text-xs font-bold text-content-secondary truncate">{variant.display_name}</span>
+                                                                    <div className="flex flex-wrap gap-1.5 mt-1">
+                                                                        <span className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded text-content-tertiary text-[8px] font-black uppercase tracking-widest">{variant.category_id}</span>
+                                                                        {vSub && (
+                                                                            <span className="px-1.5 py-0.5 bg-accent-primary/5 border border-accent-primary/20 rounded text-accent-primary text-[8px] font-black uppercase tracking-widest">{vSub.display_name}</span>
+                                                                        )}
+                                                                        {!variant.is_active && (
+                                                                            <span className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-[8px] font-black uppercase tracking-widest">Inactive</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                <button
+                                                                    onClick={() => handlePromoteVariant(variant)}
+                                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-accent-primary/20 border border-white/10 hover:border-accent-primary/30 text-content-tertiary hover:text-accent-primary text-[9px] font-bold uppercase tracking-widest rounded-lg transition-all"
+                                                                    title="Make this the main model shown in user lists"
+                                                                >
+                                                                    <Star className="w-3 h-3" /> Make main
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setEditingModel(variant)}
+                                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 text-accent-primary text-[9px] font-bold uppercase tracking-widest rounded-lg transition-all"
+                                                                >
+                                                                    <Edit2 className="w-3 h-3" /> Edit
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setModelToDelete(variant)}
+                                                                    className="p-1.5 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                                                >
+                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                              </div>
                                             );
                                         })
                                     }
@@ -1264,7 +1468,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             <button
                                                 onClick={() => {
                                                     setEditingNodeType(null);
-                                                    setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [] });
+                                                    setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [], description: '' });
                                                 }}
                                                 className="p-2 text-content-tertiary hover:text-content-primary rounded-xl transition-all border border-white/5"
                                             >
@@ -1291,15 +1495,28 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                 required
                                             />
                                             <div className="space-y-2">
-                                                <Input
-                                                    label="Icon Name"
-                                                    value={nodeForm.icon_reference}
-                                                    onChange={e => setNodeForm({ ...nodeForm, icon_reference: e.target.value })}
-                                                    placeholder="e.g. Sparkles, Zap, Image..."
-                                                />
+                                                <div className="flex items-end gap-3">
+                                                    <div className="flex-1">
+                                                        <Input
+                                                            label="Icon Name"
+                                                            value={nodeForm.icon_reference}
+                                                            onChange={e => setNodeForm({ ...nodeForm, icon_reference: e.target.value })}
+                                                            placeholder="e.g. pen-line, sparkles, zap..."
+                                                        />
+                                                    </div>
+                                                    {/* Live preview — resolves kebab ("pen-line") the same way Save will. */}
+                                                    {(() => {
+                                                        const PreviewIcon = (LucideIcons[parseIconName(nodeForm.icon_reference) as keyof typeof LucideIcons] as React.ComponentType<any>) || Activity;
+                                                        return (
+                                                            <div className="w-11 h-11 shrink-0 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 shadow-inner">
+                                                                <PreviewIcon className="w-5 h-5 text-accent-primary" />
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
                                                 <p className="text-[10px] text-content-tertiary px-1 flex items-center gap-1.5 leading-relaxed font-medium">
                                                     <Info className="w-3 h-3 text-accent-primary" />
-                                                    <span>Find icon names in the <a href="https://lucide.dev/icons" target="_blank" rel="noopener noreferrer" className="text-accent-primary hover:underline underline-offset-2 font-bold inline-flex items-center gap-0.5">Lucide Directory <ExternalLink className="w-2.5 h-2.5" /></a></span>
+                                                    <span>Paste the lucide name as-is (e.g. <span className="font-mono text-content-secondary">pen-line</span>) from the <a href="https://lucide.dev/icons" target="_blank" rel="noopener noreferrer" className="text-accent-primary hover:underline underline-offset-2 font-bold inline-flex items-center gap-0.5">Lucide Directory <ExternalLink className="w-2.5 h-2.5" /></a></span>
                                                 </p>
                                             </div>
                                         </div>
@@ -1338,6 +1555,37 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                     <p className="text-[10px] text-red-400 font-bold uppercase tracking-wider">No categories available to select.</p>
                                                 </div>
                                             )}
+                                        </div>
+
+                                        <div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.2em] pl-1">
+                                                    Description
+                                                </label>
+                                                <button
+                                                    type="button"
+                                                    onClick={generateNodeDescription}
+                                                    disabled={nodeDescGenerating || !nodeForm.display_name.trim()}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 rounded-xl text-[10px] font-bold uppercase tracking-widest text-accent-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title="Generate a short description with Gemini Flash"
+                                                >
+                                                    {nodeDescGenerating
+                                                        ? <div className="w-3 h-3 border-2 border-accent-primary/30 border-t-accent-primary rounded-full animate-spin" />
+                                                        : <LucideIcons.Sparkles className="w-3 h-3" />}
+                                                    Generate
+                                                </button>
+                                            </div>
+                                            <Textarea
+                                                value={nodeForm.description}
+                                                onChange={e => setNodeForm({ ...nodeForm, description: e.target.value })}
+                                                placeholder="A few words shown under the title in the Add Node menu (e.g. Sharpen & enlarge video)"
+                                                className="min-h-[64px] text-xs"
+                                                maxLength={80}
+                                            />
+                                            <p className="text-[10px] text-content-tertiary px-1 mt-1.5 flex items-center gap-1.5 leading-relaxed font-medium">
+                                                <Info className="w-3 h-3 text-accent-primary shrink-0" />
+                                                Keep it tiny — a few words. Shown on hover in the add-node panel.
+                                            </p>
                                         </div>
 
                                         <div className="pt-8 border-t border-white/5 flex justify-end">
@@ -1382,12 +1630,30 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             />
                                         </div>
                                     </div>
-                                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-content-tertiary opacity-40">
-                                        Showing {nodeTypes.filter(type => {
-                                            const matchesSearch = type.display_name.toLowerCase().includes(subCategorySearch.toLowerCase()) || type.id.toLowerCase().includes(subCategorySearch.toLowerCase());
-                                            const matchesParent = subCategoryParentFilter === 'all' || type.parent_categories?.includes(subCategoryParentFilter);
-                                            return matchesSearch && matchesParent;
-                                        }).length} Results
+                                    <div className="flex items-center gap-4">
+                                        {(() => {
+                                            const missing = nodeTypes.filter(t => !t.description || !String(t.description).trim()).length;
+                                            return (
+                                                <button
+                                                    onClick={generateAllNodeDescriptions}
+                                                    disabled={bulkDescGenerating || loading || missing === 0}
+                                                    className="flex items-center gap-2 px-4 py-2.5 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 rounded-2xl text-[10px] font-black uppercase tracking-widest text-accent-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title="Generate descriptions for every sub category that doesn't have one yet (Gemini Flash)"
+                                                >
+                                                    {bulkDescGenerating
+                                                        ? <div className="w-3.5 h-3.5 border-2 border-accent-primary/30 border-t-accent-primary rounded-full animate-spin" />
+                                                        : <LucideIcons.Sparkles className="w-3.5 h-3.5" />}
+                                                    Generate Descriptions{missing > 0 ? ` (${missing})` : ''}
+                                                </button>
+                                            );
+                                        })()}
+                                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-content-tertiary opacity-40">
+                                            Showing {nodeTypes.filter(type => {
+                                                const matchesSearch = type.display_name.toLowerCase().includes(subCategorySearch.toLowerCase()) || type.id.toLowerCase().includes(subCategorySearch.toLowerCase());
+                                                const matchesParent = subCategoryParentFilter === 'all' || type.parent_categories?.includes(subCategoryParentFilter);
+                                                return matchesSearch && matchesParent;
+                                            }).length} Results
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1411,6 +1677,11 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                             <div>
                                                                 <h4 className="font-bold text-content-primary uppercase tracking-tight text-sm">{type.display_name}</h4>
                                                                 <p className="text-[10px] text-content-tertiary font-mono mt-0.5 opacity-60">ID: {type.id}</p>
+                                                                {type.description && String(type.description).trim() ? (
+                                                                    <p className="text-[11px] text-content-secondary mt-1.5 leading-snug">{type.description}</p>
+                                                                ) : (
+                                                                    <p className="text-[10px] text-content-tertiary/50 italic mt-1.5">No description</p>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1421,7 +1692,8 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                                         id: type.id,
                                                                         display_name: type.display_name,
                                                                         icon_reference: type.icon_reference,
-                                                                        parent_categories: type.parent_categories || []
+                                                                        parent_categories: type.parent_categories || [],
+                                                                        description: type.description || ''
                                                                     });
                                                                     window.scrollTo({ top: 0, behavior: 'smooth' });
                                                                 }}

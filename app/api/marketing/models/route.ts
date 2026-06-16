@@ -30,6 +30,7 @@ export async function GET() {
             .from('ai_models')
             .select('display_name, category_id, providers(name, logo_url)')
             .eq('is_active', true)
+            .eq('is_primary', true) // hide variants from the public list
             .order('display_name');
 
         if (error) throw error;

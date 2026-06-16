@@ -42,38 +42,50 @@ export interface CostGraphContext {
 
 /**
  * Cost of the items wired into a single ai_generator node's input handles.
- * Each input handle may declare `cost_per_item` (credits per connected item).
- * A media_input source contributes config.images.length items; any other
- * source contributes 1 per edge. Returns the summed cost across all priced
- * handles on this node.
+ * Each input handle may declare `cost_per_item`. By default this is charged
+ * per connected item; if the handle sets `cost_is_one_time`, it is charged
+ * once when ≥1 item is connected (and not at all when 0 are). A media_input
+ * source contributes config.images.length items; any other source contributes
+ * 1 per edge. Returns the summed cost across all priced handles on this node.
  */
 function computeConnectedInputCost(
     node: CostNode,
     model: { inputs_schema?: AiModel['inputs_schema'] | null },
     graph: CostGraphContext
 ): number {
-    // handle id (api_mapping_key) -> cost per connected item, for priced handles only.
-    const handleCost = new Map<string, number>();
+    // handle id (api_mapping_key) -> { cost, oneTime }, for priced handles only.
+    const handleCost = new Map<string, { cost: number; oneTime: boolean }>();
     for (const h of model.inputs_schema?.handles ?? []) {
         const c = Number((h as any).cost_per_item ?? 0);
         const key = (h as any).api_mapping_key;
-        if (key && Number.isFinite(c) && c > 0) handleCost.set(key, c);
+        if (key && Number.isFinite(c) && c > 0) {
+            handleCost.set(key, { cost: c, oneTime: !!(h as any).cost_is_one_time });
+        }
     }
     if (handleCost.size === 0) return 0;
 
     const nodeById = new Map(graph.allNodes.map(n => [n.id, n]));
-    let total = 0;
+    // Tally connected units per priced handle, then price each handle once —
+    // one-time handles must charge a flat fee regardless of edge/item count.
+    const unitsByHandle = new Map<string, number>();
     for (const edge of graph.edges) {
         if (edge.target !== node.id) continue;
-        const perItem = edge.targetHandle ? handleCost.get(edge.targetHandle) : undefined;
-        if (!perItem) continue;
+        const key = edge.targetHandle ?? undefined;
+        if (!key || !handleCost.has(key)) continue;
         const source = nodeById.get(edge.source);
         let units = 1;
         if (source?.type === 'media_input') {
             const imgs = (source.config as any)?.images;
             units = Array.isArray(imgs) ? imgs.length : 0;
         }
-        total += units * perItem;
+        unitsByHandle.set(key, (unitsByHandle.get(key) ?? 0) + units);
+    }
+
+    let total = 0;
+    for (const [key, { cost, oneTime }] of handleCost) {
+        const units = unitsByHandle.get(key) ?? 0;
+        if (units <= 0) continue;
+        total += oneTime ? cost : units * cost;
     }
     return total;
 }
