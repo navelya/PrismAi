@@ -1,51 +1,56 @@
-import sharp from 'sharp';
 import { createServiceClient } from '@/lib/supabase/service';
 import { NodeResultType } from '@/lib/workflow/result-format';
 import { generateThumbnailBuffer, toThumbStoragePath, THUMB_CONTENT_TYPE } from '@/lib/workflow/thumbnail';
+import {
+  contentTypeForExt,
+  extForContentType,
+  extFromUrl,
+  defaultExtForType,
+} from '@/lib/workflow/media-formats';
 
-// Image results are re-encoded to WebP before storage. Resolution is preserved
-// exactly — sharp is never asked to .resize() — so a 4K generation is saved at
-// 4K; only the container/codec changes. Quality 92 is visually indistinguishable
-// from the source in practice while keeping files far smaller than PNG. Video,
-// audio and 3d are stored byte-for-byte as the provider returned them.
-const RESULT_WEBP_QUALITY = 92;
-
-const IMAGE_EXT_CONTENT_TYPES: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-};
+// Results are stored byte-for-byte exactly as the provider returned them — no
+// transcoding for ANY type (image incl. SVG, video, audio, 3d). The only
+// derived data is the sibling `.thumb.webp` (see thumbnail.ts), which never
+// replaces the original. The extension + content-type are resolved from the
+// response header, then the URL, then an SVG byte-sniff, then the type default.
 
 /**
- * Re-encode an image result buffer to full-resolution WebP. On any encode
- * failure (e.g. an unexpected/corrupt format sharp can't read) we fall back to
- * storing the original bytes rather than losing a successful generation.
+ * Cheap defensive check: some providers serve SVG as text/plain or
+ * application/octet-stream with no .svg in the URL. SVG is XML text, so the
+ * leading bytes start with `<?xml` or `<svg`.
  */
-async function prepareImageForStorage(
+function sniffSvg(buffer: Buffer): boolean {
+  const head = buffer.subarray(0, 256).toString('utf8').trimStart().toLowerCase();
+  return head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'));
+}
+
+/**
+ * Resolve the storage extension + content-type for a result's bytes.
+ * Priority: response Content-Type header → URL extension → SVG sniff →
+ * type default. Type-agnostic — identical logic for every media kind.
+ */
+function resolveStoredFormat(
   buffer: Buffer,
-  fallbackExt: string
-): Promise<{ buffer: Buffer; ext: string; contentType: string }> {
-  try {
-    // `animated: true` preserves multi-frame sources (animated GIF/WebP); it is
-    // a harmless no-op for single-frame stills.
-    const webp = await sharp(buffer, { animated: true })
-      .webp({ quality: RESULT_WEBP_QUALITY })
-      .toBuffer();
-    return { buffer: webp, ext: 'webp', contentType: 'image/webp' };
-  } catch (err) {
-    console.warn(
-      `[media-mirror] WebP re-encode failed; storing original bytes. ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
-    return {
-      buffer,
-      ext: fallbackExt,
-      contentType: IMAGE_EXT_CONTENT_TYPES[fallbackExt] ?? WEBHOOK_MEDIA_CONTENT_TYPES.image,
-    };
+  headerContentType: string | null,
+  sourceUrl: string | null,
+  resultType: NodeResultType
+): { ext: string; contentType: string } {
+  if (headerContentType) {
+    const ext = extForContentType(headerContentType);
+    if (ext) return { ext, contentType: contentTypeForExt(ext)! };
   }
+  if (sourceUrl) {
+    const urlExt = extFromUrl(sourceUrl);
+    if (urlExt) {
+      const ct = contentTypeForExt(urlExt);
+      if (ct) return { ext: urlExt, contentType: ct };
+    }
+  }
+  if (resultType === 'image' && sniffSvg(buffer)) {
+    return { ext: 'svg', contentType: 'image/svg+xml' };
+  }
+  const ext = defaultExtForType(resultType);
+  return { ext, contentType: contentTypeForExt(ext) ?? 'application/octet-stream' };
 }
 
 /**
@@ -53,8 +58,8 @@ async function prepareImageForStorage(
  * result. Best-effort: any failure is logged and swallowed — a result without a
  * thumbnail is valid (the reader falls back to full-res), and a thumbnail
  * problem must never fail the result or mark the node failed. `buffer` is the
- * exact bytes that were stored at `resultStoragePath` (re-encoded WebP for
- * images, original bytes for video).
+ * exact original bytes that were stored at `resultStoragePath` (same for every
+ * type — only the derived sibling `.thumb.webp` is WebP).
  */
 async function uploadThumbnailBestEffort(
   supabase: ReturnType<typeof createServiceClient>,
@@ -134,17 +139,15 @@ export async function uploadResultBuffer(
 ): Promise<string> {
   const now = Date.now();
 
-  // Image results are stored as full-resolution WebP; everything else keeps its
-  // provider bytes/extension untouched.
-  let outBuffer = buffer;
-  let outExt = ext;
-  let outContentType = WEBHOOK_MEDIA_CONTENT_TYPES[resultType];
-  if (resultType === 'image') {
-    const prepared = await prepareImageForStorage(buffer, ext);
-    outBuffer = prepared.buffer;
-    outExt = prepared.ext;
-    outContentType = prepared.contentType;
-  }
+  // Store original bytes. The caller-supplied `ext` is treated as the format
+  // hint (sync adapters know their own output format); fall back to sniff/default.
+  const outBuffer = buffer;
+  const { ext: outExt, contentType: outContentType } = resolveStoredFormat(
+    buffer,
+    contentTypeForExt(ext),
+    null,
+    resultType
+  );
 
   // Store under `results/`, NOT `thumbnails/`. The `thumbnails/{nodeId}` folder
   // is treated as ephemeral and is wiped wholesale when a node is deleted
@@ -191,21 +194,18 @@ export async function mirrorMediaToStorage(
     }
 
     const response = await fetchWithRetry(sourceUrl);
+    const headerContentType = response.headers.get('content-type');
     const arrayBuffer = await response.arrayBuffer();
-    let buffer: Buffer = Buffer.from(arrayBuffer);
+    const buffer: Buffer = Buffer.from(arrayBuffer);
 
-    const extMatch = sourceUrl.match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|avi|mkv|mp3|wav|ogg|m4a|aac|flac|glb|gltf|obj|fbx|stl|usd|usdz)(\?|$)/i);
-    let ext = extMatch?.[1]?.toLowerCase() || WEBHOOK_MEDIA_EXTENSIONS[resultType];
-    let contentType = WEBHOOK_MEDIA_CONTENT_TYPES[resultType];
-
-    // Image results are re-encoded to full-resolution WebP before storage;
-    // video/audio/3d keep their original bytes and extension.
-    if (resultType === 'image') {
-      const prepared = await prepareImageForStorage(buffer, ext);
-      buffer = prepared.buffer;
-      ext = prepared.ext;
-      contentType = prepared.contentType;
-    }
+    // Store original bytes for every type; resolve ext/content-type from the
+    // response header, then URL, then SVG sniff, then the type default.
+    const { ext, contentType } = resolveStoredFormat(
+      buffer,
+      headerContentType,
+      sourceUrl,
+      resultType
+    );
 
     // Store under `results/`, NOT `thumbnails/` — the thumbnails folder is wiped
     // on node deletion; this is the only persisted copy of the node's output.
@@ -221,8 +221,8 @@ export async function mirrorMediaToStorage(
       throw new Error(`Supabase Storage upload failed: ${uploadError.message}`);
     }
 
-    // Bake a sibling thumbnail from the bytes we just stored (re-encoded WebP
-    // for images, original bytes for video). Best-effort — never fails the run.
+    // Bake a sibling thumbnail from the original bytes we just stored (same for
+    // every type — only the thumbnail is WebP). Best-effort — never fails the run.
     await uploadThumbnailBestEffort(supabase, buffer, resultType, storagePath);
 
     const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(storagePath);

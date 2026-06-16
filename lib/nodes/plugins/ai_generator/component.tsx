@@ -370,7 +370,7 @@ function AIGeneratorNode({ id, data, selected, dragging = false }: any) {
 
     // Width the active image fills, derived from its cached natural aspect ratio.
     // null until we've seen this image load at least once.
-    const MAX_PREVIEW_W = 420;
+    const MAX_PREVIEW_W = 460;
     const activeDims = activeUrl ? dimsByUrl[activeUrl] : undefined;
     const previewWidth =
         previewMode === 'single' && activeDims && activeDims.w > 0 && activeDims.h > 0
@@ -982,7 +982,7 @@ function OutputPreview({ nodeId, output, type, previewMode, activeImageIndex, it
                             // the cache is warm before the user navigates to it.
                             onLoadedMetadata={(e: any) => onImageLoad?.({ naturalWidth: e.currentTarget.videoWidth, naturalHeight: e.currentTarget.videoHeight }, u)}
                             className={cn(
-                                "w-full h-auto object-contain max-w-none max-h-[420px] min-h-[200px] bg-black/40",
+                                "w-full h-auto object-contain max-w-none max-h-[460px] min-h-[200px] bg-black/40",
                                 !isDragging && "transition-transform duration-700 group-hover/preview:scale-[1.03]"
                             )}
                         />

@@ -1,4 +1,5 @@
 import { coerceResultDataArray, extractMediaUrls, isOutputEnvelope, normalizeNodeResultType } from './result-format';
+import { extFromUrl, extForContentType, defaultExtForType } from '@/lib/workflow/media-formats';
 import { graphDimensions } from '@/lib/nodes/plugins/compositor/shared';
 
 export interface DownloadItem {
@@ -130,15 +131,17 @@ export async function collectNodeMediaBlobs(
         // envelope (mixed envelopes are rare but cheap to handle).
         const urls = extractMediaUrls(output);
         if (urls.length === 0) return items;
-        const fallbackExt = extensionFromEnvelopeType(output) || 'mp4';
+        const fallbackExt = isOutputEnvelope(output)
+          ? defaultExtForType(normalizeNodeResultType(output.type))
+          : 'mp4';
         for (let i = 0; i < urls.length; i++) {
             const url = urls[i];
-            const ext = extensionFromUrl(url) || fallbackExt;
-            const filename = `${safeLabel}-${i + 1}.${ext}`;
             try {
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                items.push({ filename, blob: await resp.blob() });
+                const blob = await resp.blob();
+                const ext = extFromUrl(url) || extForContentType(blob.type) || fallbackExt;
+                items.push({ filename: `${safeLabel}-${i + 1}.${ext}`, blob });
             } catch (err) {
                 console.error('[collectNodeMediaBlobs] fetch failed', url, err);
             } finally {
@@ -150,21 +153,22 @@ export async function collectNodeMediaBlobs(
 
     const urls = extractMediaUrls(output);
     if (urls.length === 0) return [];
-    const fallbackExt = extensionFromEnvelopeType(output);
+    const fallbackExt = isOutputEnvelope(output)
+      ? defaultExtForType(normalizeNodeResultType(output.type))
+      : null;
 
     const items: DownloadItem[] = [];
     // Fetch sequentially. Browsers and servers throttle parallel fetches anyway,
     // and sequential keeps the progress counter monotonic without extra locking.
     for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
-        const ext = extensionFromUrl(url) || fallbackExt || 'bin';
         const suffix = urls.length === 1 ? '' : `-${i + 1}`;
-        const filename = `${safeLabel}${suffix}.${ext}`;
         try {
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const blob = await resp.blob();
-            items.push({ filename, blob });
+            const ext = extFromUrl(url) || extForContentType(blob.type) || fallbackExt || 'bin';
+            items.push({ filename: `${safeLabel}${suffix}.${ext}`, blob });
         } catch (err) {
             // CORS or network failure on a single URL — log and skip. The zip
             // gets whatever could be fetched; the orchestrator's toast reports
@@ -182,22 +186,6 @@ function sanitizeLabel(label: string): string {
     return cleaned.slice(0, 64) || 'node';
 }
 
-function extensionFromUrl(url: string): string | null {
-    const path = url.split('?')[0].split('#')[0];
-    const m = path.match(/\.([a-z0-9]{1,5})$/i);
-    return m ? m[1].toLowerCase() : null;
-}
-
-function extensionFromEnvelopeType(output: any): string | null {
-    if (!isOutputEnvelope(output)) return null;
-    const t = normalizeNodeResultType(output.type);
-    if (t === 'image') return 'png';
-    if (t === 'video') return 'mp4';
-    if (t === 'audio') return 'mp3';
-    if (t === '3d') return 'glb';
-    return null;
-}
-
 /**
  * Trigger a browser save dialog for a single Blob. Used by the bulk-download
  * flow to deliver the final zip; not part of the per-node collection path.
@@ -213,4 +201,24 @@ export function triggerBlobDownload(blob: Blob, filename: string): void {
     a.remove();
     // Firefox cancels the download if the URL is revoked too eagerly.
     setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/**
+ * Fetch a single hosted result and save it AS-IS with the correct extension.
+ * Type-agnostic: image / svg / video / audio / 3d all flow through identically.
+ * Extension resolves from the URL, then the blob's content-type, then 'bin'.
+ * On failure, falls back to opening the URL in a new tab.
+ */
+export async function downloadUrlAsFile(url: string, baseName: string): Promise<void> {
+    const safe = sanitizeLabel(baseName);
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const ext = extFromUrl(url) || extForContentType(blob.type) || 'bin';
+        triggerBlobDownload(blob, `${safe}.${ext}`);
+    } catch (err) {
+        console.error('[downloadUrlAsFile] failed, opening in new tab', url, err);
+        if (typeof window !== 'undefined') window.open(url, '_blank');
+    }
 }

@@ -4,6 +4,7 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
+import { downloadUrlAsFile } from '@/lib/workflow/download-output';
 
 
 interface ImageLightboxProps {
@@ -102,29 +103,10 @@ export default function ImageLightbox({ media, type, initialIndex, onClose, cssF
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose, goToPrevious, goToNext]);
 
-    // Download handler
+    // Download handler — saves the original file as-is with the correct
+    // extension (incl. .svg) via the shared helper.
     const handleDownload = async () => {
-        try {
-            const response = await fetch(mediaSrc);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const urlExt = mediaSrc.match(/\.([a-zA-Z0-9]{2,5})(?:\?|$)/)?.[1]?.toLowerCase();
-            const extension = isAudio
-                ? (urlExt || 'mp3')
-                : isVideo
-                    ? 'mp4'
-                    : (blob.type.includes('png') ? 'png' : 'jpg');
-            a.download = `output_${currentIndex + 1}.${extension}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        } catch (error) {
-            // Fallback: open in new tab
-            window.open(mediaSrc, '_blank');
-        }
+        await downloadUrlAsFile(mediaSrc, `output_${currentIndex + 1}`);
     };
 
     const lightbox = (

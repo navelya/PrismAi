@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Modal } from './Modal';
+import { downloadUrlAsFile } from '@/lib/workflow/download-output';
 
 interface ImageModalProps {
     imageUrl: string;
@@ -29,20 +30,9 @@ export function ImageModal({
     const canGoNext = imageIndex !== undefined && totalImages !== undefined && imageIndex < totalImages - 1;
 
     const handleDownload = async () => {
+        setIsDownloading(true);
         try {
-            setIsDownloading(true);
-            const response = await fetch(imageUrl);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `prism-image-${Date.now()}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error('Download failed:', error);
+            await downloadUrlAsFile(imageUrl, 'prism-image');
         } finally {
             setIsDownloading(false);
         }
@@ -112,7 +102,7 @@ export function ImageModal({
                     className="flex items-center gap-2 px-6 py-3 bg-accent-primary hover:bg-accent-secondary disabled:bg-surface-tertiary text-white font-medium rounded-lg transition-colors shadow-lg"
                 >
                     <Download className="w-5 h-5" />
-                    {isDownloading ? 'Downloading...' : 'Download PNG'}
+                    {isDownloading ? 'Downloading...' : 'Download'}
                 </button>
 
                 {(canGoPrevious || canGoNext) && (

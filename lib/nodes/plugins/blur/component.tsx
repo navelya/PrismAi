@@ -467,12 +467,12 @@ function BlurNode({ data, id, selected, dragging = false }: NodeProps<BlurNodeDa
             isNew={(data as any).isNew}
             hideStatus={true}
             width=""
-            style={{ width: 'max-content', minWidth: 320, maxWidth: 420 }}
+            style={{ width: 'max-content', minWidth: 280, maxWidth: 360 }}
             customActions={canDownload ? <CardDownloadButton state={cardDownloadState} onClick={handleDownload} /> : undefined}
         >
             <div
                 className={cn(
-                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node border border-white/10 bg-white/5 min-h-[200px]",
+                    "relative w-full rounded-xl overflow-hidden shadow-inner group/node border border-white/10 bg-white/5 min-h-[200px] max-h-[460px]",
                     !isDragging && "transition-all duration-500"
                 )}
             >
