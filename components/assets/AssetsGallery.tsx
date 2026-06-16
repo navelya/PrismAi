@@ -15,6 +15,7 @@ import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { unpackAssets, type AssetItem, type AssetType, type TypeFilter } from '@/lib/assets/unpack';
 import { uploadApi, charactersApi, type CharacterRefImage } from '@/lib/api/client';
 import { toThumbnailUrl, bakedThumbUrl } from '@/lib/utils/supabase-image';
+import { extFromUrl, defaultExtForType } from '@/lib/workflow/media-formats';
 
 /**
  * Full-page browse view of every result the user has generated, across all
@@ -37,23 +38,6 @@ function loadColumns(): number {
         if (Number.isFinite(n) && n >= MIN_COLUMNS && n <= MAX_COLUMNS) return n;
     } catch { /* ignore */ }
     return DEFAULT_COLUMNS;
-}
-
-function extFromUrl(url: string): string | null {
-    try {
-        const path = new URL(url).pathname;
-        const m = path.match(/\.([a-zA-Z0-9]{1,5})$/);
-        return m ? m[1].toLowerCase() : null;
-    } catch { return null; }
-}
-
-function extFromType(t: AssetType): string {
-    switch (t) {
-        case 'video': return 'mp4';
-        case 'audio': return 'mp3';
-        case '3d': return 'glb';
-        default: return 'png';
-    }
 }
 
 interface MarqueeRect { left: number; top: number; right: number; bottom: number; }
@@ -292,7 +276,7 @@ export default function AssetsGallery() {
                     const res = await fetch(a.result_url);
                     if (!res.ok) throw new Error('fetch failed');
                     const blob = await res.blob();
-                    const ext = extFromUrl(a.result_url) ?? extFromType(a.result_type);
+                    const ext = extFromUrl(a.result_url) ?? defaultExtForType(a.result_type);
                     zip.file(`asset-${i + 1}.${ext}`, blob);
                 } catch { fails++; }
             }));
