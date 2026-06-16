@@ -13,6 +13,9 @@ export interface InputHandle {
     /** Credits added per item connected to this handle (e.g. per image/video).
      *  Counted at run time × the number of connected items. Omitted/0 = free. */
     cost_per_item?: number;
+    /** When true, cost_per_item is charged ONCE if ≥1 item is connected
+     *  (ignored if 0), instead of per connected item. Default/false = per-item. */
+    cost_is_one_time?: boolean;
     /** For array-capable handles (is_array), the max number of edges/items that
      *  may connect. Enforced at connection time. Omitted/0 = unlimited. */
     max_items?: number;
@@ -106,6 +109,11 @@ export interface AiModel {
     } | null;
     inputs_schema: InputsSchema | null;
     outputs_schema: OutputsSchema | null;
+    /** Variant grouping. A group is a set of model rows sharing one identity;
+     *  exactly one is the primary (shown in user-facing lists). Optional here so
+     *  pre-migration cached store rows are treated as primary (is_primary !== false). */
+    variant_group_id?: string;
+    is_primary?: boolean;
 }
 
 /**
