@@ -30,6 +30,37 @@ import {
     LayerSourceKind,
 } from './shared';
 import { acquireVideo, releaseVideo, setMuted, setPlayState } from './video-pool';
+import { buildLevelsLut, applyLutInPlace } from '../levels/shared';
+
+/**
+ * Split an accumulated cssFilter chain into the part `ctx.filter` can apply
+ * natively (blur, contrast, …) and the Levels node's `levels(b,w,g)` tokens,
+ * which have no native CSS-filter equivalent (gamma) and are applied as a
+ * per-frame RGB LUT instead.
+ *
+ * Ordering caveat: native CSS filters apply during the drawImage, then each
+ * levels LUT applies after, regardless of the original encounter order. A
+ * single levels filter (the common case) is exact; a mixed blur+levels chain
+ * is visually approximate in the live preview only — the server export and the
+ * levels node's own card preview are unaffected.
+ */
+function splitLevelsFromCssFilter(cssFilter: string): {
+    cssOnly: string;
+    levelsLuts: Uint8ClampedArray[];
+} {
+    const levelsLuts: Uint8ClampedArray[] = [];
+    const cssOnly = cssFilter
+        .replace(/levels\(([^)]*)\)/gi, (_, args: string) => {
+            const [b, w, g] = String(args).split(',').map((s) => parseFloat(s));
+            if ([b, w, g].every((n) => isFinite(n))) {
+                levelsLuts.push(buildLevelsLut(b, w, g));
+            }
+            return '';
+        })
+        .replace(/\s+/g, ' ')
+        .trim();
+    return { cssOnly, levelsLuts };
+}
 
 /** Convert a graph layer's source to the kind enum used by activity gating. */
 function sourceKind(source: GraphLayerSource): LayerSourceKind {
@@ -592,15 +623,28 @@ export function paintGraphFrame(
         const complete = paintGraphFrame(base, time, sctx, cache, isPlaying, muted);
         const targetW = ctx.canvas.width;
         const targetH = ctx.canvas.height;
+        // Native CSS filters (blur, …) go through ctx.filter; Levels tokens have
+        // no CSS equivalent (gamma) and are applied as an RGB LUT after the draw.
+        const { cssOnly, levelsLuts } = splitLevelsFromCssFilter(cssFilter);
         ctx.save();
         ctx.clearRect(0, 0, targetW, targetH);
-        ctx.filter = cssFilter || 'none';
+        ctx.filter = cssOnly || 'none';
         try {
             ctx.drawImage(scratch, 0, 0, baseGraph.canvasWidth, baseGraph.canvasHeight, 0, 0, targetW, targetH);
         } catch {
             // ignore
         }
         ctx.restore();
+        if (levelsLuts.length > 0 && targetW > 0 && targetH > 0) {
+            try {
+                const imageData = ctx.getImageData(0, 0, targetW, targetH);
+                for (const lut of levelsLuts) applyLutInPlace(imageData.data, lut);
+                ctx.putImageData(imageData, 0, 0);
+            } catch {
+                // CORS-tainted target can't be read back — skip the LUT this
+                // frame rather than crash the render loop.
+            }
+        }
         return complete;
     }
 

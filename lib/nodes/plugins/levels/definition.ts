@@ -12,17 +12,25 @@ export const levelsSharedDef: NodeSharedDef<LevelsConfig> = {
     category: 'utility',
     meta: {
         label: 'Levels',
-        description: 'Adjust black point, white point, and gamma to remap an image’s tonal range',
+        description: 'Adjust black point, white point, and gamma to remap an image or video’s tonal range',
         color: '#a855f7',
         icon: 'SlidersHorizontal',
         ephemeral: true,
     },
     handles: {
+        // Polymorphic input: accepts either image or video. The component
+        // narrows the visible label/color to match what's actually flowing.
         inputs: [
-            { id: 'image', label: 'Image', expectedType: 'image' },
+            { id: 'image', label: 'Media', expectedType: ['image', 'video'] },
         ],
+        // Single polymorphic output. The id stays `image_out` so saved
+        // workflows (which only ever had `image_out`) keep their downstream
+        // edges. dataType is the union this node may emit; the component
+        // narrows the visible label/color based on the input kind, and
+        // resolveLevelsOutputKind (handle-compatibility.ts) narrows it for
+        // wire-drop validation.
         outputs: [
-            { id: 'image_out', label: '', dataType: 'image' },
+            { id: 'image_out', label: 'Media', dataType: ['image', 'video'] },
         ],
     },
     defaultConfig: {
@@ -36,7 +44,7 @@ export const levelsSharedDef: NodeSharedDef<LevelsConfig> = {
             black_point: {
                 type: 'number',
                 description:
-                    'Input black point (0-255). Pixel values at or below this become pure black. Raise to crush shadows / deepen blacks.',
+                    'Input black point (0-255). Pixel values at or below this become pure black. Raise to crush shadows / deepen blacks. Works on both image and video inputs.',
                 minimum: 0,
                 maximum: 255,
                 default: 0,

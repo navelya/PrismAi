@@ -1,8 +1,10 @@
 import { ImageObject } from '../../types';
 import { ClientExecutor } from '../../core/types';
-import { toLegacyRenderableOutput } from '@/lib/workflow/result-format';
+import { toLegacyRenderableOutput, detectMediaTypeFromUrl } from '@/lib/workflow/result-format';
 import { LevelsConfig } from './definition';
-import { applyLutInPlace, buildLevelsLut } from './shared';
+import { applyLutInPlace, buildLevelsLut, levelsFilterToken } from './shared';
+import { GraphDescription } from '../compositor/shared';
+import { CompositorLayer } from '../compositor/definition';
 
 /**
  * Browser-only Levels Executor.
@@ -64,8 +66,60 @@ const computeLevelsDataUrl = async (
 };
 
 /**
+ * Synthesize a 1-layer compositor GraphDescription wrapping a raw video URL.
+ * Used when levels' upstream is a static-URL video (e.g. MediaInput → Levels
+ * directly, with no compositor between). Means levels' output is uniformly a
+ * `kind: 'filter'` wrapping a `kind: 'compositor'` regardless of upstream shape.
+ * Mirrors blur's wrapUrlAsCompositorGraph.
+ */
+function wrapUrlAsCompositorGraph(
+    url: string,
+    resolution?: { width: number; height: number },
+): GraphDescription {
+    const w = resolution?.width ?? 1920;
+    const h = resolution?.height ?? 1080;
+    const layer: CompositorLayer = {
+        id: '__levels_wrap__',
+        name: 'wrap',
+        sourceHandleId: '__levels_wrap__',
+        selectedIndex: 0,
+        transform: {
+            x: 0, y: 0, width: w, height: h,
+            rotation: 0, opacity: 1,
+            flipX: false, flipY: false,
+            isAutoCentered: true,
+            crop: null,
+        },
+        visible: true,
+        locked: false,
+        startTime: 0,
+        duration: null,
+        trimIn: 0,
+        trimOut: null,
+        speed: 1,
+        muted: false,
+        transition: { type: 'none', duration: 0 },
+    };
+    return {
+        kind: 'compositor',
+        layers: [{ layer, source: { kind: 'media', url, mediaKind: 'video' } }],
+        canvasWidth: w,
+        canvasHeight: h,
+        duration: 0,
+        fps: 30,
+        intrinsicDurations: {},
+    };
+}
+
+/**
  * Generic-shape adapter for the auto-compute pipeline.
  * Mirrors the blur plugin's pattern.
+ *
+ * Image upstream → bake the LUT into a static data URL (one-shot transform).
+ * Video upstream → wrap the upstream graph (or synthesize one around a raw
+ * URL) in a `kind: 'filter'` graph carrying levels as a `levels(b,w,g)` token.
+ * The renderer applies it as a per-frame LUT and the server maps it to an
+ * exact ffmpeg lutrgb pass, so the chain stays live without baking pixels.
  */
 export const levelsClientExecutor: ClientExecutor<LevelsConfig> = async (config, inputs) => {
     const upstream = inputs.image;
@@ -73,14 +127,57 @@ export const levelsClientExecutor: ClientExecutor<LevelsConfig> = async (config,
 
     const normalized = toLegacyRenderableOutput(upstream);
     const first = Array.isArray(normalized) ? normalized[0] : normalized;
-    let imageUrl: string | null = null;
-    if (typeof first === 'string') imageUrl = first;
-    else if (first && typeof first === 'object' && typeof (first as any).url === 'string') {
-        imageUrl = (first as any).url;
-    }
-    if (!imageUrl) return null;
+    let url: string | null = null;
+    let upstreamGraph: GraphDescription | undefined;
+    let resolution: { width: number; height: number } | undefined;
 
-    const dataUrl = await computeLevelsDataUrl(config, imageUrl);
+    if (typeof first === 'string') url = first;
+    else if (first && typeof first === 'object') {
+        if (typeof (first as any).url === 'string') url = (first as any).url;
+        if ((first as any).graph) upstreamGraph = (first as any).graph as GraphDescription;
+        if ((first as any).resolution) resolution = (first as any).resolution;
+    }
+
+    // Pull-model live signal: upstream publishes a `graph` from a Compositor
+    // (or another filter wrapping one). No URL yet, but it's still real data.
+    const hasGraphSource = !!upstreamGraph;
+    if (!url && !hasGraphSource) return null;
+
+    const kind: 'image' | 'video' = hasGraphSource
+        ? 'video'
+        : (detectMediaTypeFromUrl(url!) === 'video' ? 'video' : 'image');
+
+    if (kind === 'video') {
+        const ownFilter = levelsFilterToken(
+            config.black_point ?? 0,
+            config.white_point ?? 255,
+            config.gamma ?? 1.0,
+        );
+
+        // Always operate on a GraphDescription. If upstream already supplied
+        // one, wrap it; otherwise synthesize a 1-layer compositor graph around
+        // the raw URL first. Downstream consumers see exactly one shape (a
+        // `kind: 'filter'` graph) no matter what fed us.
+        const baseGraph: GraphDescription = upstreamGraph
+            ?? wrapUrlAsCompositorGraph(url!, resolution);
+
+        const filterGraph: GraphDescription = {
+            kind: 'filter',
+            upstream: baseGraph,
+            cssFilter: ownFilter,
+        };
+
+        return {
+            type: 'video',
+            data: [{
+                url: '',
+                graph: filterGraph,
+                resolution,
+            }],
+        };
+    }
+
+    const dataUrl = await computeLevelsDataUrl(config, url!);
     if (!dataUrl) return null;
 
     return { type: 'image', data: [{ url: dataUrl }] as ImageObject[] };

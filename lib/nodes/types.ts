@@ -1,7 +1,7 @@
 /**
  * Node Types supported by the workflow engine
  */
-export type NodeType = 'media_input' | 'compositor' | 'prompt' | 'ai_generator' | 'blur' | 'group_container' | 'note' | 'collect' | 'compare';
+export type NodeType = 'media_input' | 'compositor' | 'prompt' | 'ai_generator' | 'blur' | 'levels' | 'group_container' | 'note' | 'collect' | 'compare';
 
 export interface InputHandle {
     name: string;

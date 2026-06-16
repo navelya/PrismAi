@@ -32,6 +32,8 @@
  * emit per-encounter atoms instead of coalescing eq.
  */
 
+import { levelsLutrgbExpr } from '../levels/shared';
+
 /**
  * @param blurSigmaScale Multiplier for blur sigma. blur() px is relative to the
  *   resolution the filter is applied at; when the server renders a layer at a
@@ -50,6 +52,18 @@ export function cssFilterToFfmpegAtoms(cssFilter: string, blurSigmaScale = 1): s
         const arg = m[2].trim();
         const num = parseFloat(arg);
         switch (fn) {
+            case 'levels': {
+                // levels(black,white,gamma) — the Levels node's custom token (no
+                // native CSS-filter equivalent for gamma). Map to an exact ffmpeg
+                // lutrgb expression mirroring levels/shared.ts buildLevelsLut, so
+                // the rendered video matches the LUT used on the client.
+                const [b, w, g] = arg.split(',').map((s) => parseFloat(s));
+                if ([b, w, g].every((n) => isFinite(n))) {
+                    const expr = levelsLutrgbExpr(b, w, g);
+                    atoms.push(`lutrgb=r='${expr}':g='${expr}':b='${expr}'`);
+                }
+                break;
+            }
             case 'blur':
                 if (isFinite(num) && num > 0) {
                     const sigma = num * (blurSigmaScale > 0 ? blurSigmaScale : 1);
