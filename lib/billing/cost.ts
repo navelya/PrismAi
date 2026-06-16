@@ -48,7 +48,7 @@ export interface CostGraphContext {
  * source contributes config.images.length items; any other source contributes
  * 1 per edge. Returns the summed cost across all priced handles on this node.
  */
-function computeConnectedInputCost(
+export function computeConnectedInputCost(
     node: CostNode,
     model: { inputs_schema?: AiModel['inputs_schema'] | null },
     graph: CostGraphContext

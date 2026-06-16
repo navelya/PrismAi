@@ -1577,54 +1577,64 @@ export function ModelForm({
                                 </div>
                             </div>
 
-                            <div onPointerDown={stopPointerProp} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end cursor-default">
-                                <Input
-                                    label="Custom Label"
-                                    value={wire.name}
-                                    onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, name: e.target.value } : w))}
-                                />
-                                <Select
-                                    label="Wire Type"
-                                    value={wire.type}
-                                    options={WIRE_TYPES.map(t => ({ id: t, display_name: formatDisplayName(t) }))}
-                                    onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, type: e.target.value } : w))}
-                                />
-                                <div className="flex gap-4 pb-2">
-                                    <Checkbox
-                                        label="Array"
-                                        checked={wire.is_array}
-                                        onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_array: checked as boolean } : w))}
+                            <div onPointerDown={stopPointerProp} className="space-y-4 cursor-default">
+                                {/* Row 1: core field settings */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                                    <Input
+                                        label="Custom Label"
+                                        value={wire.name}
+                                        onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, name: e.target.value } : w))}
                                     />
-                                    <Checkbox
-                                        label="Required"
-                                        checked={wire.is_mandatory}
-                                        onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_mandatory: checked as boolean } : w))}
+                                    <Select
+                                        label="Wire Type"
+                                        value={wire.type}
+                                        options={WIRE_TYPES.map(t => ({ id: t, display_name: formatDisplayName(t) }))}
+                                        onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, type: e.target.value } : w))}
                                     />
-                                </div>
-                                {['image', 'video'].some(t => (wire.type || '').toLowerCase().includes(t)) && (
-                                    <div className="flex items-end gap-3">
-                                        <NumberInput
-                                            label={wire.cost_is_one_time ? 'One-time cost' : 'Cost / connected item'}
-                                            value={wire.cost_per_item ?? 0}
-                                            onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_per_item: Number(e.target.value) } : w))}
-                                            suffix="CR"
+                                    <div className="flex gap-4 pb-2 items-end">
+                                        <Checkbox
+                                            label="Array"
+                                            checked={wire.is_array}
+                                            onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_array: checked as boolean } : w))}
                                         />
-                                        <div className="pb-2 shrink-0">
-                                            <Switch
-                                                size="sm"
-                                                label="One-time"
-                                                checked={!!wire.cost_is_one_time}
-                                                onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_is_one_time: checked } : w))}
-                                            />
-                                        </div>
+                                        <Checkbox
+                                            label="Required"
+                                            checked={wire.is_mandatory}
+                                            onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, is_mandatory: checked as boolean } : w))}
+                                        />
                                     </div>
-                                )}
-                                {wire.is_array && (
-                                    <NumberInput
-                                        label="Max items (0 = unlimited)"
-                                        value={wire.max_items ?? 0}
-                                        onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, max_items: Number(e.target.value) } : w))}
-                                    />
+                                </div>
+
+                                {/* Row 2: array + cost numerics, on their own line so the
+                                    one-time toggle and cost input never overlap the checkboxes */}
+                                {(wire.is_array || ['image', 'video'].some(t => (wire.type || '').toLowerCase().includes(t))) && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                                        {wire.is_array && (
+                                            <NumberInput
+                                                label="Max items (0 = unlimited)"
+                                                value={wire.max_items ?? 0}
+                                                onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, max_items: Number(e.target.value) } : w))}
+                                            />
+                                        )}
+                                        {['image', 'video'].some(t => (wire.type || '').toLowerCase().includes(t)) && (
+                                            <>
+                                                <NumberInput
+                                                    label={wire.cost_is_one_time ? 'One-time cost' : 'Cost / connected item'}
+                                                    value={wire.cost_per_item ?? 0}
+                                                    onChange={e => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_per_item: Number(e.target.value) } : w))}
+                                                    suffix="CR"
+                                                />
+                                                <div className="pb-2">
+                                                    <Switch
+                                                        size="sm"
+                                                        label="One-time"
+                                                        checked={!!wire.cost_is_one_time}
+                                                        onCheckedChange={(checked) => setVisualInputWires(prev => prev.map(w => w.id === wire.id ? { ...w, cost_is_one_time: checked } : w))}
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
                                 )}
                             </div>
 
