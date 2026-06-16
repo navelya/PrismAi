@@ -9,15 +9,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
         const { id } = params;
         const body = await req.json();
-        const { display_name, icon_reference, parent_categories } = body;
+
+        // Partial update — only touch the columns the caller actually sent, so a
+        // description-only PATCH (e.g. the bulk AI-generate flow) never clobbers
+        // display_name / icon / parent_categories.
+        const patch: Record<string, any> = {};
+        if ('display_name' in body) patch.display_name = body.display_name;
+        if ('icon_reference' in body) patch.icon_reference = body.icon_reference;
+        if ('parent_categories' in body) patch.parent_categories = body.parent_categories;
+        if ('description' in body) patch.description = body.description ?? null;
 
         const { data, error } = await auth.supabase
             .from('node_types')
-            .update({
-                display_name,
-                icon_reference,
-                parent_categories
-            })
+            .update(patch)
             .eq('id', id)
             .select()
             .single();

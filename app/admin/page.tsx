@@ -44,10 +44,11 @@ import {
     Copy,
     Star
 } from 'lucide-react';
-import { modelsAdminApi } from '@/lib/api/admin';
+import { modelsAdminApi, nodeTypeDescriptionsApi } from '@/lib/api/admin';
 import { Select } from '@/components/ui/Select';
 import { Switch } from '@/components/ui/Switch';
 import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { formatDisplayName, parseIconName } from '@/lib/utils/schema-parser';
 import { cn } from '@/lib/utils';
@@ -588,9 +589,14 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
         id: '',
         display_name: '',
         icon_reference: 'Boxes',
-        parent_categories: [] as string[]
+        parent_categories: [] as string[],
+        description: ''
     });
     const [nodeSubmitting, setNodeSubmitting] = useState(false);
+    // Per-form AI description generation (the Generate button next to the field).
+    const [nodeDescGenerating, setNodeDescGenerating] = useState(false);
+    // Bulk "generate descriptions for all uninitialized sub categories".
+    const [bulkDescGenerating, setBulkDescGenerating] = useState(false);
 
     const [providerForm, setProviderForm] = useState({
         name: '',
@@ -742,7 +748,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                 await modelsAdminApi.createNodeType(finalNodeForm);
                 setStatus({ type: 'success', message: 'Sub Category created successfully!' });
             }
-            setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [] });
+            setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [], description: '' });
             await loadData();
         } catch (err: any) {
             setStatus({ type: 'error', message: err.message || 'Failed to process Sub Category.' });
@@ -762,6 +768,69 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
             setStatus({ type: 'error', message: err.message || 'Failed to delete Sub Category.' });
         } finally {
             setNodeTypeToDelete(null);
+        }
+    };
+
+    // Per-form AI description: fill the description field for the sub category
+    // currently being authored/edited, from its name + parent categories.
+    const generateNodeDescription = async () => {
+        if (!nodeForm.display_name.trim()) {
+            setStatus({ type: 'error', message: 'Enter a display name first.' });
+            return;
+        }
+        setStatus(null);
+        setNodeDescGenerating(true);
+        try {
+            const descriptions = await nodeTypeDescriptionsApi.generate({
+                items: [{
+                    id: nodeForm.id || 'draft',
+                    display_name: nodeForm.display_name,
+                    parent_categories: nodeForm.parent_categories,
+                }],
+                categories: categories.map(c => ({ id: c.id, display_name: c.display_name })),
+            });
+            const text = descriptions[nodeForm.id || 'draft'];
+            if (text) {
+                setNodeForm(prev => ({ ...prev, description: text }));
+            } else {
+                setStatus({ type: 'error', message: 'No description was generated.' });
+            }
+        } catch (err: any) {
+            setStatus({ type: 'error', message: err.message || 'Failed to generate description.' });
+        } finally {
+            setNodeDescGenerating(false);
+        }
+    };
+
+    // Bulk: generate a description for every sub category that doesn't have one
+    // yet, then persist each via a description-only PATCH and reload.
+    const generateAllNodeDescriptions = async () => {
+        const targets = nodeTypes.filter(t => !t.description || !String(t.description).trim());
+        if (targets.length === 0) {
+            setStatus({ type: 'success', message: 'All sub categories already have a description.' });
+            return;
+        }
+        setStatus(null);
+        setBulkDescGenerating(true);
+        try {
+            const descriptions = await nodeTypeDescriptionsApi.generate({
+                items: targets.map(t => ({
+                    id: t.id,
+                    display_name: t.display_name,
+                    parent_categories: t.parent_categories || [],
+                })),
+                categories: categories.map(c => ({ id: c.id, display_name: c.display_name })),
+            });
+            const entries = Object.entries(descriptions).filter(([, text]) => text && text.trim());
+            await Promise.all(entries.map(([id, text]) =>
+                modelsAdminApi.updateNodeType(id, { description: text })
+            ));
+            await loadData();
+            setStatus({ type: 'success', message: `Generated ${entries.length} description${entries.length === 1 ? '' : 's'}.` });
+        } catch (err: any) {
+            setStatus({ type: 'error', message: err.message || 'Failed to generate descriptions.' });
+        } finally {
+            setBulkDescGenerating(false);
         }
     };
 
@@ -1399,7 +1468,7 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             <button
                                                 onClick={() => {
                                                     setEditingNodeType(null);
-                                                    setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [] });
+                                                    setNodeForm({ id: '', display_name: '', icon_reference: 'Boxes', parent_categories: [], description: '' });
                                                 }}
                                                 className="p-2 text-content-tertiary hover:text-content-primary rounded-xl transition-all border border-white/5"
                                             >
@@ -1488,6 +1557,37 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             )}
                                         </div>
 
+                                        <div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.2em] pl-1">
+                                                    Description
+                                                </label>
+                                                <button
+                                                    type="button"
+                                                    onClick={generateNodeDescription}
+                                                    disabled={nodeDescGenerating || !nodeForm.display_name.trim()}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 rounded-xl text-[10px] font-bold uppercase tracking-widest text-accent-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title="Generate a short description with Gemini Flash"
+                                                >
+                                                    {nodeDescGenerating
+                                                        ? <div className="w-3 h-3 border-2 border-accent-primary/30 border-t-accent-primary rounded-full animate-spin" />
+                                                        : <LucideIcons.Sparkles className="w-3 h-3" />}
+                                                    Generate
+                                                </button>
+                                            </div>
+                                            <Textarea
+                                                value={nodeForm.description}
+                                                onChange={e => setNodeForm({ ...nodeForm, description: e.target.value })}
+                                                placeholder="A few words shown under the title in the Add Node menu (e.g. Sharpen & enlarge video)"
+                                                className="min-h-[64px] text-xs"
+                                                maxLength={80}
+                                            />
+                                            <p className="text-[10px] text-content-tertiary px-1 mt-1.5 flex items-center gap-1.5 leading-relaxed font-medium">
+                                                <Info className="w-3 h-3 text-accent-primary shrink-0" />
+                                                Keep it tiny — a few words. Shown on hover in the add-node panel.
+                                            </p>
+                                        </div>
+
                                         <div className="pt-8 border-t border-white/5 flex justify-end">
                                             <button
                                                 type="submit"
@@ -1530,12 +1630,30 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                             />
                                         </div>
                                     </div>
-                                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-content-tertiary opacity-40">
-                                        Showing {nodeTypes.filter(type => {
-                                            const matchesSearch = type.display_name.toLowerCase().includes(subCategorySearch.toLowerCase()) || type.id.toLowerCase().includes(subCategorySearch.toLowerCase());
-                                            const matchesParent = subCategoryParentFilter === 'all' || type.parent_categories?.includes(subCategoryParentFilter);
-                                            return matchesSearch && matchesParent;
-                                        }).length} Results
+                                    <div className="flex items-center gap-4">
+                                        {(() => {
+                                            const missing = nodeTypes.filter(t => !t.description || !String(t.description).trim()).length;
+                                            return (
+                                                <button
+                                                    onClick={generateAllNodeDescriptions}
+                                                    disabled={bulkDescGenerating || loading || missing === 0}
+                                                    className="flex items-center gap-2 px-4 py-2.5 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 rounded-2xl text-[10px] font-black uppercase tracking-widest text-accent-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title="Generate descriptions for every sub category that doesn't have one yet (Gemini Flash)"
+                                                >
+                                                    {bulkDescGenerating
+                                                        ? <div className="w-3.5 h-3.5 border-2 border-accent-primary/30 border-t-accent-primary rounded-full animate-spin" />
+                                                        : <LucideIcons.Sparkles className="w-3.5 h-3.5" />}
+                                                    Generate Descriptions{missing > 0 ? ` (${missing})` : ''}
+                                                </button>
+                                            );
+                                        })()}
+                                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-content-tertiary opacity-40">
+                                            Showing {nodeTypes.filter(type => {
+                                                const matchesSearch = type.display_name.toLowerCase().includes(subCategorySearch.toLowerCase()) || type.id.toLowerCase().includes(subCategorySearch.toLowerCase());
+                                                const matchesParent = subCategoryParentFilter === 'all' || type.parent_categories?.includes(subCategoryParentFilter);
+                                                return matchesSearch && matchesParent;
+                                            }).length} Results
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1559,6 +1677,11 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                             <div>
                                                                 <h4 className="font-bold text-content-primary uppercase tracking-tight text-sm">{type.display_name}</h4>
                                                                 <p className="text-[10px] text-content-tertiary font-mono mt-0.5 opacity-60">ID: {type.id}</p>
+                                                                {type.description && String(type.description).trim() ? (
+                                                                    <p className="text-[11px] text-content-secondary mt-1.5 leading-snug">{type.description}</p>
+                                                                ) : (
+                                                                    <p className="text-[10px] text-content-tertiary/50 italic mt-1.5">No description</p>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1569,7 +1692,8 @@ function ModelsAdminContent({ onMobileBack }: { onMobileBack: () => void }) {
                                                                         id: type.id,
                                                                         display_name: type.display_name,
                                                                         icon_reference: type.icon_reference,
-                                                                        parent_categories: type.parent_categories || []
+                                                                        parent_categories: type.parent_categories || [],
+                                                                        description: type.description || ''
                                                                     });
                                                                     window.scrollTo({ top: 0, behavior: 'smooth' });
                                                                 }}

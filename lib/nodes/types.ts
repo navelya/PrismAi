@@ -91,6 +91,9 @@ export interface NodeTypeRecord {
     icon_reference: string;
     parent_categories: string[];
     archetype_id?: string;
+    /** Short blurb (a few words) shown under the title on hover in the Add Node
+     *  panel flyout; falls back to "Dynamic node" when empty. */
+    description?: string;
 }
 
 export interface AiModel {

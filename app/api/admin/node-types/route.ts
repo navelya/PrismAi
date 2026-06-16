@@ -26,7 +26,7 @@ export async function POST(req: Request) {
         if (auth.error) return auth.error;
 
         const body = await req.json();
-        const { id, display_name, icon_reference, parent_categories } = body;
+        const { id, display_name, icon_reference, parent_categories, description } = body;
 
         // Basic validation
         if (!id || !display_name) {
@@ -39,7 +39,8 @@ export async function POST(req: Request) {
                 id,
                 display_name,
                 icon_reference: icon_reference || 'Boxes', // Fallback icon
-                parent_categories: parent_categories || []
+                parent_categories: parent_categories || [],
+                description: description ?? null,
             })
             .select()
             .single();

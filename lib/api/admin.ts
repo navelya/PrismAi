@@ -293,6 +293,25 @@ export const modelFieldDescriptionsApi = {
     },
 };
 
+export const nodeTypeDescriptionsApi = {
+    /** Ask Gemini Flash for a tiny blurb per node type (sub category). Returns a
+     *  map keyed by node type id. Used by the per-form Generate button and the
+     *  bulk "generate uninitialized" button in the admin Sub Categories tab. */
+    generate: async (payload: {
+        items: Array<{ id: string; display_name: string; parent_categories?: string[] }>;
+        categories?: Array<{ id: string; display_name: string }>;
+    }) => {
+        const res = await fetch('/api/admin/node-types/describe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to generate descriptions');
+        return data.descriptions as Record<string, string>;
+    },
+};
+
 export const adminTemplatesApi = {
   list: async () => {
     const res = await fetch('/api/admin/templates');
