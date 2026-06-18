@@ -94,7 +94,7 @@ export async function POST(request: Request) {
         if (sub?.dodo_subscription_id && sub.status === 'active') {
             try {
                 await dodo.subscriptions.charge(sub.dodo_subscription_id, {
-                    product_price: pack.price * 100, // convert dollars → cents
+                    product_price: Math.round(pack.price * 100), // dollars → integer cents (guard float drift)
                     metadata: {
                         user_id: user.id,
                         kind: 'pack',
