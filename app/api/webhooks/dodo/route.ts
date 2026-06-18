@@ -387,6 +387,17 @@ async function handlePaymentSucceeded(
             pack_id: packId,
         },
     });
+
+    // Persist the Dodo customer id so invoices and future silent-recharge work.
+    // Only set when the row doesn't already have one (don't clobber a subscriber's id).
+    const dodoCustomerId = data?.customer?.customer_id;
+    if (dodoCustomerId) {
+        await supabase
+            .from('subscriptions')
+            .update({ dodo_customer_id: dodoCustomerId })
+            .eq('user_id', userId)
+            .is('dodo_customer_id', null);
+    }
 }
 
 // =============================================================================

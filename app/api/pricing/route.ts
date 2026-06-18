@@ -3,6 +3,7 @@ import { getPricing } from '@/lib/billing/pricing-source';
 import type { PlanDisplay, CreditPack } from '@/lib/billing/plans-config';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // Public-safe plan shape — dodoProductId* fields are server-only (checkout is
 // server-side) and must never be forwarded to the client.
@@ -29,6 +30,6 @@ export async function GET() {
         packs: packs.map(stripPack),
     };
     return NextResponse.json(body, {
-        headers: { 'Cache-Control': 'public, max-age=30, s-maxage=30' },
+        headers: { 'Cache-Control': 'public, max-age=10, s-maxage=10, stale-while-revalidate=30' },
     });
 }

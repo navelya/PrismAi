@@ -45,7 +45,8 @@ export function usePricing(): PricingState {
                 sharedAt = Date.now();
                 setState({ plans, packs, loading: false });
             })
-            .catch(() => {
+            .catch((err) => {
+                console.error('[use-pricing] failed to load /api/pricing:', err);
                 if (alive) setState((s) => ({ ...s, loading: false }));
             });
         return () => {
