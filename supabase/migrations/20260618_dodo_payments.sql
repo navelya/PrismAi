@@ -69,6 +69,7 @@ ALTER TABLE public.token_ledger
   ADD CONSTRAINT token_ledger_reason_valid CHECK (reason IN (
     'signup_bonus',
     'monthly_topup',
+    'monthly_reset',
     'execution_debit',
     'execution_refund',
     'purchase',
