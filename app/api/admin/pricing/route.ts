@@ -8,9 +8,23 @@ export async function GET() {
     if (auth.error) return auth.error;
 
     const [plansRes, packsRes, auditRes] = await Promise.all([
-        auth.supabase.from('plans').select('*').order('sort_order'),
-        auth.supabase.from('credit_packs').select('*').order('sort_order'),
-        auth.supabase.from('pricing_audit').select('*').order('created_at', { ascending: false }).limit(50),
+        auth.supabase
+            .from('plans')
+            .select(
+                'id, display_name, tagline, features, accent, price_cents, price_yearly_cents, monthly_floor, signup_bonus, is_active, sort_order, dodo_product_id_monthly, dodo_product_id_yearly, created_at, updated_at',
+            )
+            .order('sort_order'),
+        auth.supabase
+            .from('credit_packs')
+            .select(
+                'id, display_name, tagline, accent, price_cents, credits, is_active, sort_order, dodo_product_id, created_at, updated_at',
+            )
+            .order('sort_order'),
+        auth.supabase
+            .from('pricing_audit')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(50),
     ]);
 
     const failed = [
@@ -30,9 +44,24 @@ export async function GET() {
         );
     }
 
+    // Derive synced status: a plan is synced when monthly dodo product id is
+    // present (yearly is only required when price_yearly_cents is set).
+    const plans = (plansRes.data ?? []).map((p) => ({
+        ...p,
+        synced:
+            !!p.dodo_product_id_monthly &&
+            (p.price_yearly_cents == null || !!p.dodo_product_id_yearly),
+    }));
+
+    // A pack is synced when its dodo_product_id is present.
+    const packs = (packsRes.data ?? []).map((p) => ({
+        ...p,
+        synced: !!p.dodo_product_id,
+    }));
+
     return NextResponse.json({
-        plans: plansRes.data,
-        packs: packsRes.data,
+        plans,
+        packs,
         audit: auditRes.data,
     });
 }
