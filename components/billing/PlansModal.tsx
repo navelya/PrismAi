@@ -80,7 +80,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                         selectedCycle={selectedCycle}
                                         currentPeriodEnd={subscription?.currentPeriodEnd ?? null}
                                         cancelAtPeriodEnd={subscription?.cancelAtPeriodEnd ?? false}
-                                        pendingPlanChangePriceId={subscription?.pendingPlanChangePriceId ?? null}
+                                        pendingPlanChange={subscription?.pendingPlanChange ?? null}
                                         onClose={onClose}
                                     />
                                 ))}
@@ -157,7 +157,7 @@ interface PlanCardProps {
     selectedCycle: 'monthly' | 'yearly';
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
-    pendingPlanChangePriceId: string | null;
+    pendingPlanChange: { planId: string; cycle: 'monthly' | 'yearly' } | null;
     onClose: () => void;
 }
 
@@ -169,7 +169,7 @@ function PlanCard({
     selectedCycle,
     currentPeriodEnd,
     cancelAtPeriodEnd,
-    pendingPlanChangePriceId,
+    pendingPlanChange,
     onClose,
 }: PlanCardProps) {
     // "Current plan" means BOTH the plan and the cycle match what the user
@@ -246,7 +246,7 @@ function PlanCard({
                 selectedCycle={selectedCycle}
                 currentPeriodEnd={currentPeriodEnd}
                 cancelAtPeriodEnd={cancelAtPeriodEnd}
-                pendingPlanChangePriceId={pendingPlanChangePriceId}
+                pendingPlanChange={pendingPlanChange}
                 onClose={onClose}
             />
         </div>
@@ -319,10 +319,10 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
         ? 'bg-accent-primary text-white hover:bg-accent-primary/90 shadow-md shadow-accent-primary/30'
         : 'bg-surface-tertiary text-content-primary hover:bg-surface-tertiary/70';
 
-    const isReady = pack.available && pack.dodoProductId;
+    const isReady = pack.available;
 
     const handleClick = async () => {
-        if (loading || !pack.dodoProductId) return;
+        if (loading || !pack.available) return;
         setLoading(true);
         setErrorMessage(null);
         setStatus('processing');
@@ -451,7 +451,7 @@ function PlanCTA({
     selectedCycle,
     currentPeriodEnd,
     cancelAtPeriodEnd,
-    pendingPlanChangePriceId,
+    pendingPlanChange,
     onClose,
 }: {
     plan: PlanDisplay;
@@ -462,7 +462,7 @@ function PlanCTA({
     selectedCycle: 'monthly' | 'yearly';
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
-    pendingPlanChangePriceId: string | null;
+    pendingPlanChange: { planId: string; cycle: 'monthly' | 'yearly' } | null;
     onClose: () => void;
 }) {
     const router = useRouter();
@@ -476,9 +476,8 @@ function PlanCTA({
     // change again — show "Scheduled" with the date, plus a "Cancel switch"
     // affordance so the user can back out without leaving the modal.
     const isPendingTarget =
-        pendingPlanChangePriceId != null &&
-        (plan.dodoProductIdMonthly === pendingPlanChangePriceId ||
-            plan.dodoProductIdYearly === pendingPlanChangePriceId);
+        pendingPlanChange != null &&
+        plan.id === pendingPlanChange.planId;
 
     if (isPendingTarget) {
         const endDate = currentPeriodEnd
@@ -529,7 +528,7 @@ function PlanCTA({
         // If a downgrade is scheduled, the current-plan card should reflect
         // that: "You're on this plan (active until [date])". Helps the user
         // understand they're not losing access right away.
-        if (pendingPlanChangePriceId && currentPeriodEnd) {
+        if (pendingPlanChange && currentPeriodEnd) {
             const endDate = new Date(currentPeriodEnd).toLocaleDateString(undefined, {
                 month: 'short',
                 day: 'numeric',
@@ -650,15 +649,7 @@ function PlanCTA({
         );
     }
 
-    // Always submit the product ID for the cycle the user picked in the toggle.
-    // Fall back to the other cycle only if this plan doesn't offer the
-    // selected one (defensive — all our paid plans ship both).
-    const targetProductId =
-        selectedCycle === 'yearly'
-            ? plan.dodoProductIdYearly ?? plan.dodoProductIdMonthly
-            : plan.dodoProductIdMonthly ?? plan.dodoProductIdYearly;
-
-    if (!plan.available || !targetProductId) {
+    if (!plan.available) {
         return (
             <button
                 disabled
@@ -733,7 +724,7 @@ function PlanCTA({
                 const res = await fetch('/api/billing/schedule-plan-change', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ productId: targetProductId }),
+                    body: JSON.stringify({ planId: plan.id, cycle: selectedCycle }),
                 });
                 const json = await res.json().catch(() => ({}));
                 if (!res.ok) {
@@ -758,7 +749,7 @@ function PlanCTA({
             const res = await fetch('/api/billing/change-plan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ productId: targetProductId }),
+                body: JSON.stringify({ planId: plan.id, cycle: selectedCycle }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {

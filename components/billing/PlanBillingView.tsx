@@ -153,7 +153,7 @@ export function CurrentPlanCard() {
                                     cancelAtPeriodEnd={subscription.cancelAtPeriodEnd}
                                     currentPeriodEnd={subscription.currentPeriodEnd}
                                     planName={plan?.name ?? subscription.planId}
-                                    pendingPlanChangePriceId={subscription.pendingPlanChangePriceId}
+                                    pendingPlanChange={subscription.pendingPlanChange ?? null}
                                 />
                             )}
                         </>
@@ -181,7 +181,7 @@ interface SubscriptionActionsProps {
     cancelAtPeriodEnd: boolean;
     currentPeriodEnd: string | null;
     planName: string;
-    pendingPlanChangePriceId: string | null;
+    pendingPlanChange: { planId: string; cycle: 'monthly' | 'yearly' } | null;
 }
 
 function SubscriptionActions({
@@ -189,7 +189,7 @@ function SubscriptionActions({
     cancelAtPeriodEnd,
     currentPeriodEnd,
     planName,
-    pendingPlanChangePriceId,
+    pendingPlanChange,
 }: SubscriptionActionsProps) {
     const [paymentLoading, setPaymentLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -327,15 +327,10 @@ function SubscriptionActions({
                     </div>
                 )}
 
-                {!cancelAtPeriodEnd && pendingPlanChangePriceId && currentPeriodEnd && (() => {
-                    // Resolve the pending product ID to a display name. Walk
-                    // plans rather than calling getPlanFrom so we can find
-                    // both yearly and monthly cycle entries.
-                    const targetPlan = plans.find(
-                        (p) =>
-                            p.dodoProductIdMonthly === pendingPlanChangePriceId ||
-                            p.dodoProductIdYearly === pendingPlanChangePriceId,
-                    );
+                {!cancelAtPeriodEnd && pendingPlanChange && currentPeriodEnd && (() => {
+                    // Resolve the pending plan change to a display name using the
+                    // already-resolved { planId, cycle } from the server — no product IDs needed.
+                    const targetPlan = plans.find((p) => p.id === pendingPlanChange.planId);
                     const targetName = targetPlan?.name ?? 'a different plan';
                     return (
                         <div className="mb-3 rounded-lg border border-accent-primary/30 bg-accent-primary/[0.06] px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">

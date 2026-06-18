@@ -252,7 +252,7 @@ BEGIN
 
   v_new_balance := v_balance - v_clawback;
   -- Only reduce topup_balance when clawing back a top-up grant (pack purchase).
-  v_reduce      := CASE WHEN v_grant_reason IN ('dodo_pack_purchase','purchase') THEN v_clawback ELSE 0 END;
+  v_reduce      := CASE WHEN v_grant_reason IN ('dodo_pack_purchase','paddle_pack_purchase','purchase') THEN v_clawback ELSE 0 END;
   v_new_topup   := LEAST(GREATEST(0, v_topup - v_reduce), GREATEST(0, v_new_balance));
   v_topup_delta := v_new_topup - v_topup;
 
@@ -348,7 +348,7 @@ BEGIN
   v_new_balance   := v_balance - v_grant_amount;
   v_went_negative := v_new_balance < 0;
   -- Only reduce topup_balance when clawing back a top-up grant (pack purchase).
-  v_reduce        := CASE WHEN v_grant_reason IN ('dodo_pack_purchase','purchase') THEN v_grant_amount ELSE 0 END;
+  v_reduce        := CASE WHEN v_grant_reason IN ('dodo_pack_purchase','paddle_pack_purchase','purchase') THEN v_grant_amount ELSE 0 END;
   v_new_topup     := LEAST(GREATEST(0, v_topup - v_reduce), GREATEST(0, v_new_balance));
   v_topup_delta   := v_new_topup - v_topup;
 

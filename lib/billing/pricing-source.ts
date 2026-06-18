@@ -34,6 +34,9 @@ interface PlanRow {
     dodo_product_id_yearly: string | null;
     is_active: boolean;
     sort_order: number;
+    tagline?: string | null;
+    features?: any;
+    accent?: string | null;
 }
 
 interface PackRow {
@@ -44,6 +47,8 @@ interface PackRow {
     dodo_product_id: string | null;
     is_active: boolean;
     sort_order: number;
+    tagline?: string | null;
+    accent?: string | null;
 }
 
 export interface PricingSnapshot {
@@ -60,13 +65,13 @@ function mapPlan(row: PlanRow): PlanDisplay {
     return {
         id: row.id as PlanId,
         name: stat?.name ?? row.display_name,
-        tagline: stat?.tagline ?? '',
+        tagline: row.tagline ?? stat?.tagline ?? '',
         priceMonthly: Number(row.price_cents ?? 0) / 100,
         priceYearly: row.price_yearly_cents != null ? Number(row.price_yearly_cents) / 100 : undefined,
         monthlyCredits: Number(row.monthly_floor),
         signupBonus: Number(row.signup_bonus),
-        features: stat?.features ?? [],
-        accent: stat?.accent ?? 'neutral',
+        features: (Array.isArray(row.features) && row.features.length ? row.features : stat?.features) ?? [],
+        accent: (row.accent as PlanDisplay['accent']) ?? stat?.accent ?? 'neutral',
         available: row.is_active,
         dodoProductIdMonthly: row.dodo_product_id_monthly ?? undefined,
         dodoProductIdYearly: row.dodo_product_id_yearly ?? undefined,
@@ -78,10 +83,10 @@ function mapPack(row: PackRow): CreditPack {
     return {
         id: row.id as CreditPackId,
         name: stat?.name ?? row.display_name,
-        tagline: stat?.tagline ?? '',
+        tagline: row.tagline ?? stat?.tagline ?? '',
         price: Number(row.price_cents) / 100,
         credits: Number(row.credits),
-        accent: stat?.accent ?? 'neutral',
+        accent: (row.accent as CreditPack['accent']) ?? stat?.accent ?? 'neutral',
         available: row.is_active,
         dodoProductId: row.dodo_product_id ?? undefined,
     };
@@ -91,10 +96,10 @@ async function loadSnapshot(): Promise<PricingSnapshot> {
     const supabase = createServiceClient();
     const [plansRes, packsRes] = await Promise.all([
         supabase.from('plans').select(
-            'id, display_name, monthly_floor, signup_bonus, price_cents, price_yearly_cents, dodo_product_id_monthly, dodo_product_id_yearly, is_active, sort_order'
+            'id, display_name, monthly_floor, signup_bonus, price_cents, price_yearly_cents, dodo_product_id_monthly, dodo_product_id_yearly, is_active, sort_order, tagline, features, accent'
         ).order('sort_order'),
         supabase.from('credit_packs').select(
-            'id, display_name, price_cents, credits, dodo_product_id, is_active, sort_order'
+            'id, display_name, price_cents, credits, dodo_product_id, is_active, sort_order, tagline, accent'
         ).order('sort_order'),
     ]);
 

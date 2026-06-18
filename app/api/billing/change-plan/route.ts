@@ -13,12 +13,13 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getDodo } from '@/lib/billing/dodo-server';
-import { getPricing, lookupPlanByProductId } from '@/lib/billing/pricing-source';
+import { getPricing } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
 
 interface ChangePlanBody {
-    productId?: string;
+    planId?: string;
+    cycle?: 'monthly' | 'yearly';
 }
 
 export async function POST(request: Request) {
@@ -52,14 +53,28 @@ export async function POST(request: Request) {
         }
 
         const body = (await request.json().catch(() => ({}))) as ChangePlanBody;
-        const productId = body.productId;
-        if (!productId || typeof productId !== 'string') {
-            return NextResponse.json({ error: 'productId is required' }, { status: 400 });
+        const { planId, cycle } = body;
+        if (!planId || typeof planId !== 'string') {
+            return NextResponse.json({ error: 'planId is required' }, { status: 400 });
+        }
+        if (cycle !== 'monthly' && cycle !== 'yearly') {
+            return NextResponse.json({ error: 'cycle must be "monthly" or "yearly"' }, { status: 400 });
         }
 
-        const target = await lookupPlanByProductId(productId);
-        if (!target) {
-            return NextResponse.json({ error: 'Unknown product ID' }, { status: 400 });
+        // Resolve the Dodo product ID server-side — the client never sees product IDs.
+        const snap = await getPricing();
+        const plan = snap.plans.find(p => p.id === planId);
+        if (!plan) {
+            return NextResponse.json({ error: 'Unknown plan ID' }, { status: 400 });
+        }
+        const productId = cycle === 'yearly'
+            ? (plan.dodoProductIdYearly ?? plan.dodoProductIdMonthly)
+            : (plan.dodoProductIdMonthly ?? plan.dodoProductIdYearly);
+        if (!productId) {
+            return NextResponse.json(
+                { error: `No Dodo product ID configured for plan "${planId}" (${cycle})` },
+                { status: 400 },
+            );
         }
 
         const service = createServiceClient();

@@ -1,8 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import type { PlanId } from './plans-config';
+
+export interface PendingPlanChange {
+    planId: PlanId;
+    cycle: 'monthly' | 'yearly';
+}
 
 export interface SubscriptionInfo {
     planId: PlanId;
@@ -13,11 +17,12 @@ export interface SubscriptionInfo {
     /** 'monthly' or 'yearly' for paid plans; null for free. */
     billingCycle: 'monthly' | 'yearly' | null;
     /**
-     * Dodo product ID the user has scheduled to switch to at the end of
-     * their current period. Null when no change is pending. Set by the
-     * scheduled-downgrade flow; cleared by the apply-pending-changes cron.
+     * Resolved pending plan change — the user has scheduled a switch to this
+     * plan+cycle at the end of their current period. Null when no change is pending.
+     * Resolved server-side from the raw Dodo product ID so the client never sees
+     * raw product IDs.
      */
-    pendingPlanChangePriceId: string | null;
+    pendingPlanChange: PendingPlanChange | null;
 }
 
 export function useSubscription() {
@@ -26,40 +31,27 @@ export function useSubscription() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const supabase = createClient();
         let unmounted = false;
 
         (async () => {
             try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user || unmounted) {
+                const res = await fetch('/api/billing/subscription');
+                if (unmounted) return;
+
+                if (!res.ok) {
+                    if (res.status !== 401) {
+                        const json = await res.json().catch(() => ({}));
+                        setError(json.error || 'Failed to load subscription');
+                    }
                     setLoading(false);
                     return;
                 }
 
-                const { data, error: fetchErr } = await supabase
-                    .from('subscriptions')
-                    .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id')
-                    .eq('user_id', user.id)
-                    .single();
-
+                const json = await res.json().catch(() => ({}));
                 if (unmounted) return;
 
-                if (fetchErr) {
-                    setError(fetchErr.message);
-                } else if (data) {
-                    setSubscription({
-                        planId: data.plan_id as PlanId,
-                        status: data.status,
-                        nextTopupAt: data.next_topup_at,
-                        currentPeriodEnd: data.current_period_end,
-                        cancelAtPeriodEnd: data.cancel_at_period_end,
-                        billingCycle:
-                            data.billing_cycle === 'monthly' || data.billing_cycle === 'yearly'
-                                ? data.billing_cycle
-                                : null,
-                        pendingPlanChangePriceId: data.pending_plan_change_price_id ?? null,
-                    });
+                if (json.subscription) {
+                    setSubscription(json.subscription as SubscriptionInfo);
                 }
                 setLoading(false);
             } catch (e: any) {
