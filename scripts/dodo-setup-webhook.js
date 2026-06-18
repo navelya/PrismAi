@@ -43,30 +43,48 @@ if (!dodoApiKey) {
   process.exit(1);
 }
 
-const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-if (!appUrl) {
-  console.error('ERROR: NEXT_PUBLIC_APP_URL is not set in .env.local');
+// ─── Resolve the public base URL ──────────────────────────────────────────────
+// Priority: CLI arg > DODO_WEBHOOK_URL env > NEXT_PUBLIC_APP_URL. Dodo registers
+// a webhook at <baseUrl>/api/webhooks/dodo. The URL only needs to be reachable by
+// DODO's servers (your deployed Vercel domain) — NOT by the machine running this
+// script — so pass your production https URL even when running locally:
+//   node scripts/dodo-setup-webhook.js https://app.prisfol.com
+const cliArg = process.argv[2] && !process.argv[2].startsWith('-') ? process.argv[2] : null;
+const baseUrl = cliArg || process.env.DODO_WEBHOOK_URL || process.env.NEXT_PUBLIC_APP_URL;
+if (!baseUrl) {
+  console.error('ERROR: No base URL. Pass one explicitly: node scripts/dodo-setup-webhook.js https://app.prisfol.com');
   process.exit(1);
 }
 
-// ─── Localhost warning ────────────────────────────────────────────────────────
-const isLocalhost = /localhost|127\.0\.0\.1|\[::1\]/i.test(appUrl);
-if (isLocalhost) {
-  console.log('');
-  console.log('┌─────────────────────────────────────────────────────────────────────────┐');
-  console.log('│  WARNING: NEXT_PUBLIC_APP_URL contains "localhost"                      │');
-  console.log('│                                                                         │');
-  console.log('│  Dodo Payments CANNOT deliver webhooks to a localhost URL. The          │');
-  console.log('│  endpoint will be created in Dodo (and the secret captured), but        │');
-  console.log('│  no events will be delivered until the URL is reachable from the        │');
-  console.log('│  internet.                                                               │');
-  console.log('│                                                                         │');
-  console.log('│  After deploy (or when using a tunnel like ngrok / Cloudflare Tunnel):  │');
-  console.log('│    1. Update NEXT_PUBLIC_APP_URL in .env.local to the public URL.       │');
-  console.log('│    2. Re-run this script to create a new endpoint with the public URL.  │');
-  console.log('└─────────────────────────────────────────────────────────────────────────┘');
-  console.log('');
+// ─── Dodo requires HTTPS — validate BEFORE any network call ───────────────────
+// (Dodo returns 422 "Endpoint URL schemes must be https". Failing fast here also
+// avoids leaving an open SDK socket, which crashes Node on Windows at exit.)
+let parsedUrl;
+try {
+  parsedUrl = new URL(baseUrl);
+} catch {
+  console.error(`ERROR: "${baseUrl}" is not a valid URL.`);
+  process.exit(1);
 }
+if (parsedUrl.protocol !== 'https:') {
+  console.error('');
+  console.error('┌─────────────────────────────────────────────────────────────────────────┐');
+  console.error('│  Dodo requires an HTTPS webhook URL — http:// / localhost is rejected.   │');
+  console.error('│                                                                         │');
+  console.error('│  Register the endpoint against your DEPLOYED (Vercel) domain. You can    │');
+  console.error('│  run this from your laptop — only Dodo needs to reach the URL, not you:  │');
+  console.error('│                                                                         │');
+  console.error('│    node scripts/dodo-setup-webhook.js https://app.prisfol.com           │');
+  console.error('│                                                                         │');
+  console.error('│  (Use your real production domain or the *.vercel.app URL.) For LOCAL    │');
+  console.error('│  webhook testing, expose localhost via an https tunnel (ngrok /          │');
+  console.error('│  cloudflared) and pass that https URL instead.                          │');
+  console.error('└─────────────────────────────────────────────────────────────────────────┘');
+  console.error('');
+  process.exit(1);
+}
+const appUrl = baseUrl;
+const isLocalhost = false;
 
 // ─── Dodo environment mapping ─────────────────────────────────────────────────
 function getDodoEnvironment() {
