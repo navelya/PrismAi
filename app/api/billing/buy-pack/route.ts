@@ -5,11 +5,10 @@
  * Silent; reuses the mandate bound to the subscription. Webhook grants credits
  * when `payment.succeeded` lands (keyed by payment_id).
  *
- * No active sub but a `dodo_customer_id` (ex-subscriber or free user with
- * a customer record) → create a one-time checkout session so the user can
- * supply a card.
- *
- * No customer record at all → `requiresCheckout: true` immediately.
+ * No active sub → create a one-time hosted checkout session (attaching the
+ * existing `dodo_customer_id` if present, else creating a new customer from
+ * the user's email) and return `{ requiresCheckout: true, url }`. The client
+ * redirects to that URL. We always return a URL in this branch.
  *
  * Credits aren't granted here; the existing `payment.succeeded` webhook
  * handler does that with full idempotency. This endpoint only kicks off the
@@ -114,20 +113,21 @@ export async function POST(request: Request) {
             return NextResponse.json({ ok: true });
         }
 
-        // No Dodo customer = nobody to charge silently. Fall back to the
-        // overlay so the user can enter (and save) a card on this purchase.
-        if (!sub?.dodo_customer_id) {
-            return NextResponse.json({ requiresCheckout: true });
-        }
-
-        // Ex-subscriber: has a customer_id but no active sub. Create a one-time
-        // checkout session for the pack so they can complete the purchase.
+        // No active subscription to charge silently → create a one-time hosted
+        // checkout session for the pack. Attach the existing Dodo customer if we
+        // have one; otherwise create a NEW customer from the user's email (this
+        // is the common first-purchase path). Either way we MUST return a URL —
+        // the client has no other way to open Dodo's hosted checkout.
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+        const customer = sub?.dodo_customer_id
+            ? { customer_id: sub.dodo_customer_id }
+            : { email: user.email ?? '', name: user.email ?? '' };
+
         let session;
         try {
             session = await dodo.checkoutSessions.create({
                 product_cart: [{ product_id: pack.dodoProductId, quantity: 1 }],
-                customer: { customer_id: sub.dodo_customer_id },
+                customer,
                 metadata: {
                     user_id: user.id,
                     kind: 'pack',
@@ -145,7 +145,10 @@ export async function POST(request: Request) {
         }
 
         if (!session.checkout_url) {
-            return NextResponse.json({ requiresCheckout: true });
+            return NextResponse.json(
+                { error: 'Dodo Payments did not return a checkout URL. Please try again.' },
+                { status: 502 },
+            );
         }
 
         return NextResponse.json({ requiresCheckout: true, url: session.checkout_url });
