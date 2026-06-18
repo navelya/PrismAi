@@ -30,14 +30,13 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
         }
 
-        // ── Dispute gate + payment preference ────────────────────────────────
+        // ── Dispute gate ──────────────────────────────────────────────────────
         // Refuse checkout while a chargeback is unresolved (mirrors change-plan).
-        let savePaymentInfo = false;
         {
             const service = createServiceClient();
             const { data: profile } = await service
                 .from('profiles')
-                .select('payment_disputed_at, save_payment_info')
+                .select('payment_disputed_at')
                 .eq('id', user.id)
                 .maybeSingle();
 
@@ -50,8 +49,6 @@ export async function POST(request: Request) {
                     { status: 403 },
                 );
             }
-            // Graceful degrade: column may not exist yet (migration pending).
-            savePaymentInfo = (profile as any)?.save_payment_info === true;
         }
 
         // ── Body validation ───────────────────────────────────────────────────
@@ -115,7 +112,6 @@ export async function POST(request: Request) {
             },
             return_url: `${appUrl}/billing/success`,
             subscription_data: {},
-            ...(savePaymentInfo && existingCustomerId ? { show_saved_payment_methods: true } : {}),
         });
 
         if (!session.checkout_url) {

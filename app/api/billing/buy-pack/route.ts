@@ -34,15 +34,14 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
         }
 
-        // Dispute gate + payment preference.
+        // Dispute gate.
         // Admin clears profiles.payment_disputed_at directly in the DB once the
         // dispute is resolved (no admin UI in v1).
-        let savePaymentInfo = false;
         {
             const service = createServiceClient();
             const { data: profile } = await service
                 .from('profiles')
-                .select('payment_disputed_at, save_payment_info')
+                .select('payment_disputed_at')
                 .eq('id', user.id)
                 .maybeSingle();
 
@@ -55,7 +54,6 @@ export async function POST(request: Request) {
                     { status: 403 },
                 );
             }
-            savePaymentInfo = (profile as any)?.save_payment_info === true;
         }
 
         const body = (await request.json().catch(() => ({}))) as BuyPackBody;
@@ -137,7 +135,6 @@ export async function POST(request: Request) {
                 },
                 return_url: `${appUrl}/billing/success`,
                 // No subscription_data → one-time payment
-                ...(savePaymentInfo && sub?.dodo_customer_id ? { show_saved_payment_methods: true } : {}),
             });
         } catch (sessionErr: any) {
             console.error('[Buy Pack] checkoutSessions.create failed:', sessionErr);

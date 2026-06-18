@@ -29,23 +29,11 @@ export async function GET() {
 
         const service = createServiceClient();
 
-        // Run the subscriptions fetch and the profiles fetch in parallel.
-        const profileQuery = service
-            .from('profiles')
-            .select('save_payment_info')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        const [subResult, profileResult] = await Promise.all([
-            service
-                .from('subscriptions')
-                .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id, dodo_customer_id')
-                .eq('user_id', user.id)
-                .single(),
-            Promise.resolve(profileQuery).catch(() => ({ data: null, error: null })),
-        ]);
-
-        const { data, error: fetchErr } = subResult;
+        const { data, error: fetchErr } = await service
+            .from('subscriptions')
+            .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id')
+            .eq('user_id', user.id)
+            .single();
 
         if (fetchErr || !data) {
             return NextResponse.json({ subscription: null });
@@ -61,15 +49,6 @@ export async function GET() {
             }
         }
 
-        // Load save_payment_info preference — graceful degrade if column missing.
-        let savePaymentInfo = false;
-        try {
-            const profileData = (profileResult as { data: unknown }).data;
-            savePaymentInfo = (profileData as any)?.save_payment_info === true;
-        } catch {
-            // Column not yet applied — default to false.
-        }
-
         return NextResponse.json({
             subscription: {
                 planId: data.plan_id as PlanId,
@@ -82,8 +61,6 @@ export async function GET() {
                         ? data.billing_cycle
                         : null,
                 pendingPlanChange,
-                savePaymentInfo,
-                hasSavedCustomer: Boolean((data as any).dodo_customer_id),
             },
         });
     } catch (err: any) {
