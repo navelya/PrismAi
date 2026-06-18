@@ -23,6 +23,10 @@ export interface SubscriptionInfo {
      * raw product IDs.
      */
     pendingPlanChange: PendingPlanChange | null;
+    /** Whether the user has opted in to saving their payment info for faster checkout. */
+    savePaymentInfo?: boolean;
+    /** Whether the user has a saved Dodo customer (has purchased at least once). */
+    hasSavedCustomer?: boolean;
 }
 
 export function useSubscription() {

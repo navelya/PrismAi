@@ -30,7 +30,7 @@ export async function GET() {
         const service = createServiceClient();
         const { data, error: fetchErr } = await service
             .from('subscriptions')
-            .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id')
+            .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id, dodo_customer_id')
             .eq('user_id', user.id)
             .single();
 
@@ -48,6 +48,19 @@ export async function GET() {
             }
         }
 
+        // Load save_payment_info preference — graceful degrade if column missing.
+        let savePaymentInfo = false;
+        try {
+            const { data: profile } = await service
+                .from('profiles')
+                .select('save_payment_info')
+                .eq('id', user.id)
+                .maybeSingle();
+            savePaymentInfo = (profile as any)?.save_payment_info === true;
+        } catch {
+            // Column not yet applied — default to false.
+        }
+
         return NextResponse.json({
             subscription: {
                 planId: data.plan_id as PlanId,
@@ -60,6 +73,8 @@ export async function GET() {
                         ? data.billing_cycle
                         : null,
                 pendingPlanChange,
+                savePaymentInfo,
+                hasSavedCustomer: Boolean((data as any).dodo_customer_id),
             },
         });
     } catch (err: any) {
