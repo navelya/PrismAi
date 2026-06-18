@@ -39,6 +39,13 @@ ALTER TABLE public.subscriptions
   ADD COLUMN IF NOT EXISTS dodo_subscription_id TEXT,
   ADD COLUMN IF NOT EXISTS dodo_product_id      TEXT;
 
+-- Mirror the Paddle indexes: unique guard against subscription-id collision +
+-- fast webhook lookup by customer id.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_dodo_subscription
+  ON public.subscriptions (dodo_subscription_id) WHERE dodo_subscription_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_subscriptions_dodo_customer
+  ON public.subscriptions (dodo_customer_id) WHERE dodo_customer_id IS NOT NULL;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4. token_ledger — dodo_event_id + extended reason CHECK
 -- ─────────────────────────────────────────────────────────────────────────────
