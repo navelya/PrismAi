@@ -1,7 +1,7 @@
 /**
  * Admin alerts for billing exception cases.
  *
- * Used by the Paddle webhook to notify admin of chargebacks, partial refunds,
+ * Used by the Dodo webhook to notify admin of chargebacks, partial refunds,
  * and clawback shortfalls. All errors caught internally — email send failure
  * must never break the webhook flow.
  */

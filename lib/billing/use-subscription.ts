@@ -13,7 +13,7 @@ export interface SubscriptionInfo {
     /** 'monthly' or 'yearly' for paid plans; null for free. */
     billingCycle: 'monthly' | 'yearly' | null;
     /**
-     * Paddle price ID the user has scheduled to switch to at the end of
+     * Dodo product ID the user has scheduled to switch to at the end of
      * their current period. Null when no change is pending. Set by the
      * scheduled-downgrade flow; cleared by the apply-pending-changes cron.
      */

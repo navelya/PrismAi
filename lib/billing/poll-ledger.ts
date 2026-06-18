@@ -1,5 +1,5 @@
 /**
- * Wait for a Paddle-driven credit grant to land in `token_ledger`.
+ * Wait for a Dodo-driven credit grant to land in `token_ledger`.
  *
  * Used by the silent credit-pack flow: after kicking off a charge against
  * the saved card, the client polls the ledger until the webhook has
@@ -27,8 +27,8 @@ interface PollOpts {
 
 /**
  * Watch for a pack-purchase grant for the given pack created after
- * `sinceMs`. We filter by pack ID (not transaction ID) because
- * `createOneTimeCharge` doesn't return the transaction it spawns — the
+ * `sinceMs`. We filter by pack ID (not payment ID) because
+ * `buy-pack` doesn't return the payment it spawns — the
  * webhook is the first place we learn it. The `sinceMs` cutoff prevents
  * matching a previous purchase of the same pack.
  */
@@ -51,7 +51,7 @@ export async function pollLedgerForPack(
             .from('token_ledger')
             .select('id, amount, reason, metadata, created_at')
             .eq('user_id', user.id)
-            .eq('reason', 'paddle_pack_purchase')
+            .eq('reason', 'dodo_pack_purchase')
             .filter('metadata->>pack_id', 'eq', packId)
             .gte('created_at', sinceIso)
             .order('created_at', { ascending: false })

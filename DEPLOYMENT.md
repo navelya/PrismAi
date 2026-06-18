@@ -22,7 +22,7 @@ Deploy PrismAI to the cloud with **automatic deployments** on every `git push`.
 ### 2. Configure Environment Variables
 In Vercel project settings, add the environment variables documented in
 [`.env.local.example`](.env.local.example) (Supabase, Anthropic, Gemini,
-Replicate, Paddle, and the optional generation-provider keys).
+Replicate, Dodo Payments, and the optional generation-provider keys).
 
 ### 3. Deploy
 Click **"Deploy"** - Vercel will build and deploy automatically.
