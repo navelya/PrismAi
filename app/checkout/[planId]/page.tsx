@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { ArrowLeft, Loader2, Lock } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
 import { createClient } from '@/lib/supabase/client';
-import { loadPaddle } from '@/lib/billing/paddle-client';
 import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
 import { marketingUrl } from '@/lib/domains';
 
@@ -24,10 +23,10 @@ export default function CheckoutPage() {
     const [cycle, setCycle] = useState<Cycle>(initialCycle);
     const [user, setUser] = useState<{ id: string; email: string } | null>(null);
     const [authChecked, setAuthChecked] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const plan = getPlanFrom(plans, planId);
-    const priceId = cycle === 'yearly' ? plan?.paddlePriceIdYearly : plan?.paddlePriceIdMonthly;
 
     // Auth gate — redirect to login if not signed in.
     useEffect(() => {
@@ -46,57 +45,40 @@ export default function CheckoutPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Initialize Paddle inline checkout once we have the user + a valid plan.
-    useEffect(() => {
-        if (!authChecked || !user || !plan || !priceId) return;
-        let cancelled = false;
-        (async () => {
-            try {
-                const paddle = await loadPaddle();
-                if (cancelled) return;
-                if (!paddle) {
-                    setError('Checkout failed to load. Refresh and try again.');
-                    return;
-                }
-                paddle.Checkout.open({
-                    items: [{ priceId, quantity: 1 }],
-                    customer: { email: user.email },
-                    customData: { user_id: user.id },
-                    settings: {
-                        displayMode: 'inline',
-                        frameTarget: 'paddle-checkout-frame',
-                        frameInitialHeight: 480,
-                        frameStyle: 'width: 100%; min-width: 312px; background-color: transparent; border: none;',
-                        theme: 'dark',
-                        successUrl: `${window.location.origin}/billing/success`,
-                    },
-                });
-            } catch (e: any) {
-                if (!cancelled) setError(e?.message || 'Failed to start checkout');
-            }
-        })();
-        return () => { cancelled = true; };
-        // initial open only — cycle changes are handled via updateItems below
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [authChecked, user, plan?.id]);
-
-    const handleCycleChange = useCallback(async (next: Cycle) => {
-        if (next === cycle || !plan) return;
-        const newPriceId = next === 'yearly' ? plan.paddlePriceIdYearly : plan.paddlePriceIdMonthly;
-        if (!newPriceId) return;
-
+    const handleCycleChange = useCallback((next: Cycle) => {
+        if (next === cycle) return;
         setCycle(next);
         const url = new URL(window.location.href);
         url.searchParams.set('cycle', next);
         window.history.replaceState({}, '', url.toString());
+    }, [cycle]);
 
+    const handleSubscribe = useCallback(async () => {
+        if (submitting || !plan) return;
+        setSubmitting(true);
+        setError(null);
         try {
-            const paddle = await loadPaddle();
-            paddle?.Checkout.updateItems([{ priceId: newPriceId, quantity: 1 }]);
-        } catch (e) {
-            console.error('[Checkout] Failed to update billing cycle:', e);
+            const res = await fetch('/api/billing/checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ planId: plan.id, cycle }),
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                setError(json?.message || json?.error || 'Failed to start checkout. Please try again.');
+                return;
+            }
+            if (!json.url) {
+                setError('No checkout URL received. Please try again.');
+                return;
+            }
+            window.location.href = json.url;
+        } catch (e: any) {
+            setError(e?.message || 'Network error. Please try again.');
+        } finally {
+            setSubmitting(false);
         }
-    }, [cycle, plan]);
+    }, [submitting, plan, cycle]);
 
     if (pricingLoading) {
         return (
@@ -106,7 +88,7 @@ export default function CheckoutPage() {
         );
     }
 
-    if (!plan || plan.id === 'free' || !plan.paddlePriceIdMonthly) {
+    if (!plan || plan.id === 'free') {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#020617] text-slate-300 px-6">
                 <div className="text-center max-w-md">
@@ -234,26 +216,48 @@ export default function CheckoutPage() {
                             <Link href={marketingUrl('/legal/privacy')} className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Privacy Policy</Link>{' '}
                             and{' '}
                             <Link href={marketingUrl('/legal/refund')} className="text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline">Refund Policy</Link>.
-                            Paddle.com Market Limited is the merchant of record for this purchase.
+                            Dodo Payments is the merchant of record for this purchase.
                         </p>
                     </div>
                 </div>
 
-                {/* ─── RIGHT — Paddle inline checkout ──────────────────── */}
+                {/* ─── RIGHT — checkout confirm ─────────────────────────── */}
                 <div className="px-6 py-10 lg:px-16 lg:py-16 flex flex-col">
                     <div className="flex-1 max-w-md mx-auto lg:mx-0 w-full">
                         <div className="flex items-center gap-2 mb-8 text-xs text-slate-500">
                             <Lock className="w-3 h-3" />
-                            <span>Secured by Paddle. Sales tax / VAT calculated at checkout.</span>
+                            <span>Secured by Dodo Payments. Sales tax / VAT calculated at checkout.</span>
                         </div>
 
-                        {error ? (
-                            <div className="p-4 rounded-lg bg-red-950/40 border border-red-900/60 text-red-300 text-sm">
+                        {error && (
+                            <div className="mb-6 p-4 rounded-lg bg-red-950/40 border border-red-900/60 text-red-300 text-sm">
                                 {error}
                             </div>
-                        ) : (
-                            <div className="paddle-checkout-frame min-h-[480px]" />
                         )}
+
+                        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 mb-6">
+                            <p className="text-sm text-slate-400 mb-1">Signed in as</p>
+                            <p className="text-sm font-medium text-slate-100 truncate">{user?.email}</p>
+                        </div>
+
+                        <button
+                            onClick={handleSubscribe}
+                            disabled={submitting}
+                            className="w-full py-3 px-6 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+                        >
+                            {submitting ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Redirecting to checkout…
+                                </>
+                            ) : (
+                                `Subscribe — $${totalToday}.00`
+                            )}
+                        </button>
+
+                        <p className="text-[11px] text-slate-600 mt-4 text-center leading-relaxed">
+                            You will be redirected to Dodo Payments to complete your purchase securely.
+                        </p>
                     </div>
                 </div>
 
