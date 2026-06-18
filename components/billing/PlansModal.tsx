@@ -101,7 +101,12 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                                     {packs.map((pack) => (
-                                        <CreditPackCard key={pack.id} pack={pack} onClose={onClose} />
+                                        <CreditPackCard
+                                            key={pack.id}
+                                            pack={pack}
+                                            onClose={onClose}
+                                            hasActiveSub={subscription?.status === 'active'}
+                                        />
                                     ))}
                                 </div>
                             </div>
@@ -304,7 +309,7 @@ function PlanPrice({
 // CREDIT PACK CARD
 // =============================================================================
 
-function CreditPackCard({ pack, onClose }: { pack: CreditPack; onClose: () => void }) {
+function CreditPackCard({ pack, onClose, hasActiveSub }: { pack: CreditPack; onClose: () => void; hasActiveSub: boolean }) {
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState<BillingStatus | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -450,7 +455,11 @@ function CreditPackCard({ pack, onClose }: { pack: CreditPack; onClose: () => vo
             <BillingProcessingModal
                 status={status}
                 processingTitle="Buying credits…"
-                processingDescription="Charging your saved payment method. This usually takes a second or two."
+                processingDescription={
+                    hasActiveSub
+                        ? 'Charging your saved payment method. This usually takes a second or two.'
+                        : 'Opening secure checkout…'
+                }
                 successTitle={`+${formatCredits(pack.credits)} credits added`}
                 successDescription="Your new credits are ready to use. They never expire."
                 errorTitle="Couldn't complete the purchase"
@@ -887,7 +896,9 @@ function PlanCTA({
                 processingDescription={
                     isDowngrade
                         ? "No charges today — we're just recording your choice. The switch happens automatically when your current period ends."
-                        : 'Charging your saved payment method. This usually takes a second or two.'
+                        : hasPaidSub
+                            ? 'Charging your saved payment method. This usually takes a second or two.'
+                            : 'Opening secure checkout…'
                 }
                 successTitle={successTitle}
                 successDescription={successDescription}
