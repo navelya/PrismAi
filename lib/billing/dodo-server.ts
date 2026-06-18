@@ -21,3 +21,7 @@ export function getDodo(): DodoPayments {
   cached = new DodoPayments({ bearerToken, environment: getDodoEnvironment() });
   return cached;
 }
+
+export function getDodoCheckoutMode(): 'test' | 'live' {
+  return getDodoEnvironment() === 'live_mode' ? 'live' : 'test';
+}
