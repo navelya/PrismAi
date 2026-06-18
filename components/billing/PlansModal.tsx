@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui/Modal';
+import { openDodoOverlay } from '@/lib/billing/dodo-overlay';
 import { type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
 import { usePricing } from '@/lib/billing/use-pricing';
 import { useSubscription } from '@/lib/billing/use-subscription';
@@ -347,14 +348,45 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
                 return;
             }
 
-            // No saved card → redirect to the Dodo checkout URL returned by
-            // the server. The webhook handles the grant on completion.
+            // No saved card → open Dodo overlay checkout; fall back to redirect
+            // if the SDK fails to load (e.g. ad-blocker, unsupported env).
             if (json.requiresCheckout) {
-                if (json.url) {
-                    window.location.href = json.url;
-                } else {
+                if (!json.url) {
                     setErrorMessage('Could not open checkout. Please try again.');
                     setStatus('error');
+                    return;
+                }
+                const overlayResult = await openDodoOverlay({
+                    checkoutUrl: json.url,
+                    mode: json.mode ?? 'test',
+                    onSuccess: async () => {
+                        // Overlay closed after payment — poll for the credit grant,
+                        // same path as the silent-charge success branch below.
+                        setStatus('processing');
+                        const grant = await pollLedgerForPack(pack.id, startedAtMs, { timeoutMs: 25000 });
+                        if (!grant) {
+                            setErrorMessage(
+                                "Payment accepted, but the credits haven't been added yet. Refresh in a moment — they'll show up automatically.",
+                            );
+                            setStatus('error');
+                            return;
+                        }
+                        setStatus('success');
+                        setTimeout(() => { window.location.reload(); }, 1400);
+                    },
+                    onClose: () => {
+                        // User dismissed the overlay without paying — reset to idle.
+                        setStatus(null);
+                        setLoading(false);
+                    },
+                    onError: (msg) => {
+                        setErrorMessage(msg || 'Checkout error. Please try again.');
+                        setStatus('error');
+                    },
+                });
+                if (!overlayResult.ok) {
+                    // SDK failed — fall back to full-page redirect.
+                    window.location.href = json.url;
                 }
                 return;
             }
@@ -707,10 +739,63 @@ function PlanCTA({
     const handleClick = async () => {
         setErrorMessage(null);
         if (!hasPaidSub) {
-            // First-time purchase: no saved sub to mutate, so route through
-            // the checkout page. Pass through whatever cycle the user picked
-            // so they don't get surprised on the checkout page.
-            router.push(`/checkout/${plan.id}?cycle=${selectedCycle}`);
+            // First-time purchase: POST to /api/billing/checkout, then open
+            // the overlay. Fall back to redirect if the SDK fails.
+            setStatus('processing');
+            try {
+                const res = await fetch('/api/billing/checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ planId: plan.id, cycle: selectedCycle }),
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setErrorMessage(json?.error || 'Failed to start checkout. Please try again.');
+                    setStatus('error');
+                    return;
+                }
+                if (!json.url) {
+                    setErrorMessage('No checkout URL received. Please try again.');
+                    setStatus('error');
+                    return;
+                }
+
+                const overlayResult = await openDodoOverlay({
+                    checkoutUrl: json.url,
+                    mode: json.mode ?? 'test',
+                    onSuccess: async () => {
+                        // Payment complete — re-fetch subscription to confirm the plan change.
+                        setStatus('processing');
+                        try {
+                            await fetch('/api/billing/subscription');
+                            // Regardless of fetch outcome, show success and reload so
+                            // the subscription hook everywhere picks up the new row.
+                        } catch {
+                            // Best-effort — the webhook will land the state regardless.
+                        }
+                        setStatus('success');
+                        setTimeout(() => {
+                            onClose();
+                            window.location.reload();
+                        }, 1400);
+                    },
+                    onClose: () => {
+                        // User dismissed without paying — reset to idle.
+                        setStatus(null);
+                    },
+                    onError: (msg) => {
+                        setErrorMessage(msg || 'Checkout error. Please try again.');
+                        setStatus('error');
+                    },
+                });
+                if (!overlayResult.ok) {
+                    // SDK failed — fall back to full-page redirect.
+                    window.location.href = json.url;
+                }
+            } catch (e: any) {
+                setErrorMessage(e?.message || 'Network error. Please try again.');
+                setStatus('error');
+            }
             return;
         }
 
