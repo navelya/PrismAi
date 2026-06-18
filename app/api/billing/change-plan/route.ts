@@ -1,25 +1,24 @@
 /**
- * Plan-change endpoint.
+ * Plan-change endpoint (Dodo Payments).
  *
- * Mutates the user's existing Paddle subscription in-place via
- * `subscriptions.update` instead of opening a second checkout. Paddle charges
+ * Mutates the user's existing Dodo subscription in-place via
+ * `subscriptions.changePlan` with prorated_immediately billing. Dodo charges
  * the prorated difference immediately and fires `subscription.updated`, which
  * our webhook then maps to the new plan_id in our `subscriptions` row.
  *
- * Important: ONLY call this when the user already has a paid Paddle
- * subscription. First-time purchases must still go through the checkout flow
- * so Paddle can collect a payment method.
+ * Only call this when the user already has a paid Dodo subscription.
+ * First-time purchases must still go through the checkout flow.
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { getPaddle } from '@/lib/billing/paddle-server';
-import { lookupPlanByPriceId } from '@/lib/billing/pricing-source';
+import { getDodo } from '@/lib/billing/dodo-server';
+import { getPricing, lookupPlanByProductId } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
 
 interface ChangePlanBody {
-    priceId?: string;
+    productId?: string;
 }
 
 export async function POST(request: Request) {
@@ -53,50 +52,48 @@ export async function POST(request: Request) {
         }
 
         const body = (await request.json().catch(() => ({}))) as ChangePlanBody;
-        const priceId = body.priceId;
-        if (!priceId || typeof priceId !== 'string') {
-            return NextResponse.json({ error: 'priceId is required' }, { status: 400 });
+        const productId = body.productId;
+        if (!productId || typeof productId !== 'string') {
+            return NextResponse.json({ error: 'productId is required' }, { status: 400 });
         }
 
-        const target = await lookupPlanByPriceId(priceId);
+        const target = await lookupPlanByProductId(productId);
         if (!target) {
-            return NextResponse.json({ error: 'Unknown price ID' }, { status: 400 });
+            return NextResponse.json({ error: 'Unknown product ID' }, { status: 400 });
         }
 
         const service = createServiceClient();
         const { data: sub, error: subErr } = await service
             .from('subscriptions')
-            .select('paddle_subscription_id, paddle_price_id, plan_id, status')
+            .select('dodo_subscription_id, dodo_product_id, plan_id, status')
             .eq('user_id', user.id)
             .single();
 
-        if (subErr || !sub?.paddle_subscription_id) {
+        if (subErr || !sub?.dodo_subscription_id) {
             return NextResponse.json(
-                { error: 'No active Paddle subscription. Subscribe first.' },
+                { error: 'No active Dodo subscription. Subscribe first.' },
                 { status: 404 }
             );
         }
 
-        if (sub.paddle_price_id === priceId) {
+        if (sub.dodo_product_id === productId) {
             return NextResponse.json({ error: 'Already on this plan' }, { status: 409 });
         }
 
-        const paddle = getPaddle();
+        const dodo = getDodo();
 
-        // Paddle rejects `scheduledChange: null` combined with any other field
-        // updates ("cannot combine updating schedule_change with other fields").
-        // If the user is upgrading/downgrading while a cancellation is queued,
-        // we need to clear that cancellation first, then change the plan.
-        const current = await paddle.subscriptions.get(sub.paddle_subscription_id);
-        if (current.scheduledChange) {
-            await paddle.subscriptions.update(sub.paddle_subscription_id, {
-                scheduledChange: null,
-            });
+        // Check for a scheduled plan change and cancel it first, since Dodo
+        // may reject combining a plan change with existing scheduled changes.
+        const current = await dodo.subscriptions.retrieve(sub.dodo_subscription_id);
+        if (current.scheduled_change) {
+            await dodo.subscriptions.cancelChangePlan(sub.dodo_subscription_id);
         }
 
-        await paddle.subscriptions.update(sub.paddle_subscription_id, {
-            items: [{ priceId, quantity: 1 }],
-            prorationBillingMode: 'prorated_immediately',
+        await dodo.subscriptions.changePlan(sub.dodo_subscription_id, {
+            product_id: productId,
+            proration_billing_mode: 'prorated_immediately',
+            quantity: 1,
+            effective_at: 'immediately',
         });
 
         // The user just made a fresh choice — any previously scheduled
