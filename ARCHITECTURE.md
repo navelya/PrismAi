@@ -46,7 +46,6 @@ The `ai_generator` node is special: its handles and controls are loaded at runti
 | **Replicate** | All generative AI nodes. Async predictions with webhook callbacks; fan-out (`iterations > 1`) tracked in `node_predictions`. | [lib/workflow/dispatch-v2.ts](lib/workflow/dispatch-v2.ts) submits, [app/api/webhooks/replicate-v2/route.ts](app/api/webhooks/replicate-v2/route.ts) receives. |
 | **Paddle** | Billing — subscriptions (Free/Starter/Pro/Studio) + one-time credit packs. Inline checkout, webhook-driven state sync, chargeback/refund handling. | [lib/billing/](lib/billing/), `app/api/billing/*`, [app/api/webhooks/paddle/route.ts](app/api/webhooks/paddle/route.ts). |
 | **Vercel** | Hosting (Next.js), `@vercel/functions` `waitUntil` for fire-and-forget background work, Speed Insights, Analytics, Cron (`cleanup-sessions`, `sync`, `topup`, `apply-pending-changes`, `warm-cache` — see [vercel.json](vercel.json)). |
-| **Hugging Face Spaces** (optional) | Python `rembg` background-removal microservice on port 8000. Lives in a separate `python-backend/` repo, not in this tree. See [STARTUP.md](STARTUP.md), [DEPLOYMENT.md](DEPLOYMENT.md). |
 | **Pollinations.ai** | Free fallback image generation, no API key. Routed via `/api/image/generate*`. |
 
 ## Main data flow

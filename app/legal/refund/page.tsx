@@ -8,7 +8,7 @@ export const metadata = {
 export default function RefundPage() {
     return (
         <article>
-            <LegalHeader tag="Legal" title="Refund & Cancellation Policy" updated="May 5, 2026" />
+            <LegalHeader tag="Legal" title="Refund & Cancellation Policy" updated="June 18, 2026" />
 
             <Section title="1. How to cancel">
                 <P>
@@ -50,6 +50,10 @@ export default function RefundPage() {
                     not roll over once a new billing cycle begins, unless a specific plan states otherwise).
                 </P>
                 <P>
+                    Promotional and signup bonus credits have no cash value and may be reduced or revoked at our discretion
+                    if we detect fraud or abuse of the Service. Credits you have purchased are not affected by this.
+                </P>
+                <P>
                     If your account is terminated for breach of our Terms of Service, any remaining credits are forfeited
                     and no refund is due.
                 </P>
@@ -71,6 +75,9 @@ export default function RefundPage() {
                     within five business days. Approved refunds are processed by Paddle, our Merchant of Record, and
                     returned to the original payment method — typically appearing within 5–10 business days, depending on
                     your bank.
+                </P>
+                <P>
+                    Prisfol is operated by Naveh Elya (Israel).
                 </P>
             </Section>
 

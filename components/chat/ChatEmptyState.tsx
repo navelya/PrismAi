@@ -27,30 +27,41 @@ const CAPABILITY_CARDS: {
     prompt: string;
 }[] = [
     {
-        image: '/assets/welcome-cards/generate.png',
+        image: '/assets/welcome-cards/generate.webp',
         title: 'Generate',
         description: 'Create images & video from a description.',
         prompt: 'Generate a cinematic product shot of ',
     },
     {
-        image: '/assets/welcome-cards/edit.png',
+        image: '/assets/welcome-cards/edit.webp',
         title: 'Edit & retouch',
         description: 'Remove backgrounds, swap outfits, fix lighting.',
         prompt: 'Remove the background from my photo and ',
     },
     {
-        image: '/assets/welcome-cards/automate.png',
+        image: '/assets/welcome-cards/automate.webp',
         title: 'Automate',
         description: 'Chain steps to process many images at once.',
         prompt: 'Build a workflow to upscale and watermark a batch of photos',
     },
     {
-        image: '/assets/welcome-cards/guidance.png',
+        image: '/assets/welcome-cards/guidance.webp',
         title: 'Get guidance',
         description: 'Not sure where to start? Ask what is possible.',
         prompt: 'What can I build with Prisfol?',
     },
 ];
+
+// Warm the browser cache for the four hero images the moment this client module
+// evaluates (on chat-page load) — well before the cards mount and animate in.
+// Otherwise the <img> fetch only starts at mount and loses the race against the
+// entrance animation, so the photos "fill in" a beat after the cards appear.
+if (typeof window !== 'undefined') {
+    for (const card of CAPABILITY_CARDS) {
+        const img = new Image();
+        img.src = card.image;
+    }
+}
 
 // Each card enters from the corner it sits in (2×2 grid), so on a new chat the
 // four cards converge inward toward the center. Index order = TL, TR, BL, BR.
