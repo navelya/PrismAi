@@ -17,7 +17,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { getDodo } from '@/lib/billing/dodo-server';
+import { getDodo, getDodoCheckoutMode } from '@/lib/billing/dodo-server';
 import { getPricing, lookupPackByProductId } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
         }
 
-        // Dispute gate: refuse new purchases while a chargeback is unresolved.
+        // Dispute gate.
         // Admin clears profiles.payment_disputed_at directly in the DB once the
         // dispute is resolved (no admin UI in v1).
         {
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
             );
         }
 
-        return NextResponse.json({ requiresCheckout: true, url: session.checkout_url });
+        return NextResponse.json({ requiresCheckout: true, url: session.checkout_url, mode: getDodoCheckoutMode() });
     } catch (err: any) {
         console.error('[Buy Pack] Error:', err);
         return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });

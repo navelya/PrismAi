@@ -162,8 +162,11 @@ function ResultLightbox({ state, onClose }: { state: LightboxState | null; onClo
     return (
         <RadixDialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
             <RadixDialog.Portal>
-                <RadixDialog.Overlay className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-                <RadixDialog.Content className="fixed inset-0 z-[71] flex items-center justify-center p-4 sm:p-10 focus:outline-none">
+                {/* z above the shared Modal scale (tops out at z-[120]) so the
+                    lightbox opens ABOVE the Account window, which hosts the
+                    usage history this strip lives in. */}
+                <RadixDialog.Overlay className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+                <RadixDialog.Content className="fixed inset-0 z-[131] flex items-center justify-center p-4 sm:p-10 focus:outline-none">
                     <RadixDialog.Title className="sr-only">{state?.item.modelName ?? 'Result'}</RadixDialog.Title>
                     <RadixDialog.Description className="sr-only">Full workflow run result preview.</RadixDialog.Description>
 

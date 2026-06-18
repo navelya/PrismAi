@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { getDodo } from '@/lib/billing/dodo-server';
+import { getDodo, getDodoCheckoutMode } from '@/lib/billing/dodo-server';
 import { getPricing } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
             );
         }
 
-        return NextResponse.json({ url: session.checkout_url });
+        return NextResponse.json({ url: session.checkout_url, mode: getDodoCheckoutMode() });
     } catch (err: any) {
         console.error('[Billing/Checkout] Error:', err);
         return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });

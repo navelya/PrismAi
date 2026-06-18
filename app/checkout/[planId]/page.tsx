@@ -8,6 +8,7 @@ import { Logo } from '@/components/ui/Logo';
 import { createClient } from '@/lib/supabase/client';
 import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
 import { marketingUrl } from '@/lib/domains';
+import { openDodoOverlay } from '@/lib/billing/dodo-overlay';
 
 type Cycle = 'monthly' | 'yearly';
 
@@ -72,10 +73,26 @@ export default function CheckoutPage() {
                 setError('No checkout URL received. Please try again.');
                 return;
             }
-            window.location.href = json.url;
+            const overlayResult = await openDodoOverlay({
+                checkoutUrl: json.url,
+                mode: json.mode ?? 'test',
+                onSuccess: () => {
+                    window.location.href = '/billing/success';
+                },
+                onClose: () => {
+                    setSubmitting(false);
+                },
+                onError: (msg) => {
+                    setError(msg || 'Checkout error. Please try again.');
+                    setSubmitting(false);
+                },
+            });
+            if (!overlayResult.ok) {
+                // SDK failed (ad-blocker, unsupported env) — fall back to redirect.
+                window.location.href = json.url;
+            }
         } catch (e: any) {
             setError(e?.message || 'Network error. Please try again.');
-        } finally {
             setSubmitting(false);
         }
     }, [submitting, plan, cycle]);
@@ -248,7 +265,7 @@ export default function CheckoutPage() {
                             {submitting ? (
                                 <>
                                     <Loader2 className="w-4 h-4 animate-spin" />
-                                    Redirecting to checkout…
+                                    Opening checkout…
                                 </>
                             ) : (
                                 `Subscribe — $${totalToday}.00`
@@ -256,7 +273,7 @@ export default function CheckoutPage() {
                         </button>
 
                         <p className="text-[11px] text-slate-600 mt-4 text-center leading-relaxed">
-                            You will be redirected to Dodo Payments to complete your purchase securely.
+                            A secure Dodo Payments checkout will open to complete your purchase.
                         </p>
                     </div>
                 </div>

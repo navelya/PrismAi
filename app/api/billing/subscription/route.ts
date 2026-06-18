@@ -28,6 +28,7 @@ export async function GET() {
         }
 
         const service = createServiceClient();
+
         const { data, error: fetchErr } = await service
             .from('subscriptions')
             .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id')

@@ -472,14 +472,12 @@ export function InvoicesSection({ hasPaidSub }: { hasPaidSub: boolean }) {
     }, []);
 
     useEffect(() => {
-        if (hasPaidSub) {
-            fetchInvoices();
-        } else {
-            setInvoices([]);
-        }
-    }, [hasPaidSub, fetchInvoices]);
+        fetchInvoices();
+    }, [fetchInvoices]);
 
-    if (!hasPaidSub) return null;
+    // Don't render the section at all if there are no invoices (free users who
+    // have never purchased, or a top-up buyer before the first webhook fires).
+    if (!loading && invoices.length === 0 && !error) return null;
 
     return (
         <section className="rounded-2xl border border-stroke-subtle bg-surface-elevated overflow-hidden">

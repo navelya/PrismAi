@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui/Modal';
+import { openDodoOverlay } from '@/lib/billing/dodo-overlay';
 import { type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
 import { usePricing } from '@/lib/billing/use-pricing';
 import { useSubscription } from '@/lib/billing/use-subscription';
@@ -100,7 +101,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                                     {packs.map((pack) => (
-                                        <CreditPackCard key={pack.id} pack={pack} />
+                                        <CreditPackCard key={pack.id} pack={pack} onClose={onClose} />
                                     ))}
                                 </div>
                             </div>
@@ -303,7 +304,7 @@ function PlanPrice({
 // CREDIT PACK CARD
 // =============================================================================
 
-function CreditPackCard({ pack }: { pack: CreditPack }) {
+function CreditPackCard({ pack, onClose }: { pack: CreditPack; onClose: () => void }) {
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState<BillingStatus | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -347,15 +348,38 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
                 return;
             }
 
-            // No saved card → redirect to the Dodo checkout URL returned by
-            // the server. The webhook handles the grant on completion.
+            // No saved card → open Dodo overlay checkout; fall back to redirect
+            // if the SDK fails to load (e.g. ad-blocker, unsupported env).
             if (json.requiresCheckout) {
-                if (json.url) {
-                    window.location.href = json.url;
-                } else {
+                if (!json.url) {
                     setErrorMessage('Could not open checkout. Please try again.');
                     setStatus('error');
+                    return;
                 }
+                // Close the PlansModal FIRST so Radix releases its body
+                // pointer-events:none, then open the overlay after a short
+                // delay so the Radix cleanup has time to run.
+                onClose();
+                const checkoutUrl: string = json.url;
+                const checkoutMode: string = json.mode ?? 'test';
+                setTimeout(async () => {
+                    const overlayResult = await openDodoOverlay({
+                        checkoutUrl,
+                        mode: checkoutMode as 'test' | 'live',
+                        onSuccess: () => {
+                            // Webhook grants credits; reload reflects it.
+                            window.location.reload();
+                        },
+                        onClose: () => {},
+                        onError: (msg) => {
+                            window.alert(msg || 'Checkout error. Please try again.');
+                        },
+                    });
+                    if (!overlayResult.ok) {
+                        // SDK failed — fall back to full-page redirect.
+                        window.location.href = checkoutUrl;
+                    }
+                }, 120);
                 return;
             }
 
@@ -707,10 +731,55 @@ function PlanCTA({
     const handleClick = async () => {
         setErrorMessage(null);
         if (!hasPaidSub) {
-            // First-time purchase: no saved sub to mutate, so route through
-            // the checkout page. Pass through whatever cycle the user picked
-            // so they don't get surprised on the checkout page.
-            router.push(`/checkout/${plan.id}?cycle=${selectedCycle}`);
+            // First-time purchase: POST to /api/billing/checkout, then open
+            // the overlay. Fall back to redirect if the SDK fails.
+            setStatus('processing');
+            try {
+                const res = await fetch('/api/billing/checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ planId: plan.id, cycle: selectedCycle }),
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setErrorMessage(json?.error || 'Failed to start checkout. Please try again.');
+                    setStatus('error');
+                    return;
+                }
+                if (!json.url) {
+                    setErrorMessage('No checkout URL received. Please try again.');
+                    setStatus('error');
+                    return;
+                }
+
+                // Close the PlansModal FIRST so Radix releases its body
+                // pointer-events:none, then open the overlay after a short
+                // delay so the Radix cleanup has time to run.
+                onClose();
+                const checkoutUrl: string = json.url;
+                const checkoutMode: string = json.mode ?? 'test';
+                setTimeout(async () => {
+                    const overlayResult = await openDodoOverlay({
+                        checkoutUrl,
+                        mode: checkoutMode as 'test' | 'live',
+                        onSuccess: () => {
+                            // Webhook grants subscription credits; reload reflects it.
+                            window.location.reload();
+                        },
+                        onClose: () => {},
+                        onError: (msg) => {
+                            window.alert(msg || 'Checkout error. Please try again.');
+                        },
+                    });
+                    if (!overlayResult.ok) {
+                        // SDK failed — fall back to full-page redirect.
+                        window.location.href = checkoutUrl;
+                    }
+                }, 120);
+            } catch (e: any) {
+                setErrorMessage(e?.message || 'Network error. Please try again.');
+                setStatus('error');
+            }
             return;
         }
 
