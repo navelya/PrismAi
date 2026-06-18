@@ -8,7 +8,7 @@ import type { AccountTab } from '@/lib/store/types';
 /**
  * The settings page is gone — account settings now live in a global modal
  * ("Your account") reachable from the sidebar profile menu. This route survives
- * only to honour legacy/deep links (e.g. Paddle's post-checkout `successUrl`):
+ * only to honour legacy/deep links (e.g. post-checkout `successUrl` redirects):
  * it opens the modal at the requested tab and bounces the user to /chat so
  * there's real content behind the overlay.
  */

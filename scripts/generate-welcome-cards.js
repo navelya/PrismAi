@@ -10,6 +10,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const sharp = require('sharp');
 
 // --- load GEMINI_API_KEY from .env.local -----------------------------------
 function loadApiKey() {
@@ -38,28 +39,28 @@ const STYLE =
 
 const CARDS = [
     {
-        file: 'generate.png',
+        file: 'generate.webp',
         prompt:
             'A modern film and photo studio set: a cinema camera on a tripod facing a beautifully lit scene, ' +
             'softbox lights and colorful gels glowing, behind-the-scenes of a vibrant photo/video shoot — ' +
             'the craft of creating images and video.',
     },
     {
-        file: 'edit.png',
+        file: 'edit.webp',
         prompt:
             'A polished professional studio portrait of a person against a clean seamless backdrop under soft ' +
             'beauty-dish lighting, flawless flattering skin and crisp detail — the kind of high-end headshot ' +
             'a retoucher edits and refines.',
     },
     {
-        file: 'automate.png',
+        file: 'automate.webp',
         prompt:
             'A backlit photographer\'s light table covered with neat rows of film slides and negatives, dozens of ' +
             'small images laid out in an orderly grid, hands sorting them — many photographs being processed ' +
             'together in batch.',
     },
     {
-        file: 'guidance.png',
+        file: 'guidance.webp',
         prompt:
             'A lone person standing on a winding path looking out toward a bright sunrise over a vast, ' +
             'inspiring landscape, contemplative and hopeful — a sense of direction, possibility, and figuring ' +
@@ -99,8 +100,10 @@ async function generateOne(card) {
             }
             const buf = Buffer.from(img.inlineData.data, 'base64');
             const outPath = path.join(OUT_DIR, card.file);
-            fs.writeFileSync(outPath, buf);
-            console.log(`  ✅ ${card.file}  (${model}, ${(buf.length / 1024).toFixed(0)} KB)`);
+            // Encode to WebP so the cards load fast on the welcome screen.
+            const webp = await sharp(buf).webp({ quality: 82 }).toBuffer();
+            fs.writeFileSync(outPath, webp);
+            console.log(`  ✅ ${card.file}  (${model}, ${(webp.length / 1024).toFixed(0)} KB)`);
             return true;
         } catch (err) {
             lastError = `${model}: ${err.message}`;

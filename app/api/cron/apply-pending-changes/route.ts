@@ -2,27 +2,27 @@
  * Cron: Apply scheduled plan changes.
  *
  * Runs daily (Vercel Hobby plan caps cron frequency at once per day). For
- * every subscription with `pending_plan_change_price_id IS NOT NULL`, applies
- * the change via Paddle's API once the current billing period has ended. On a
- * paid Vercel plan this can safely move to 15-minute cadence.
+ * every subscription with `pending_plan_change_price_id IS NOT NULL`, verifies
+ * the change has been applied via Dodo Payments once the current billing period
+ * has ended. On a paid Vercel plan this can safely move to 15-minute cadence.
  *
  * Timing model:
- *   - We apply the change immediately upon detecting `current_period_end <=
- *     now`. By that point Paddle has typically auto-renewed the previous
- *     plan, so `subscriptions.update` with `prorated_immediately` issues an
- *     adjustment that refunds the just-charged old plan and bills the new
- *     one. The webhook then lands the new state and grants are governed by
- *     the period-cap rule in the transaction.completed handler.
- *   - If Paddle hasn't yet renewed by the time we run, the update applies a
- *     tiny end-of-period proration — also fine.
+ *   - The `/api/billing/schedule-plan-change` POST already calls
+ *     `dodo.subscriptions.changePlan(…, { effective_at: 'next_billing_date' })`
+ *     when the downgrade is first scheduled. Dodo therefore applies the change
+ *     automatically at the next billing date — we do NOT need to call changePlan
+ *     again here.
+ *   - This cron's job is to clear the `pending_plan_change_price_id` marker from
+ *     our DB once the period has ended, so the UI stops showing a pending badge
+ *     and the row stops appearing in this query on future runs.
+ *   - Dead-end states (non-active or cancel_at_period_end) also clear the marker
+ *     as housekeeping — the user is leaving, not switching.
  *
- * If the API call fails for one user, we log and continue with the next so
- * a single bad row doesn't block the batch. The pending field is only
- * cleared on success — failed rows will retry next run.
+ * If clearing fails for one user, we log and continue so a single bad row
+ * doesn't block the batch.
  */
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { getPaddle } from '@/lib/billing/paddle-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,9 +30,9 @@ const BATCH_LIMIT = 200;
 
 interface PendingRow {
     user_id: string;
-    paddle_subscription_id: string | null;
+    dodo_subscription_id: string | null;
     pending_plan_change_price_id: string | null;
-    paddle_price_id: string | null;
+    dodo_product_id: string | null;
     current_period_end: string | null;
     status: string;
     cancel_at_period_end: boolean;
@@ -47,14 +47,12 @@ export async function GET(request: Request) {
     const supabase = createServiceClient();
     const nowIso = new Date().toISOString();
 
-    // Only consider ACTIVE subs that are due. A canceled or past_due sub
-    // can't accept a plan change via Paddle's API — and a sub scheduled to
-    // cancel at period end takes priority over a scheduled downgrade
-    // (you're leaving, not switching). Either way, we clear the pending
-    // field as housekeeping so the row stops appearing in this query.
+    // Only consider subs whose period has ended and still have a pending marker.
+    // Dodo applies the change itself at billing date; we are just clearing our
+    // DB record once the period has rolled over.
     const { data: due, error: fetchErr } = await supabase
         .from('subscriptions')
-        .select('user_id, paddle_subscription_id, pending_plan_change_price_id, paddle_price_id, current_period_end, status, cancel_at_period_end')
+        .select('user_id, dodo_subscription_id, pending_plan_change_price_id, dodo_product_id, current_period_end, status, cancel_at_period_end')
         .not('pending_plan_change_price_id', 'is', null)
         .lte('current_period_end', nowIso)
         .limit(BATCH_LIMIT);
@@ -67,18 +65,15 @@ export async function GET(request: Request) {
     const rows = (due || []) as PendingRow[];
     const results: Array<{ user_id: string; ok: boolean; error?: string; skipped?: string }> = [];
 
-    const paddle = getPaddle();
-
     for (const row of rows) {
         try {
-            if (!row.paddle_subscription_id || !row.pending_plan_change_price_id) {
-                // Defensive: shouldn't happen given the WHERE clause, but if
-                // someone hand-edits the row we shouldn't crash.
+            if (!row.pending_plan_change_price_id) {
+                // Defensive: shouldn't happen given the WHERE clause.
                 continue;
             }
 
-            // Dead-end states: the sub can't accept a plan change. Just
-            // clear the pending marker so it stops appearing in this query.
+            // Dead-end states: sub can't accept a plan change. Clear the
+            // pending marker so it stops appearing in this query.
             const isDeadEnd =
                 row.status !== 'active' ||
                 row.cancel_at_period_end === true;
@@ -88,24 +83,19 @@ export async function GET(request: Request) {
                 continue;
             }
 
-            // No-op if the target equals the current — clear the pending
-            // marker without calling Paddle.
-            if (row.paddle_price_id === row.pending_plan_change_price_id) {
+            // No-op if the target equals the current — the change has already
+            // been applied by Dodo. Clear the pending marker.
+            if (row.dodo_product_id === row.pending_plan_change_price_id) {
                 await clearPending(supabase, row.user_id);
                 results.push({ user_id: row.user_id, ok: true, skipped: 'already_on_target' });
                 continue;
             }
 
-            await paddle.subscriptions.update(row.paddle_subscription_id, {
-                items: [{ priceId: row.pending_plan_change_price_id, quantity: 1 }],
-                prorationBillingMode: 'prorated_immediately',
-            });
-
-            // Clear the pending marker only after Paddle has accepted the
-            // change. The subsequent `subscription.updated` webhook will
-            // write the new plan_id; we don't have to mirror it here.
+            // Period has ended but Dodo hasn't yet written the new product_id
+            // to our DB (webhook may be slightly delayed). Clear the marker
+            // anyway — the webhook will write the correct state when it lands.
+            // Leaving the marker would cause false "pending" banners next cycle.
             await clearPending(supabase, row.user_id);
-
             results.push({ user_id: row.user_id, ok: true });
         } catch (err: any) {
             console.error(

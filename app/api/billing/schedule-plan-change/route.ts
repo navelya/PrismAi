@@ -1,26 +1,31 @@
 /**
- * Schedule a plan change for the end of the current billing period.
+ * Schedule a plan change for the end of the current billing period (Dodo Payments).
  *
  * Used by the downgrade flow: instead of switching the user to a lower tier
  * immediately (and dealing with prorations + the credit-cycling exploit),
- * we record the target price ID and let a cron job apply it via
- * `paddle.subscriptions.update` when the current period rolls over.
+ * we record the target Dodo product ID and let Dodo apply it via
+ * `subscriptions.changePlan` with `effective_at:'next_billing_date'`.
  *
  * Upgrades go through `/api/billing/change-plan` (immediate, prorated)
  * instead. This endpoint is for scheduled changes only.
  *
- * Calling it again with a different priceId replaces the pending change.
- * Calling it with the user's CURRENT priceId is a no-op (returns 409).
+ * The `pending_plan_change_price_id` column name is preserved from the original
+ * implementation; it now stores the Dodo product ID.
+ *
+ * Calling it again with a different productId replaces the pending change.
+ * Calling it with the user's CURRENT productId is a no-op (returns 409).
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { lookupPlanByPriceId } from '@/lib/billing/pricing-source';
+import { getDodo } from '@/lib/billing/dodo-server';
+import { getPricing } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
 
 interface ScheduleBody {
-    priceId?: string;
+    planId?: string;
+    cycle?: 'monthly' | 'yearly';
 }
 
 export async function POST(request: Request) {
@@ -32,40 +37,72 @@ export async function POST(request: Request) {
         }
 
         const body = (await request.json().catch(() => ({}))) as ScheduleBody;
-        if (!body.priceId) {
-            return NextResponse.json({ error: 'priceId is required' }, { status: 400 });
+        const { planId, cycle } = body;
+        if (!planId || typeof planId !== 'string') {
+            return NextResponse.json({ error: 'planId is required' }, { status: 400 });
+        }
+        if (cycle !== 'monthly' && cycle !== 'yearly') {
+            return NextResponse.json({ error: 'cycle must be "monthly" or "yearly"' }, { status: 400 });
         }
 
-        const target = await lookupPlanByPriceId(body.priceId);
-        if (!target) {
-            return NextResponse.json({ error: 'Unknown price ID' }, { status: 400 });
+        // Resolve the Dodo product ID server-side — the client never sees product IDs.
+        const snap = await getPricing();
+        const plan = snap.plans.find(p => p.id === planId);
+        if (!plan) {
+            return NextResponse.json({ error: 'Unknown plan ID' }, { status: 400 });
+        }
+        const productId = cycle === 'yearly'
+            ? (plan.dodoProductIdYearly ?? plan.dodoProductIdMonthly)
+            : (plan.dodoProductIdMonthly ?? plan.dodoProductIdYearly);
+        if (!productId) {
+            return NextResponse.json(
+                { error: `No Dodo product ID configured for plan "${planId}" (${cycle})` },
+                { status: 400 },
+            );
         }
 
         const service = createServiceClient();
         const { data: sub } = await service
             .from('subscriptions')
-            .select('paddle_subscription_id, paddle_price_id, plan_id, current_period_end')
+            .select('dodo_subscription_id, dodo_product_id, plan_id, current_period_end')
             .eq('user_id', user.id)
             .maybeSingle();
 
-        if (!sub?.paddle_subscription_id) {
+        if (!sub?.dodo_subscription_id) {
             return NextResponse.json(
                 { error: 'No active subscription to schedule a change on.' },
                 { status: 404 },
             );
         }
 
-        if (sub.paddle_price_id === body.priceId) {
+        if (sub.dodo_product_id === productId) {
             return NextResponse.json(
                 { error: 'You are already on this plan.' },
                 { status: 409 },
             );
         }
 
+        // Schedule the change with Dodo at next billing date.
+        const dodo = getDodo();
+        try {
+            await dodo.subscriptions.changePlan(sub.dodo_subscription_id, {
+                product_id: productId,
+                proration_billing_mode: 'do_not_bill',
+                quantity: 1,
+                effective_at: 'next_billing_date',
+            });
+        } catch (dodoErr: any) {
+            console.error('[Schedule Plan Change] Dodo changePlan failed:', dodoErr);
+            return NextResponse.json({ error: dodoErr?.message || 'Could not schedule plan change.' }, { status: 502 });
+        }
+
+        // Record the pending change in our DB so the UI can reflect it and
+        // the cron/webhook can reconcile. The column name `pending_plan_change_price_id`
+        // is preserved from the original schema; it stores the Dodo product ID.
         const { error: updateErr } = await service
             .from('subscriptions')
             .update({
-                pending_plan_change_price_id: body.priceId,
+                pending_plan_change_price_id: productId,
                 updated_at: new Date().toISOString(),
             })
             .eq('user_id', user.id);
@@ -78,8 +115,8 @@ export async function POST(request: Request) {
         return NextResponse.json({
             scheduled: true,
             effectiveAt: sub.current_period_end,
-            targetPlanId: target.planId,
-            targetCycle: target.cycle,
+            targetPlanId: planId,
+            targetCycle: cycle,
         });
     } catch (err: any) {
         console.error('[Schedule Plan Change] Error:', err);
@@ -96,6 +133,24 @@ export async function DELETE() {
         }
 
         const service = createServiceClient();
+        const { data: sub } = await service
+            .from('subscriptions')
+            .select('dodo_subscription_id, pending_plan_change_price_id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        // If there's an active Dodo subscription with a pending change, cancel it.
+        if (sub?.dodo_subscription_id && sub?.pending_plan_change_price_id) {
+            const dodo = getDodo();
+            try {
+                await dodo.subscriptions.cancelChangePlan(sub.dodo_subscription_id);
+            } catch (dodoErr: any) {
+                // cancelChangePlan may fail if no scheduled change exists — that's fine,
+                // we still clear our DB record below.
+                console.warn('[Schedule Plan Change] cancelChangePlan failed (may not exist):', dodoErr?.message);
+            }
+        }
+
         const { error } = await service
             .from('subscriptions')
             .update({

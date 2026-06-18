@@ -8,10 +8,8 @@ import { type PlanDisplay, type CreditPack } from '@/lib/billing/plans-config';
 import { usePricing } from '@/lib/billing/use-pricing';
 import { useSubscription } from '@/lib/billing/use-subscription';
 import { formatCredits } from '@/lib/billing/cost';
-import { openPaddleCheckout } from '@/lib/billing/paddle-client';
 import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
 import { pollLedgerForPack } from '@/lib/billing/poll-ledger';
-import { createClient } from '@/lib/supabase/client';
 import BillingProcessingModal, { type BillingStatus } from './BillingProcessingModal';
 import CancelConfirmModal from './CancelConfirmModal';
 
@@ -82,7 +80,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
                                         selectedCycle={selectedCycle}
                                         currentPeriodEnd={subscription?.currentPeriodEnd ?? null}
                                         cancelAtPeriodEnd={subscription?.cancelAtPeriodEnd ?? false}
-                                        pendingPlanChangePriceId={subscription?.pendingPlanChangePriceId ?? null}
+                                        pendingPlanChange={subscription?.pendingPlanChange ?? null}
                                         onClose={onClose}
                                     />
                                 ))}
@@ -109,7 +107,7 @@ export default function PlansModal({ isOpen, onClose }: PlansModalProps) {
 
             {/* Footer */}
             <div className="relative px-8 pt-6 pb-6 mt-6 text-center text-xs text-content-tertiary border-t border-white/10">
-                Prices in USD. Sales tax / VAT calculated at checkout by Paddle, our Merchant of Record.
+                Prices in USD. Sales tax / VAT calculated at checkout by Dodo Payments, our Merchant of Record.
             </div>
         </Modal>
     );
@@ -159,7 +157,7 @@ interface PlanCardProps {
     selectedCycle: 'monthly' | 'yearly';
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
-    pendingPlanChangePriceId: string | null;
+    pendingPlanChange: { planId: string; cycle: 'monthly' | 'yearly' } | null;
     onClose: () => void;
 }
 
@@ -171,7 +169,7 @@ function PlanCard({
     selectedCycle,
     currentPeriodEnd,
     cancelAtPeriodEnd,
-    pendingPlanChangePriceId,
+    pendingPlanChange,
     onClose,
 }: PlanCardProps) {
     // "Current plan" means BOTH the plan and the cycle match what the user
@@ -248,7 +246,7 @@ function PlanCard({
                 selectedCycle={selectedCycle}
                 currentPeriodEnd={currentPeriodEnd}
                 cancelAtPeriodEnd={cancelAtPeriodEnd}
-                pendingPlanChangePriceId={pendingPlanChangePriceId}
+                pendingPlanChange={pendingPlanChange}
                 onClose={onClose}
             />
         </div>
@@ -321,28 +319,10 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
         ? 'bg-accent-primary text-white hover:bg-accent-primary/90 shadow-md shadow-accent-primary/30'
         : 'bg-surface-tertiary text-content-primary hover:bg-surface-tertiary/70';
 
-    const isReady = pack.available && pack.paddlePriceId;
-
-    // Fallback path for first-time buyers (no saved card yet) — opens the
-    // Paddle.js overlay so they can enter a card. The webhook still handles
-    // the grant on the resulting transaction.completed event.
-    const openOverlay = async (): Promise<void> => {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || !user.email || !pack.paddlePriceId) {
-            setErrorMessage('Please sign in again and retry.');
-            setStatus('error');
-            return;
-        }
-        await openPaddleCheckout({
-            priceId: pack.paddlePriceId,
-            userId: user.id,
-            userEmail: user.email,
-        });
-    };
+    const isReady = pack.available;
 
     const handleClick = async () => {
-        if (loading || !pack.paddlePriceId) return;
+        if (loading || !pack.available) return;
         setLoading(true);
         setErrorMessage(null);
         setStatus('processing');
@@ -367,11 +347,15 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
                 return;
             }
 
-            // No saved card → fall through to the Paddle overlay. Hide our
-            // processing modal first so the overlay isn't stacked on top of it.
+            // No saved card → redirect to the Dodo checkout URL returned by
+            // the server. The webhook handles the grant on completion.
             if (json.requiresCheckout) {
-                setStatus(null);
-                await openOverlay();
+                if (json.url) {
+                    window.location.href = json.url;
+                } else {
+                    setErrorMessage('Could not open checkout. Please try again.');
+                    setStatus('error');
+                }
                 return;
             }
 
@@ -381,7 +365,7 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
             const grant = await pollLedgerForPack(pack.id, startedAtMs, { timeoutMs: 25000 });
             if (!grant) {
                 setErrorMessage(
-                    'Payment accepted, but the credits haven’t been added yet. Refresh in a moment — they’ll show up automatically.',
+                    "Payment accepted, but the credits haven't been added yet. Refresh in a moment — they'll show up automatically.",
                 );
                 setStatus('error');
                 return;
@@ -445,7 +429,7 @@ function CreditPackCard({ pack }: { pack: CreditPack }) {
                 processingDescription="Charging your saved payment method. This usually takes a second or two."
                 successTitle={`+${formatCredits(pack.credits)} credits added`}
                 successDescription="Your new credits are ready to use. They never expire."
-                errorTitle="Couldn’t complete the purchase"
+                errorTitle="Couldn't complete the purchase"
                 errorMessage={errorMessage}
                 onClose={() => setStatus(null)}
             />
@@ -467,7 +451,7 @@ function PlanCTA({
     selectedCycle,
     currentPeriodEnd,
     cancelAtPeriodEnd,
-    pendingPlanChangePriceId,
+    pendingPlanChange,
     onClose,
 }: {
     plan: PlanDisplay;
@@ -478,7 +462,7 @@ function PlanCTA({
     selectedCycle: 'monthly' | 'yearly';
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
-    pendingPlanChangePriceId: string | null;
+    pendingPlanChange: { planId: string; cycle: 'monthly' | 'yearly' } | null;
     onClose: () => void;
 }) {
     const router = useRouter();
@@ -492,9 +476,8 @@ function PlanCTA({
     // change again — show "Scheduled" with the date, plus a "Cancel switch"
     // affordance so the user can back out without leaving the modal.
     const isPendingTarget =
-        pendingPlanChangePriceId != null &&
-        (plan.paddlePriceIdMonthly === pendingPlanChangePriceId ||
-            plan.paddlePriceIdYearly === pendingPlanChangePriceId);
+        pendingPlanChange != null &&
+        plan.id === pendingPlanChange.planId;
 
     if (isPendingTarget) {
         const endDate = currentPeriodEnd
@@ -545,7 +528,7 @@ function PlanCTA({
         // If a downgrade is scheduled, the current-plan card should reflect
         // that: "You're on this plan (active until [date])". Helps the user
         // understand they're not losing access right away.
-        if (pendingPlanChangePriceId && currentPeriodEnd) {
+        if (pendingPlanChange && currentPeriodEnd) {
             const endDate = new Date(currentPeriodEnd).toLocaleDateString(undefined, {
                 month: 'short',
                 day: 'numeric',
@@ -611,7 +594,7 @@ function PlanCTA({
                 );
                 if (!settled) {
                     setErrorMessage(
-                        'Cancellation accepted, but we’re still waiting on confirmation from Paddle. Refresh in a moment.',
+                        "Cancellation accepted, but the update hasn't landed yet. Refresh in a moment.",
                     );
                     setStatus('error');
                     return;
@@ -651,14 +634,14 @@ function PlanCTA({
                 <BillingProcessingModal
                     status={status}
                     processingTitle="Canceling your subscription…"
-                    processingDescription="Confirming the cancellation with Paddle. You’ll keep access until your period ends."
+                    processingDescription="Confirming the cancellation. You'll keep access until your period ends."
                     successTitle="Subscription canceled"
                     successDescription={
                         currentPeriodEnd
                             ? `Access continues until ${new Date(currentPeriodEnd).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}.`
-                            : 'You’ll keep access until your period ends.'
+                            : "You'll keep access until your period ends."
                     }
-                    errorTitle="Couldn’t cancel"
+                    errorTitle="Couldn't cancel"
                     errorMessage={errorMessage}
                     onClose={() => setStatus(null)}
                 />
@@ -666,15 +649,7 @@ function PlanCTA({
         );
     }
 
-    // Always submit the priceId for the cycle the user picked in the toggle.
-    // Fall back to the other cycle only if this plan doesn't offer the
-    // selected one (defensive — all our paid plans ship both).
-    const targetPriceId =
-        selectedCycle === 'yearly'
-            ? plan.paddlePriceIdYearly ?? plan.paddlePriceIdMonthly
-            : plan.paddlePriceIdMonthly ?? plan.paddlePriceIdYearly;
-
-    if (!plan.available || !targetPriceId) {
+    if (!plan.available) {
         return (
             <button
                 disabled
@@ -694,8 +669,8 @@ function PlanCTA({
                 : 'bg-surface-tertiary text-content-primary hover:bg-surface-tertiary/70';
 
     // Coming from a paid plan → mutate the existing subscription via the API.
-    // Coming from the free plan (or no plan) → open a real Paddle checkout so
-    // Paddle can collect a payment method.
+    // Coming from the free plan (or no plan) → route through the checkout
+    // page so Dodo can collect a payment method.
     const hasPaidSub = currentPlanId !== 'free' && currentPlanId !== '';
     const targetRank = planRank(plan.id);
     const currentRank = planRank(currentPlanId);
@@ -741,15 +716,15 @@ function PlanCTA({
 
         // Downgrades take the scheduled path — no immediate charge, no
         // immediate plan change, no credit grant. The user keeps their
-        // current (higher) plan until the period rolls over, then a cron
-        // applies the change via Paddle.
+        // current (higher) plan until the period rolls over, then Dodo
+        // applies the change at next billing date.
         if (isDowngrade) {
             setStatus('processing');
             try {
                 const res = await fetch('/api/billing/schedule-plan-change', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ priceId: targetPriceId }),
+                    body: JSON.stringify({ planId: plan.id, cycle: selectedCycle }),
                 });
                 const json = await res.json().catch(() => ({}));
                 if (!res.ok) {
@@ -774,7 +749,7 @@ function PlanCTA({
             const res = await fetch('/api/billing/change-plan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ priceId: targetPriceId }),
+                body: JSON.stringify({ planId: plan.id, cycle: selectedCycle }),
             });
             const json = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -783,17 +758,15 @@ function PlanCTA({
                 return;
             }
 
-            // Wait for Paddle's webhook to land the new state in our DB.
-            // For a plan change we watch plan_id; for a cycle-only switch the
-            // plan_id stays the same so we watch paddle_price_id instead.
+            // Wait for Dodo's webhook to land the new state in our DB.
             const settled = await pollSubscriptionUntil(
-                (row) => row.plan_id === plan.id && row.paddle_price_id === targetPriceId,
+                (row) => row.plan_id === plan.id,
                 { timeoutMs: 20000 },
             );
 
             if (!settled) {
                 setErrorMessage(
-                    'Your payment went through, but we haven’t heard back from Paddle yet. Refresh in a moment to see the new plan.',
+                    "Your payment went through, but we haven't heard back yet. Refresh in a moment to see the new plan.",
                 );
                 setStatus('error');
                 return;
@@ -818,14 +791,14 @@ function PlanCTA({
     let successDescription: string;
     if (isDowngrade) {
         successTitle = `Switch to ${plan.name} scheduled`;
-        successDescription = `You’ll keep your current plan until your period ends, then automatically switch to ${plan.name}. You can cancel the switch any time before then.`;
+        successDescription = `You'll keep your current plan until your period ends, then automatically switch to ${plan.name}. You can cancel the switch any time before then.`;
     } else if (isCycleSwap) {
         successTitle = `Now billed ${selectedCycle === 'yearly' ? 'annually' : 'monthly'}`;
         successDescription = selectedCycle === 'yearly'
             ? 'Your subscription renews once a year. Any unused monthly time was credited toward this year.'
             : 'Your subscription renews monthly now. Any unused yearly time was credited toward future renewals.';
     } else {
-        successTitle = `You’re on ${plan.name}`;
+        successTitle = `You're on ${plan.name}`;
         successDescription = 'Your new plan is active and your credits have been updated.';
     }
 
@@ -844,12 +817,12 @@ function PlanCTA({
                 processingTitle={processingTitle}
                 processingDescription={
                     isDowngrade
-                        ? 'No charges today — we’re just recording your choice. The switch happens automatically when your current period ends.'
+                        ? "No charges today — we're just recording your choice. The switch happens automatically when your current period ends."
                         : 'Charging your saved payment method. This usually takes a second or two.'
                 }
                 successTitle={successTitle}
                 successDescription={successDescription}
-                errorTitle={isDowngrade ? 'Couldn’t schedule downgrade' : 'Couldn’t change plan'}
+                errorTitle={isDowngrade ? "Couldn't schedule downgrade" : "Couldn't change plan"}
                 errorMessage={errorMessage}
                 onClose={() => setStatus(null)}
             />

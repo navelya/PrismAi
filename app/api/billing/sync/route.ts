@@ -1,22 +1,23 @@
 /**
- * Subscription resync endpoint.
+ * Subscription resync endpoint (Dodo Payments).
  *
- * Re-derives the user's subscription state from Paddle (source of truth) and
+ * Re-derives the user's subscription state from Dodo (source of truth) and
  * writes it to our DB. Used to self-heal stale rows when webhooks were missed
  * or events for orphaned subscriptions overwrote the wrong record.
  *
  * Behavior:
- *   - No Paddle customer linked → no-op (user has never purchased).
- *   - One or more active Paddle subs → pick the best candidate (prefer one
+ *   - No Dodo customer linked → no-op (user has never purchased).
+ *   - One or more active Dodo subs → pick the best candidate (prefer one
  *     that isn't scheduled to cancel; tiebreak by most-recently-created) and
- *     upsert our row to match it.
- *   - No active Paddle subs → clear our row back to free.
+ *     upsert our row to match it via `dodo_subscription_upsert` RPC.
+ *   - No active Dodo subs → clear our row back to free.
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { getPaddle } from '@/lib/billing/paddle-server';
-import { lookupPlanByPriceId } from '@/lib/billing/pricing-source';
+import { getDodo } from '@/lib/billing/dodo-server';
+import { lookupPlanByProductId } from '@/lib/billing/pricing-source';
+import type { SubscriptionListResponse } from 'dodopayments/resources/subscriptions';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,43 +32,50 @@ export async function POST() {
         const service = createServiceClient();
         const { data: row } = await service
             .from('subscriptions')
-            .select('paddle_customer_id, paddle_subscription_id, plan_id, cancel_at_period_end')
+            .select('dodo_customer_id, dodo_subscription_id, plan_id, cancel_at_period_end')
             .eq('user_id', user.id)
             .maybeSingle();
 
-        if (!row?.paddle_customer_id) {
+        if (!row?.dodo_customer_id) {
             return NextResponse.json({ synced: false, changed: false, reason: 'no_customer' });
         }
 
         const before = {
             planId: row.plan_id ?? 'free',
-            paddleSubscriptionId: row.paddle_subscription_id ?? null,
+            dodoSubscriptionId: row.dodo_subscription_id ?? null,
             cancelAtPeriodEnd: !!row.cancel_at_period_end,
         };
 
-        const paddle = getPaddle();
-        const collection = paddle.subscriptions.list({
-            customerId: [row.paddle_customer_id],
-            status: ['active', 'trialing', 'past_due'],
-            perPage: 50,
-        });
-        const subs = await collection.next();
+        const dodo = getDodo();
 
-        // Pick the best candidate. We want the sub the user is actually
-        // riding right now — that means prefer ones NOT scheduled to cancel,
-        // and tiebreak by most-recent `started_at`.
+        // Collect subscriptions across active + on_hold statuses.
+        // Dodo's list takes one status value at a time.
+        const subs: SubscriptionListResponse[] = [];
+
+        for (const statusFilter of ['active', 'on_hold'] as const) {
+            for await (const sub of dodo.subscriptions.list({
+                customer_id: row.dodo_customer_id,
+                status: statusFilter,
+                page_size: 50,
+            })) {
+                subs.push(sub);
+            }
+        }
+
+        // Pick the best candidate. Prefer subs NOT scheduled to cancel,
+        // tiebreak by most-recent `created_at`.
         const sorted = [...subs].sort((a, b) => {
-            const aCancel = a.scheduledChange?.action === 'cancel' ? 1 : 0;
-            const bCancel = b.scheduledChange?.action === 'cancel' ? 1 : 0;
+            const aCancel = a.cancel_at_next_billing_date ? 1 : 0;
+            const bCancel = b.cancel_at_next_billing_date ? 1 : 0;
             if (aCancel !== bCancel) return aCancel - bCancel;
-            const aStart = a.startedAt ? new Date(a.startedAt).getTime() : 0;
-            const bStart = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+            const aStart = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const bStart = b.created_at ? new Date(b.created_at).getTime() : 0;
             return bStart - aStart;
         });
         const candidate = sorted[0];
 
         if (!candidate) {
-            // No active Paddle sub → reset to free.
+            // No active Dodo sub → reset to free.
             await service
                 .from('subscriptions')
                 .update({
@@ -75,8 +83,8 @@ export async function POST() {
                     status: 'active',
                     cancel_at_period_end: false,
                     current_period_end: null,
-                    paddle_subscription_id: null,
-                    paddle_price_id: null,
+                    dodo_subscription_id: null,
+                    dodo_product_id: null,
                     billing_cycle: null,
                     updated_at: new Date().toISOString(),
                 })
@@ -84,27 +92,27 @@ export async function POST() {
 
             const changed =
                 before.planId !== 'free' ||
-                before.paddleSubscriptionId !== null ||
+                before.dodoSubscriptionId !== null ||
                 before.cancelAtPeriodEnd !== false;
             return NextResponse.json({ synced: true, changed, plan: 'free' });
         }
 
-        const priceId = candidate.items?.[0]?.price?.id;
-        const lookup = priceId ? await lookupPlanByPriceId(priceId) : null;
-        if (!lookup || !priceId) {
+        const productId = candidate.product_id;
+        const lookup = productId ? await lookupPlanByProductId(productId) : null;
+        if (!lookup || !productId) {
             return NextResponse.json({ error: 'Active sub has no known plan' }, { status: 500 });
         }
 
-        const status = mapPaddleStatusToOurs(candidate.status);
-        const { error: rpcErr } = await service.rpc('paddle_subscription_upsert', {
+        const status = mapDodoStatusToOurs(candidate.status);
+        const { error: rpcErr } = await service.rpc('dodo_subscription_upsert', {
             p_user_id: user.id,
-            p_paddle_subscription_id: candidate.id,
-            p_paddle_customer_id: candidate.customerId,
-            p_paddle_price_id: priceId,
+            p_dodo_subscription_id: candidate.subscription_id,
+            p_dodo_customer_id: candidate.customer.customer_id,
+            p_dodo_product_id: productId,
             p_plan_id: lookup.planId,
             p_status: status,
-            p_current_period_end: candidate.currentBillingPeriod?.endsAt || null,
-            p_cancel_at_period_end: candidate.scheduledChange?.action === 'cancel',
+            p_current_period_end: candidate.next_billing_date || null,
+            p_cancel_at_period_end: candidate.cancel_at_next_billing_date,
             p_billing_cycle: lookup.cycle,
         });
 
@@ -113,17 +121,17 @@ export async function POST() {
             return NextResponse.json({ error: rpcErr.message }, { status: 500 });
         }
 
-        const candidateCancels = candidate.scheduledChange?.action === 'cancel';
+        const candidateCancels = candidate.cancel_at_next_billing_date;
         const changed =
             before.planId !== lookup.planId ||
-            before.paddleSubscriptionId !== candidate.id ||
+            before.dodoSubscriptionId !== candidate.subscription_id ||
             before.cancelAtPeriodEnd !== candidateCancels;
 
         return NextResponse.json({
             synced: true,
             changed,
             plan: lookup.planId,
-            subscriptionId: candidate.id,
+            subscriptionId: candidate.subscription_id,
         });
     } catch (err: any) {
         console.error('[Sync] Error:', err);
@@ -131,15 +139,16 @@ export async function POST() {
     }
 }
 
-function mapPaddleStatusToOurs(paddleStatus: string): 'active' | 'canceled' | 'past_due' {
-    switch (paddleStatus) {
+function mapDodoStatusToOurs(dodoStatus: string): 'active' | 'canceled' | 'past_due' {
+    switch (dodoStatus) {
         case 'active':
-        case 'trialing':
+        case 'pending':
             return 'active';
-        case 'canceled':
+        case 'cancelled':
+        case 'expired':
             return 'canceled';
-        case 'past_due':
-        case 'paused':
+        case 'on_hold':
+        case 'failed':
             return 'past_due';
         default:
             return 'active';

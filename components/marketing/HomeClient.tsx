@@ -1051,7 +1051,7 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
     { q: 'Can I change plans or buy more later?', a: 'Yes. You can upgrade, downgrade or cancel any time from inside the app, and one-time credit packs can be added to any plan whenever you run low.' },
     { q: 'Which models can I use?', a: 'Prisfol gives you access to leading image, video, audio and language models from across the industry — all as drag-and-drop nodes you can chain together on one canvas.' },
     { q: 'Is there a free tier?', a: 'Yes — you can start free with no credit card and a batch of free credits, so you can build and render your first workflows right away.' },
-    { q: 'What about taxes?', a: 'Prices shown exclude tax. Any applicable sales tax, VAT or GST is calculated and added at checkout by our payment provider, Paddle, based on your billing location.' },
+    { q: 'What about taxes?', a: 'Prices shown exclude tax. Any applicable sales tax, VAT or GST is calculated and added at checkout by Dodo Payments, our Merchant of Record, based on your billing location.' },
 ];
 
 function FaqItem({ q, a }: { q: string; a: React.ReactNode }) {

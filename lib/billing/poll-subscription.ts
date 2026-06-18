@@ -2,8 +2,8 @@
  * Wait for the user's subscription row to reach a target state.
  *
  * Billing API calls (`change-plan`, `cancel`, `resume`) return as soon as
- * Paddle accepts the request, but the user-visible state lives in the
- * `subscriptions` table — and that's only updated when Paddle's webhook
+ * Dodo accepts the request, but the user-visible state lives in the
+ * `subscriptions` table — and that's only updated when Dodo's webhook
  * fires back to us. This helper bridges the gap: it polls the row until a
  * caller-supplied predicate is satisfied (e.g. "plan_id is now 'pro'") or
  * the timeout elapses.
@@ -14,8 +14,8 @@ import { createClient } from '@/lib/supabase/client';
 
 export interface SubscriptionRow {
     plan_id: string;
-    paddle_subscription_id: string | null;
-    paddle_price_id: string | null;
+    dodo_subscription_id: string | null;
+    dodo_product_id: string | null;
     cancel_at_period_end: boolean;
     status: string;
 }
@@ -42,7 +42,7 @@ export async function pollSubscriptionUntil(
     while (Date.now() < deadline) {
         const { data } = await supabase
             .from('subscriptions')
-            .select('plan_id, paddle_subscription_id, paddle_price_id, cancel_at_period_end, status')
+            .select('plan_id, dodo_subscription_id, dodo_product_id, cancel_at_period_end, status')
             .eq('user_id', user.id)
             .maybeSingle();
 

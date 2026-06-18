@@ -10,8 +10,8 @@ interface PricingState {
 }
 
 // Module-level cache so multiple components share one fetch. Given a short TTL
-// so long-lived tabs pick up admin price changes (incl. rotated Paddle price ids)
-// rather than serving a stale snapshot for the whole session.
+// so long-lived tabs pick up admin price changes rather than serving a stale
+// snapshot for the whole session.
 const SHARED_TTL_MS = 120_000;
 let shared: { plans: PlanDisplay[]; packs: CreditPack[] } | null = null;
 let sharedAt = 0;
@@ -39,8 +39,8 @@ export function usePricing(): PricingState {
                 if (!alive) return;
                 // Defensive: a malformed/partial response must not poison the
                 // cache and crash every consumer's .map(). Fall back to static.
-                const plans = Array.isArray(data?.plans) ? data.plans : PLANS;
-                const packs = Array.isArray(data?.packs) ? data.packs : CREDIT_PACKS;
+                const plans: PlanDisplay[] = Array.isArray(data?.plans) ? data.plans : PLANS;
+                const packs: CreditPack[] = Array.isArray(data?.packs) ? data.packs : CREDIT_PACKS;
                 shared = { plans, packs };
                 sharedAt = Date.now();
                 setState({ plans, packs, loading: false });

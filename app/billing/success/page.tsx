@@ -14,7 +14,7 @@ import { pollSubscriptionUntil, type SubscriptionRow } from '@/lib/billing/poll-
  * Post-checkout landing page.
  *
  * The webhook is what actually grants credits / activates a subscription, so
- * this page polls the `subscriptions` row until Paddle's webhook has landed
+ * this page polls the `subscriptions` row until Dodo's webhook has landed
  * the change — then it switches from the processing state to the confirmed
  * state. If the webhook is unusually slow we fall into a 'pending' state
  * that tells the user what's happening rather than lying about success.
@@ -112,7 +112,7 @@ export default function BillingSuccessPage() {
                         <>This usually takes a few seconds. We&rsquo;re activating your purchase and adding credits to your account.</>
                     )}
                     {status === 'pending' && (
-                        <>Your payment went through, but we haven&rsquo;t heard back from Paddle yet. This is rare and resolves on its own — refresh in a moment, or check your email for the receipt.</>
+                        <>Your payment went through, but the subscription update hasn&rsquo;t landed yet. This is rare and resolves on its own — refresh in a moment, or check your email for the receipt.</>
                     )}
                     {status === 'confirmed' && (
                         <>
@@ -151,7 +151,7 @@ export default function BillingSuccessPage() {
                 </div>
 
                 <p className="mt-10 text-xs text-content-tertiary">
-                    A receipt has been sent to your email by Paddle. Need help?{' '}
+                    A receipt has been sent to your email. Need help?{' '}
                     <a href="mailto:support@prisfol.com" className="text-accent-primary hover:underline">
                         support@prisfol.com
                     </a>

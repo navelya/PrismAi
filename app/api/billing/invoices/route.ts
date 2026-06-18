@@ -1,18 +1,23 @@
 /**
- * Invoice list endpoint.
+ * Invoice list endpoint (Dodo Payments).
  *
- * Returns the authenticated user's billing transactions from Paddle. Only
- * billed / paid transactions are surfaced — drafts and ready (unpaid) ones
- * aren't shown. Each row carries everything the UI needs to render a list and
- * a "Download invoice" button.
+ * Returns the authenticated user's billing payments from Dodo. Only succeeded
+ * payments are surfaced. Each row carries everything the UI needs to render a
+ * list and a "Download invoice" button.
  *
- * Invoice PDF URLs are issued via a separate endpoint (see invoices/[id]/pdf)
- * because Paddle returns a short-lived signed URL on a per-request basis.
+ * Dodo payments include an `invoice_url` (hosted PDF URL); the separate
+ * `/invoices/[id]/pdf` endpoint redirects to that URL for ownership-verified
+ * access.
+ *
+ * Response shape is stable so the frontend keeps working:
+ *   { invoices: Array<{ id, invoiceNumber, status, billedAt, currencyCode,
+ *                       grandTotal, origin, subscriptionId }> }
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { getPaddle } from '@/lib/billing/paddle-server';
+import { getDodo } from '@/lib/billing/dodo-server';
+import type { PaymentListResponse } from 'dodopayments/resources/payments';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,32 +34,41 @@ export async function GET() {
         const service = createServiceClient();
         const { data: sub } = await service
             .from('subscriptions')
-            .select('paddle_customer_id')
+            .select('dodo_customer_id')
             .eq('user_id', user.id)
             .single();
 
-        if (!sub?.paddle_customer_id) {
+        if (!sub?.dodo_customer_id) {
             return NextResponse.json({ invoices: [] });
         }
 
-        const paddle = getPaddle();
-        const collection = paddle.transactions.list({
-            customerId: [sub.paddle_customer_id],
-            status: ['billed', 'paid', 'completed'],
-            perPage: MAX_PAGE_SIZE,
-            orderBy: 'billed_at[DESC]',
-        });
+        const dodo = getDodo();
+        const collected: PaymentListResponse[] = [];
 
-        const page = await collection.next();
-        const invoices = page.map((tx) => ({
-            id: tx.id,
-            invoiceNumber: tx.invoiceNumber,
-            status: tx.status,
-            billedAt: tx.billedAt ?? tx.createdAt,
-            currencyCode: tx.details?.totals?.currencyCode ?? tx.currencyCode,
-            grandTotal: tx.details?.totals?.grandTotal ?? null,
-            origin: tx.origin,
-            subscriptionId: tx.subscriptionId,
+        for await (const payment of dodo.payments.list({
+            customer_id: sub.dodo_customer_id,
+            status: 'succeeded',
+            page_size: MAX_PAGE_SIZE,
+        })) {
+            collected.push(payment);
+            if (collected.length >= MAX_PAGE_SIZE) break;
+        }
+
+        const invoices = collected.map((p) => ({
+            // id matches what the PDF route expects (payment_id)
+            id: p.payment_id,
+            // Dodo uses invoice_id (alphanumeric) as the invoice number
+            invoiceNumber: p.invoice_id ?? null,
+            status: p.status ?? 'succeeded',
+            billedAt: p.created_at,
+            currencyCode: p.currency,
+            // total_amount is in smallest currency unit (cents); exposed as grandTotal
+            grandTotal: p.total_amount,
+            // Dodo doesn't have an 'origin' field; set to 'subscription' if subscription_id present
+            origin: p.subscription_id ? 'subscription' : 'web',
+            subscriptionId: p.subscription_id ?? null,
+            // Include invoice_url so the PDF endpoint can redirect to it
+            invoiceUrl: p.invoice_url ?? null,
         }));
 
         return NextResponse.json({ invoices });

@@ -1,39 +1,25 @@
 /**
- * Silent credit-pack purchase.
+ * Silent credit-pack purchase (Dodo Payments).
  *
- * A card saved against a Paddle SUBSCRIPTION is bound to that subscription —
- * it is NOT reusable for an arbitrary customer-level transaction. So a fresh
- * `transactions.create` against the customer comes back `ready` (Paddle won't
- * auto-bill it) and forces the checkout overlay, even for paying subscribers.
- * That's why plan changes are silent (they mutate the subscription, reusing
- * its bound card) but top-ups used to pop the overlay.
+ * Active subscription → `subscriptions.charge(dodo_subscription_id, { product_price })`.
+ * Silent; reuses the mandate bound to the subscription. Webhook grants credits
+ * when `payment.succeeded` lands (keyed by payment_id).
  *
- * Fix: bill subscribers the same way plan changes are billed — as a one-time
- * charge ON the subscription (`subscriptions.createOneTimeCharge`), which
- * reuses the bound payment method with no checkout. Fall back to the
- * customer-level transaction (and then the overlay) only when there's no
- * active subscription to charge.
+ * No active sub but a `dodo_customer_id` (ex-subscriber or free user with
+ * a customer record) → create a one-time checkout session so the user can
+ * supply a card.
  *
- * Flow:
- *   1. Active subscription → `createOneTimeCharge(effectiveFrom: immediately)`.
- *      Silent; reuses the subscription's payment method. Webhook grants credits
- *      when the spawned `transaction.completed` lands.
- *   2. No active sub but a `paddle_customer_id` (ex-subscriber) → attempt a
- *      customer-level `transactions.create`; status `ready`/`draft` falls back
- *      to the overlay so they can supply a card.
- *   3. No customer record at all → `requiresCheckout: true` immediately.
+ * No customer record at all → `requiresCheckout: true` immediately.
  *
- * Credits aren't granted here; the existing `transaction.completed` webhook
+ * Credits aren't granted here; the existing `payment.succeeded` webhook
  * handler does that with full idempotency. This endpoint only kicks off the
- * charge — the source of truth for "did the grant happen" is the ledger. The
- * subscription-charge path doesn't return the spawned transaction, so the
- * client confirms via `pollLedgerForPack` (filtered by pack ID).
+ * charge.
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { getPaddle } from '@/lib/billing/paddle-server';
-import { getPricing, lookupPackByPriceId } from '@/lib/billing/pricing-source';
+import { getDodo } from '@/lib/billing/dodo-server';
+import { getPricing, lookupPackByProductId } from '@/lib/billing/pricing-source';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,17 +64,17 @@ export async function POST(request: Request) {
 
         const { packs } = await getPricing();
         const pack = packs.find((p) => p.id === body.packId);
-        if (!pack || !pack.paddlePriceId) {
-            return NextResponse.json({ error: 'Unknown credit pack' }, { status: 400 });
+        if (!pack || !pack.dodoProductId) {
+            return NextResponse.json({ error: 'Unknown credit pack or pack has no Dodo product configured' }, { status: 400 });
         }
 
-        // Defence-in-depth: confirm the price ID we hold maps to the pack we
-        // just looked up. Guards against config drift between the catalog and
+        // Defence-in-depth: confirm the product ID we hold maps back to the pack
+        // we just looked up. Guards against config drift between the catalog and
         // the mapping module.
-        const lookup = await lookupPackByPriceId(pack.paddlePriceId);
+        const lookup = await lookupPackByProductId(pack.dodoProductId);
         if (!lookup || lookup.packId !== pack.id) {
             return NextResponse.json(
-                { error: 'Credit pack price is misconfigured. Contact support.' },
+                { error: 'Credit pack product is misconfigured. Contact support.' },
                 { status: 500 },
             );
         }
@@ -96,104 +82,73 @@ export async function POST(request: Request) {
         const service = createServiceClient();
         const { data: sub } = await service
             .from('subscriptions')
-            .select('paddle_customer_id, paddle_subscription_id, status')
+            .select('dodo_customer_id, dodo_subscription_id, status')
             .eq('user_id', user.id)
             .maybeSingle();
 
-        const paddle = getPaddle();
+        const dodo = getDodo();
 
         // Preferred path: the user has an ACTIVE subscription. Charge the pack
-        // as a one-time addition to it, reusing the payment method already
-        // bound to the subscription. This is the same mechanism that makes plan
-        // changes silent — no checkout overlay. `prevent_change` ensures a
-        // declined card doesn't apply a phantom charge; with no completed
-        // transaction the webhook never grants credits.
-        if (sub?.paddle_subscription_id && sub.status === 'active') {
+        // as a one-time addition to it, reusing the mandate already bound to
+        // the subscription. No checkout overlay needed.
+        if (sub?.dodo_subscription_id && sub.status === 'active') {
             try {
-                await paddle.subscriptions.createOneTimeCharge(sub.paddle_subscription_id, {
-                    effectiveFrom: 'immediately',
-                    onPaymentFailure: 'prevent_change',
-                    items: [{ priceId: pack.paddlePriceId, quantity: 1 }],
+                await dodo.subscriptions.charge(sub.dodo_subscription_id, {
+                    product_price: Math.round(pack.price * 100), // dollars → integer cents (guard float drift)
+                    metadata: {
+                        user_id: user.id,
+                        kind: 'pack',
+                        pack_id: pack.id,
+                    },
                 });
             } catch (chargeErr: any) {
-                console.error('[Buy Pack] createOneTimeCharge failed:', chargeErr);
+                console.error('[Buy Pack] subscriptions.charge failed:', chargeErr);
                 return NextResponse.json(
                     { error: chargeErr?.message || 'Could not charge your saved card.' },
                     { status: 502 },
                 );
             }
 
-            // The spawned transaction isn't returned here; the client confirms
+            // The spawned payment isn't returned here; the client confirms
             // the grant by polling the ledger for this pack.
             return NextResponse.json({ ok: true });
         }
 
-        // No Paddle customer = nobody to charge silently. Fall back to the
+        // No Dodo customer = nobody to charge silently. Fall back to the
         // overlay so the user can enter (and save) a card on this purchase.
-        if (!sub?.paddle_customer_id) {
+        if (!sub?.dodo_customer_id) {
             return NextResponse.json({ requiresCheckout: true });
         }
 
-        let tx;
+        // Ex-subscriber: has a customer_id but no active sub. Create a one-time
+        // checkout session for the pack so they can complete the purchase.
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+        let session;
         try {
-            tx = await paddle.transactions.create({
-                items: [{ priceId: pack.paddlePriceId, quantity: 1 }],
-                customerId: sub.paddle_customer_id,
-                collectionMode: 'automatic',
-                customData: {
+            session = await dodo.checkoutSessions.create({
+                product_cart: [{ product_id: pack.dodoProductId, quantity: 1 }],
+                customer: { customer_id: sub.dodo_customer_id },
+                metadata: {
                     user_id: user.id,
+                    kind: 'pack',
                     pack_id: pack.id,
                 },
+                return_url: `${appUrl}/billing/success`,
+                // No subscription_data → one-time payment
             });
-        } catch (paddleErr: any) {
-            // Paddle throws when the customer has no payment method on file
-            // (or it's been deleted). Fall back to the overlay so they can
-            // add one rather than seeing a hard error.
-            const message = paddleErr?.message || '';
-            const noMethod =
-                /payment method/i.test(message) ||
-                /no.*card/i.test(message) ||
-                paddleErr?.code === 'transaction_payment_method_required';
-            if (noMethod) {
-                return NextResponse.json({ requiresCheckout: true });
-            }
-            console.error('[Buy Pack] Paddle transactions.create failed:', paddleErr);
+        } catch (sessionErr: any) {
+            console.error('[Buy Pack] checkoutSessions.create failed:', sessionErr);
             return NextResponse.json(
-                { error: message || 'Could not charge your saved card.' },
+                { error: sessionErr?.message || 'Could not create checkout session.' },
                 { status: 502 },
             );
         }
 
-        switch (tx.status) {
-            case 'completed':
-            case 'paid':
-            case 'billed':
-                // Auto-bill succeeded (or is in-flight). The webhook will
-                // confirm via `transaction.completed` and grant credits.
-                return NextResponse.json({
-                    ok: true,
-                    transactionId: tx.id,
-                    status: tx.status,
-                });
-
-            case 'past_due':
-                // Card was on file but the charge was declined.
-                return NextResponse.json(
-                    {
-                        error: 'Your card was declined. Try updating your payment method and buying the pack again.',
-                        cardDeclined: true,
-                    },
-                    { status: 402 },
-                );
-
-            case 'ready':
-            case 'draft':
-            default:
-                // Paddle didn't auto-bill (most commonly: customer has no
-                // default payment method). Surface the overlay so the user
-                // can enter one for this purchase.
-                return NextResponse.json({ requiresCheckout: true });
+        if (!session.checkout_url) {
+            return NextResponse.json({ requiresCheckout: true });
         }
+
+        return NextResponse.json({ requiresCheckout: true, url: session.checkout_url });
     } catch (err: any) {
         console.error('[Buy Pack] Error:', err);
         return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
