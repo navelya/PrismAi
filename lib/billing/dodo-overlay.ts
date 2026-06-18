@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Client-only helper that opens the Dodo Payments overlay checkout.
  *
@@ -14,7 +16,15 @@ export interface DodoOverlayOptions {
     onError?: (msg: string) => void;
 }
 
+// Monotonically increasing token — incremented on each openDodoOverlay call.
+// Any stale onEvent handler from a previous call will see myToken !== activeToken
+// and bail out immediately, preventing double-fire across re-opens.
+let activeToken = 0;
+
 export async function openDodoOverlay(opts: DodoOverlayOptions): Promise<{ ok: boolean }> {
+    const myToken = ++activeToken;
+    let settled = false;
+
     try {
         const { DodoPayments } = await import('dodopayments-checkout');
 
@@ -22,17 +32,26 @@ export async function openDodoOverlay(opts: DodoOverlayOptions): Promise<{ ok: b
             mode: opts.mode,
             displayType: 'overlay',
             onEvent: (e) => {
+                // Guard: ignore events from any previous overlay invocation.
+                if (myToken !== activeToken) return;
+
                 switch (e.event_type) {
                     case 'checkout.redirect':
                     case 'checkout.redirect_requested':
+                        if (settled) return;
+                        settled = true;
                         opts.onSuccess?.();
                         DodoPayments.Checkout.close();
                         break;
                     case 'checkout.closed':
+                        if (settled) return;
+                        settled = true;
                         opts.onClose?.();
                         break;
                     case 'checkout.error':
                     case 'checkout.link_expired': {
+                        if (settled) return;
+                        settled = true;
                         const msg =
                             (e.data?.message as string | undefined) ||
                             (e.event_type === 'checkout.link_expired'

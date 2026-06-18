@@ -28,11 +28,24 @@ export async function GET() {
         }
 
         const service = createServiceClient();
-        const { data, error: fetchErr } = await service
-            .from('subscriptions')
-            .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id, dodo_customer_id')
-            .eq('user_id', user.id)
-            .single();
+
+        // Run the subscriptions fetch and the profiles fetch in parallel.
+        const profileQuery = service
+            .from('profiles')
+            .select('save_payment_info')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        const [subResult, profileResult] = await Promise.all([
+            service
+                .from('subscriptions')
+                .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id, dodo_customer_id')
+                .eq('user_id', user.id)
+                .single(),
+            Promise.resolve(profileQuery).catch(() => ({ data: null, error: null })),
+        ]);
+
+        const { data, error: fetchErr } = subResult;
 
         if (fetchErr || !data) {
             return NextResponse.json({ subscription: null });
@@ -51,12 +64,8 @@ export async function GET() {
         // Load save_payment_info preference — graceful degrade if column missing.
         let savePaymentInfo = false;
         try {
-            const { data: profile } = await service
-                .from('profiles')
-                .select('save_payment_info')
-                .eq('id', user.id)
-                .maybeSingle();
-            savePaymentInfo = (profile as any)?.save_payment_info === true;
+            const profileData = (profileResult as { data: unknown }).data;
+            savePaymentInfo = (profileData as any)?.save_payment_info === true;
         } catch {
             // Column not yet applied — default to false.
         }

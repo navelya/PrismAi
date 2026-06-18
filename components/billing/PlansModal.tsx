@@ -763,21 +763,11 @@ function PlanCTA({
                 const overlayResult = await openDodoOverlay({
                     checkoutUrl: json.url,
                     mode: json.mode ?? 'test',
-                    onSuccess: async () => {
-                        // Payment complete — re-fetch subscription to confirm the plan change.
-                        setStatus('processing');
-                        try {
-                            await fetch('/api/billing/subscription');
-                            // Regardless of fetch outcome, show success and reload so
-                            // the subscription hook everywhere picks up the new row.
-                        } catch {
-                            // Best-effort — the webhook will land the state regardless.
-                        }
-                        setStatus('success');
-                        setTimeout(() => {
-                            onClose();
-                            window.location.reload();
-                        }, 1400);
+                    onSuccess: () => {
+                        // Payment accepted — the subscription grant is webhook-driven.
+                        // Reload to pick up the real state rather than guessing based
+                        // on an unverified fetch response.
+                        window.location.reload();
                     },
                     onClose: () => {
                         // User dismissed without paying — reset to idle.

@@ -93,7 +93,6 @@ export default function CheckoutPage() {
             }
         } catch (e: any) {
             setError(e?.message || 'Network error. Please try again.');
-        } finally {
             setSubmitting(false);
         }
     }, [submitting, plan, cycle]);

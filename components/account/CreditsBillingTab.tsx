@@ -34,17 +34,22 @@ export function CreditsBillingTab() {
     }, [fetchBreakdown]);
 
     const handleToggleSave = useCallback(async (checked: boolean) => {
+        const prev = !checked;
         setSavePaymentInfo(checked);
         setSavingPref(true);
         try {
-            await fetch('/api/billing/save-payment-info', {
+            const res = await fetch('/api/billing/save-payment-info', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: checked }),
             });
+            if (!res.ok) {
+                // Revert optimistic toggle on server error.
+                setSavePaymentInfo(prev);
+            }
         } catch {
-            // Best-effort — revert on error.
-            setSavePaymentInfo(!checked);
+            // Network error — revert optimistic toggle.
+            setSavePaymentInfo(prev);
         } finally {
             setSavingPref(false);
         }
