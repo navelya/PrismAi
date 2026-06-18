@@ -30,6 +30,10 @@ const REASON_LABELS: Record<string, string> = {
     paddle_subscription_grant: 'Subscription credits',
     paddle_refund: 'Refund',
     paddle_chargeback: 'Chargeback',
+    dodo_pack_purchase: 'Credit pack',
+    dodo_subscription_grant: 'Subscription credits',
+    dodo_refund: 'Refund',
+    dodo_chargeback: 'Chargeback',
 };
 
 function humanizeReason(row: LedgerRow): string {

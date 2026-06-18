@@ -9,7 +9,7 @@
  * `/invoices/[id]/pdf` endpoint redirects to that URL for ownership-verified
  * access.
  *
- * Response shape mirrors the Paddle version so the frontend keeps working:
+ * Response shape is stable so the frontend keeps working:
  *   { invoices: Array<{ id, invoiceNumber, status, billedAt, currencyCode,
  *                       grandTotal, origin, subscriptionId }> }
  */
@@ -62,7 +62,7 @@ export async function GET() {
             status: p.status ?? 'succeeded',
             billedAt: p.created_at,
             currencyCode: p.currency,
-            // total_amount is in smallest currency unit (cents); match Paddle's grandTotal
+            // total_amount is in smallest currency unit (cents); exposed as grandTotal
             grandTotal: p.total_amount,
             // Dodo doesn't have an 'origin' field; set to 'subscription' if subscription_id present
             origin: p.subscription_id ? 'subscription' : 'web',

@@ -5,9 +5,8 @@
  * object. We verify that the requested payment_id belongs to this user's
  * Dodo customer before redirecting, so links can't be shared to leak invoices.
  *
- * Note: unlike Paddle (which generated a short-lived signed PDF URL on demand),
- * Dodo's invoice_url is included on the payment object and may be a permanent
- * hosted link. We redirect directly to it.
+ * Note: Dodo's invoice_url is included on the payment object and may be a
+ * permanent hosted link. We redirect directly to it.
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';

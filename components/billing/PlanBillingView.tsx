@@ -7,7 +7,6 @@ import { useSubscription } from '@/lib/billing/use-subscription';
 import { type PlanDisplay } from '@/lib/billing/plans-config';
 import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
 import { formatCredits } from '@/lib/billing/cost';
-import { loadPaddle } from '@/lib/billing/paddle-client';
 import { pollSubscriptionUntil } from '@/lib/billing/poll-subscription';
 import PlansModal from './PlansModal';
 import BillingProcessingModal, { type BillingStatus } from './BillingProcessingModal';
@@ -21,7 +20,7 @@ function formatDate(iso: string): string {
     });
 }
 
-// Session flag so we resync DB ↔ Paddle once per browser tab on mount.
+// Session flag so we resync DB ↔ Dodo once per browser tab on mount.
 // Cheap insurance against rare cases where webhooks missed an update or
 // events for an orphaned subscription overwrote the active row.
 const SYNC_SESSION_FLAG = 'prisfol_billing_synced';
@@ -30,7 +29,7 @@ const SYNC_SESSION_FLAG = 'prisfol_billing_synced';
  * The current-plan summary: plan name, monthly floor, next refill, live balance,
  * the upgrade/change CTA, the past-due banner, and the subscription actions
  * (update payment / cancel / resume). Self-contained — owns the once-per-tab
- * DB↔Paddle resync. Rendered standalone on the account modal's "Plan & pricing"
+ * DB↔Dodo resync. Rendered standalone on the account modal's "Plan & pricing"
  * tab (no page header, no invoices — those live elsewhere).
  */
 export function CurrentPlanCard() {
@@ -84,7 +83,7 @@ export function CurrentPlanCard() {
         <>
             <div className="space-y-6">
                 {/* Past-due banner — surfaces a failed renewal so the user can
-                    fix their card before the sub gets canceled by Paddle. */}
+                    fix their card before the sub gets canceled. */}
                 {!subLoading && syncCompleted && subscription?.status === 'past_due' && (
                     <PastDueBanner />
                 )}
@@ -228,7 +227,7 @@ function SubscriptionActions({
 
             if (!settled) {
                 setBillingErrorMessage(
-                    'Your cancellation request was accepted, but we’re still waiting on confirmation from Paddle. Refresh in a moment.',
+                    "Your cancellation request was accepted, but the update hasn't landed yet. Refresh in a moment.",
                 );
                 setBillingStatus('error');
                 return;
@@ -263,7 +262,7 @@ function SubscriptionActions({
 
             if (!settled) {
                 setBillingErrorMessage(
-                    'Resume request was accepted, but we’re still waiting on confirmation from Paddle. Refresh in a moment.',
+                    "Resume request was accepted, but the update hasn't landed yet. Refresh in a moment.",
                 );
                 setBillingStatus('error');
                 return;
@@ -304,25 +303,12 @@ function SubscriptionActions({
         try {
             const res = await fetch('/api/billing/payment-method', { method: 'POST' });
             const json = await res.json().catch(() => ({}));
-            if (!res.ok || !json.transactionId) {
+            if (!res.ok || !json.url) {
                 setError(json.error || 'Failed to open payment update');
                 return;
             }
-            const paddle = await loadPaddle();
-            if (!paddle) {
-                setError('Could not initialize payment form.');
-                return;
-            }
-            paddle.Checkout.open({
-                transactionId: json.transactionId,
-                settings: {
-                    displayMode: 'overlay',
-                    theme: 'dark',
-                    // Paddle reloads this URL on completion, refreshing the
-                    // page so the new payment method shows up.
-                    successUrl: `${window.location.origin}/settings?tab=plan-pricing`,
-                },
-            });
+            // Redirect to the Dodo-hosted payment method update page.
+            window.location.href = json.url;
         } catch (e: any) {
             setError(e?.message || 'Failed to open payment update');
         } finally {
@@ -342,13 +328,13 @@ function SubscriptionActions({
                 )}
 
                 {!cancelAtPeriodEnd && pendingPlanChangePriceId && currentPeriodEnd && (() => {
-                    // Resolve the pending price ID to a display name. Walk
+                    // Resolve the pending product ID to a display name. Walk
                     // plans rather than calling getPlanFrom so we can find
                     // both yearly and monthly cycle entries.
                     const targetPlan = plans.find(
                         (p) =>
-                            p.paddlePriceIdMonthly === pendingPlanChangePriceId ||
-                            p.paddlePriceIdYearly === pendingPlanChangePriceId,
+                            p.dodoProductIdMonthly === pendingPlanChangePriceId ||
+                            p.dodoProductIdYearly === pendingPlanChangePriceId,
                     );
                     const targetName = targetPlan?.name ?? 'a different plan';
                     return (
@@ -419,23 +405,23 @@ function SubscriptionActions({
                 }
                 processingDescription={
                     actionKind === 'cancel'
-                        ? 'Confirming the cancellation with Paddle. You’ll keep access until your period ends.'
-                        : 'Letting Paddle know you’re staying on. This usually takes a second.'
+                        ? 'Confirming the cancellation. You\'ll keep access until your period ends.'
+                        : 'Confirming your subscription is staying active. This usually takes a second.'
                 }
                 successTitle={
                     actionKind === 'cancel'
                         ? 'Subscription canceled'
-                        : `You’re staying on ${planName}`
+                        : `You're staying on ${planName}`
                 }
                 successDescription={
                     actionKind === 'cancel'
                         ? currentPeriodEnd
                             ? `Access continues until ${formatDate(currentPeriodEnd)}.`
-                            : 'You’ll keep access until your period ends.'
+                            : "You'll keep access until your period ends."
                         : 'Your subscription will continue renewing as normal.'
                 }
                 errorTitle={
-                    actionKind === 'cancel' ? 'Couldn’t cancel' : 'Couldn’t resume'
+                    actionKind === 'cancel' ? "Couldn't cancel" : "Couldn't resume"
                 }
                 errorMessage={billingErrorMessage}
                 onClose={() => setBillingStatus(null)}
@@ -506,7 +492,7 @@ export function InvoicesSection({ hasPaidSub }: { hasPaidSub: boolean }) {
                 <div>
                     <h2 className="text-base font-bold text-content-primary">Invoices</h2>
                     <p className="text-xs text-content-tertiary mt-0.5">
-                        Receipts from Paddle. Download the PDF for tax records.
+                        Receipts from Dodo Payments. Download the PDF for tax records.
                     </p>
                 </div>
                 <button
@@ -588,23 +574,11 @@ function PastDueBanner() {
         try {
             const res = await fetch('/api/billing/payment-method', { method: 'POST' });
             const json = await res.json().catch(() => ({}));
-            if (!res.ok || !json.transactionId) {
+            if (!res.ok || !json.url) {
                 setError(json.error || 'Could not open the payment update form.');
                 return;
             }
-            const paddle = await loadPaddle();
-            if (!paddle) {
-                setError('Could not initialize payment form.');
-                return;
-            }
-            paddle.Checkout.open({
-                transactionId: json.transactionId,
-                settings: {
-                    displayMode: 'overlay',
-                    theme: 'dark',
-                    successUrl: `${window.location.origin}/settings?tab=plan-pricing`,
-                },
-            });
+            window.location.href = json.url;
         } catch (e: any) {
             setError(e?.message || 'Could not open the payment update form.');
         } finally {

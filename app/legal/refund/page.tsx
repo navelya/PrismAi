@@ -15,7 +15,7 @@ export default function RefundPage() {
                     You can cancel a paid Prisfol subscription at any time, in two ways:
                 </P>
                 <UL>
-                    <li>From your account: open <Strong>Settings → Plan &amp; Billing</Strong> and choose <Strong>Cancel subscription</Strong>. Cancellation is processed via the Paddle customer portal.</li>
+                    <li>From your account: open <Strong>Settings → Plan &amp; Billing</Strong> and choose <Strong>Cancel subscription</Strong>.</li>
                     <li>By email: write to <a href="mailto:support@prisfol.com" className="text-accent-primary hover:underline">support@prisfol.com</a> from the address on your account and we will process the cancellation within two business days.</li>
                 </UL>
                 <P>
@@ -61,9 +61,9 @@ export default function RefundPage() {
 
             <Section title="4. Failed or rejected charges">
                 <P>
-                    If a renewal charge fails, Paddle may retry the charge over several days as part of its standard
-                    dunning process. If payment cannot be collected, your account will revert to the free tier until
-                    payment is restored.
+                    If a renewal charge fails, Dodo Payments may retry the charge over several days as part of its
+                    standard dunning process. If payment cannot be collected, your account will revert to the free tier
+                    until payment is restored.
                 </P>
             </Section>
 
@@ -72,9 +72,9 @@ export default function RefundPage() {
                     To request a refund under any of the situations above, email{' '}
                     <a href="mailto:support@prisfol.com" className="text-accent-primary hover:underline">support@prisfol.com</a>{' '}
                     from the address on your account, including your invoice number and a short explanation. We respond
-                    within five business days. Approved refunds are processed by Paddle, our Merchant of Record, and
-                    returned to the original payment method — typically appearing within 5–10 business days, depending on
-                    your bank.
+                    within five business days. Approved refunds are processed by Dodo Payments, our Merchant of Record,
+                    and returned to the original payment method — typically appearing within 5–10 business days, depending
+                    on your bank.
                 </P>
                 <P>
                     Prisfol is operated by Naveh Elya (Israel).

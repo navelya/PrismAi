@@ -53,10 +53,10 @@ export default function TermsPage() {
                     The Service is offered on free and paid plans. Paid plans are billed in advance on a recurring basis
                     (monthly or annual, as selected at checkout). One-time credit packs may also be purchased and consumed
                     alongside subscription credits. Payment processing is handled by{' '}
-                    <Strong>Paddle.com Market Limited</Strong> (&ldquo;<Strong>Paddle</Strong>&rdquo;), which acts as the
-                    Merchant of Record for your purchase. Paddle is responsible for collecting and remitting any applicable
-                    sales tax, VAT or GST based on your billing location. By purchasing a plan or credit pack you also agree
-                    to Paddle&apos;s applicable Buyer Terms.
+                    <Strong>Dodo Payments</Strong>, which acts as the
+                    Merchant of Record for your purchase. Dodo Payments is responsible for collecting and remitting any
+                    applicable sales tax, VAT or GST based on your billing location. By purchasing a plan or credit pack
+                    you also agree to Dodo Payments&apos; applicable Buyer Terms.
                 </P>
                 <UL>
                     <li><Strong>Credits.</Strong> Generative actions consume credits. Free credits, plan credits and purchased credits may have different expiration and rollover rules disclosed at the point of purchase.</li>
@@ -153,11 +153,11 @@ export default function TermsPage() {
 
             <Section title="9. Third-Party Services">
                 <P>
-                    The Service relies on third-party providers — including Supabase (database and auth), Paddle (payments and
-                    tax), Vercel (hosting and analytics), and AI model providers such as Replicate, Google (Gemini),
-                    ElevenLabs and other generation providers. Their performance is outside our control and is governed by
-                    their own terms. We are not responsible for failures or losses caused by these providers, except as
-                    required by law.
+                    The Service relies on third-party providers — including Supabase (database and auth), Dodo Payments
+                    (payments and tax), Vercel (hosting and analytics), and AI model providers such as Replicate, Google
+                    (Gemini), ElevenLabs and other generation providers. Their performance is outside our control and is
+                    governed by their own terms. We are not responsible for failures or losses caused by these providers,
+                    except as required by law.
                 </P>
             </Section>
 

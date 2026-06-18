@@ -42,7 +42,7 @@ export default function PrivacyPage() {
                     <li><Strong>Account information.</Strong> When you create an account we collect your email address and authentication identifiers. If you sign in with a third-party provider, we receive a basic profile (name, email, avatar URL).</li>
                     <li><Strong>Content you submit.</Strong> Prompts, uploaded images, video and audio files, brand assets, workflows, node configurations and any other content you create or store in the Service.</li>
                     <li><Strong>Generated outputs.</Strong> Images, video, audio and other assets produced by the AI providers we orchestrate on your behalf, together with metadata about the generation (model used, parameters, timestamps, credits consumed).</li>
-                    <li><Strong>Billing information.</Strong> When you subscribe or buy credits, our Merchant of Record Paddle collects your payment-method details and billing address directly. We receive a customer ID, plan, billing status and the last four digits / brand of your card — we do not store full card numbers on our servers. Paddle is responsible for sales tax / VAT collection and the issuing of invoices.</li>
+                    <li><Strong>Billing information.</Strong> When you subscribe or buy credits, our Merchant of Record Dodo Payments collects your payment-method details and billing address directly. We receive a customer ID, plan, billing status and the last four digits / brand of your card — we do not store full card numbers on our servers. Dodo Payments is responsible for sales tax / VAT collection and the issuing of invoices.</li>
                     <li><Strong>Usage and device data.</Strong> IP address, user agent, pages viewed, performance metrics and high-level interaction events, collected to operate, secure and improve the Service.</li>
                     <li><Strong>Communications.</Strong> If you email us, we keep the contents of those messages.</li>
                 </UL>
@@ -81,7 +81,7 @@ export default function PrivacyPage() {
                 <UL>
                     <li><Strong>Supabase</Strong> — managed Postgres, authentication and file storage that hosts your account, content and generated assets.</li>
                     <li><Strong>Vercel</Strong> — application hosting, edge runtime, performance metrics and product analytics.</li>
-                    <li><Strong>Paddle</Strong> — Merchant of Record for all purchases. Handles checkout, subscription management, invoice issuing, and global sales tax / VAT collection and remittance. Paddle&apos;s privacy policy applies to the data it collects directly from you at checkout.</li>
+                    <li><Strong>Dodo Payments</Strong> — Merchant of Record for all purchases. Handles checkout, subscription management, invoice issuing, and global sales tax / VAT collection and remittance. Dodo Payments&apos; privacy policy applies to the data it collects directly from you at checkout.</li>
                     <li><Strong>Resend</Strong> — transactional and administrative email delivery.</li>
                 </UL>
                 <P>

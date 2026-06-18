@@ -9,8 +9,8 @@
  * Upgrades go through `/api/billing/change-plan` (immediate, prorated)
  * instead. This endpoint is for scheduled changes only.
  *
- * The `pending_plan_change_price_id` column name is preserved from the Paddle
- * implementation; it now stores the Dodo product ID instead of a Paddle price ID.
+ * The `pending_plan_change_price_id` column name is preserved from the original
+ * implementation; it now stores the Dodo product ID.
  *
  * Calling it again with a different productId replaces the pending change.
  * Calling it with the user's CURRENT productId is a no-op (returns 409).
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
 
         // Record the pending change in our DB so the UI can reflect it and
         // the cron/webhook can reconcile. The column name `pending_plan_change_price_id`
-        // is preserved from the Paddle era; it now stores the Dodo product ID.
+        // is preserved from the original schema; it stores the Dodo product ID.
         const { error: updateErr } = await service
             .from('subscriptions')
             .update({

@@ -117,7 +117,7 @@ export default function AccountModal() {
 
     return (
         // Non-modal is deliberate — it keeps nested body-portaled layers
-        // (PlansModal, Paddle's checkout iframe) interactive, which a modal
+        // (PlansModal, billing checkout pages) interactive, which a modal
         // dialog's pointer-events lock would otherwise kill. We suppress Radix's
         // outside-interaction close (`dismissable={false}`) because the Plan tab
         // opens nested billing modals that portal OUTSIDE this content — clicking
