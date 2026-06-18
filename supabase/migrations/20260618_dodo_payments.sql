@@ -188,9 +188,10 @@ REVOKE ALL ON FUNCTION public.dodo_subscription_upsert(UUID, TEXT, TEXT, TEXT, T
 GRANT EXECUTE ON FUNCTION public.dodo_subscription_upsert(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ, BOOLEAN, TEXT) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 9. dodo_refund_clawback — mirrors paddle_refund_clawback 1:1
+-- 9. dodo_refund_clawback — topup-aware (mirrors paddle_refund_clawback from
+--    20260523_topup_balance_and_free_expiry.sql, renamed for Dodo).
 --    Admin-driven refund; caps clawback at current balance (never goes negative).
---    Idempotent on p_idempotency_key.
+--    Adjusts topup_balance alongside token_balance. Idempotent on p_idempotency_key.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.dodo_refund_clawback(
@@ -206,28 +207,21 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_grant_amount   NUMERIC(20, 6);
-  v_grant_user     UUID;
-  v_balance        NUMERIC(20, 6);
-  v_clawback       NUMERIC(20, 6);
-  v_shortfall      NUMERIC(20, 6);
-  v_new_balance    NUMERIC(20, 6);
-  v_enriched_meta  JSONB;
+  v_grant_amount  NUMERIC(20,6); v_grant_user UUID; v_grant_reason TEXT;
+  v_balance       NUMERIC(20,6); v_topup NUMERIC(20,6);
+  v_clawback      NUMERIC(20,6); v_shortfall NUMERIC(20,6);
+  v_new_balance   NUMERIC(20,6); v_new_topup NUMERIC(20,6); v_topup_delta NUMERIC(20,6);
+  v_reduce        NUMERIC(20,6); v_enriched_meta JSONB;
 BEGIN
   -- Idempotency: if we already processed this event, return the existing state.
   IF EXISTS (SELECT 1 FROM token_ledger WHERE idempotency_key = p_idempotency_key) THEN
     SELECT token_balance INTO v_new_balance FROM profiles WHERE id = p_user_id;
-    RETURN jsonb_build_object(
-      'ok', true,
-      'replayed', true,
-      'new_balance', v_new_balance
-    );
+    RETURN jsonb_build_object('ok', true, 'replayed', true, 'new_balance', v_new_balance);
   END IF;
 
   -- Load the original grant. Must exist, belong to this user, and be positive.
-  SELECT amount, user_id INTO v_grant_amount, v_grant_user
-  FROM token_ledger
-  WHERE id = p_original_grant_id;
+  SELECT amount, user_id, reason INTO v_grant_amount, v_grant_user, v_grant_reason
+  FROM token_ledger WHERE id = p_original_grant_id;
 
   IF v_grant_amount IS NULL THEN
     RAISE EXCEPTION 'dodo_refund_clawback: original grant % not found', p_original_grant_id;
@@ -240,7 +234,8 @@ BEGIN
   END IF;
 
   -- Lock the profile row and compute clawback amount.
-  SELECT token_balance INTO v_balance FROM profiles WHERE id = p_user_id FOR UPDATE;
+  SELECT token_balance, topup_balance INTO v_balance, v_topup
+  FROM profiles WHERE id = p_user_id FOR UPDATE;
   IF v_balance IS NULL THEN
     RAISE EXCEPTION 'dodo_refund_clawback: profile not found for user %', p_user_id;
   END IF;
@@ -252,18 +247,20 @@ BEGIN
   -- captures the shortfall as the audit record. We skip the ledger insert
   -- because token_ledger has a nonzero CHECK on amount.
   IF v_clawback = 0 THEN
-    RETURN jsonb_build_object(
-      'ok', true,
-      'clawed_back', 0,
-      'shortfall', v_shortfall,
-      'new_balance', v_balance
-    );
+    RETURN jsonb_build_object('ok', true, 'clawed_back', 0, 'shortfall', v_shortfall, 'new_balance', v_balance);
   END IF;
+
+  v_new_balance := v_balance - v_clawback;
+  -- Only reduce topup_balance when clawing back a top-up grant (pack purchase).
+  v_reduce      := CASE WHEN v_grant_reason IN ('dodo_pack_purchase','purchase') THEN v_clawback ELSE 0 END;
+  v_new_topup   := LEAST(GREATEST(0, v_topup - v_reduce), GREATEST(0, v_new_balance));
+  v_topup_delta := v_new_topup - v_topup;
 
   v_enriched_meta := p_metadata || jsonb_build_object(
     'original_grant_id', p_original_grant_id,
     'original_grant_amount', v_grant_amount,
-    'shortfall', v_shortfall
+    'shortfall', v_shortfall,
+    'topup_delta', v_topup_delta
   );
 
   INSERT INTO token_ledger (
@@ -276,9 +273,9 @@ BEGIN
   );
 
   UPDATE profiles
-  SET token_balance = token_balance - v_clawback
-  WHERE id = p_user_id
-  RETURNING token_balance INTO v_new_balance;
+  SET token_balance = v_new_balance,
+      topup_balance = v_new_topup
+  WHERE id = p_user_id;
 
   RETURN jsonb_build_object(
     'ok', true,
@@ -293,8 +290,10 @@ REVOKE ALL ON FUNCTION public.dodo_refund_clawback(UUID, TEXT, UUID, TEXT, JSONB
 GRANT EXECUTE ON FUNCTION public.dodo_refund_clawback(UUID, TEXT, UUID, TEXT, JSONB) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 10. dodo_chargeback_clawback — mirrors paddle_chargeback_clawback 1:1
+-- 10. dodo_chargeback_clawback — topup-aware (mirrors paddle_chargeback_clawback
+--     from 20260523_topup_balance_and_free_expiry.sql, renamed for Dodo).
 --     Adversarial: force full clawback regardless of balance (can go negative).
+--     Adjusts topup_balance alongside token_balance.
 --     Sets profiles.payment_disputed_at = NOW(). Idempotent on p_idempotency_key.
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -311,31 +310,23 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_grant_amount   NUMERIC(20, 6);
-  v_grant_user     UUID;
-  v_balance        NUMERIC(20, 6);
-  v_new_balance    NUMERIC(20, 6);
-  v_went_negative  BOOLEAN;
-  v_disputed_at    TIMESTAMPTZ;
-  v_enriched_meta  JSONB;
+  v_grant_amount  NUMERIC(20,6); v_grant_user UUID; v_grant_reason TEXT;
+  v_balance       NUMERIC(20,6); v_topup NUMERIC(20,6);
+  v_new_balance   NUMERIC(20,6); v_new_topup NUMERIC(20,6); v_topup_delta NUMERIC(20,6);
+  v_reduce        NUMERIC(20,6); v_went_negative BOOLEAN;
+  v_disputed_at   TIMESTAMPTZ; v_enriched_meta JSONB;
 BEGIN
   -- Idempotency
   IF EXISTS (SELECT 1 FROM token_ledger WHERE idempotency_key = p_idempotency_key) THEN
     SELECT token_balance, payment_disputed_at
       INTO v_new_balance, v_disputed_at
     FROM profiles WHERE id = p_user_id;
-    RETURN jsonb_build_object(
-      'ok', true,
-      'replayed', true,
-      'new_balance', v_new_balance,
-      'disputed_at', v_disputed_at
-    );
+    RETURN jsonb_build_object('ok', true, 'replayed', true, 'new_balance', v_new_balance, 'disputed_at', v_disputed_at);
   END IF;
 
   -- Load original grant
-  SELECT amount, user_id INTO v_grant_amount, v_grant_user
-  FROM token_ledger
-  WHERE id = p_original_grant_id;
+  SELECT amount, user_id, reason INTO v_grant_amount, v_grant_user, v_grant_reason
+  FROM token_ledger WHERE id = p_original_grant_id;
 
   IF v_grant_amount IS NULL THEN
     RAISE EXCEPTION 'dodo_chargeback_clawback: original grant % not found', p_original_grant_id;
@@ -348,18 +339,25 @@ BEGIN
   END IF;
 
   -- Lock the profile and force clawback (even into negative balance).
-  SELECT token_balance INTO v_balance FROM profiles WHERE id = p_user_id FOR UPDATE;
+  SELECT token_balance, topup_balance INTO v_balance, v_topup
+  FROM profiles WHERE id = p_user_id FOR UPDATE;
   IF v_balance IS NULL THEN
     RAISE EXCEPTION 'dodo_chargeback_clawback: profile not found for user %', p_user_id;
   END IF;
 
-  v_went_negative := (v_balance - v_grant_amount) < 0;
+  v_new_balance   := v_balance - v_grant_amount;
+  v_went_negative := v_new_balance < 0;
+  -- Only reduce topup_balance when clawing back a top-up grant (pack purchase).
+  v_reduce        := CASE WHEN v_grant_reason IN ('dodo_pack_purchase','purchase') THEN v_grant_amount ELSE 0 END;
+  v_new_topup     := LEAST(GREATEST(0, v_topup - v_reduce), GREATEST(0, v_new_balance));
+  v_topup_delta   := v_new_topup - v_topup;
 
   v_enriched_meta := p_metadata || jsonb_build_object(
     'original_grant_id', p_original_grant_id,
     'original_grant_amount', v_grant_amount,
     'balance_before', v_balance,
-    'went_negative', v_went_negative
+    'went_negative', v_went_negative,
+    'topup_delta', v_topup_delta
   );
 
   INSERT INTO token_ledger (
@@ -372,11 +370,11 @@ BEGIN
   );
 
   UPDATE profiles
-  SET token_balance       = token_balance - v_grant_amount,
+  SET token_balance       = v_new_balance,
+      topup_balance       = v_new_topup,
       payment_disputed_at = COALESCE(payment_disputed_at, NOW())
   WHERE id = p_user_id
-  RETURNING token_balance, payment_disputed_at
-    INTO v_new_balance, v_disputed_at;
+  RETURNING payment_disputed_at INTO v_disputed_at;
 
   RETURN jsonb_build_object(
     'ok', true,

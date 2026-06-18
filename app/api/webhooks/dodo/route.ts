@@ -168,10 +168,22 @@ async function handleSubscriptionActiveOrRenewed(
     // the SAME period are idempotent.
     const nextBillingDate: string = data?.next_billing_date ?? data?.previous_billing_date ?? '';
 
+    // FIX 2: A grant event without a period boundary is malformed — we cannot
+    // build a valid idempotency key or scope the period cap correctly.
+    if (!nextBillingDate) {
+        console.error(
+            '[Dodo Webhook] subscription.active/renewed missing next_billing_date (and previous_billing_date).',
+            'Cannot grant credits without a period boundary. subscription_id:', subscriptionId,
+        );
+        return;
+    }
+
     // ── Period-cap logic ────────────────────────────────────────────────────
     // Prevents the cycling exploit: across one billing period, total
     // subscription credits must not exceed the highest plan held in that period.
-    const periodCap = await computePeriodGrantCap(supabase, userId, lookup.planId);
+    // The period is keyed by next_billing_date so each new period gets a fresh
+    // grant even if the same plan was held in the previous period.
+    const periodCap = await computePeriodGrantCap(supabase, userId, lookup.planId, nextBillingDate);
     const wouldGrant = await monthlyCreditsForPlan(lookup.planId);
 
     if (periodCap.samePlanAlreadyGranted) {
@@ -636,25 +648,27 @@ async function handleDisputeWon(
 }
 
 // =============================================================================
-// PERIOD-CAP LOGIC (mirrors Paddle handler exactly)
+// PERIOD-CAP LOGIC
 // =============================================================================
 
 /**
- * Compute the credit-grant ceiling for the user's current billing period.
+ * Compute the credit-grant ceiling for a specific billing period.
  *
- * Period boundary: we anchor the start of the current period at the most recent
- * 'dodo_subscription_grant' that is a fresh-period signal (i.e. NOT a
- * mid-period update — subscription.active and subscription.renewed are always
- * fresh-period; subscription.plan_changed within a period is not).
+ * Period identity: `nextBillingDate` (the `next_billing_date` from the Dodo
+ * event). Each unique `next_billing_date` is a distinct billing period.
+ * Only ledger rows whose `metadata->>'next_billing_date'` matches the incoming
+ * event's value count toward this period's already-granted total. Rows from
+ * prior or future periods are IGNORED, which means:
+ *   - subscription.active (period 1) finds no prior in-period grants → grants full credits.
+ *   - subscription.renewed (period 2, new next_billing_date) also finds no prior
+ *     in-period grants → grants full credits again.
+ *   - A duplicate delivery of either event is blocked by the existing per-period
+ *     idempotency key (dodo:sub:<id>:<next_billing_date>) at the credit_tokens level.
+ *   - A within-period plan upgrade (same next_billing_date, higher plan) still
+ *     gets capped to maxCredits - alreadyGrantedThisPeriod (anti-exploit preserved).
  *
- * We identify "fresh-period" grants by the absence of a 'mid_period' flag in
- * metadata (all subscription.active / subscription.renewed grants omit it).
- * If no prior grants exist, anchorIso falls back to epoch so the first grant
- * always lands.
- *
- * Ceiling: the highest monthlyCredits of any plan held during the period,
- * including the incoming plan. Already-granted is the sum of grants since
- * the anchor.
+ * Ceiling: the highest monthlyCredits of any plan held in this period,
+ * including the incoming plan.
  *
  * Returns { maxCredits, alreadyGranted, samePlanAlreadyGranted }.
  * Caller computes remaining = max(0, maxCredits - alreadyGranted) and grants
@@ -664,29 +678,22 @@ async function computePeriodGrantCap(
     supabase: ReturnType<typeof createServiceClient>,
     userId: string,
     incomingPlanId: string,
+    nextBillingDate: string,
 ): Promise<{ maxCredits: number; alreadyGranted: number; samePlanAlreadyGranted: boolean }> {
     const incomingPlanCredits = await monthlyCreditsForPlan(incomingPlanId);
 
-    // Find the period anchor: the most recent dodo_subscription_grant.
-    // All subscription.active / subscription.renewed grants are fresh-period
-    // anchors (they advance the cycle). We take the most recent one.
-    const { data: anchorRows } = await supabase
-        .from('token_ledger')
-        .select('created_at')
-        .eq('user_id', userId)
-        .eq('reason', 'dodo_subscription_grant')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-    const anchorIso = (anchorRows?.[0]?.created_at as string | undefined) ?? '1970-01-01T00:00:00.000Z';
-
-    // Pull every dodo subscription grant since the anchor (inclusive).
+    // Pull every dodo subscription grant in this period specifically.
+    // A row is "in this period" when its metadata->>'next_billing_date' matches
+    // the incoming event's next_billing_date. This is the ONLY correct anchor
+    // under Dodo's model — the most-recent-grant anchor used by the Paddle port
+    // incorrectly fires samePlanAlreadyGranted on every renewal because the
+    // anchor row is always the previous period's grant.
     const { data: priorGrants } = await supabase
         .from('token_ledger')
         .select('amount, metadata')
         .eq('user_id', userId)
         .eq('reason', 'dodo_subscription_grant')
-        .gte('created_at', anchorIso);
+        .filter('metadata->>next_billing_date', 'eq', nextBillingDate);
 
     let alreadyGranted = 0;
     let maxCredits = incomingPlanCredits;
