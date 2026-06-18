@@ -1,11 +1,13 @@
 /**
  * UI-side display configuration for the plans modal and pricing surfaces.
  *
- * Free reflects what's actually seeded in the `plans` table. Paid tiers and
- * one-time credit packs are display-only until Paddle is wired up — their
- * CTAs are disabled. When you create the corresponding Paddle Prices,
- * paste each price ID into the matching `paddlePriceId` field; the UI will
- * then be ready and the checkout helper can map plan ID → Paddle price.
+ * Content fields (name/tagline/features/accent) are editorial and stay in code
+ * as offline fallback defaults. Pricing and availability come from the DB via
+ * getPricing() in pricing-source.ts.
+ *
+ * Dodo product IDs are optional on the type — they are filled in at runtime
+ * from the DB (dodo_product_id_monthly/yearly / dodo_product_id columns) and
+ * must never be hardcoded here.
  */
 export type PlanId = 'free' | 'starter' | 'pro' | 'studio';
 
@@ -20,12 +22,12 @@ export interface PlanDisplay {
     features: string[];
     /** Visual treatment — Pro is the highlighted tier. */
     accent?: 'neutral' | 'highlight' | 'premium';
-    /** True for tiers that aren't shippable yet (no Paddle price wired). */
+    /** True for tiers that are active and available to subscribe. */
     available: boolean;
-    /** Paddle Price ID for the monthly subscription (set after Paddle approval). */
-    paddlePriceIdMonthly?: string;
-    /** Paddle Price ID for the annual subscription. */
-    paddlePriceIdYearly?: string;
+    /** Dodo Payments product ID for the monthly subscription (filled from DB at runtime). */
+    dodoProductIdMonthly?: string;
+    /** Dodo Payments product ID for the annual subscription (filled from DB at runtime). */
+    dodoProductIdYearly?: string;
 }
 
 export const PLANS: PlanDisplay[] = [
@@ -65,8 +67,6 @@ export const PLANS: PlanDisplay[] = [
         ],
         accent: 'neutral',
         available: true,
-        paddlePriceIdMonthly: 'pri_01kqyt5610btfnb67xrtkb7qvz',
-        paddlePriceIdYearly: 'pri_01kqyt6mzx7qh85wet1bnf297c',
     },
     {
         id: 'pro',
@@ -84,8 +84,6 @@ export const PLANS: PlanDisplay[] = [
         ],
         accent: 'highlight',
         available: true,
-        paddlePriceIdMonthly: 'pri_01kqytdt35r7jz9y2kgqgj0tcq',
-        paddlePriceIdYearly: 'pri_01kqytf0qpxjqjs8myxwtp8ms5',
     },
     {
         id: 'studio',
@@ -103,8 +101,6 @@ export const PLANS: PlanDisplay[] = [
         ],
         accent: 'premium',
         available: true,
-        paddlePriceIdMonthly: 'pri_01kqytgjx3bw3bg5xnkerfbayh',
-        paddlePriceIdYearly: 'pri_01kqyth9sh1jredw1g3ekqr6kf',
     },
 ];
 
@@ -129,7 +125,8 @@ export interface CreditPack {
     credits: number;
     accent?: 'neutral' | 'highlight' | 'premium';
     available: boolean;
-    paddlePriceId?: string;
+    /** Dodo Payments product ID for this one-time pack (filled from DB at runtime). */
+    dodoProductId?: string;
 }
 
 export const CREDIT_PACKS: CreditPack[] = [
@@ -141,7 +138,6 @@ export const CREDIT_PACKS: CreditPack[] = [
         credits: 400,
         accent: 'neutral',
         available: true,
-        paddlePriceId: 'pri_01kqytm9mh25em74b5qqyhm27z',
     },
     {
         id: 'boost',
@@ -151,7 +147,6 @@ export const CREDIT_PACKS: CreditPack[] = [
         credits: 1300,
         accent: 'highlight',
         available: true,
-        paddlePriceId: 'pri_01kqytnd6qbyrn3fd5my0vwps9',
     },
     {
         id: 'mega',
@@ -161,7 +156,6 @@ export const CREDIT_PACKS: CreditPack[] = [
         credits: 4000,
         accent: 'premium',
         available: true,
-        paddlePriceId: 'pri_01kqytpgfvenk10v1385483q5j',
     },
 ];
 
@@ -174,15 +168,18 @@ export function getCreditPack(id: string | null | undefined): CreditPack | null 
 // STATIC STRUCTURE ACCESSORS (non-pricing fields kept in code)
 // =============================================================================
 // getPricing() merges DB pricing onto these. name/tagline/features/accent are
-// editorial and stay in code; price/credits/availability/paddle ids come from DB.
+// editorial and stay in code; price/credits/availability/dodo ids come from DB.
 
-export function getPlanStatic(id: string): Pick<PlanDisplay, 'name' | 'tagline' | 'features' | 'accent'> | null {
+export type PlanStatic = Pick<PlanDisplay, 'name' | 'tagline' | 'features' | 'accent'>;
+export type PackStatic = Pick<CreditPack, 'name' | 'tagline' | 'accent'>;
+
+export function getPlanStatic(id: string): PlanStatic | null {
     const p = PLANS.find(x => x.id === id);
     if (!p) return null;
     return { name: p.name, tagline: p.tagline, features: p.features, accent: p.accent };
 }
 
-export function getPackStatic(id: string): Pick<CreditPack, 'name' | 'tagline' | 'accent'> | null {
+export function getPackStatic(id: string): PackStatic | null {
     const p = CREDIT_PACKS.find(x => x.id === id);
     if (!p) return null;
     return { name: p.name, tagline: p.tagline, accent: p.accent };
