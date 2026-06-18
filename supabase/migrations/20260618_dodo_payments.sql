@@ -391,4 +391,34 @@ $$;
 REVOKE ALL ON FUNCTION public.dodo_chargeback_clawback(UUID, TEXT, UUID, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.dodo_chargeback_clawback(UUID, TEXT, UUID, TEXT, JSONB) TO service_role;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 8. credit_tokens — classify dodo_pack_purchase as a top-up (never-expiring)
+--    Same body as 20260523, with 'dodo_pack_purchase' added to the top-up reason
+--    set so Dodo credit-pack purchases land in topup_balance instead of being
+--    treated as expirable monthly credits.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.credit_tokens(
+  p_user_id UUID, p_amount NUMERIC, p_reason TEXT, p_idempotency_key TEXT,
+  p_execution_id UUID DEFAULT NULL, p_stripe_event_id TEXT DEFAULT NULL, p_metadata JSONB DEFAULT '{}'::jsonb
+) RETURNS NUMERIC LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_new_balance NUMERIC(20,6); v_topup_delta NUMERIC(20,6);
+BEGIN
+  IF p_amount <= 0 THEN RAISE EXCEPTION 'credit_tokens requires a positive amount, got %', p_amount; END IF;
+  IF EXISTS (SELECT 1 FROM token_ledger WHERE idempotency_key = p_idempotency_key) THEN
+    SELECT token_balance INTO v_new_balance FROM profiles WHERE id = p_user_id;
+    RETURN v_new_balance;
+  END IF;
+  v_topup_delta := CASE WHEN p_reason IN ('paddle_pack_purchase','dodo_pack_purchase','purchase') THEN p_amount ELSE 0 END;
+  INSERT INTO token_ledger (user_id, amount, reason, idempotency_key, execution_id, stripe_event_id, metadata)
+  VALUES (p_user_id, p_amount, p_reason, p_idempotency_key, p_execution_id, p_stripe_event_id,
+          p_metadata || jsonb_build_object('topup_delta', v_topup_delta));
+  UPDATE profiles
+     SET token_balance = token_balance + p_amount,
+         topup_balance = topup_balance + v_topup_delta
+   WHERE id = p_user_id
+   RETURNING token_balance INTO v_new_balance;
+  IF v_new_balance IS NULL THEN RAISE EXCEPTION 'credit_tokens: profile not found for user %', p_user_id; END IF;
+  RETURN v_new_balance;
+END; $$;
+
 COMMIT;
