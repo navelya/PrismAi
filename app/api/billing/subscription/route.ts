@@ -31,7 +31,7 @@ export async function GET() {
 
         const { data, error: fetchErr } = await service
             .from('subscriptions')
-            .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id')
+            .select('plan_id, status, next_topup_at, current_period_end, cancel_at_period_end, billing_cycle, pending_plan_change_price_id, dodo_customer_id')
             .eq('user_id', user.id)
             .single();
 
@@ -61,6 +61,10 @@ export async function GET() {
                         ? data.billing_cycle
                         : null,
                 pendingPlanChange,
+                // True once the user has a saved Dodo customer (subscriber OR a
+                // free-plan user who saved a card buying a pack). Gates the
+                // "Manage billing" portal entry point.
+                hasSavedCustomer: !!data.dodo_customer_id,
             },
         });
     } catch (err: any) {
