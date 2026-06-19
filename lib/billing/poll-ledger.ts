@@ -67,6 +67,47 @@ export async function pollLedgerForPack(
     return null;
 }
 
+/**
+ * Watch for ANY pack-purchase grant created after `sinceMs` — used by the
+ * post-checkout success page, which (unlike the silent-charge flow) doesn't
+ * know which pack was bought. The redirect lands here right after payment, so a
+ * pack grant within the recent window is the purchase that just completed.
+ *
+ * Returns the ledger row on success, or null on timeout.
+ */
+export async function pollLedgerForRecentPack(
+    sinceMs: number,
+    opts: PollOpts = {},
+): Promise<LedgerGrantRow | null> {
+    const timeoutMs = opts.timeoutMs ?? 25000;
+    const intervalMs = opts.intervalMs ?? 700;
+
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const sinceIso = new Date(sinceMs).toISOString();
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const { data } = await supabase
+            .from('token_ledger')
+            .select('id, amount, reason, metadata, created_at')
+            .eq('user_id', user.id)
+            .eq('reason', 'dodo_pack_purchase')
+            .gte('created_at', sinceIso)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (data && data.length > 0) {
+            return data[0] as LedgerGrantRow;
+        }
+
+        await sleep(intervalMs);
+    }
+
+    return null;
+}
+
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }

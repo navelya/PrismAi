@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { motion, useMotionValue, useTransform, useReducedMotion, animate } from 'framer-motion';
 import { Check, Loader2, ArrowRight, AlertCircle } from 'lucide-react';
 import { useTokenBalance } from '@/lib/billing/use-balance';
@@ -9,6 +10,7 @@ import { formatCredits } from '@/lib/billing/cost';
 import { type PlanId } from '@/lib/billing/plans-config';
 import { usePricing, getPlanFrom } from '@/lib/billing/use-pricing';
 import { pollSubscriptionUntil, type SubscriptionRow } from '@/lib/billing/poll-subscription';
+import { pollLedgerForRecentPack } from '@/lib/billing/poll-ledger';
 
 /**
  * Post-checkout landing page.
@@ -48,6 +50,17 @@ function AnimatedCredits({ value }: { value: number }) {
 }
 
 export default function BillingSuccessPage() {
+    return (
+        <Suspense fallback={null}>
+            <BillingSuccessContent />
+        </Suspense>
+    );
+}
+
+function BillingSuccessContent() {
+    const searchParams = useSearchParams();
+    const isPack = searchParams.get('kind') === 'pack';
+
     const { plans } = usePricing();
     const { balance } = useTokenBalance();
     const [status, setStatus] = useState<Status>('processing');
@@ -56,6 +69,20 @@ export default function BillingSuccessPage() {
     useEffect(() => {
         let cancelled = false;
         (async () => {
+            if (isPack) {
+                // A credit pack never changes the plan — confirm via the credit
+                // ledger instead. The redirect lands here right after payment, so
+                // a pack grant in the recent window is the purchase that just
+                // completed (15-min cutoff absorbs slow card entry).
+                const grant = await pollLedgerForRecentPack(
+                    Date.now() - 15 * 60 * 1000,
+                    { timeoutMs: 25000, intervalMs: 700 },
+                );
+                if (cancelled) return;
+                setStatus(grant ? 'confirmed' : 'pending');
+                return;
+            }
+
             const row = await pollSubscriptionUntil(
                 (r) => r.plan_id !== 'free' && r.status === 'active',
                 { timeoutMs: 25000, intervalMs: 700 },
@@ -69,7 +96,7 @@ export default function BillingSuccessPage() {
             }
         })();
         return () => { cancelled = true; };
-    }, []);
+    }, [isPack]);
 
     const plan = confirmedRow ? getPlanFrom(plans, confirmedRow.plan_id as PlanId) : null;
 
@@ -112,14 +139,16 @@ export default function BillingSuccessPage() {
                         <>This usually takes a few seconds. We&rsquo;re activating your purchase and adding credits to your account.</>
                     )}
                     {status === 'pending' && (
-                        <>Your payment went through, but the subscription update hasn&rsquo;t landed yet. This is rare and resolves on its own — refresh in a moment, or check your email for the receipt.</>
+                        <>Your payment went through, but {isPack ? 'the credits haven’t' : 'the subscription update hasn’t'} landed yet. This is rare and resolves on its own — refresh in a moment, or check your email for the receipt.</>
                     )}
                     {status === 'confirmed' && (
                         <>
                             Thanks for supporting Prisfol.{' '}
-                            {plan && plan.id !== 'free' && (
+                            {isPack ? (
+                                <>Your credits have been added to your account.</>
+                            ) : plan && plan.id !== 'free' ? (
                                 <>You&rsquo;re now on the <span className="font-semibold text-content-primary">{plan.name}</span> plan.</>
-                            )}
+                            ) : null}
                         </>
                     )}
                 </p>

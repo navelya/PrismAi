@@ -23,6 +23,12 @@ export interface SubscriptionInfo {
      * raw product IDs.
      */
     pendingPlanChange: PendingPlanChange | null;
+    /**
+     * True once the user has a saved Dodo customer — i.e. they've paid before
+     * (subscription) or saved a card buying a credit pack. Gates the "Manage
+     * billing" portal entry point, which works for free-plan customers too.
+     */
+    hasSavedCustomer: boolean;
 }
 
 export function useSubscription() {

@@ -46,7 +46,8 @@ export async function POST() {
             {
                 payment_method: {
                     type: 'new',
-                    return_url: `${appUrl}/billing`,
+                    // /billing has no index page — return to the account billing tab.
+                    return_url: `${appUrl}/settings?tab=plan-billing`,
                 },
             },
         );

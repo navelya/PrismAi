@@ -156,6 +156,13 @@ export function CurrentPlanCard() {
                                     pendingPlanChange={subscription.pendingPlanChange ?? null}
                                 />
                             )}
+
+                            {/* Free plan, but the user has a saved card (e.g. from
+                                buying a credit pack) — give them a way to manage
+                                or remove it via Dodo's customer portal. */}
+                            {subscription && subscription.planId === 'free' && subscription.hasSavedCustomer && (
+                                <SavedCardFooter />
+                            )}
                         </>
                     )}
                 </section>
@@ -375,6 +382,10 @@ function SubscriptionActions({
                             Cancel subscription
                         </button>
                     )}
+
+                    {/* Dodo's hosted portal — full billing management (cards,
+                        invoices, cancel) as a complement to the inline actions. */}
+                    <ManageBillingButton />
                 </div>
 
                 {error && (
@@ -425,6 +436,65 @@ function SubscriptionActions({
     );
 }
 
+
+/**
+ * Opens Dodo's hosted customer portal (card changes, invoices, cancellation).
+ * Works for anyone with a saved Dodo customer — subscribers and free-plan users
+ * who saved a card buying a pack — so it's the one billing-management entry that
+ * isn't gated on holding a subscription.
+ */
+function ManageBillingButton() {
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleClick = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/billing/portal', { method: 'POST' });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.url) {
+                setError(json.error || 'Could not open the billing portal.');
+                return;
+            }
+            window.location.href = json.url;
+        } catch (e: any) {
+            setError(e?.message || 'Could not open the billing portal.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <span className="inline-flex flex-col">
+            <button
+                onClick={handleClick}
+                disabled={loading}
+                className="px-3 py-1.5 rounded-full border border-stroke-subtle text-content-secondary hover:text-content-primary hover:bg-surface-tertiary text-xs font-semibold transition-all disabled:opacity-50"
+            >
+                {loading ? 'Opening…' : 'Manage billing'}
+            </button>
+            {error && <span className="mt-1 text-[11px] text-accent-error">{error}</span>}
+        </span>
+    );
+}
+
+/**
+ * Footer shown on the free plan when the user nonetheless has a saved card
+ * (e.g. they bought a credit pack). Lets them manage or remove it.
+ */
+function SavedCardFooter() {
+    return (
+        <div className="relative border-t border-stroke-subtle bg-surface-primary/30 px-6 sm:px-7 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-content-tertiary">
+                    Manage your saved payment method and view past receipts.
+                </p>
+                <ManageBillingButton />
+            </div>
+        </div>
+    );
+}
 
 interface InvoiceRow {
     id: string;
