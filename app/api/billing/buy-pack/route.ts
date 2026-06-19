@@ -119,21 +119,38 @@ export async function POST(request: Request) {
         // is the common first-purchase path). Either way we MUST return a URL —
         // the client has no other way to open Dodo's hosted checkout.
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+        // For a NEW customer, pass ONLY the email — never a name. A name provided
+        // at session creation is persisted and becomes IMMUTABLE for the session
+        // (per Dodo's CustomerRequest docs), which is why passing user.email as the
+        // name both prefilled the full-name field with the email AND locked it.
         const customer = sub?.dodo_customer_id
             ? { customer_id: sub.dodo_customer_id }
-            : { email: user.email ?? '', name: user.email ?? '' };
+            : { email: user.email ?? '' };
 
         let session;
         try {
             session = await dodo.checkoutSessions.create({
                 product_cart: [{ product_id: pack.dodoProductId, quantity: 1 }],
                 customer,
+                feature_flags: {
+                    // Let the customer edit their name/email on the hosted page
+                    // (both are locked by default once a customer is attached).
+                    allow_customer_editing_name: true,
+                    allow_customer_editing_email: true,
+                    // CRITICAL: without this, Dodo parks on its own success screen
+                    // after payment and never fires the redirect event the overlay
+                    // listens for — so the overlay never closes. Redirect at once.
+                    redirect_immediately: true,
+                },
                 metadata: {
                     user_id: user.id,
                     kind: 'pack',
                     pack_id: pack.id,
                 },
-                return_url: `${appUrl}/billing/success`,
+                // kind=pack tells the success page to confirm via the credit
+                // ledger (a pack never changes the plan) instead of waiting for a
+                // subscription activation that will never come.
+                return_url: `${appUrl}/billing/success?kind=pack`,
                 // No subscription_data → one-time payment
             });
         } catch (sessionErr: any) {

@@ -43,6 +43,19 @@ export async function openDodoOverlay(opts: DodoOverlayOptions): Promise<{ ok: b
                         opts.onSuccess?.();
                         DodoPayments.Checkout.close();
                         break;
+                    // Belt-and-suspenders: if Dodo signals a succeeded payment via
+                    // a status event (rather than a redirect), treat it as success
+                    // too so the overlay always closes on a completed payment.
+                    case 'checkout.status': {
+                        const status = (e.data?.status as string | undefined) ?? '';
+                        if (status === 'succeeded' || status === 'active' || status === 'paid') {
+                            if (settled) return;
+                            settled = true;
+                            opts.onSuccess?.();
+                            DodoPayments.Checkout.close();
+                        }
+                        break;
+                    }
                     case 'checkout.closed':
                         if (settled) return;
                         settled = true;

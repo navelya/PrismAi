@@ -94,16 +94,28 @@ export async function POST(request: Request) {
 
         // ── Build customer object ─────────────────────────────────────────────
         // AttachExistingCustomer takes only { customer_id }.
-        // NewCustomer takes { email, name? }.
+        // NewCustomer takes { email, name? } — but a name provided here is
+        // persisted and becomes IMMUTABLE for the session (per Dodo's docs), so we
+        // pass email ONLY and let the customer type their name on the hosted page.
         const customer = existingCustomerId
             ? { customer_id: existingCustomerId }
-            : { email: user.email ?? '', name: user.email ?? '' };
+            : { email: user.email ?? '' };
 
         // ── Create checkout session ───────────────────────────────────────────
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
         const session = await getDodo().checkoutSessions.create({
             product_cart: [{ product_id: productId, quantity: 1 }],
             customer,
+            feature_flags: {
+                // Let the customer edit their name/email on the hosted page (both
+                // are locked by default once a customer object is attached).
+                allow_customer_editing_name: true,
+                allow_customer_editing_email: true,
+                // CRITICAL: without this, Dodo parks on its own success screen
+                // after payment and never fires the redirect event the overlay
+                // listens for — so the overlay never closes. Redirect at once.
+                redirect_immediately: true,
+            },
             metadata: {
                 user_id: user.id,
                 kind: 'subscription',
