@@ -444,7 +444,13 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
         // folds isLoading/session-readiness into `disabled`.
         isViewer,
         disabled: isViewer,
-        onOpenImagePicker: () => imageInputRef.current?.click(),
+        onOpenImagePicker: () => {
+            const input = imageInputRef.current;
+            if (!input) return;
+            // Clear first so re-picking the same file still fires `change`.
+            input.value = '';
+            input.click();
+        },
         onToggleVoice: toggleListening,
         isVoiceActive: isListening,
         isCanvasMode,
@@ -506,6 +512,10 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                 full-screen chat keeps the global sidebar drawer for nav. */}
             {isCanvasMode && !isMobile && <ChatPanelHeader />}
 
+            {/* Off-screen rather than `display:none`: a programmatically clicked
+                file input must stay rendered in the layout, or several browsers
+                never fire `change` after selection (drag-drop, which bypasses the
+                input, kept working — the picker silently did nothing). */}
             <input
                 ref={imageInputRef}
                 type="file"
@@ -515,7 +525,9 @@ export default function ChatInterface({ onWorkflowGenerated, currentWorkflow, on
                     handleImageFiles(e.target.files);
                     if (imageInputRef.current) imageInputRef.current.value = '';
                 }}
-                className="hidden"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
             />
 
             <AutoRunIntroModal />

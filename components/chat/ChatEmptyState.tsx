@@ -379,13 +379,18 @@ export function ChatEmptyState({
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
             >
+                {/* Off-screen, not `display:none` — a programmatically clicked
+                    file input must stay in the layout or some browsers never fire
+                    `change` after selection. */}
                 <input
                     ref={imageInputRef}
                     type="file"
                     accept="image/*"
                     multiple
                     onChange={onImageInputChange}
-                    className="hidden"
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden="true"
                 />
 
                 {isDragOver && (
@@ -471,13 +476,16 @@ export function ChatEmptyState({
             onDragLeave={onDragLeave}
             onDrop={onDrop}
         >
+            {/* Off-screen, not `display:none` — see desktop variant above. */}
             <input
                 ref={imageInputRef}
                 type="file"
                 accept="image/*"
                 multiple
                 onChange={onImageInputChange}
-                className="hidden"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
             />
 
             {isDragOver && (

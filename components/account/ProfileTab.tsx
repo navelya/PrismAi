@@ -144,10 +144,15 @@ export function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpd
 
             {/* Actions */}
             <div className="flex flex-wrap items-center gap-3">
+                {/* Off-screen, not `display:none` — a programmatically clicked
+                    file input must stay rendered or some browsers never fire
+                    `change` after selection. */}
                 <input
                     type="file"
                     accept="image/*"
-                    className="hidden"
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden="true"
                     ref={fileInputRef}
                     onChange={handleAvatarUpload}
                     disabled={isUploading || isImageLoading}

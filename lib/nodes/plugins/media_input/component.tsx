@@ -148,6 +148,16 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
         }
     };
 
+    // Open the native file picker. Clear the value first so picking the same
+    // file twice in a row still fires `change`.
+    const openFilePicker = useCallback(() => {
+        if (isViewer) return;
+        const input = fileInputRef.current;
+        if (!input) return;
+        input.value = '';
+        input.click();
+    }, [isViewer]);
+
     // Handle drag and drop
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -275,7 +285,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                     {!isViewer && (
                         <button
                             type="button"
-                            onClick={() => fileInputRef.current?.click()}
+                            onClick={openFilePicker}
                             className="flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-white/10 text-white/30 hover:border-white/20 hover:text-white/50 transition-colors text-xs font-medium"
                         >
                             <Plus className="w-3.5 h-3.5" /> Add audio
@@ -295,7 +305,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                     <button
                         type="button"
                         disabled={isViewer}
-                        onClick={() => { if (!isViewer) fileInputRef.current?.click(); }}
+                        onClick={openFilePicker}
                         className={cn(
                             "absolute inset-0 flex flex-col items-center justify-center gap-2 transition-all p-4 text-center",
                             "text-content-tertiary hover:text-accent-primary hover:bg-accent-primary/5",
@@ -418,7 +428,7 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
                                     {!isViewer && (
                                         <button
                                             type="button"
-                                            onClick={() => fileInputRef.current?.click()}
+                                            onClick={openFilePicker}
                                             className="aspect-square rounded border border-dashed border-white/10 flex items-center justify-center text-white/20 hover:border-white/20 hover:text-white/40"
                                         >
                                             <Plus className="w-4 h-4" />
@@ -453,13 +463,19 @@ function MediaInputNode({ data, id, selected }: NodeProps<MediaInputNodeData>) {
             )}
 
             {/* Hidden file input */}
+            {/* Off-screen rather than `display:none`: a programmatically clicked
+                file input must stay rendered in the layout, or several browsers
+                (Safari/iOS, some webviews) never fire `change` after selection —
+                which is why drag-drop worked but the picker silently did nothing. */}
             <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*,video/*,audio/*"
                 multiple
                 onChange={handleInputChange}
-                className="hidden"
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
             />
 
             {/* Image Lightbox — images/video only; audio uses its own player */}

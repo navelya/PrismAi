@@ -454,12 +454,17 @@ export default function CharacterModal({
                                                             </div>
                                                         )}
 
+                                                        {/* Off-screen, not `display:none` — a programmatically
+                                                            clicked file input must stay rendered or some browsers
+                                                            never fire `change` after selection. */}
                                                         <input
                                                             ref={uploadInputRef}
                                                             type="file"
                                                             accept="image/*"
                                                             onChange={(e) => void handleUploadFile(e.target.files)}
-                                                            className="hidden"
+                                                            className="sr-only"
+                                                            tabIndex={-1}
+                                                            aria-hidden="true"
                                                         />
                                                     </div>
                                                 )}
